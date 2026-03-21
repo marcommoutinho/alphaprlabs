@@ -12,8 +12,12 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Alpha Peptide Research Labs",
   description:
-    "Discover how peptides support health, recovery, and wellness. Science-backed insights explained clearly for everyone.",
-  keywords: ["peptides", "peptide health", "peptide wellness", "peptide science", "peptide benefits"],
+    "Alpha Peptide Research Labs — a peptide research company focused on peptides, supplementation, and health optimization. For Research Use Only.",
+  keywords: ["peptides", "peptide research", "peptide health", "peptide wellness", "peptide science"],
+  icons: {
+    icon: "/favicon.ico",
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 export default function RootLayout({
