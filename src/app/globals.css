@@ -46,6 +46,10 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  --color-brand: #60a5fa;
+  --color-brand-light: #93c5fd;
+  --color-brand-dark: #3b82f6;
+  --color-navy: #050505;
 }
 
 :root {
@@ -121,10 +125,36 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html,
+  body {
+    @apply max-w-full overflow-x-hidden;
+  }
   body {
     @apply bg-background text-foreground;
   }
   html {
     @apply font-sans;
+  }
+}
+
+@layer components {
+  .section-heading {
+    @apply flex items-start gap-3 text-2xl font-bold text-slate-900 mb-6;
+  }
+
+  .section-heading svg {
+    @apply mt-1.5 shrink-0;
+  }
+
+  .section-content {
+    @apply pl-8;
+  }
+
+  .prose-section p {
+    @apply text-[15px] text-slate-600 leading-[1.8] mb-5;
+  }
+
+  .prose-section p:last-child {
+    @apply mb-0;
   }
 }
