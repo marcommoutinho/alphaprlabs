@@ -1,5 +1,5 @@
-/* Private app auth frame (/auth): centered column, logo, 30px titles.
-   Scoped under .app-root; see tokens.css. */
+/* Private app auth screens (/auth, C1): centered column, optional logo,
+   30px titles. Scoped under .app-root; see tokens.css. */
 
 .app-root .app-auth {
   display: flex;
@@ -11,10 +11,20 @@
     calc(40px + var(--app-safe-bottom)) max(20px, var(--app-safe-left));
 }
 
+/* Widths from the prototype: sign in / recover 420, invitation / setup 440,
+   acknowledgement 520. */
 .app-root .app-auth-card {
   width: 100%;
   max-width: 420px;
   animation: app-fade-up 0.3s ease;
+}
+
+.app-root .app-auth-card[data-width="440"] {
+  max-width: 440px;
+}
+
+.app-root .app-auth-card[data-width="520"] {
+  max-width: 520px;
 }
 
 .app-root .app-auth-logo {
@@ -24,9 +34,184 @@
   border-radius: 12px;
 }
 
-.app-root .app-auth-title {
+/* "You're invited" */
+.app-root .app-auth-kicker {
   margin-top: 28px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-primary-text);
+}
+
+/* "Step 1 of 3" */
+.app-root .app-auth-step {
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-auth-title {
   font-size: 30px;
   font-weight: 700;
   letter-spacing: -0.02em;
+}
+
+/* 28px below the logo; 6px below a kicker or step line. */
+.app-root .app-auth-logo + .app-auth-title {
+  margin-top: 28px;
+}
+
+.app-root :is(.app-auth-kicker, .app-auth-step) + .app-auth-title {
+  margin-top: 6px;
+}
+
+.app-root .app-auth-lead {
+  margin-top: 12px;
+  line-height: 1.6;
+  color: var(--app-text-3);
+}
+
+.app-root .app-auth-lead b {
+  color: var(--app-text);
+}
+
+.app-root .app-auth-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.app-root .app-auth-fields--roomy {
+  margin-top: 28px;
+}
+
+.app-root .app-auth-fields input[readonly] {
+  color: var(--app-text-4);
+}
+
+.app-root .app-auth-submit {
+  margin-top: 24px;
+}
+
+.app-root .app-auth-submit--tight {
+  margin-top: 18px;
+}
+
+.app-root .app-auth-submit--signin {
+  margin-top: 22px;
+}
+
+.app-root .app-auth-note {
+  margin-top: 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--app-text-4);
+}
+
+/* Session-expired notice (warning) */
+.app-root .app-auth-notice {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  background: rgba(251, 191, 36, 0.1);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--app-warning-soft);
+}
+
+/* Recovery confirmation (info) */
+.app-root .app-auth-sent {
+  margin-top: 22px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(96, 165, 250, 0.3);
+  background: rgba(96, 165, 250, 0.1);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.app-root .app-auth-sent a {
+  display: block;
+  margin-top: 8px;
+}
+
+.app-root .app-auth-links {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  font-size: 13px;
+}
+
+.app-root .app-auth-back {
+  display: block;
+  margin-top: 16px;
+  font-size: 13px;
+}
+
+.app-root .app-auth-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 40px;
+  padding-top: 16px;
+  border-top: 1px solid var(--app-border);
+  font-size: 12px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-auth-footer a {
+  margin-left: auto;
+}
+
+/* Acknowledgement text (content placeholder until Marco supplies the wording) */
+.app-root .app-auth-disclaimer {
+  margin-top: 24px;
+  padding: 20px 22px;
+  border-radius: var(--app-radius-card-sm);
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  background: var(--app-surface);
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--app-text-2);
+}
+
+.app-root .app-auth-disclaimer-tag {
+  margin-bottom: 10px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--app-warning);
+}
+
+.app-root .app-auth-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 20px;
+  font-size: 14px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.app-root .app-auth-check input {
+  flex: none;
+  margin-top: 2px;
+}
+
+.app-root .app-auth-check + .app-inline-error {
+  margin-top: 10px;
+}
+
+.app-root .app-auth-fields input[aria-invalid="true"] {
+  border-color: var(--app-error);
+}
+
+.app-root .app-auth-recover-field {
+  margin-top: 22px;
+}
+
+/* "Accept invitation" / "Sign in" link-buttons on the invitation screen */
+.app-root .app-auth-cta {
+  margin-top: 28px;
 }

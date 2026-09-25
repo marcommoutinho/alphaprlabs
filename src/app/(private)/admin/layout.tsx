@@ -1,8 +1,9 @@
 import { AppShell } from "@/components/app-shell/app-shell";
-import { DEV_PLACEHOLDER_IDENTITY } from "@/lib/app/identity";
+import { requireRole } from "@/lib/auth/session";
 
-export default function AdminLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  // DEV_PLACEHOLDER_IDENTITY is development-only; S2 replaces it with the
-  // signed-in admin's verified identity.
-  return <AppShell identity={DEV_PLACEHOLDER_IDENTITY.admin}>{children}</AppShell>;
+// Admins only. Layouts don't re-run on every client navigation, so pages and
+// server actions that touch data re-check the role themselves.
+export default async function AdminLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const admin = await requireRole("admin");
+  return <AppShell identity={{ name: admin.name, email: admin.email, role: admin.role }}>{children}</AppShell>;
 }

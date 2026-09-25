@@ -1,0 +1,108 @@
+/* A1 Researcher invitations. Scoped under .app-root; see tokens.css. */
+
+.app-root .app-invites {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 36px;
+  align-items: start;
+  margin-top: 28px;
+}
+
+.app-root .app-invite-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* The form's fields share the card's 14px column gap. */
+.app-root .app-invite-fields {
+  display: contents;
+}
+
+.app-root .app-invite-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--app-text-4);
+}
+
+.app-root .app-invite-form .app-btn {
+  height: 48px;
+  font-size: 15px;
+}
+
+.app-root .app-invite-form .app-inline-error {
+  line-height: 1.5;
+}
+
+.app-root .app-invite-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--app-divider-row);
+  font-size: 14px;
+}
+
+.app-root .app-invite-who {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-invite-email {
+  color: var(--app-text-4);
+}
+
+.app-root .app-invite-sent {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-invite-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.app-root .app-invite-state {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.app-root .app-invite-state[data-state="pending"] {
+  color: var(--app-primary-text);
+}
+
+.app-root .app-invite-state[data-state="accepted"] {
+  color: var(--app-text-3);
+}
+
+.app-root .app-invite-state[data-state="expired"] {
+  color: var(--app-warning);
+}
+
+.app-root .app-invite-state[data-state="failed"] {
+  color: var(--app-error);
+}
+
+.app-root .app-invite-resend {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 9px;
+  border: 1px solid var(--app-border-strong);
+  background: transparent;
+  font-size: 12px;
+}
+
+@media (max-width: 759.98px) {
+  .app-root .app-invites {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Hit targets >= 44px on phone */
+  .app-root .app-invite-resend {
+    height: 44px;
+  }
+}

@@ -20,7 +20,7 @@ export function AppHeader({ identity }: { identity: AppIdentity }) {
   return (
     <header className="app-header">
       <div className="app-header-start">
-        <Image className="app-logo" src="/logo.jpeg" alt="Alpha PR Labs" width={30} height={30} priority />
+        <Image className="app-logo" src="/logo.jpeg" alt="Alpha PR Labs" width={30} height={30} preload />
         <nav aria-label="Main" className="app-topnav">
           {items.map((item) => (
             <Link

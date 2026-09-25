@@ -23,9 +23,32 @@ researchers, `/admin`, `/auth`). Requires Node 22, Docker and the
      Browsers resolve `*.localhost` to your machine. Don't use plain
      `localhost:3000` as `PUBLIC_HOST`: the dev server would turn that redirect
      into a relative one and loop.
-5. **Checks:** `npm run lint`, `npm run typecheck`, `npm test` (Vitest unit
-   tests) and `npm run test:e2e` (Playwright; builds and starts the app on port
-   3100 with host routing on).
+5. **Database:** migrations live in `supabase/migrations/` and apply on
+   `npm run db:start` for a new stack; `npm run db:reset` rebuilds the local
+   database from them (wipes local data). After a schema change run
+   `npm run db:types` and commit `src/lib/supabase/database.types.ts`.
+6. **First admin:** there is no public signup or role selection. Create (or
+   promote) an admin with the secret key from `.env.local`:
+   `npm run admin:create -- --email you@example.com --name "Your Name" [--password '…']`.
+   Without `--password` a new account gets a random password printed once
+   (or use "Forgot password?"). Researchers join only through invitations
+   (Admin → Invitations); their emails, and recovery emails, land in Mailpit.
+7. **Checks:** `npm run lint`, `npm run typecheck`, `npm test` (Vitest unit
+   tests plus `tests/integration`, which run against the local Supabase) and
+   `npm run test:e2e` (Playwright; builds and starts the app on port 3100 with
+   host routing on). Both test commands need `npm run db:start` first; they
+   read the keys from `supabase status` and create uniquely named accounts and
+   invitations per run, so no reset is needed between runs (`npm run db:reset`
+   clears the accumulated test rows).
+
+**Email and auth settings for a hosted Supabase project** (set at deploy time,
+not in this repo): Auth → Sign-ups off (invitation only), minimum password
+length 8, Site URL `https://app.alphaprlabs.com` and redirect URL
+`https://app.alphaprlabs.com/**`; Auth → SMTP (Postmark: host
+`smtp.postmarkapp.com`, port 587, user and password = the server API token,
+sender address); Auth → Email templates → Reset password: subject and body
+from `supabase/config.toml` / `supabase/templates/recovery.html`. The app's
+own invitation email uses the `SMTP_*` variables in `.env.example`.
 
 ## Getting Started
 

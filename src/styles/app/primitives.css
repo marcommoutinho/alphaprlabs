@@ -196,3 +196,23 @@
     border-radius: var(--app-radius-sheet);
   }
 }
+
+/* ── Page subtitle and cards ──────────────────────────── */
+.app-root .app-subtitle {
+  margin-top: 6px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--app-text-4);
+}
+
+.app-root .app-card {
+  padding: 22px 24px;
+  border-radius: var(--app-radius-card);
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+}
+
+.app-root .app-card-title {
+  font-size: 16px;
+  font-weight: 700;
+}

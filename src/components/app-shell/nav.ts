@@ -27,10 +27,7 @@ export type NavItem = {
 
 export type AccountLink = { label: string; href: string };
 
-export const ROLE_HOME: Record<AppRole, string> = {
-  admin: "/admin/inventory",
-  researcher: "/app/today",
-};
+export { ROLE_HOME } from "@/lib/auth/paths";
 
 /**
  * Researcher account pages. On desktop they are reached from the account menu

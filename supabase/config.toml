@@ -109,8 +109,9 @@ openai_api_key = "env(OPENAI_API_KEY)"
 enabled = true
 # Port to use for the email testing server web interface.
 port = 54424
-# Uncomment to expose additional ports for testing user applications that send emails.
-# smtp_port = 54325
+# SMTP port the app's own invitation email uses locally (SMTP_HOST=127.0.0.1,
+# SMTP_PORT=54425 in .env.local). Mail sent here lands in the inbox above.
+smtp_port = 54425
 # pop3_port = 54326
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
@@ -159,11 +160,14 @@ max_indexes = 5
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
-site_url = "http://127.0.0.1:3000"
+# Research app (S2): the app host locally. Production sets these in the hosted
+# project (https://app.alphaprlabs.com).
+site_url = "http://app.localhost:3000"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["https://127.0.0.1:3000"]
+# 3100 is the Playwright server (npm run test:e2e).
+additional_redirect_urls = ["http://app.localhost:3000/**", "http://app.localhost:3100/**"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
@@ -176,13 +180,15 @@ enable_refresh_token_rotation = true
 # Requires enable_refresh_token_rotation = true.
 refresh_token_reuse_interval = 10
 # Allow/disallow new user signups to your project.
-enable_signup = true
+# Off: accounts exist only by invitation; the app creates them server-side with
+# the admin API when an invitation is accepted (and admins via npm run admin:create).
+enable_signup = false
 # Allow/disallow anonymous sign-ins to your project.
 enable_anonymous_sign_ins = false
 # Allow/disallow testing manual linking of accounts
 enable_manual_linking = false
 # Passwords shorter than this value will be rejected as weak. Minimum 6, recommended 8 or more.
-minimum_password_length = 6
+minimum_password_length = 8
 # Passwords that do not meet the following requirements will be rejected as weak. Supported values
 # are: `letters_digits`, `lower_upper_letters_digits`, `lower_upper_letters_digits_symbols`
 password_requirements = ""
@@ -220,7 +226,9 @@ web3 = 30
 # secret = ""
 
 [auth.email]
-# Allow/disallow new user signups via email to your project.
+# Allow/disallow new user signups via email to your project. Despite the name,
+# this switches the whole email provider (password sign-in and recovery need
+# it). Signups stay closed by [auth] enable_signup = false above.
 enable_signup = true
 # If enabled, a user will be required to confirm any email change on both the old, and new email
 # addresses. If disabled, only the new email is required to confirm.
@@ -245,6 +253,14 @@ otp_expiry = 3600
 # pass = "env(SENDGRID_API_KEY)"
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
+
+# Recovery ("Forgot password?") email. Links straight to the app's /auth/confirm
+# with a token hash, so it works on any device (no PKCE verifier needed).
+# Production: paste the same subject and body into the hosted project's
+# Recovery template, and configure Auth SMTP (Postmark) there.
+[auth.email.template.recovery]
+subject = "Recover your Alpha PR Labs access"
+content_path = "./supabase/templates/recovery.html"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]

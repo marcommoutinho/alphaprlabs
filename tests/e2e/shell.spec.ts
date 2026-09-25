@@ -1,5 +1,15 @@
 import { expect, test, type Page } from "@playwright/test";
 import { APP_ORIGIN, PUBLIC_ORIGIN, SERVER_ORIGIN } from "../../playwright.config";
+import { ensureAccount, signInAs, uniqueEmail } from "../support/local-supabase";
+
+// Real accounts (unique per worker) signed in through the C1 form.
+const ADMIN = { email: uniqueEmail("shell-admin"), name: "Shell Admin" };
+const RESEARCHER = { email: uniqueEmail("shell-researcher"), name: "Shell Researcher" };
+
+test.beforeAll(async () => {
+  await ensureAccount({ ...ADMIN, role: "admin" });
+  await ensureAccount({ ...RESEARCHER, role: "researcher" });
+});
 
 const DESKTOP = { width: 1280, height: 800 };
 const PHONE = { width: 390, height: 844 };
@@ -55,8 +65,9 @@ test("host routing redirects between the public site and the app host", async ({
   // Node may not resolve *.localhost, so the rest goes through Chromium.
   await page.goto(`${PUBLIC_ORIGIN}/auth`);
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth`);
+  // Signed out, the app host's home asks for sign-in and comes back afterwards.
   await page.goto(`${APP_ORIGIN}/`);
-  await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
+  await expect(page).toHaveURL(`${APP_ORIGIN}/auth?next=%2Fapp`);
   await page.goto(`${APP_ORIGIN}/about`);
   await expect(page).toHaveURL(`${PUBLIC_ORIGIN}/about`);
   await expect(page.getByRole("contentinfo")).toBeVisible();
@@ -65,7 +76,9 @@ test("host routing redirects between the public site and the app host", async ({
 test.describe("admin shell", () => {
   test("desktop: top nav, active indicator, account menu", async ({ page }) => {
     await page.setViewportSize(DESKTOP);
-    await page.goto(`${APP_ORIGIN}/admin`);
+    await signInAs(page, APP_ORIGIN, ADMIN.email);
+    await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory`);
+    await page.goto(`${APP_ORIGIN}/`);
     await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory`);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Inventory");
     await expectNav(page, ADMIN_NAV, "Inventory");
@@ -84,7 +97,8 @@ test.describe("admin shell", () => {
 
   test("phone: tab bar without Me", async ({ page }) => {
     await page.setViewportSize(PHONE);
-    await page.goto(`${APP_ORIGIN}/admin/inventory`);
+    await signInAs(page, APP_ORIGIN, ADMIN.email);
+    await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory`);
     await expect(page.locator(".app-tabbar")).toBeVisible();
     await expect(page.locator(".app-topnav")).toBeHidden();
     await expectNav(page, ADMIN_NAV, "Inventory");
@@ -95,7 +109,9 @@ test.describe("admin shell", () => {
 test.describe("researcher shell", () => {
   test("desktop: no Me in the nav; account menu reaches account pages", async ({ page }) => {
     await page.setViewportSize(DESKTOP);
-    await page.goto(`${APP_ORIGIN}/app`);
+    await signInAs(page, APP_ORIGIN, RESEARCHER.email);
+    await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
+    await page.goto(`${APP_ORIGIN}/`);
     await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
     await expectNav(page, RESEARCHER_NAV, "Today");
     await expect(page.locator(".app-tabbar")).toBeHidden();
@@ -111,7 +127,8 @@ test.describe("researcher shell", () => {
 
   test("phone: tab bar with Me, highlighted on account pages", async ({ page }) => {
     await page.setViewportSize(PHONE);
-    await page.goto(`${APP_ORIGIN}/app/today`);
+    await signInAs(page, APP_ORIGIN, RESEARCHER.email);
+    await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
     await expect(page.locator(".app-tabbar")).toBeVisible();
     await expectNav(page, [...RESEARCHER_NAV, "Me"], "Today");
     await expectMenuOpensAndClosesWithEsc(page, RESEARCHER_MENU);

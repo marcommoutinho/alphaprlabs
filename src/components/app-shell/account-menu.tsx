@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import { Menu } from "@base-ui/react/menu";
+import { signOut } from "@/app/(private)/auth/actions";
 import { initialsOf, type AppIdentity } from "@/lib/app/identity";
 import { usePortalContainer } from "./app-root";
 import { RESEARCHER_ACCOUNT_LINKS, isUnder } from "./nav";
@@ -16,6 +17,7 @@ import { RESEARCHER_ACCOUNT_LINKS, isUnder } from "./nav";
 export function AccountMenu({ identity, pathname }: { identity: AppIdentity; pathname: string }) {
   const container = usePortalContainer();
   const [openAt, setOpenAt] = useState<string | null>(null);
+  const [signingOut, startSignOut] = useTransition();
   const links = identity.role === "researcher" ? RESEARCHER_ACCOUNT_LINKS : [];
   const onAccountPage = links.some((link) => isUnder(pathname, link.href));
 
@@ -55,8 +57,13 @@ export function AccountMenu({ identity, pathname }: { identity: AppIdentity; pat
               </Menu.LinkItem>
             ))}
             {links.length > 0 ? <Menu.Separator className="app-menu-divider" /> : null}
-            {/* Non-functional until S2 adds authentication. */}
-            <Menu.Item className="app-menu-item">Sign out</Menu.Item>
+            <Menu.Item
+              className="app-menu-item"
+              disabled={signingOut}
+              onClick={() => startSignOut(() => signOut())}
+            >
+              Sign out
+            </Menu.Item>
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>

@@ -1,9 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { hostRedirect } from "@/lib/host-routing";
+import { updateSession } from "@/lib/supabase/proxy";
 
-// Host routing only; authentication checks arrive with S2 and are always
-// re-verified at the data operation, never trusted from this proxy alone.
-export function proxy(request: NextRequest) {
+const SESSION_PREFIXES = ["/app", "/admin", "/auth"];
+
+// Host routing, then (private area only) the Supabase session refresh. Access
+// is always re-verified in layouts, pages and server actions, never trusted
+// from this proxy alone.
+export async function proxy(request: NextRequest) {
   const location = hostRedirect(
     {
       host: request.headers.get("host") ?? request.nextUrl.host,
@@ -13,7 +17,13 @@ export function proxy(request: NextRequest) {
     },
     { appHost: process.env.APP_HOST, publicHost: process.env.PUBLIC_HOST },
   );
-  return location ? NextResponse.redirect(location) : NextResponse.next();
+  if (location) return NextResponse.redirect(location);
+
+  const { pathname } = request.nextUrl;
+  if (SESSION_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
+    return updateSession(request);
+  }
+  return NextResponse.next();
 }
 
 export const config = {

@@ -1,9 +1,13 @@
 import { defineConfig, devices } from "@playwright/test";
+import { appTestEnv } from "./tests/support/local-supabase";
 
 // Browser journeys against a production build, with host routing on as in
 // local development: private app on app.localhost:<port>, canonical public
 // site on www.localhost:<port> (Chromium resolves *.localhost to loopback).
 // Any other host, such as plain localhost:<port>, also serves the public site.
+// Needs the local Supabase stack (npm run db:start): the app uses its keys and
+// sends invitation email to its Mailpit inbox. Tests create uniquely named
+// accounts and invitations per run, so no database reset is needed between runs.
 const port = Number(process.env.E2E_PORT ?? 3100);
 
 export const SERVER_ORIGIN = `http://localhost:${port}`;
@@ -27,6 +31,7 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
     env: {
+      ...appTestEnv(),
       APP_HOST: `app.localhost:${port}`,
       PUBLIC_HOST: `www.localhost:${port}`,
     },
