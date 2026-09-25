@@ -1,0 +1,11 @@
+SLIPSTREAM RESULT
+State: BUILT AND REVIEWED
+Slice: S2 Accounts, invitations and sign-in (C1, A1)
+Risk: GUARDED
+Base and reviewed SHA: c481eb0 -> 70bd78b (review BLOCKED) -> ee4fa3e (recheck CLEAR)
+Verification: vitest 22/22, playwright 11/11 against local Supabase; maker lint 0 errors, typecheck, build pass
+Review findings and dispositions: Codex gpt-5.6-sol xhigh thread 01a0da70-e744-7923-b6c6-2e44022740bd: SS-001 recovery GET consumed token (fixed: button POST), SS-002 recovery timing enumeration (fixed: after()), SS-003 invitation order (fixed: sent_at). Recheck thread 01a0da7a-3e0f-7f31-bcb2-3626364e600f CLEAR, all resolved, no new findings
+Codex judgment and Marco's decision: n/a
+Feature audit: at feature close
+Delivery / production proof: local only (BUILD)
+Still owed: final disclaimer wording from Marco; hosted Auth/SMTP/template settings at G1; test/support lines ~680 vs 600 envelope
