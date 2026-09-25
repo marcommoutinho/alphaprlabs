@@ -13,6 +13,7 @@ import {
 
 Object.assign(process.env, appTestEnv());
 const { disableGoneSubscription } = await import("@/lib/push/send");
+const { canonicalEndpoint } = await import("@/lib/push/device");
 
 const researcherA = { email: uniqueEmail("push-a"), name: "Push A" };
 const researcherB = { email: uniqueEmail("push-b"), name: "Push B" };
@@ -85,6 +86,37 @@ describe("push subscriptions", () => {
     expect(await row(url)).toMatchObject({ id: first.id, profile_id: idB, disabled_at: null });
     expect((await a.from("push_subscriptions").select("endpoint").eq("endpoint", url)).data).toEqual([]);
     expect((await b.from("push_subscriptions").select("endpoint").eq("endpoint", url)).data).toEqual([{ endpoint: url }]);
+  });
+
+  it("another researcher cannot hold a second row for the same phone under a different spelling", async () => {
+    const a = await signedInClient(researcherA.email);
+    const b = await signedInClient(researcherB.email);
+    const url = endpoint();
+    await save(a, url);
+    const token = url.slice(url.lastIndexOf("/") + 1);
+    const variants = [
+      `${url}#b`,
+      `${url}#`,
+      url.replace("https://fcm.googleapis.com", "https://FCM.googleapis.com"),
+      url.replace("fcm.googleapis.com", "fcm.googleapis.com:443"),
+      url.replace(`/${token}`, `/%${token.charCodeAt(0).toString(16)}${token.slice(1)}`),
+      url.replace("https://", "https://b@"),
+      `${url}?`,
+    ];
+    for (const variant of variants) {
+      // A direct RPC with a non-canonical spelling is refused by the database ...
+      expect((await save(b, variant)).error, variant).not.toBeNull();
+      // ... and the app stores every equivalent spelling as the one canonical URL.
+      const canonical = canonicalEndpoint(variant);
+      if (canonical) expect(canonical).toBe(url);
+    }
+    expect(await row(url)).toMatchObject({ profile_id: idA, disabled_at: null });
+    const { data: all } = await serviceClient().from("push_subscriptions").select("endpoint").like("endpoint", `%${token.slice(1)}%`);
+    expect(all).toEqual([{ endpoint: url }]);
+
+    // Registering through the app's canonical form moves the phone to B.
+    expect((await save(b, canonicalEndpoint(variants[2])!)).error).toBeNull();
+    expect(await row(url)).toMatchObject({ profile_id: idB });
   });
 
   it("turning off, signing out and a gone endpoint disable the row; registering again re-enables it", async () => {

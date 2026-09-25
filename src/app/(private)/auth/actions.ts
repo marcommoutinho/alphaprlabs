@@ -13,6 +13,7 @@ import {
   destinationFor,
 } from "@/lib/auth/paths";
 import { startRecovery } from "@/lib/auth/recovery";
+import { canonicalEndpoint } from "@/lib/push/device";
 import { getSessionPerson } from "@/lib/auth/session";
 import { acceptInvitation, MIN_PASSWORD_LENGTH } from "@/lib/invitations/service";
 import { createClient } from "@/lib/supabase/server";
@@ -51,13 +52,16 @@ export async function signIn(input: { email: unknown; password: unknown; next?: 
 
 /**
  * `endpoint` is this device's push subscription, if it has one: its row is
- * disabled for the person signing out, so a signed-out phone gets no reminders.
+ * disabled for the person signing out, so a signed-out phone gets no
+ * reminders. If that fails the session is kept and `{ ok: false }` returned;
+ * src/lib/push/sign-out.ts handles the device-side fallback and retry.
  */
-export async function signOut(input?: { endpoint?: unknown }): Promise<void> {
+export async function signOut(input?: { endpoint?: unknown }): Promise<{ ok: false } | undefined> {
   const supabase = await createClient();
-  const endpoint = input?.endpoint;
-  if (typeof endpoint === "string" && endpoint.length <= 2048) {
-    await supabase.rpc("disable_push_subscription", { p_endpoint: endpoint, p_reason: "signed_out" });
+  const endpoint = canonicalEndpoint(input?.endpoint);
+  if (endpoint && (await getSessionPerson())) {
+    const { error } = await supabase.rpc("disable_push_subscription", { p_endpoint: endpoint, p_reason: "signed_out" });
+    if (error) return { ok: false };
   }
   await supabase.auth.signOut();
   redirect(SIGN_IN_PATH);

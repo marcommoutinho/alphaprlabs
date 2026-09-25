@@ -4,10 +4,13 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { Menu } from "@base-ui/react/menu";
 import { signOut } from "@/app/(private)/auth/actions";
-import { endpointForSignOut } from "@/components/push/use-reminders";
+import { signOutThisDevice } from "@/components/push/use-reminders";
 import { initialsOf, type AppIdentity } from "@/lib/app/identity";
 import { usePortalContainer } from "./app-root";
 import { RESEARCHER_ACCOUNT_LINKS, isUnder } from "./nav";
+import { useToast } from "./toast";
+
+const SIGN_OUT_FAILED = "Could not sign out: reminders are still on for this phone. Try again.";
 
 /**
  * Account button + menu. One instance serves both widths: on desktop it shows
@@ -19,6 +22,7 @@ export function AccountMenu({ identity, pathname }: { identity: AppIdentity; pat
   const container = usePortalContainer();
   const [openAt, setOpenAt] = useState<string | null>(null);
   const [signingOut, startSignOut] = useTransition();
+  const toast = useToast();
   const links = identity.role === "researcher" ? RESEARCHER_ACCOUNT_LINKS : [];
   const onAccountPage = links.some((link) => isUnder(pathname, link.href));
 
@@ -63,9 +67,13 @@ export function AccountMenu({ identity, pathname }: { identity: AppIdentity; pat
               disabled={signingOut}
               onClick={() =>
                 startSignOut(async () => {
-                  // Researchers: this device stops receiving this account's reminders.
-                  const endpoint = identity.role === "researcher" ? await endpointForSignOut() : null;
-                  await signOut({ endpoint });
+                  if (identity.role !== "researcher") {
+                    await signOut();
+                    return;
+                  }
+                  // Researchers: this phone must stop receiving this account's
+                  // reminders; if it can't, stay signed in and say so.
+                  if ((await signOutThisDevice()) === "failed") toast(SIGN_OUT_FAILED, "error");
                 })
               }
             >

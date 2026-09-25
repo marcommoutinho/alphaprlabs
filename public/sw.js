@@ -14,15 +14,26 @@ self.addEventListener("activate", (event) => {
 
 const APP_HOME = "/app";
 
-/** A same-origin absolute URL for `path`; anything else falls back to the app home. */
+/**
+ * The absolute URL to open for a notification: a relative path inside the
+ * researcher app (/app or below) on this origin; anything else, including
+ * other same-origin paths (which redirect to the public site), opens /app.
+ * Same rule as appNotificationPath() in src/lib/push/send.ts.
+ */
 function appUrl(path) {
+  const home = new URL(APP_HOME, self.location.origin).href;
+  if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//")) return home;
+  if (/[\\\s\x00-\x1f\x7f]/.test(path)) return home;
   try {
-    const url = new URL(typeof path === "string" && path ? path : APP_HOME, self.location.origin);
-    if (url.origin === self.location.origin) return url.href;
+    const url = new URL(path, self.location.origin);
+    // Resolved, so "/app/../about" and "/app/%2e%2e/about" are caught here.
+    if (url.origin === self.location.origin && (url.pathname === APP_HOME || url.pathname.startsWith(`${APP_HOME}/`))) {
+      return url.href;
+    }
   } catch {
     // fall through
   }
-  return new URL(APP_HOME, self.location.origin).href;
+  return home;
 }
 
 /** App icon badge: a count (iPhone) or dot (some Android launchers); 0 clears it. */

@@ -168,6 +168,10 @@ export type Database = {
         }[]
       }
       is_admin: { Args: never; Returns: boolean }
+      is_canonical_push_endpoint: {
+        Args: { p_endpoint: string }
+        Returns: boolean
+      }
       mark_invitation_send_failed: {
         Args: { p_error: string; p_id: string }
         Returns: undefined

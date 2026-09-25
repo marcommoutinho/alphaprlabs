@@ -1,7 +1,7 @@
 "use server";
 
 import { getSessionPerson } from "@/lib/auth/session";
-import { deviceSubscriptionSchema } from "@/lib/push/device";
+import { canonicalEndpoint, deviceSubscriptionSchema } from "@/lib/push/device";
 import { defaultPushDeps, pushTestEnabled, sendPushToAll } from "@/lib/push/send";
 import { createClient } from "@/lib/supabase/server";
 
@@ -33,13 +33,12 @@ export async function saveDevice(input: unknown): Promise<{ ok: boolean }> {
 /** "Turn off reminders": disables the signed-in researcher's row for this device. */
 export async function turnOffDevice(input: { endpoint: unknown }): Promise<{ ok: boolean }> {
   if (!(await signedInResearcher())) return { ok: false };
-  if (typeof input.endpoint !== "string" || input.endpoint.length > 2048) return { ok: false };
+  const endpoint = canonicalEndpoint(input.endpoint);
+  // Not a push-service endpoint: no row can exist for it.
+  if (endpoint === null) return { ok: true };
 
   const supabase = await createClient();
-  const { error } = await supabase.rpc("disable_push_subscription", {
-    p_endpoint: input.endpoint,
-    p_reason: "turned_off",
-  });
+  const { error } = await supabase.rpc("disable_push_subscription", { p_endpoint: endpoint, p_reason: "turned_off" });
   return { ok: !error };
 }
 

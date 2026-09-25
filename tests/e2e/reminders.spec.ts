@@ -30,6 +30,8 @@ function emulatePermission(target: Page | BrowserContext, initial: NotificationP
     let state = start;
     Object.defineProperty(Notification, "permission", { get: () => state, configurable: true });
     Notification.requestPermission = async () => (state = "granted");
+    // Changes made in the phone's Settings while the app is in the background.
+    Object.assign(window, { setPermission: (next: NotificationPermission) => (state = next) });
   }, initial);
 }
 
@@ -55,10 +57,27 @@ function fakePushService(page: Page, endpoint: string) {
       toJSON: () => ({ endpoint: url, keys: { p256dh: "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQ", auth: "tBHItJI5svbpez7KI4CCXg" } }),
       unsubscribe: async () => ((current = null), true),
     };
+    let subscribeCalls = 0;
     PushManager.prototype.getSubscription = async () => current as PushSubscription | null;
-    PushManager.prototype.subscribe = async () => (current = subscription) as unknown as PushSubscription;
+    PushManager.prototype.subscribe = async () => {
+      subscribeCalls += 1;
+      return (current = subscription) as unknown as PushSubscription;
+    };
+    // The browser silently dropping the subscription (as iOS can).
+    Object.assign(window, { dropSubscription: () => (current = null), subscribeCalls: () => subscribeCalls });
   }, endpoint);
 }
+
+type TestWindow = Window & {
+  setPermission: (permission: NotificationPermission) => void;
+  dropSubscription: () => void;
+  subscribeCalls: () => number;
+};
+
+/** The app returns to the foreground (a phone app reopened from the background). */
+const foreground = (page: Page) => page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+const lastSeen = async (endpoint: string) =>
+  (await serviceClient().from("push_subscriptions").select("last_seen_at").eq("endpoint", endpoint).single()).data!.last_seen_at;
 
 const deviceRow = async (endpoint: string) =>
   (await serviceClient().from("push_subscriptions").select("profile_id, disabled_reason, device_label").eq("endpoint", endpoint)).data;
@@ -161,13 +180,46 @@ test("turn reminders on and off on this device; signing out disables it; no test
   await expect(page.getByRole("button", { name: "Turn on reminders" })).toBeVisible();
   expect(await deviceRow(endpoint)).toEqual([expect.objectContaining({ disabled_reason: "turned_off" })]);
 
-  // On again, then sign out: this phone stops receiving this account's reminders.
+  // On again, then sign out: this phone stops receiving this account's
+  // reminders, even when the browser can no longer report its subscription
+  // (the endpoint remembered on this device is used).
   await page.getByRole("button", { name: "Turn on reminders" }).click();
   await expect(page.getByRole("button", { name: "Turn off reminders" })).toBeVisible();
+  await page.evaluate(() => (window as unknown as TestWindow).dropSubscription());
   await page.locator('button[aria-haspopup="menu"]').click();
   await page.getByRole("menuitem", { name: "Sign out" }).click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth`);
   expect(await deviceRow(endpoint)).toEqual([expect.objectContaining({ disabled_reason: "signed_out" })]);
+});
+
+test("returning to the foreground re-checks permission and re-registers a dropped subscription", async ({ page }) => {
+  const endpoint = `https://fcm.googleapis.com/fcm/send/e2e-fg-${Date.now().toString(36)}`;
+  await emulatePermission(page, "denied");
+  await fakePushService(page, endpoint);
+  await page.setViewportSize(PHONE);
+  await signIn(page);
+  await page.goto(`${APP_ORIGIN}/app/notifications`);
+  await expect(statusValue(page, "Permission on this device")).toHaveText("Denied");
+
+  // Allowed in the phone's Settings, then back to the app (no reload).
+  await page.evaluate(() => (window as unknown as TestWindow).setPermission("granted"));
+  await foreground(page);
+  await expect(statusValue(page, "Permission on this device")).toHaveText("Not requested");
+  await page.getByRole("button", { name: "Turn on reminders" }).click();
+  await expect(statusValue(page, "Permission on this device")).toHaveText("Enabled");
+  const firstSeen = await lastSeen(endpoint);
+
+  // The browser drops the subscription while the app is in the background.
+  await page.evaluate(() => (window as unknown as TestWindow).dropSubscription());
+  await foreground(page);
+  await expect.poll(() => page.evaluate(() => (window as unknown as TestWindow).subscribeCalls())).toBe(2);
+  await expect.poll(async () => new Date(await lastSeen(endpoint)) > new Date(firstSeen)).toBe(true);
+  await expect(statusValue(page, "Permission on this device")).toHaveText("Enabled");
+
+  // Blocked again in Settings: the screen follows on return.
+  await page.evaluate(() => (window as unknown as TestWindow).setPermission("denied"));
+  await foreground(page);
+  await expect(statusValue(page, "Permission on this device")).toHaveText("Denied");
 });
 
 test.describe("designed device states", () => {

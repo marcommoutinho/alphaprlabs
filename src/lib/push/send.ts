@@ -8,7 +8,7 @@ import { isPushServiceEndpoint } from "./device";
 // ACCEPTED the message ("sent"); it never proves delivery, display or that
 // anyone read it. Reminder scheduling (S13) builds on sendPush().
 
-/** What public/sw.js shows. `url` is a same-origin path opened on tap. */
+/** What public/sw.js shows. `url` is a path under /app opened on tap (else /app). */
 export type PushPayload = {
   title: string;
   body: string;
@@ -59,15 +59,37 @@ export type PushDeps = {
 const TOPIC = /^[A-Za-z0-9_-]{1,32}$/;
 const MAX_PAYLOAD_BYTES = 3000; // below the 4 KB Web Push limit after encryption
 
+export const APP_NOTIFICATION_HOME = "/app";
+
+/**
+ * A notification's tap target: a relative path inside the researcher app
+ * (/app or below), normalized; anything else becomes /app. Other paths on the
+ * app host would redirect to the public site. public/sw.js applies the same rule.
+ */
+export function appNotificationPath(path: unknown): string {
+  if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//")) return APP_NOTIFICATION_HOME;
+  if (/[\\\s\x00-\x1f\x7f]/.test(path)) return APP_NOTIFICATION_HOME;
+  const base = "https://app.invalid";
+  let url: URL;
+  try {
+    url = new URL(path, base);
+  } catch {
+    return APP_NOTIFICATION_HOME;
+  }
+  // Resolved, so "/app/../about" and "/app/%2e%2e/about" are caught here.
+  if (url.origin !== base || (url.pathname !== "/app" && !url.pathname.startsWith("/app/"))) {
+    return APP_NOTIFICATION_HOME;
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 /** The payload sent to public/sw.js, validated. Throws on a programming error. */
 export function encodePayload(payload: PushPayload): string {
-  if (!payload.url.startsWith("/") || payload.url.startsWith("//")) {
-    throw new Error("Push payload url must be a same-origin path");
-  }
   if (payload.badge !== undefined && !(Number.isInteger(payload.badge) && payload.badge >= 0)) {
     throw new Error("Push payload badge must be a whole number ≥ 0");
   }
-  const { title, body, url, tag, badge } = payload;
+  const { title, body, tag, badge } = payload;
+  const url = appNotificationPath(payload.url);
   const json = JSON.stringify(badge === undefined ? { title, body, url, tag } : { title, body, url, tag, badge });
   if (Buffer.byteLength(json) > MAX_PAYLOAD_BYTES) throw new Error("Push payload is too large");
   return json;
