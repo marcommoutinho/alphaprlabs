@@ -67,20 +67,11 @@ or a guarantee of the eventual bill.
 
 ## Next step
 
-Interface design comes before application implementation, per Marco's
-2026-09-11 instruction. Give the [UI/UX requirements brief](../../../development/docs/design/alpha-pr-labs/research-app-brief.md)
-to Claude Design. Start with finished design concepts, with no wireframes.
-Marco chooses and locks one before it is built out into an interactive app
-prototype with realistic sample data, working navigation, main actions and
-visible state changes. Review and approve that interface before application
-implementation. The approved technology choices remain unchanged; they do not
-prescribe visual design or screen composition in the brief.
-
-After interface approval, reconcile the [implementation plan](research-app-plan.md)
-and proposed parallel groups with the handoff. The prior local BUILD execution
-map is deferred and remains unapproved. The [Alpha PR Labs initiative](../../../development/docs/features/active/alpha-pr-labs.md)
-was registered on 2026-09-25 at Marco's request, without a Beacon Project.
-Product and technical authority remain here.
+The interface was approved on 2026-09-25 ([handoff](../docs/design/research-app/README.md)).
+The [implementation plan](research-app-plan.md) has been reconciled with it and
+awaits Marco's approval. Staging is local only; real-phone installation and
+notification testing runs on the closed production deployment. The approved
+technology choices are unchanged apart from email delivery moving to Postmark.
 
 ## Parallel development requirement
 

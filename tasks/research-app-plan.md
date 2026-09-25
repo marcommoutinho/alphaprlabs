@@ -1,44 +1,36 @@
 # Alpha PR Labs — Research App Implementation Plan
 
-Status: Product scope, technology stack and operating defaults are approved.
-Interface design is now the next stage, before any application implementation.
-The local BUILD map below is a deferred, unapproved proposal that must be
-reconciled with the approved interface. Implementation and deployment remain
-unstarted.
+Status: Product scope, technology stack, operating defaults and the final
+interface are approved. This plan was reconciled with the design handoff on
+2026-09-25 and awaits Marco's approval of the build map below. No application
+slice has started.
 
-Prepared on 2026-09-09.
+Prepared on 2026-09-09. Reconciled with the approved interface on 2026-09-25.
 
-## Interface-first instruction — 2026-09-11
+## Approved interface
 
-Marco requires the UI/UX to be designed in Claude Design before application
-implementation. The [requirements-only brief](../../../development/docs/design/alpha-pr-labs/research-app-brief.md) is
-the next handoff. It supplies requirements, workflows, functional areas, data,
-permissions and states, leaving design decisions to Claude Design.
+Marco confirmed on 2026-09-25 that the Claude Design work is complete and ready
+to implement. The handoff lives in [`docs/design/research-app/`](../docs/design/research-app/README.md):
+the README (tokens, shell, every screen, copy, validation, business rules, data
+model and scenarios) and the interactive prototype `Alpha PR Labs App.dc.html`.
 
-Start with finished design concepts, with no wireframes. Marco chooses and
-locks one concept before building out the interactive app prototype. That
-prototype must let him navigate researcher and admin workflows, enter data,
-perform main actions and see state changes as if the app were live. Use
-realistic sample data and identify simulated backend/notification behavior in
-the handoff. Static screens or disconnected mockups are insufficient. This
-design prototype is separate from production application implementation.
-
-Review and approve the resulting interactive interface. Then reconcile the proposed
-slices, screen responsibilities, shared UI boundaries and parallel groups with
-the approved handoff. The existing route/layout/component proposals below are
-provisional implementation ideas, not constraints for the designer. Do not
-start backend, frontend, schema, tooling or other application implementation
-under the earlier build-approval request. No build map has been approved.
-
-The approved product scope and stack remain in force. This instruction changes
-the order of work and supersedes earlier statements that build-map approval is
-the immediate next action. Continue with design preparation only until that
-stage is complete.
+- The handoff is high fidelity. Recreate its colors, type, spacing, copy and
+  interactions exactly in this codebase's stack. Do not copy prototype code.
+- The prototype's grey PROTOTYPE bar, `localStorage` data, simulated latency,
+  clock and notifications are test chrome only.
+- Screen IDs used below (A1–A8, C1–C2, R1–R11) are the handoff's.
+- The handoff's business rules were written for the prototype. Re-derive them
+  against this plan's approved defaults and test them; where they differ, this
+  plan's approved rules win unless noted in "Handoff reconciliation".
+- Build order follows the handoff: the admin side first, then researchers.
+  The installation and notification foundation comes before both so it can be
+  proven on real phones in week one.
 
 ## Authority and outcome
 
 - [Approved product contract and stories](research-app.md)
 - [Approved stack and parallel-development requirement](research-app-stack.md)
+- [Approved interface handoff](../docs/design/research-app/README.md)
 
 Deliver the complete invite-only research app described by that contract:
 independent peptide timelines within a cycle, saved vial calculations, phone
@@ -49,46 +41,39 @@ This document defines implementation boundaries and acceptance evidence. It
 does not introduce recommended peptide protocols or expand the approved MVP.
 The project remains outside the Dibbly product roadmap.
 
+## Environments
+
+Marco decided on 2026-09-25:
+
+- **Staging is local only.** Local Supabase (Docker) provides Postgres, Auth and
+  a captured-email inbox; a local timer calls the reminder dispatcher every
+  minute in place of Vercel Cron.
+- **Real-phone testing runs on production** while the app is closed to
+  researchers. There is no hosted staging environment and no local tunnel.
+- **Production stays unlaunched** until Marco declares the app fully ready.
+  Provisioning, deployment, production migrations and real sends remain
+  explicitly authorized delivery actions (SHIP), requested at each gate below.
+
 ## Current code and readiness
 
-Baseline: `main`, commit `b4e375098979adfd547aa90d998bb84dd72d36a1`, at
-`/home/marcomoutinho/personal/alphaprlabs`. One Git worktree was visible. The
-approved `tasks/` documents were untracked; tracked source was clean.
+Baseline: branch `feat/research-app` at commit `0cb44ea`, based on `main`
+`b4e3750`, in `/home/marcomoutinho/personal/alphaprlabs`. The approved
+documents and the design handoff are committed there; tracked source is
+unchanged from `main`.
 
-The existing application is a public Next.js reference site. Its React,
-TypeScript, Tailwind and shadcn foundation remains the approved stack. The new
-interface and its visual decisions will come from the design handoff. The root
-layout currently applies the public header and footer to every page. There is
-no established private app, authentication, database migration set, reminder
-worker, or app test harness to extend.
+The existing application is the public Next.js reference site (Next.js 16.2,
+React 19.2, Tailwind 4, shadcn, `lucide-react`). The root layout applies the
+public header and footer to every page. There is no private app, authentication,
+migration set, reminder worker or app test harness yet. `src/lib/peptides.ts`
+is a 3,209-line static content file; keep operational records elsewhere and do
+not import unvalidated dosing guidance from its prose.
 
-Known likely shared boundaries: root layout (37 lines), home page (232 lines),
-global CSS (159 lines), package files, and routing. `src/lib/peptides.ts` is a
-3,209-line static content file. Keep new operational records and behavior in
-separate modules; do not grow that file into the app's database or protocol
-engine. Import reviewed peptide identities for the private catalog, not
-unvalidated schedules or dosing guidance extracted from public prose.
+On 2026-09-25 the host had Docker 29.1.3, Supabase CLI 2.106.0 and Node 22.11.
+A working local Supabase stack has not yet been proven; that is part of S1.
+Read the installed Next.js guides in `node_modules/next/dist/docs/` before
+writing code (AGENTS.md), including `01-app/02-guides/progressive-web-apps.md`.
 
-The existing npm scripts provide development, build, start and lint commands.
-Node and npm are present. Local database verification is not established:
-Docker socket access was denied in this sandbox, and the global `supabase`
-command failed while trying to write telemetry outside its writable area.
-Use a project-pinned supported CLI during setup; do not infer that an installed
-command name proves a working database environment. No app tests, migration
-tests, production build, hosted checks, or real-device push tests were run for
-this planning task.
-
-One fresh read-only mapper independently returned **DECISION NEEDED**: the stack
-and implementation shape are viable, but operating rules and proof prerequisites
-need resolution before an executable map. The current code findings above were
-confirmed by that inspection. There was no existing map to reuse. Marco has
-now approved D1–D5 below. The remaining environment checks belong to the first
-setup slice and hosted proof; they have not been reported as passed.
-
-Current parallel readiness is **serial only**: the shared contracts do not yet
-exist in code. The groups below become candidates only after their named common
-base and interfaces exist and have passed review. Do not launch parallel makers
-from this greenfield baseline.
+Parallel readiness is **serial only** until S1–S4 establish the shared base.
 
 ## Approved operating defaults
 
@@ -286,557 +271,392 @@ of failed invocations, and that rollback does not automatically restore cron
 configuration; explicitly reconcile the dispatcher during deployment/rollback.
 See [Vercel cron management](https://vercel.com/docs/cron-jobs/manage-cron-jobs).
 
-## Proposed phases
-
-Every slice below is proposed **local BUILD only** in the Alpha PR Labs repo,
-using Slipstream with one maker and an independent review. None authorizes a
-push, hosted resource creation, deployment, real invitations, or customer
-exposure. Product defaults are approved; the complete execution map needs approval first.
-
-Each slice must keep one bounded outcome. The likely path families below are
-ownership proposals, not instructions to build every possible file in a folder.
-Inventory actual file growth before review. Reslice before starting if a scope
-cannot remain independently reviewable. Avoid introducing production files over
-500 lines or growing an already-large file with a new responsibility without
-the workspace's required boundary justification.
-
-Targeted proof estimates assume tools and local services are ready. Tests named
-below are planned additions, not existing or completed tests. One-time package,
-browser and local database setup may take 15–30 minutes and is budgeted
-separately from repeated slice proof.
-
-### Phase 1: Private app foundation — proposed
-
-#### P1-H1: Establish application boundaries and local proof tools
-
-**Outcome:** The public site and private app/auth/admin shells have separate
-layouts without changing public URLs; a reproducible local verification setup
-can run. **Vision:** enables V1–V8. **Depends on:** plan approval and local tool
-access. **Risk:** STANDARD.
-
-**Owns:** root/public/private layouts, route moves, npm files, test configuration,
-shared minimal contracts, Supabase local configuration, environment-variable
-names (never credentials), and common UI/navigation slots. Install and pin
-compatible Supabase client/SSR/CLI, Web Push, decimal, time-zone, validation and
-test dependencies once. Use `decimal.js`, `@js-temporal/polyfill`, Zod, Vitest
-and Playwright as proposed supporting libraries, validating compatibility first.
-
-**Acceptance/proof:** Public home/library/detail URLs still render; isolated app
-and admin shells resolve; a pure unit check, one browser route check and a local
-DB connection work. No fake auth or private-data endpoints are exposed.
-**Proof cost:** 5–10 minutes after the one-time setup budget. No future domain
-schemas or general-purpose test framework are included.
-
-#### P1-H2: Invitation, account and researcher acknowledgement flow
-
-**Outcome:** An invited person can accept, acknowledge the disclaimer, sign in,
-recover access and sign out; an admin can issue an invitation through the app.
-**Vision:** V1. **Depends on:** P1-H1. **Risk:** GUARDED (authentication).
-
-**Owns:** `src/features/auth/`, `src/app/auth/`, identity migrations and
-`src/lib/supabase/`/session helpers. Account creation is invitation-only; local
-email capture substitutes for real Postmark sends during BUILD. Record disclaimer
-version and acceptance time. Initial admin creation is a controlled setup step,
-not a public role-selection form.
-
-**Acceptance/proof:** Valid/invalid invite and recovery journeys, direct signup
-rejection, and inability to assign oneself an admin role. Browser plus local
-Auth/database checks, **5–10 minutes**. Final hosted email delivery is release
-proof, not simulated as complete here.
-
-#### P1-H3: Researcher ownership and revocable support permission
-
-**Outcome:** Personal records have one reusable permission boundary; researchers
-can grant/revoke named admin read access through a settings screen.
-**Vision:** V1. **Depends on:** P1-H2. **Risk:** GUARDED (private records).
-
-**Owns:** `src/features/access/`, support-grant migrations/policies,
-`src/app/app/settings/`, reusable subject authorization and access fixtures.
-Future personal tables must adopt these checked ownership/grant rules.
-
-**Acceptance/proof:** Two researchers and two admins demonstrate isolation,
-explicit grant, read-only access, denial to the other admin, and denial on a new
-read after revocation. Direct database and server requests must agree.
-**Proof cost:** 5–10 minutes. Full support-history presentation comes in P5-H5.
-
-#### P1-H4: Admin peptide catalog and internal guidance
-
-**Outcome:** Admins maintain the supplied peptide identities and guidance;
-researchers can choose/read the available entries. **Vision:** V2, V7.
-**Depends on:** P1-H3. **Risk:** GUARDED (schema and access policies).
-
-**Owns:** `src/features/library/`, library migrations,
-`src/app/admin/library/`, and researcher library selection/read components.
-Keep public static reference content separate and preserve stable identity
-mapping. Templates are implemented after the cycle schema exists.
-
-**Acceptance/proof:** Admin create/update/archive and researcher read-only
-selection; referenced archived identities still resolve in history. An edited
-guidance record has a durable version. **Proof cost:** 5–8 minutes.
-
-### Phase 2: Calculation, scheduling and push primitives — proposed
-
-#### P2-H1: Vial calculation and syringe display
-
-**Outcome:** Given one peptide's vial strength, liquid added and intended dose,
-the researcher can see exact volume and syringe units with capacity and marking
-validation. **Vision:** V4. **Depends on:** P1-H1, P1-H2, P1-H4 and the agreed
-calculation interface and approved D5. **Risk:** GUARDED (actionable calculation).
-
-**Owns:** `src/features/calculator/`, `src/app/app/calculator/`, calculator unit
-and browser tests. Reads shared decimal input contracts; owns no migrations,
-package files, global UI or scheduling code.
-
-**Acceptance/proof:** Independent arithmetic examples, invalid/zero/non-finite
-inputs, unit conversion, capacity overflow and unrepresentable markings; the
-display and server calculation agree. Saved-mixture use comes in P4-H2.
-**Proof cost:** 3–6 minutes. **Candidate pair:** P2-H2.
-
-#### P2-H2: Independent peptide timelines and occurrence calculation
-
-**Outcome:** A deterministic engine resolves phases, breaks, fixed weekdays and
-elapsed intervals from supplied plans and actual history. **Vision:** V2, V3.
-**Depends on:** P1-H1 and approved D4. **Risk:** GUARDED (timing).
-
-**Owns:** `src/features/scheduling/`, scheduling contracts specific to this
-module and isolated clock/time-zone fixtures. No migrations, calculator imports,
-package edits or shared fixture changes.
-
-**Acceptance/proof:** A fixed-weekday plan, a rolling plan after late logging,
-a planned increase, a break, DST transitions and an older confirmation after a
-newer one produce the agreed future schedule without rewriting actual history.
-Use a small explicit set of clock cases, not an exhaustive calendar harness.
-**Proof cost:** 3–6 minutes. **Candidate pair:** P2-H1.
-
-#### P2-H3: Installable app and owner-bound push subscription
-
-**Outcome:** A signed-in researcher can install the app, enable/disable push and
-receive a test notification through a registered device subscription.
-**Vision:** V1, V3. **Depends on:** P1-H3. **Risk:** GUARDED (private push data).
-
-**Owns:** `src/features/push/`, `src/app/api/push/`, manifest, icons/service worker,
-push-subscription migration and generated types. This is serial shared-state
-work. Scope service-worker control to the app where practical.
-
-**Acceptance/proof:** Ownership of subscribe/unsubscribe operations; private
-content absent from offline caches; notification opens an authenticated app
-route. Local transport mock and browser registration proof: **5–8 minutes**.
-Physical iPhone/Android delivery requires the separate early hosted proof below.
-
-### Phase 3: Durable cycles, vials and reminders — proposed
-
-#### P3-H1: Store versioned cycles and template snapshots
-
-**Outcome:** Authorized server commands save custom cycles and admin templates,
-copy templates, and revise future phases without altering prior plan versions.
-**Vision:** V2. **Depends on:** P1-H4, P2-H2. **Risk:** GUARDED (plan integrity).
-
-**Owns:** `src/features/cycles/server/`, `src/features/templates/server/`, their
-schema/RPC migrations, generated types and direct contract tests. Freeze cycle
-read/write and template-copy interfaces for later screens.
-
-**Acceptance/proof:** Save a multi-peptide cycle with independent phases; copy a
-template, change the source and retain the copy; reject another researcher's
-write. Verify the persistence contract against local Postgres.
-**Proof cost:** 5–10 minutes. Builder UI comes in P4-H1; template UI in P5-H4.
-
-#### P3-H2: Save mixture profiles and optional personal vial stock
-
-**Outcome:** The researcher can persist a mixture independently of opting into
-personal stock; a cycle peptide can reference the appropriate setup.
-**Vision:** V4, V5. **Depends on:** P2-H1, P3-H1. **Risk:** GUARDED (calculation
-and private data).
-
-**Owns:** `src/features/vials/server/`, vial/mixture migrations and generated
-types. Freeze read/save/selection interfaces and the transaction helper used by
-confirmation. No business inventory mutation path.
-
-**Acceptance/proof:** Save/reload a mixture and reproduce its calculation; reject
-a foreign or incompatible peptide vial; changing a mixture retains its earlier
-version. Optional stock tracking can remain disabled. **Proof cost:** 5–8 minutes.
-
-#### P3-H3: Confirm actual administrations and update derived state once
-
-**Outcome:** One transaction records an actual dose, optional vial consumption,
-and the resulting next occurrence and reminder invalidations. Plan edits retain
-actual history while reconciling affected future occurrences. **Vision:** V2–V5.
-**Depends on:** P3-H1, P3-H2, P2-H2. **Risk:** GUARDED (history and stock integrity).
-
-**Owns:** `src/features/administrations/server/`, occurrence/event/queue schema,
-the confirmation and reconciliation routines, and related generated types.
-This slice owns the shared transaction and invalidation contract; later UIs and
-the dispatcher consume it without duplicating these rules.
-
-**Acceptance/proof:** Concurrent/retried confirmation produces one event and one
-deduction; actual amount/time overrides affect the result; stale or unauthorized
-requests fail; a new plan preserves old actual/unconfirmed history and cancels
-only affected future reminders. Include the defined stock-discrepancy path.
-**Proof cost:** 7–10 minutes. Keep dispatcher/network delivery out of this slice.
-
-#### P3-H4: Dispatch due reminders and bounded follow-ups
-
-**Outcome:** The server processes due work with retry tracking and sends current
-mg/syringe-unit reminders without interpreting sends as Taken confirmations.
-**Vision:** V3, V4. **Depends on:** P2-H3, P3-H3 and approved D3.
-**Risk:** GUARDED (wrong/stale reminder consequences).
-
-**Owns:** `src/features/reminders/`, `src/app/api/internal/reminders/route.ts`,
-`vercel.json`, queue lease/attempt additions and targeted dispatcher fixtures.
-
-**Acceptance/proof:** Duplicate cron calls, interrupted claims, a transient send
-failure and invalid subscription are handled within the stated budget; plan
-edits/confirmation suppress pending obsolete work; follow-ups stop at their
-boundary while old occurrences remain unconfirmed. Use a controllable transport
-and clock with real local Postgres. **Proof cost:** 7–10 minutes.
-
-### Phase 4: Researcher daily experience — proposed
-
-#### P4-H1: Build cycles and act on today's schedule
-
-**Outcome:** Researchers build/customize multi-peptide cycles, change future
-phases, see current planned amounts, and confirm now or log an earlier actual
-time. **Vision:** V2, V3, V4. **Depends on:** P3-H3, P3-H4 and the frozen server
-interfaces. **Risk:** GUARDED (displayed dose and confirmation).
-
-**Owns:** `src/features/cycles/ui/`, `src/features/administrations/ui/`,
-`src/app/app/cycles/`, `src/app/app/today/` and their browser tests.
-
-**Acceptance/proof:** Browser journey from template/custom plan to Today to a
-backdated confirmation, then verify the revised future interval and unchanged
-fixed weekdays. Historical unconfirmed entries remain actionable; stale
-notification links refresh current state. **Proof cost:** 6–10 minutes.
-**Candidate pair:** P4-H2. No server/schema or shared navigation edits.
-
-#### P4-H2: Personal supplies and saved calculator workflow
-
-**Outcome:** Researchers can manage optional vial supply, reuse saved mixtures
-in the calculator, and see estimated remaining amounts and low-stock alerts.
-**Vision:** V4, V5. **Depends on:** P3-H2, P3-H3, P2-H1 and frozen interfaces.
-**Risk:** GUARDED (displayed calculation).
-
-**Owns:** `src/features/vials/ui/`, saved-setup adapters inside
-`src/features/calculator/`, `src/app/app/supplies/` and its browser tests.
-
-**Acceptance/proof:** Save/select mixture and syringe markings, reload accurate
-results, enable optional stock and observe confirmation-derived balance and
-low-stock indication. A sale is not present in personal supplies automatically.
-**Proof cost:** 5–8 minutes. **Candidate pair:** P4-H1. No server/schema changes.
-
-#### P4-H3: Goals, check-ins and progress history
-
-**Outcome:** Researchers record cycle baselines, a quick daily check-in and an
-optional measurement, then review them beside actual events. **Vision:** V6.
-**Depends on:** P3-H3, P1-H3. **Risk:** GUARDED (private observations).
-
-**Owns:** `src/features/progress/`, `src/app/app/progress/`, results schema and
-RLS migrations, and generated types. This slice is serial because it introduces
-shared data and support-visible read interfaces.
-
-**Acceptance/proof:** One daily check-in across overlapping cycles, 1–5 feeling,
-unwanted effects/notes and a measurement with units appear against real recorded
-dates; other researchers and ungranted admins cannot read them.
-**Proof cost:** 5–10 minutes.
-
-#### P4-H4: Optional supplement routines
-
-**Outcome:** Researchers optionally schedule supplements and confirm them using
-the established schedule/reminder flow. **Vision:** V7.
-**Depends on:** P3-H4, P4-H1. **Risk:** GUARDED (schema and outbound reminders).
-
-**Owns:** `src/features/supplements/`, `src/app/app/supplements/`, supplement
-schema and the narrowly scoped shared schedule/dispatcher adapters. Serial
-integration; avoid a second scheduling engine.
-
-**Acceptance/proof:** A supplement appears when due, has bounded reminders and
-can be confirmed; no peptide syringe conversion or vial deduction occurs.
-Verify actual independent researcher ownership. **Proof cost:** 5–8 minutes.
-
-### Phase 5: Admin operations and support — proposed
-
-#### P5-H1: Stock by peptide strength and purchase entries
-
-**Outcome:** Admins record received vials and their purchase costs, with separate
-stock by peptide and strength. **Vision:** V8.
-**Depends on:** P1-H4 and approved D1. **Risk:** GUARDED (financial data).
-
-**Owns:** `src/features/inventory/server/`, business stock/purchase schema and
-RLS migrations, generated types and inventory database tests.
-
-**Acceptance/proof:** Two strengths remain separate; purchase quantity and cost
-are retained; researchers cannot read or change stock/cost records. Reject
-invalid quantities and currency mismatches. **Proof cost:** 5–8 minutes.
-
-#### P5-H2: Atomic manual sales and historical gross profit
-
-**Outcome:** An admin command records a sale to an account-linked or outside
-buyer and atomically allocates stock/costs. **Vision:** V8.
-**Depends on:** P5-H1 and approved D2. **Risk:** GUARDED (money/stock).
-
-**Owns:** `src/features/sales/server/`, sale/allocation routines and migrations,
-minimum buyer-identity lookup, generated types and financial fixtures.
-
-**Acceptance/proof:** Changing purchase costs produce the agreed cost allocation;
-concurrent sales cannot oversell; retrying a sale does not sell twice; historical
-profit survives new purchases. A linked sale neither creates personal stock
-nor grants support access. **Proof cost:** 7–10 minutes.
-
-#### P5-H3: Admin purchase, sales and profit screens
-
-**Outcome:** Admins can perform manual stock/purchase/sale entry and view quantities,
-revenue and gross profit through the app. **Vision:** V8.
-**Depends on:** P5-H2 and frozen inventory/sales APIs. **Risk:** GUARDED (money).
-
-**Owns:** `src/features/inventory/ui/`, `src/features/sales/ui/`,
-`src/app/admin/inventory/`, `src/app/admin/sales/` and their browser tests.
-
-**Acceptance/proof:** Enter a purchase and both buyer types, verify the strength's
-stock and stated cost/revenue/profit, and show failed oversell without reporting
-a completed sale. **Proof cost:** 5–8 minutes. **Candidate pair:** P5-H4.
-No migrations, shared types, accounting routines or global layout edits.
-
-#### P5-H4: Admin cycle-template editor
-
-**Outcome:** Admins maintain reusable templates with independent peptide phases,
-amounts, schedules, breaks and guidance references. **Vision:** V2, V7.
-**Depends on:** P3-H1, P1-H4 and frozen template APIs. **Risk:** STANDARD.
-
-**Owns:** `src/features/templates/ui/`, `src/app/admin/templates/` and isolated
-template browser tests. Read common schedule/calculation contracts; do not
-change researcher cycle UI or shared components while paired.
-
-**Acceptance/proof:** Create/edit a template, copy it to a researcher cycle via
-the stable server contract, and verify a later template edit leaves that copy
-unchanged. **Proof cost:** 5–8 minutes. **Candidate pair:** P5-H3.
-
-#### P5-H5: Permission-based support history view
-
-**Outcome:** A permitted admin can view the researcher's complete in-scope
-profile history, including cycles, actual events, progress, personal supplies
-and supplements, without editing it. **Vision:** V1.
-**Depends on:** P1-H3, P4-H1–P4-H4. **Risk:** GUARDED (private records).
-
-**Owns:** `src/features/support/`, `src/app/admin/support/` and access/browser
-tests. Consume existing subject-scoped read interfaces; shared authorization
-changes are serial and require the same access tests.
-
-**Acceptance/proof:** Grant gives the named admin complete in-scope read access,
-write attempts remain denied, another admin remains denied, and revocation
-denies subsequent reads including direct API/database paths. Financial records
-and push-subscription secrets are not part of researcher support history.
-**Proof cost:** 6–10 minutes.
+## Handoff reconciliation
+
+The handoff and the approved plan were compared on 2026-09-25. These rulings
+apply to the build:
+
+1. **Invitations are app-managed.** The handoff requires 30-day invitations
+   with Pending/Accepted/Expired/Send failed states and a Resend button. Supabase's own
+   email links are short-lived, so the app stores its own invitation record and
+   single-use token, sends the email itself through SMTP (Postmark in
+   production, the local captured inbox in staging), and creates the Supabase
+   account server-side on acceptance. Password recovery stays with Supabase
+   Auth through the same Postmark SMTP.
+2. **Unconfirmed every-N-days doses.** Follow the handoff: the next dose falls N
+   days after the previous dose's actual time, or its planned time if it was
+   never confirmed. The unconfirmed dose stays open (V3). An older backdated
+   confirmation does not move the schedule earlier than a newer confirmed dose.
+3. **Syringe markings.** The calculator preselects the handoff's default line
+   spacing per capacity (100 → 2, 50 → 1, 30 → 0.5 units), which the researcher
+   can change or mark unknown. This satisfies D5; nothing is ever rounded.
+4. **Installation detection replaces "I've added it".** The prototype simulates
+   installation with a link. Production detects the installed app
+   automatically, so the link is dropped; all other C2 copy stays.
+5. **iPhone sign-in after installing.** An iPhone home-screen app does not share
+   Safari's session. After someone installs, first opening the app shows sign-in,
+   then routes to C2 if reminders are off on that device.
+6. **Tab bar icons** use Lucide at 20 px (already a dependency). Handoff open
+   decision 4 resolved.
+7. **Open decisions kept out of the MVP**, per the handoff: cancelling a pending
+   invitation, and correcting or voiding recorded purchases and sales. Real
+   library text is admin-entered content and does not block the build.
+
+## Build phases
+
+Every slice is **local BUILD only** in this repo, using Slipstream with one
+maker and an independent review. None authorizes a push, hosted resource
+creation, deployment, real invitations, or customer exposure. Gates G1–G3 are
+separate SHIP actions that need Marco's explicit authorization when reached.
+
+Each slice keeps one bounded outcome. Paths named are ownership proposals, not
+instructions to fill every folder. Inventory file growth before review and
+reslice before starting if a slice cannot stay independently reviewable. Avoid
+production files over 500 lines. Proof estimates assume the tools are ready;
+one-time package, browser and local database setup is budgeted at 15–30 minutes
+inside S1.
+
+GUARDED means the slice handles authentication, privacy, actionable
+calculations, outbound messages, schemas or financial integrity. It does not
+activate Smith/Crucible.
+
+### Phase 1 — Foundation and phone proof
+
+#### S1: App shell, design system and local tooling
+
+**Outcome:** The public site keeps its URLs and look; private `/auth`, `/app`
+and `/admin` areas render the handoff's app shell on desktop and phone.
+**Screens:** shell only (desktop header and account menu, phone header and
+bottom tab bar with Lucide icons, toasts, bottom sheets, saving and error
+patterns). **Risk:** STANDARD.
+
+**Owns:** layouts and route groups, design tokens and Inter, shared shell and
+form primitives, safe-area handling, npm files and pinned supporting libraries
+(Supabase client/SSR, `web-push`, `decimal.js`, `@js-temporal/polyfill`, Zod,
+Vitest, Playwright), local Supabase configuration, environment-variable names
+(never values), and the test entry points.
+
+**Proof:** public routes still render; both shells match the handoff at phone
+and desktop widths, including safe areas; one unit check, one browser check and
+a local database connection pass. **5–10 min.**
+
+#### S2: Accounts, invitations and sign-in (C1, A1)
+
+**Outcome:** The admin invites a researcher; the researcher accepts within 30
+days, sets a password, acknowledges the disclaimer, signs in, recovers access
+and signs out. **Risk:** GUARDED.
+
+**Owns:** roles and profiles, the invitation table and token flow, SMTP sending
+(captured locally), controlled admin bootstrap, C1 screens (invitation states,
+account setup, acknowledgement, sign in with session-expired notice, uniform
+recovery confirmation) and the A1 Invitations screen with its Resend button.
+
+**Proof:** valid, expired and used invitations; duplicate and existing-account
+errors; send failure then resending; direct signup and self-assigned admin role
+rejected; recovery never reveals whether an email exists. **5–10 min.**
+
+#### S3: Installable app and notifications (C2)
+
+**Outcome:** A signed-in person can install the app and turn on reminders for
+this phone; a test notification arrives, sets the icon badge and opens the app
+when tapped. **Risk:** GUARDED.
+
+**Owns:** everything in "Phone installation requirements": manifest and icons,
+iOS metadata, service worker (push display, notification click, badge), install
+detection and the Android install action, C2 step 3 and the Notifications
+settings screen, the per-device subscription table and API, re-registration on
+every open, VAPID configuration, and an admin-only "send test notification"
+action to the signed-in person's own devices.
+
+**Proof:** subscribe/unsubscribe are owner-bound; re-registration updates the
+device row; the denied, unsupported and iPhone-not-installed states match the
+design; private pages are not cached by the service worker. Local browser proof
+**5–8 min.** Real delivery is proven at G1, not claimed locally.
+
+#### Gate G1: Closed production phone proof (SHIP, needs authorization)
+
+Provision production (Vercel Pro, Supabase Pro, Postmark with a verified sending
+domain, the app domain), apply migrations, deploy the S1–S3 candidate closed to
+everyone except Marco's test accounts, and disable real reminder dispatch.
+
+Marco, on a real iPhone (iOS 16.4+) and a real Android phone: receive an
+invitation email, accept, install to the home screen, sign in inside the
+installed app, turn on reminders, receive a test notification with the app
+closed, see the badge, and tap through into the app. **15–30 minutes hands-on**,
+excluding account approval and DNS time. Postmark account approval may take
+time; start it before G1. Failures here reopen S3 before admin work continues.
+
+### Phase 2 — Admin side
+
+#### S4: Peptide library (A2) and support-grant foundation
+
+**Outcome:** The admin maintains library entries with availability and
+guidance; the private-data ownership and revocable-grant rules exist for all
+later researcher tables. **Risk:** GUARDED.
+
+**Owns:** library schema and A2 two-pane editor; grant schema with history,
+reusable ownership/grant access rules and their database tests. Researcher
+library screens (R6) come in S10.
+
+**Proof:** admin create/edit, availability toggle and reference count; the
+incomplete-information error; researchers read only available entries; two
+researchers and a non-granted admin are isolated at the database and server.
+**5–10 min.**
+
+#### Group A (two makers in parallel)
+
+**Lane A — S5: Business inventory and FIFO sales, then S6: screens.**
+
+- *S5 outcome:* stock items per peptide and strength, purchases, and sales that
+  atomically freeze their FIFO allocation, revenue and cost. Rejects oversell
+  and duplicate submission. Admin-only. **Risk:** GUARDED (money/stock).
+  **Owns:** inventory and sales schema, transactions and database tests.
+  **Proof:** the handoff FIFO scenario (10 × 20, 10 × 25, sell 12 × 40 → revenue
+  480, cost 250, gross profit 230, 8 left; outside buyer for 9 → blocked),
+  concurrent sales cannot oversell, later purchases never change past profit,
+  researchers cannot read any of it. **7–10 min.**
+- *S6 outcome:* A4 Inventory and Stock item, A5 Record purchase, A6 Record sale
+  with live preview, A7 Sales & gross profit with filters, exactly as designed.
+  **Risk:** GUARDED (money). **Owns:** those routes and UI only; no schema.
+  **Proof:** browser journey through the FIFO scenario and every empty state.
+  **5–8 min.**
+
+**Lane B — S7: Schedule engine and calculator math.** Pure domain modules with
+unit tests and no schema, UI or package changes. **Risk:** GUARDED (timing and
+actionable calculation). **Proof:** fixed weekdays, every-N-days after late and
+missed doses, breaks, dose changes, DST gaps and repeats, older backdated
+confirmations; calculator concentration, volume and units, between-line and
+over-capacity flags, unknown marking, dose over whole vial, invalid inputs.
+**5–8 min.**
+
+Common base: S1–S4 reviewed and integrated. Lane A owns all schema changes in
+this group; Lane B touches no shared files. Integrate S7, then S5 and S6.
+
+#### S8: Cycle templates (A3)
+
+**Outcome:** The admin creates and edits templates with per-peptide active
+phases and breaks in relative days, validated as designed. **Risk:** STANDARD.
+**Owns:** template schema (relative offsets) and the A3 editor. Uses S7 for
+validation of schedules. Copying into researcher cycles comes in S9.
+**Proof:** every validation message in order with `(+N more)`; unavailable
+peptides blocked; edits bump "updated". **5–8 min.**
+
+### Phase 3 — Researcher side
+
+#### S9: Cycles and the cycle builder (R2, R3, R4 data)
+
+**Outcome:** Researchers create custom cycles or copy a template, with a named
+time zone, goal, optional baseline and independent dated phases per peptide;
+editing a cycle with history changes future doses only. **Risk:** GUARDED.
+**Owns:** cycle schema with preserved plan revisions, template copy, R3 builder.
+**Proof:** multi-peptide cycle saved; template edited later leaves the copy
+unchanged (handoff scenario); another researcher's cycle is unreachable.
+**5–10 min.**
+
+#### Group B (two makers in parallel)
+
+- **Lane A — S10: Cycle views and library reading (R2, R4, R6).** Cycles list
+  with statuses, cycle detail with the per-peptide timeline and dose markers,
+  library and template detail with "Use as starting point" (blocked for
+  unavailable peptides). No schema. **5–8 min.**
+- **Lane B — S11: Calculator and saved mixtures (R7).** Mixture and optional
+  personal-vial schema, the calculator screen on S7's math, and Save mixture
+  linked to cycle peptides.
+  Owns all schema changes in this group. **5–8 min.**
+
+Common base: S9 integrated. Integrate S11, then S10.
+
+#### S12: Today and dose confirmation (R1, R5)
+
+**Outcome:** Today shows the due dose with mg and syringe units, unconfirmed
+past doses and upcoming doses; one tap confirms Taken, or the sheet records
+amount, earlier time, site and notes. **Risk:** GUARDED (history and stock).
+**Owns:** occurrence and actual-dose schema, the single confirmation
+transaction (idempotent, next-dose recalculation, optional personal-vial
+deduction, reminder invalidation), and the R1 and R5 screens.
+**Proof:** retrying a confirmation records one dose and one deduction; a future
+time is rejected; a backdated every-N-days dose moves the next due time; fixed
+weekdays stay put; old unconfirmed doses remain actionable. **7–10 min.**
+
+#### Group C (two makers in parallel)
+
+- **Lane A — S13: Reminder dispatcher and follow-ups.** Queue with leases and
+  attempts, the authenticated dispatcher route, `vercel.json` cron, the local
+  timer script, follow-ups at 30 minutes and 2 hours with the approved stop
+  rules, payloads naming the peptide, mg and syringe units, stale-reminder
+  suppression, badge count of unconfirmed doses, and the send on/off control.
+  Owns all schema changes in this group. **Risk:** GUARDED. **Proof:**
+  duplicate and missed timer calls, an interrupted claim, a transient failure
+  and a gone subscription, with a controllable clock and transport against
+  local Postgres. **7–10 min.**
+- **Lane B — S14: Personal supplies (R8).** Optional vials linked to mixtures,
+  estimated remaining from confirmed doses, low-stock indication. Uses the
+  personal-vial table created in S11; no schema. **5–8 min.**
+
+Common base: S12 integrated. Integrate S14, then S13.
+
+#### S15: Progress (R9)
+
+**Outcome:** One daily check-in (feeling 1–5, side effects, note) and an
+optional measurement, shown beside doses and phases. **Risk:** GUARDED.
+**Owns:** results schema under the S4 access rules and the R9 screens.
+**5–10 min.**
+
+#### S16: Supplements (R10)
+
+**Outcome:** Optional supplement routines with reminders and Taken, reusing the
+schedule engine, confirmation pattern and dispatcher; no syringe conversion or
+peptide stock. **Risk:** GUARDED. **5–8 min.**
+
+#### S17: Me, support access and the full support history (R11, A8)
+
+**Outcome:** Researchers see their profile, grant or revoke read-only access
+with confirmation and grant history, and sign out; the admin's A8 Support list
+and read-only researcher history show every in-scope record when granted and
+the designed denied states otherwise. **Risk:** GUARDED (private records).
+**Proof:** handoff support scenario end to end; write attempts denied; revoke
+denies the next request at server and database; financial records and push
+secrets never appear. **6–10 min.**
+
+### Phase 4 — Delivery
+
+#### Gate G2: Closed production full proof (SHIP, needs authorization)
+
+Deploy the assembled, reviewed candidate closed to researchers, apply
+migrations, enable the dispatcher, and verify on Marco's real phones: a real
+cycle produces a reminder at the due minute with the app closed, follow-ups
+arrive if unconfirmed, tapping opens the dose, Taken stops follow-ups and
+updates the badge, and a supplement reminder works. Also verify invitation and
+recovery emails, and the admin purchase and sale path. **30–45 minutes
+hands-on.**
+
+#### Gate G3: Launch (SHIP, needs authorization)
+
+Only when Marco declares the app fully ready: open invitations to researchers.
+Rollback disables sends first and checks cron configuration explicitly.
 
 ## Parallel schedule and ownership
 
-Maximum two implementation makers at once, one per independent worktree based
-on the same reviewed cumulative commit. Main conducts integration. Reviews use
-fresh independent contexts and are scheduled within available agent capacity;
-the two-maker limit is not a request for unlimited reviewer fan-out.
+At most two makers at once, each in its own worktree based on the same
+reviewed, integrated commit. Main integrates in the stated order. Reviews use
+fresh independent contexts.
 
-| Group | Concurrent work | Common-base prerequisite | Read-only shared contracts | Rejoin and proof |
+| Group | Concurrent lanes | Common base | Schema owner | Rejoin proof |
 | --- | --- | --- | --- | --- |
-| A | P2-H1 calculator maker + P2-H2 scheduling maker | P1-H1 through P1-H4 complete; D4/D5 approved; decimal/date primitives, toolchain and test entry points committed | Package/lockfiles, base value types, auth/layout/library, common fixtures | Integrate calculator then scheduling. Targeted module proofs remain independent; P3-H3 and the cumulative journey prove their later combined behavior. |
-| B | P4-H1 cycle/Today UI maker + P4-H2 personal-supplies UI maker | P3-H1 through P3-H4 complete, plus calculator and push primitives | Cycle, confirmation, mixture and stock APIs; generated types; navigation slots; schemas; common components | Integrate supplies then cycle screens. Run one connected browser check: saved mixture → Today amount → confirmation → updated stock and next due time. Budget 5–8 minutes. |
-| C | P5-H3 inventory/sales UI maker + P5-H4 template UI maker | P5-H2 and P3-H1 complete; admin navigation and form primitives committed | Sales/purchase/template APIs, generated types, library identity, auth/layout and common components | Integrate templates then sales screens. Check both admin routes and role boundaries at cumulative feature close; neither branch edits the other's backend. |
+| A | S5→S6 inventory and sales / S7 domain engines | S1–S4 | Lane A | Admin routes and role boundaries still pass after integrating both |
+| B | S10 cycle views / S11 calculator and mixtures | S9 | Lane B | Build cycle → save mixture → cycle detail shows the saved mixture |
+| C | S13 dispatcher / S14 personal supplies | S12 | Lane A | Due reminder → tap → Taken → supply balance drops once, follow-ups stop, badge updates |
 
-All migrations, generated database outputs, shared layout/auth changes and npm
-dependency changes are serialized under the active shared-foundation owner.
-Their ownership transfers between serial slices, never concurrently. Parallel
-makers cannot add a package or silently edit a frozen shared contract to finish
-their lane. A need to do so returns that work to serial integration or requires
-a revised group before continuing.
+In every pair only the named schema owner may add migrations or regenerate
+database types. Neither lane may add packages or change a shared contract to
+finish its work; that returns the work to serial integration. A pair starts
+only after Main confirms its common base is integrated, its owned paths are
+disjoint and nothing else owns them.
 
-No pair can activate just because its slice names appear here. First verify that
-its actual common-base interfaces are implemented, independently testable and
-unchanged; that owned paths are disjoint; and that no other active run owns them.
-If those conditions do not hold, use serial execution or revise the proposed
-pair. Do not manufacture mock interfaces as proof that the production contracts
-are settled. Main integrates exact reviewed commits and records the cumulative
-base before dependent work starts.
+The critical path is S1 → S2 → S3 → G1 → S4 → S5/S6 → S8 → S9 → S11 → S12 → S13
+→ S15 → S16 → S17 → G2. S7 finishes well inside Group A's window and is needed
+before S8. No calendar date is promised until the first slices establish real
+throughput.
 
-The local BUILD execution map below names all 20 slices, their proof budgets
-and the three groups together for approval. No dependent stage may skip its
-prerequisites. D1–D5 are approved; execution-map approval is still pending.
+## Build execution map
 
-The proposed critical dependency chain is foundation → schedule/calculation →
-cycle/vial persistence → confirmation transaction → reminder dispatch → daily
-researcher experience → connected proof. Admin stock/sales can be brought forward
-after P1-H4 because D1/D2 are now approved, but data migrations must remain
-serial and any change to the execution order below needs an updated map.
-Groups A–C are the three explicitly proposed fan-outs; additional overlapping
-slices need a revised approved schedule. No calendar completion date is promised
-before the first slices establish actual implementation and review throughput.
+Feature: Alpha PR Labs research app MVP. Mode: BUILD (local only), with SHIP
+gates requested separately. Repository: `/home/marcomoutinho/personal/alphaprlabs`,
+branch `feat/research-app`.
 
-Before creating implementation worktrees, commit the approved scope/stack and
-the eventual approved plan together on the intended feature branch. Confirm
-current Git ownership first. The untracked planning documents alone would not
-be inherited by newly created worktrees.
-
-## Reference BUILD execution map — deferred until interface design
-
-Feature: Alpha PR Labs research app MVP. Mode: BUILD (local only).
-Repository: `/home/marcomoutinho/personal/alphaprlabs`.
-All slices use Slipstream and receive independent review. Guarded means the
-slice handles authentication, privacy, actionable calculations, outbound
-messages, schemas or financial/transaction integrity; it does not activate
-Smith/Crucible. Standard applies to the shell/tooling and template-editor slices.
-
-Execution follows the numbered waves. The parallel groups are two-maker pairs,
-with one pair active at a time and the shared-base checks defined above.
-
-| Order | Slice and outcome | Surface | Dependencies | Risk | Decisive targeted proof | Expected proof |
+| Order | Slice | Screens | Depends on | Risk | Decisive proof | Proof |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | P1-H1 — App layouts and local proof setup | Web/tooling | None | STANDARD | Public URLs preserved; local unit/browser/DB checks run | 5–10 min |
-| 2 | P1-H2 — Invitations, accounts and acknowledgement | Web/Auth/DB | P1-H1 | GUARDED | Invite/recovery journey; direct signup and self-admin blocked | 5–10 min |
-| 3 | P1-H3 — Private ownership and support grants | Web/API/DB | P1-H2 | GUARDED | Cross-user denial, read-only grant and effective revocation | 5–10 min |
-| 4 | P1-H4 — Admin peptide library and guidance | Web/API/DB | P1-H3 | GUARDED | Admin CRUD; researcher read-only; history retains identities | 5–8 min |
-| 5A | P2-H1 — Vial calculator | Web/domain | P1-H1–P1-H4 | GUARDED | Independent arithmetic, capacity/marking validation | 3–6 min |
-| 5B | P2-H2 — Peptide schedule engine | Domain | P1-H1–P1-H4; group A common base | GUARDED | Fixed/rolling phases, late entries and DST cases | 3–6 min |
-| 6 | P2-H3 — Installation and push subscriptions | Web/API/DB | P1-H3; after group A integration | GUARDED | Owner-bound subscriptions and local worker/transport checks | 5–8 min |
-| 7 | P3-H1 — Versioned cycles and template copies | API/DB | P1-H4, P2-H2 | GUARDED | Independent phases, preserved template copy, ownership | 5–10 min |
-| 8 | P3-H2 — Saved mixtures and optional vial stock | API/DB | P2-H1, P3-H1 | GUARDED | Reload identical calculation; foreign/incompatible vial denied | 5–8 min |
-| 9 | P3-H3 — Atomic dose confirmation | API/DB | P3-H1, P3-H2, P2-H2 | GUARDED | One event/deduction on retry; preserved actual history | 7–10 min |
-| 10 | P3-H4 — Reminder dispatch and follow-ups | API/DB/cron config | P2-H3, P3-H3 | GUARDED | Duplicate/missed work, retries and stale-reminder invalidation | 7–10 min |
-| 11A | P4-H1 — Cycle builder and Today screens | Web | P3-H3, P3-H4 | GUARDED | Build cycle, backdate Taken, verify next schedule | 6–10 min |
-| 11B | P4-H2 — Supplies and saved calculator screens | Web | P2-H1, P3-H2, P3-H3; group B common base | GUARDED | Reuse mixture; balance and low-stock display | 5–8 min |
-| 12 | P4-H3 — Check-ins and progress | Web/API/DB | P3-H3, P1-H3; after group B integration | GUARDED | Goals/check-ins/measurements on history; access isolation | 5–10 min |
-| 13 | P4-H4 — Optional supplements | Web/API/DB | P3-H4, P4-H1 | GUARDED | Reminder and Taken without peptide-stock deduction | 5–8 min |
-| 14 | P5-H1 — Business stock and purchases | API/DB | P1-H4 | GUARDED | Separate strengths, quantities/costs and admin-only access | 5–8 min |
-| 15 | P5-H2 — Sales and FIFO cost allocation | API/DB | P5-H1 | GUARDED | No oversell/double sale; stable historical profit | 7–10 min |
-| 16A | P5-H3 — Admin stock and sales screens | Web | P5-H2 | GUARDED | Enter purchase/sale and reconcile balances | 5–8 min |
-| 16B | P5-H4 — Admin template editor | Web | P3-H1, P1-H4; group C common base | STANDARD | Edit template without changing a researcher's copy | 5–8 min |
-| 17 | P5-H5 — Full permitted support history | Web/API | P1-H3, P4-H1–P4-H4; after group C integration | GUARDED | Complete read-only history; revoked access denied | 6–10 min |
+| 1 | S1 App shell, design system, tooling | Shell | Plan approval | STANDARD | Public routes intact; shell matches design; local DB works | 5–10 min |
+| 2 | S2 Accounts and invitations | C1, A1 | S1 | GUARDED | 30-day invite states; signup and self-admin blocked | 5–10 min |
+| 3 | S3 Install and notifications | C2 | S2 | GUARDED | Owner-bound device subscriptions; install/permission states | 5–8 min |
+| G1 | Closed production phone proof | — | S3 | SHIP | Real iPhone and Android: install, notify closed, badge, tap opens | 15–30 min |
+| 4 | S4 Library and grant foundation | A2 | G1 | GUARDED | Admin library; cross-user isolation | 5–10 min |
+| 5A | S5 → S6 Inventory, FIFO sales, screens | A4–A7 | S4 | GUARDED | Handoff FIFO scenario; no oversell | 12–18 min |
+| 5B | S7 Schedule engine and calculator math | — | S4 | GUARDED | Schedule and calculation cases | 5–8 min |
+| 6 | S8 Cycle templates | A3 | S7 | STANDARD | Validation order; unavailable peptides blocked | 5–8 min |
+| 7 | S9 Cycles and builder | R3 | S8 | GUARDED | Template copy unchanged by later edit; ownership | 5–10 min |
+| 8A | S10 Cycle views and library | R2, R4, R6 | S9 | GUARDED | Statuses, timeline, starting-point rules | 5–8 min |
+| 8B | S11 Calculator and mixtures | R7 | S9 | GUARDED | Saved mixture reproduces calculation | 5–8 min |
+| 9 | S12 Today and confirmation | R1, R5 | S10, S11 | GUARDED | One dose, one deduction on retry; schedule rules | 7–10 min |
+| 10A | S13 Reminder dispatcher | — | S12 | GUARDED | Duplicate/missed calls, retries, stale suppression | 7–10 min |
+| 10B | S14 Personal supplies | R8 | S12 | GUARDED | Estimated balance and low stock | 5–8 min |
+| 11 | S15 Progress | R9 | S12 | GUARDED | Check-ins beside doses; isolation | 5–10 min |
+| 12 | S16 Supplements | R10 | S13 | GUARDED | Reminder and Taken without peptide stock | 5–8 min |
+| 13 | S17 Me and support history | R11, A8 | S14–S16 | GUARDED | Grant, read-only history, revoke denies | 6–10 min |
+| G2 | Closed production full proof | — | S17, cumulative gate | SHIP | Real reminders on real phones end to end | 30–45 min |
+| G3 | Launch | — | G2, Marco's go | SHIP | Invitations open | — |
 
-All 20 slices are local-only. The table includes no executable deployment or
-customer-exposure slice. One-time tools/browser/local DB setup: 15–30 minutes.
-Group B's combined browser rejoin: 5–8 minutes. Feature-close cumulative proof:
-20–30 minutes once, on the final assembled candidate, as defined below.
-
-Later delivery requires separate SHIP authority. The early hosted phone proof
-is 15–30 minutes of hands-on verification plus provisioning/DNS time, and must
-use real devices. It remains outstanding rather than being folded into local
-push mocks. Documentation and local build approval do not authorize invitations
-or real reminder sends to researchers.
-
-Future approval, after reconciliation with the approved interface: these 20
-proposed local BUILD slices (or their revised boundaries), groups A/B/C with their stated
-prerequisites and rejoin points, and the stated setup/targeted/cumulative proof
-budgets. Standard Slipstream review/correction limits apply. No additional pair,
-broader proof program or customer exposure is included.
+Seventeen local slices, three parallel pairs, three delivery gates.
 
 ## Verification envelope and feature close
 
-Use Vitest for calculation and schedule logic; local Supabase/Postgres tests for
-real transactions and RLS; and Playwright for the affected user journeys.
-Do not use mocked database access as the proof of privacy or stock accounting.
-Do not expect Vitest to exercise async Next.js Server Components; use browser
-journeys for those integration boundaries. See the installed Next.js testing
-guides under `node_modules/next/dist/docs/01-app/02-guides/testing/`.
+Use Vitest for calculation and schedule logic, local Supabase/Postgres tests
+for transactions and access rules, and Playwright for user journeys at phone
+and desktop widths. Do not use mocked database access as proof of privacy or
+stock accounting. Vitest does not exercise async Server Components; use browser
+journeys there (see `node_modules/next/dist/docs/01-app/02-guides/testing/`).
 
-Keep fixtures small: two researchers, two admins, a minimal peptide catalog,
-one fixed-day and one rolling peptide plan, two differently priced purchases,
-and just enough vial/syringe data to exercise the named boundaries. Use synthetic
-peptide values to test arithmetic, not real-world protocol recommendations.
-Budget one shared clock fixture and one mock push transport, one focused unit/DB
-file and at most one focused browser spec per slice (at most two when the named
-proof spans both access and behavior), and at most two shared setup files. Large
-fixture families, custom analyzers or extra harnesses are outside this envelope.
-One deterministic clock/transport seam is sufficient; do not build a new testing
-platform or large scenario corpus.
+Keep fixtures small: two researchers, two admins, a minimal catalog, one
+fixed-weekday and one every-N-days plan, two differently priced purchases, and
+the handoff's scenario data. Use synthetic values, not protocol
+recommendations. One shared clock seam and one mock push transport; at most one
+focused unit/DB file and one or two browser specs per slice.
 
-Per slice, run its targeted tests and checks relevant to changed paths. At the
-assembled feature, run one cumulative gate on the exact final candidate:
+Before G2, run one cumulative gate on the exact assembled candidate:
 
-1. Invitation/acknowledgement → custom or template cycle → saved mixture → due
-   reminder payload → actual confirmation → changed next interval and stock →
-   progress history. Include unchanged fixed weekdays and an open old occurrence.
-2. Purchase → manual sale → remaining strength-specific stock and historical
-   gross profit, without modifying researcher supplies or permissions.
-3. Grant → admin reads the assembled profile history → revoke → subsequent
-   requests denied. Include the newer results/supplement tables in the boundary.
-4. One supplement reminder/confirmation remains separate from peptide stock.
-5. Typecheck, lint, production build, and a narrow public-route smoke check to
-   cover shared routing/layout changes.
+1. Invitation → acknowledgement → template or custom cycle → saved mixture →
+   due reminder payload → confirmation → next interval, supply balance and badge
+   → progress history, with unchanged fixed weekdays and an open old dose.
+2. Purchase → sale → strength-specific stock and historical gross profit,
+   without touching researcher supplies or access.
+3. Grant → admin reads the full history → revoke → next request denied,
+   including results and supplement tables.
+4. A supplement reminder and confirmation stay separate from peptide stock.
+5. Typecheck, lint, production build and a public-route smoke check.
 
-Budget **20–30 minutes** for the cumulative gate once the environment is ready,
-including the build. This is an explicit longer feature-level check, not a
-per-slice obligation. Group B's rejoin check is run once at that merge; repeat
-only the connected journey needed at feature close. A failed candidate-caused
-integration gate requires a focused correction decision, not reopening every
-finished slice or silently expanding the proof budget.
+Budget **20–30 minutes** once the environment is ready. Desktop emulation never
+counts as phone proof; G1 and G2 do.
 
-Actual durations and results must replace estimates as work proceeds. Existing
-baseline failures are recorded separately. New unreviewed scripts or tests are
-not evidence of successful execution.
+## Production readiness
 
-## Early hosted proof and later delivery
+Before G1, Marco provides or approves: the production domain for the app,
+Vercel Pro and Supabase Pro projects, and a Postmark account with a verified
+sending domain (Postmark reviews new accounts before they can send to outside
+recipients). Keep production data separate from local data, keep privileged
+credentials server-only and out of logs, and confirm invite/recovery redirects,
+backups, the cron schedule and the send on/off control.
 
-The approved stack supports the intended PWA approach, but real device behavior
-is an early delivery risk. After P2-H3, propose a separate, explicitly authorized
-hosted proof using test accounts and real iPhone/Android devices. Verify Home
-Screen installation, permission, a notification while the app is closed, and
-authenticated opening. Budget **15–30 minutes of hands-on testing**, excluding
-account provisioning and DNS propagation. It is not a local BUILD slice and
-cannot be reported passed by a desktop browser mock.
-
-Marco decided on 2026-09-25: staging is local only, and real-phone installation
-and push testing runs on the production deployment itself while the app is
-closed to researchers. No separate hosted staging environment or local tunnel.
-Production stays unlaunched until the app is fully ready. Provisioning and
-deploying for this proof remain explicitly authorized delivery actions.
-
-Before invitations reach researchers, delivery needs named owners and approved
-account/project/domain/environment choices for Vercel Pro, Supabase Pro and
-Postmark. Keep production data separate from local/test data. Verify SMTP sender
-domain and invite/recovery redirects, production RLS and migrations, secret
-configuration, the cron schedule and send-disable control, and database backups.
-Use scoped credentials without exposing values in logs or documentation.
-
-Roll out with the app closed to uninvited users and real reminder sending
-disabled. Verify the exact assembled candidate with authorized test accounts,
-then enable the dispatcher and verify a full connected researcher journey and
-the admin purchase/sale path. Rollback must disable sends and explicitly check
-cron configuration; rolling back app code alone does not reverse schema changes
-or restore previous cron behavior. Preserve recorded history and stock ledgers.
-
-Pushes, resource provisioning, hosted device proof, production migration,
-deployment, invitation sends and customer exposure are later delivery actions,
-not authorized by approval of the local build plan. Register the linked Beacon
-initiative after the implementation decisions and plan are settled. Keep its
-scope pointers here instead of duplicating the contract into a second authority.
+Vercel documents missed or duplicate cron calls, no automatic retry of failed
+invocations, and that rollback does not restore cron configuration; reconcile
+the dispatcher explicitly on every deploy and rollback. Rolling back app code
+does not reverse schema changes. Preserve recorded history and stock ledgers.
 
 ## Coverage
 
-| Commitment | Implementation disposition |
+| Commitment | Slices |
 | --- | --- |
-| V1 — Access/privacy/installable app | P1-H2, P1-H3, P2-H3, P5-H5; connected grant/revoke and hosted installation proof |
-| V2 — Flexible cycles | P1-H4, P2-H2, P3-H1, P3-H3, P4-H1, P5-H4 |
-| V3 — Reminders/logging | P2-H2, P2-H3, P3-H3, P3-H4, P4-H1 |
-| V4 — Saved calculator | P2-H1, P3-H2, P3-H3, P3-H4, P4-H1, P4-H2 |
-| V5 — Optional personal stock | P3-H2, P3-H3, P4-H2 |
-| V6 — Progress | P4-H3 |
-| V7 — Guidance/supplements | P1-H4, P4-H4, P5-H4 |
-| V8 — Admin accounting | P5-H1, P5-H2, P5-H3 |
+| V1 — Access, privacy, installable app | S2, S3, S4, S17, G1, G2 |
+| V2 — Flexible cycles | S7, S8, S9, S10, S12 |
+| V3 — Reminders and logging | S3, S7, S12, S13, G1, G2 |
+| V4 — Saved calculator | S7, S11, S12, S13 |
+| V5 — Optional personal stock | S11, S12, S14 |
+| V6 — Progress | S15 |
+| V7 — Guidance and supplements | S4, S8, S16 |
+| V8 — Admin inventory and finances | S5, S6 |
 
-Every approved story remains in the product contract, with proposed
-`Delivers`/`Enables` links into these phases. No approved capability is silently
-deferred. MVP exclusions remain the ones in the product contract.
+Every approved story remains in the product contract. Nothing approved is
+silently deferred. MVP exclusions remain those in the product contract plus the
+two handoff open decisions kept out above.
 
 ## Progress and next decision
 
-D1–D5 were approved by Marco on 2026-09-09. On 2026-09-11 he directed that
-interface design precede implementation. The requirements brief is prepared;
-Finished design concepts, Marco's concept selection and lock, the interactive
-app prototype and his interface approval are still outstanding.
-No application slice is active, built, reviewed, deployed or live.
+D1–D5 approved 2026-09-09. Interface approved 2026-09-25 with the environment,
+Postmark, badge and notification-tap decisions recorded above. No application
+slice is active, built, reviewed, deployed or live.
 
-Next: present finished concepts (no wireframes), have Marco select and lock one,
-build and review its interactive app prototype, then reconcile this plan and
-its parallel groups with the approved handoff and present the revised complete
-build map. Keep the
-[Alpha PR Labs initiative](../../../development/docs/features/active/alpha-pr-labs.md),
-registered on 2026-09-25 without a Beacon Project, linked to the repo-local
-authorities. The earlier
-20-slice proposal is not approval to implement.
+Next: Marco approves this build map (seventeen local slices, groups A–C, and
+the proof budgets). Approval starts S1 locally. Gates G1–G3 each need their own
+authorization when reached.
 
 ## Technical references
 

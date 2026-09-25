@@ -1,6 +1,6 @@
 # Alpha PR Labs — Research App MVP
 
-Status: Product scope and operating defaults approved; interface design is the next stage; implementation is deferred until the interface is approved and the execution plan is reconciled.
+Status: Product scope, operating defaults and the final interface are approved. The build plan was reconciled with the interface on 2026-09-25 and awaits Marco's approval.
 
 Approved by Marco on 2026-09-09, including the support-access default.
 
@@ -10,7 +10,7 @@ Labs and is separate from the Dibbly roadmap. IDs are append-only.
 
 Approved technology stack: [Research app technology decision](research-app-stack.md).
 
-Draft implementation plan: [Phases, dependencies, parallel groups and verification](research-app-plan.md). Operating defaults approved by Marco on 2026-09-09. The complete local BUILD execution map remains subject to approval.
+Implementation plan: [Phases, dependencies, parallel groups and verification](research-app-plan.md). Operating defaults approved by Marco on 2026-09-09. The build map, reconciled with the approved interface on 2026-09-25, awaits approval.
 
 Planning requirement: [Identify and document safe parallel development](research-app-stack.md#parallel-development-requirement), approved by Marco on 2026-09-09.
 
@@ -26,14 +26,10 @@ contains workflows, functional areas, data, permissions and states without
 prescribing design choices. It is derived from this contract; it does not
 replace product authority.
 
-Next: present finished design concepts in Claude Design, with no wireframes.
-Marco chooses and locks one concept before it is built out into an interactive
-app prototype. The prototype must support navigation, main actions and visible
-state changes with realistic sample data, across researcher and admin workflows,
-so Marco can use it as though it were live. Review and approve that interface,
-then reconcile the implementation plan and parallel boundaries with the handoff
-before approving or starting application implementation. The earlier 20-slice
-proposal has not been approved for execution.
+Marco confirmed on 2026-09-25 that the design is complete and ready to
+implement. The approved handoff is in [`docs/design/research-app/`](../docs/design/research-app/README.md).
+The implementation plan has been reconciled with it; application
+implementation starts when Marco approves that build map.
 
 ## Vision
 
