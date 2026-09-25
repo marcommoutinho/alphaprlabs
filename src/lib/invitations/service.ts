@@ -44,7 +44,10 @@ export async function listInvitations(db: Db, now = new Date()): Promise<Invitat
   const { data, error } = await db
     .from("invitations")
     .select("id, name, email, state, sent_at, expires_at")
-    .order("created_at", { ascending: false });
+    // Newest first by the displayed "Sent" date (resend and re-invite move it).
+    .order("sent_at", { ascending: false })
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false });
   if (error) throw new Error(`Could not load invitations: ${error.message}`);
   return data.map((row) => ({
     id: row.id,

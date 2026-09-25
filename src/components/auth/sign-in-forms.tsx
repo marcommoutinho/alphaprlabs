@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { requestRecovery, setNewPassword, signIn } from "@/app/(private)/auth/actions";
+import { confirmRecovery, requestRecovery, setNewPassword, signIn } from "@/app/(private)/auth/actions";
 import { AppButton, Field, InlineError } from "@/components/app-shell/form";
 import { useSubmit } from "@/components/app-shell/use-submit";
 import { RECOVER_PATH, SIGN_IN_PATH } from "@/lib/auth/paths";
@@ -122,6 +122,24 @@ export function NewPasswordForm() {
       </div>
       <AppButton type="submit" block saving={pending} className="app-auth-submit">
         Save password
+      </AppButton>
+    </form>
+  );
+}
+
+/** The recovery link's button: only this POST verifies the one-time token. */
+export function ConfirmRecoveryForm({ tokenHash }: { tokenHash: string }) {
+  const { pending, submit } = useSubmit(confirmRecovery);
+
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit({ tokenHash });
+      }}
+    >
+      <AppButton type="submit" block saving={pending} savingLabel="Continuing…" className="app-auth-submit">
+        Continue to reset password
       </AppButton>
     </form>
   );

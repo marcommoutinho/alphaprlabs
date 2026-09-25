@@ -1,19 +1,20 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createClient as createPlainClient } from "@supabase/supabase-js";
+import { after } from "next/server";
 import { appOrigin } from "@/lib/auth/origin";
 import {
   ACKNOWLEDGE_PATH,
   ACKNOWLEDGEMENT_VERSION,
   AFTER_ACKNOWLEDGEMENT_PATH,
+  RECOVER_PATH,
+  RESET_PASSWORD_PATH,
   SIGN_IN_PATH,
   destinationFor,
 } from "@/lib/auth/paths";
+import { startRecovery } from "@/lib/auth/recovery";
 import { getSessionPerson } from "@/lib/auth/session";
 import { acceptInvitation, MIN_PASSWORD_LENGTH } from "@/lib/invitations/service";
-import { normalizeEmail } from "@/lib/invitations/state";
-import { supabasePublishableKey, supabaseUrl } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 
 /** What a form shows after a failed submit: one inline error or one error toast. */
@@ -57,24 +58,28 @@ export async function signOut(): Promise<void> {
 // ── Recover access ───────────────────────────────────────────────────────────
 
 /**
- * Always reports success for a valid address, so the response never reveals
- * whether an account exists. Supabase Auth sends the email (SMTP) only for
- * existing accounts; its link lands on /auth/confirm.
+ * Always reports success for a valid address, immediately: the provider call
+ * (which only emails existing accounts) runs after the response, so neither
+ * the answer nor its timing reveals whether an account exists.
  */
 export async function requestRecovery(input: { email: unknown }): Promise<FormResult & { sent?: boolean }> {
-  const email = normalizeEmail(input.email);
-  if (!email) return { toast: "Enter a valid email address." };
+  return startRecovery(input, { origin: await appOrigin(), schedule: after });
+}
 
-  // A cookie-less client: the emailed link carries a token hash verified on
-  // /auth/confirm, so it works on any device (no PKCE verifier cookie).
-  const supabase = createPlainClient(supabaseUrl(), supabasePublishableKey(), {
-    auth: { flowType: "implicit", persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-  });
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${await appOrigin()}/auth/confirm`,
-  });
-  if (error) console.error("Recovery email request failed:", error.code ?? error.status);
-  return { sent: true };
+/**
+ * Second half of the recovery link. The emailed link (GET /auth/confirm) only
+ * shows a button, so mail scanners that follow links can't use up the
+ * single-use token; the person's click verifies it and signs them in.
+ */
+export async function confirmRecovery(input: { tokenHash: unknown }): Promise<FormResult> {
+  const tokenHash = str(input.tokenHash);
+  let verified = false;
+  if (tokenHash) {
+    const supabase = await createClient();
+    const { error } = await supabase.auth.verifyOtp({ type: "recovery", token_hash: tokenHash });
+    verified = !error;
+  }
+  redirect(verified ? RESET_PASSWORD_PATH : `${RECOVER_PATH}?link=invalid`);
 }
 
 export async function setNewPassword(input: { password: unknown }): Promise<FormResult> {

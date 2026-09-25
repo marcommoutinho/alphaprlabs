@@ -25,6 +25,8 @@ test.beforeAll(async () => {
 const alert = (page: Page) => page.locator('.app-inline-error[role="alert"]');
 const toast = (page: Page) => page.locator(".app-toast");
 const row = (page: Page, email: string) => page.getByTestId("invitation-row").filter({ hasText: email });
+const rowIndex = async (page: Page, email: string) =>
+  (await page.getByTestId("invitation-row").allTextContents()).findIndex((text) => text.includes(email));
 
 async function invite(page: Page, name: string, email: string) {
   await page.getByLabel("Name").fill(name);
@@ -140,6 +142,8 @@ test("expired, unknown and failed invitations; resend", async ({ page }) => {
   await expect(row(page, expiredEmail).locator('[data-state="expired"]')).toHaveCSS("color", "rgb(251, 191, 36)");
   await expect(row(page, failedEmail).locator('[data-state="failed"]')).toHaveText("Send failed");
   await expect(row(page, failedEmail).locator('[data-state="failed"]')).toHaveCSS("color", "rgb(248, 113, 113)");
+  // Newest first by the "Sent" date.
+  expect(await rowIndex(page, failedEmail)).toBeLessThan(await rowIndex(page, expiredEmail));
 
   await row(page, failedEmail).getByRole("button", { name: "Resend" }).click();
   await expect(toast(page)).toHaveText(`Invitation resent to ${failedEmail}`);
@@ -149,6 +153,8 @@ test("expired, unknown and failed invitations; resend", async ({ page }) => {
 
   await row(page, expiredEmail).getByRole("button", { name: "Resend" }).click();
   await expect(row(page, expiredEmail)).toContainText("Pending");
+  // Resending moves the older invitation above the newer one.
+  expect(await rowIndex(page, expiredEmail)).toBeLessThan(await rowIndex(page, failedEmail));
   // The old link died with the resend.
   await page.goto(`${APP_ORIGIN}/auth/invite/${expiredToken}`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("This invitation was already used");
@@ -175,6 +181,7 @@ test("sign in errors, session-expired notice and return path", async ({ page, co
 });
 
 test("recovery shows the same confirmation for known and unknown emails and resets the password", async ({
+  browser,
   page,
 }) => {
   const account = { email: uniqueEmail("e2e-recover"), name: "Recover Me" };
@@ -191,12 +198,22 @@ test("recovery shows the same confirmation for known and unknown emails and rese
       `Sent to ${email}. Check your inbox.`,
     );
   }
-  expect(await emailCount(unknown)).toBe(0);
 
+  // Emails go out after the response; the unknown address (asked first) gets none.
   const mail = await latestEmail(account.email);
+  expect(await emailCount(unknown)).toBe(0);
   const link = /href="([^"]+)"/.exec(mail.html)?.[1].replaceAll("&amp;", "&");
   expect(link).toContain(`${APP_ORIGIN}/auth/confirm?token_hash=`);
+
+  // A mail scanner opening the link (GET, no click) must not use up the token.
+  const scanner = await (await browser.newContext()).newPage();
+  await scanner.goto(link!);
+  await expect(scanner.getByRole("button", { name: "Continue to reset password" })).toBeVisible();
+  await scanner.close();
+
   await page.goto(link!);
+  await expect(page).toHaveURL(link!);
+  await page.getByRole("button", { name: "Continue to reset password" }).click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth/reset`);
   await page.getByLabel("New password · at least 8 characters").fill("a-brand-new-password");
   await page.getByRole("button", { name: "Save password" }).click();
@@ -204,6 +221,7 @@ test("recovery shows the same confirmation for known and unknown emails and rese
 
   // The link works once; the new password signs in.
   await page.goto(link!);
+  await page.getByRole("button", { name: "Continue to reset password" }).click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth/recover?link=invalid`);
   await page.goto(`${APP_ORIGIN}/app/today`);
   await signOut(page);
