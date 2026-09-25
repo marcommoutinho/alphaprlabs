@@ -619,7 +619,14 @@ counts as phone proof; G1 and G2 do.
 
 ## Production readiness
 
-Before G1, Marco provides or approves: the production domain for the app,
+The app's production address is `app.alphaprlabs.com` (Marco, 2026-09-25).
+The public reference site stays on its own domain. One codebase serves both:
+on the app host, `/` routes to the signed-in home and public pages redirect to
+the public site; the manifest, service worker and cookies belong to the app
+host only, so installation and notifications never involve the public site.
+S1 sets up this host routing locally.
+
+Before G1, Marco provides or approves: DNS for `app.alphaprlabs.com`,
 Vercel Pro and Supabase Pro projects, and a Postmark account with a verified
 sending domain (Postmark reviews new accounts before they can send to outside
 recipients). Keep production data separate from local data, keep privileged
