@@ -89,6 +89,11 @@ test("admin invites; the researcher accepts, sets a password, acknowledges and r
   );
   await researcher.getByLabel("I have read the acknowledgement and confirm I am a researcher.").check();
   await researcher.getByRole("button", { name: "Continue" }).click();
+  // Step 3 (optional): reminders on this phone; "Not now" continues to Today.
+  await expect(researcher).toHaveURL(`${APP_ORIGIN}/auth/reminders`);
+  await expect(researcher.getByText("Step 3 of 3 · optional")).toBeVisible();
+  await expect(researcher.getByRole("heading", { level: 1 })).toHaveText("Reminders on your phone");
+  await researcher.getByRole("button", { name: "Not now" }).click();
   await expect(researcher).toHaveURL(`${APP_ORIGIN}/app/today`);
   await expect(researcher.getByRole("heading", { level: 1 })).toHaveText("Today");
   await expect(toast(researcher)).toHaveCount(0);

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { Menu } from "@base-ui/react/menu";
 import { signOut } from "@/app/(private)/auth/actions";
+import { endpointForSignOut } from "@/components/push/use-reminders";
 import { initialsOf, type AppIdentity } from "@/lib/app/identity";
 import { usePortalContainer } from "./app-root";
 import { RESEARCHER_ACCOUNT_LINKS, isUnder } from "./nav";
@@ -60,7 +61,13 @@ export function AccountMenu({ identity, pathname }: { identity: AppIdentity; pat
             <Menu.Item
               className="app-menu-item"
               disabled={signingOut}
-              onClick={() => startSignOut(() => signOut())}
+              onClick={() =>
+                startSignOut(async () => {
+                  // Researchers: this device stops receiving this account's reminders.
+                  const endpoint = identity.role === "researcher" ? await endpointForSignOut() : null;
+                  await signOut({ endpoint });
+                })
+              }
             >
               Sign out
             </Menu.Item>

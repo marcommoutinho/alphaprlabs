@@ -2,7 +2,7 @@
 // accounts, seeded invitations and the Mailpit inbox. Test data uses unique
 // emails per run (uniqueEmail), so runs never depend on or reset each other.
 import { execSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { createECDH, createHash, randomBytes } from "node:crypto";
 import type { Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../../src/lib/supabase/database.types";
@@ -49,10 +49,18 @@ export function localSupabase(): LocalSupabase {
   return cached;
 }
 
+// A throwaway VAPID key pair per test run (P-256, base64url), so no key is
+// ever committed. Local automated tests never send real pushes.
+const vapid = createECDH("prime256v1");
+vapid.generateKeys();
+
 /** Environment for the app under test (Next reads these; SMTP goes to Mailpit). */
 export function appTestEnv(): Record<string, string> {
   const local = localSupabase();
   return {
+    NEXT_PUBLIC_VAPID_PUBLIC_KEY: vapid.getPublicKey().toString("base64url"),
+    VAPID_PRIVATE_KEY: Buffer.from(vapid.getPrivateKey("hex").padStart(64, "0"), "hex").toString("base64url"),
+    VAPID_SUBJECT: "mailto:research@alphaprlabs.test",
     NEXT_PUBLIC_SUPABASE_URL: local.url,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: local.publishableKey,
     SUPABASE_SECRET_KEY: local.secretKey,

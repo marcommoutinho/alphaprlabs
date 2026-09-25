@@ -92,6 +92,53 @@ export type Database = {
         }
         Relationships: []
       }
+      push_subscriptions: {
+        Row: {
+          auth: string
+          created_at: string
+          device_label: string
+          disabled_at: string | null
+          disabled_reason: string | null
+          endpoint: string
+          id: string
+          last_seen_at: string
+          p256dh: string
+          profile_id: string
+        }
+        Insert: {
+          auth: string
+          created_at?: string
+          device_label?: string
+          disabled_at?: string | null
+          disabled_reason?: string | null
+          endpoint: string
+          id?: string
+          last_seen_at?: string
+          p256dh: string
+          profile_id: string
+        }
+        Update: {
+          auth?: string
+          created_at?: string
+          device_label?: string
+          disabled_at?: string | null
+          disabled_reason?: string | null
+          endpoint?: string
+          id?: string
+          last_seen_at?: string
+          p256dh?: string
+          profile_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "push_subscriptions_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -108,6 +155,10 @@ export type Database = {
       complete_invitation: {
         Args: { p_id: string; p_name: string; p_user_id: string }
         Returns: undefined
+      }
+      disable_push_subscription: {
+        Args: { p_endpoint: string; p_reason: string }
+        Returns: boolean
       }
       invite_researcher: {
         Args: { p_email: string; p_name: string; p_token_hash: string }
@@ -129,6 +180,15 @@ export type Database = {
           email: string
           name: string
         }[]
+      }
+      save_push_subscription: {
+        Args: {
+          p_auth: string
+          p_device_label: string
+          p_endpoint: string
+          p_p256dh: string
+        }
+        Returns: string
       }
     }
     Enums: {

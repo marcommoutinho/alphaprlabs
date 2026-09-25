@@ -1,6 +1,7 @@
 // One codebase, two hosts (plan: "Production readiness"):
 //   app host    (APP_HOST, e.g. app.alphaprlabs.com / app.localhost:3000)
-//               serves /app, /admin, /auth (+ /api); "/" goes to /app and
+//               serves /app, /admin, /auth (+ /api and the installable
+//               app's manifest, service worker and icons); "/" goes to /app and
 //               public pages go back to the public host.
 //   public host (every other host) serves the reference site; /app, /admin
 //               and /auth move to the app host.
@@ -11,8 +12,11 @@
 // a relative one, which would loop on the app host. Use www.localhost:3000.
 
 const PRIVATE_PREFIXES = ["/app", "/admin", "/auth"] as const;
+// The installable app's files: served on the app host only (404 elsewhere).
+// A service worker script must never be redirected.
+export const APP_HOST_FILES = ["/sw.js", "/manifest.webmanifest", "/app-icons"] as const;
 // Allowed on the app host without redirecting (route handlers added later).
-const APP_HOST_PASSTHROUGH = ["/api"] as const;
+const APP_HOST_PASSTHROUGH = ["/api", ...APP_HOST_FILES] as const;
 
 export type HostConfig = {
   /** Host (with port if any) of the private app. Unset disables host routing. */
@@ -49,4 +53,11 @@ export function hostRedirect(request: HostRequest, config: HostConfig): string |
   }
 
   return isPrivatePath ? target(appHost, request.pathname) : null;
+}
+
+/** True for the app's manifest, service worker and icons requested on any host but the app host. */
+export function isAppFileOffAppHost(request: Pick<HostRequest, "host" | "pathname">, config: HostConfig): boolean {
+  const appHost = config.appHost?.trim().toLowerCase();
+  if (!appHost || request.host.trim().toLowerCase() === appHost) return false;
+  return APP_HOST_FILES.some((prefix) => under(request.pathname, prefix));
 }

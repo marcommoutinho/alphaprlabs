@@ -16,12 +16,14 @@ export const ACKNOWLEDGE_PATH = "/auth/acknowledge";
 /** Version of the researcher disclaimer text shown at ACKNOWLEDGE_PATH. */
 export const ACKNOWLEDGEMENT_VERSION = "2026-09-placeholder";
 
+/** C2 step 3 of 3 (optional): reminders on this phone, then Today. Researchers only. */
+export const REMINDERS_READINESS_PATH = "/auth/reminders";
+
 /**
  * Where a researcher goes right after acknowledging the disclaimer (end of
- * account setup). S3 inserts step 3 (notification readiness) by pointing this
- * at its screen, which then continues to Today.
+ * account setup): step 3, which continues to Today.
  */
-export const AFTER_ACKNOWLEDGEMENT_PATH = ROLE_HOME.researcher;
+export const AFTER_ACKNOWLEDGEMENT_PATH = REMINDERS_READINESS_PATH;
 
 const PRIVATE_AREA: Record<AppRole, string> = { admin: "/admin", researcher: "/app" };
 

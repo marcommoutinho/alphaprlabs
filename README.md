@@ -33,7 +33,14 @@ researchers, `/admin`, `/auth`). Requires Node 22, Docker and the
    Without `--password` a new account gets a random password printed once
    (or use "Forgot password?"). Researchers join only through invitations
    (Admin → Invitations); their emails, and recovery emails, land in Mailpit.
-7. **Checks:** `npm run lint`, `npm run typecheck`, `npm test` (Vitest unit
+7. **Reminders (Web Push):** run `npm run push:keys` and put the pair in
+   `.env.local` as `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`, with
+   `VAPID_SUBJECT=mailto:…` (one pair per environment; never commit keys).
+   `PUSH_TEST_ENABLED=true` shows "Send test notification" under
+   Me → Notifications (gate G1 only). Browsers allow push only over HTTPS or
+   on `localhost`/`*.localhost`. The app icons in `public/app-icons/` come from
+   `scripts/app-icons.sh` (ImageMagick).
+8. **Checks:** `npm run lint`, `npm run typecheck`, `npm test` (Vitest unit
    tests plus `tests/integration`, which run against the local Supabase) and
    `npm run test:e2e` (Playwright; builds and starts the app on port 3100 with
    host routing on). Both test commands need `npm run db:start` first; they

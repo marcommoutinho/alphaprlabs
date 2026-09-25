@@ -119,7 +119,7 @@ test.describe("researcher shell", () => {
 
     await accountButton(page).click();
     await page.getByRole("menuitem", { name: "Notifications" }).click();
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Notifications");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Reminders on this phone");
     await expect(page.getByRole("menu")).toBeHidden();
     await expect(mainNav(page).locator('[aria-current="page"]')).toHaveCount(0);
     await expect(accountButton(page)).toHaveCSS("border-color", "rgba(96, 165, 250, 0.55)");

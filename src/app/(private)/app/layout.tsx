@@ -1,4 +1,5 @@
 import { AppShell } from "@/components/app-shell/app-shell";
+import { PushSync } from "@/components/push/push-sync";
 import { requireRole } from "@/lib/auth/session";
 
 // Researchers who have acknowledged the disclaimer (others are routed to the
@@ -9,6 +10,7 @@ export default async function ResearcherLayout({ children }: Readonly<{ children
   return (
     <AppShell identity={{ name: researcher.name, email: researcher.email, role: researcher.role }}>
       {children}
+      <PushSync userId={researcher.id} vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? ""} />
     </AppShell>
   );
 }

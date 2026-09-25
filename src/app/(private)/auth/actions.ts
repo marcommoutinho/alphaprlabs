@@ -49,8 +49,16 @@ export async function signIn(input: { email: unknown; password: unknown; next?: 
   redirect(destinationFor({ role: profile.role, acknowledged: profile.acknowledged_at !== null }, str(input.next)));
 }
 
-export async function signOut(): Promise<void> {
+/**
+ * `endpoint` is this device's push subscription, if it has one: its row is
+ * disabled for the person signing out, so a signed-out phone gets no reminders.
+ */
+export async function signOut(input?: { endpoint?: unknown }): Promise<void> {
   const supabase = await createClient();
+  const endpoint = input?.endpoint;
+  if (typeof endpoint === "string" && endpoint.length <= 2048) {
+    await supabase.rpc("disable_push_subscription", { p_endpoint: endpoint, p_reason: "signed_out" });
+  }
   await supabase.auth.signOut();
   redirect(SIGN_IN_PATH);
 }
