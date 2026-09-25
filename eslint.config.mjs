@@ -12,6 +12,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Design handoff prototype runtime (reference only, not production code).
+    "docs/**",
+    // Playwright output.
+    "test-results/**",
+    "playwright-report/**",
+    "blob-report/**",
   ]),
 ]);
 

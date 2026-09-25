@@ -1,0 +1,143 @@
+/*
+ * Private app (/app, /admin, /auth): design tokens and base styles from the
+ * handoff (docs/design/research-app/README.md, "Design Tokens").
+ *
+ * Every selector is scoped to .app-root (rendered only by the private route
+ * group), so nothing here can reach the public site even though Next.js keeps
+ * loaded stylesheets across client navigations.
+ */
+
+.app-root {
+  /* Colors */
+  --app-bg: #050505;
+  --app-surface: #111111;
+  --app-surface-menu: #141414;
+  --app-surface-accent: #0d1626;
+  --app-surface-sheet: #0b0b0b;
+  --app-text: #ffffff;
+  --app-text-2: rgba(255, 255, 255, 0.75);
+  --app-text-3: rgba(255, 255, 255, 0.6);
+  --app-text-4: rgba(255, 255, 255, 0.55); /* minimum for any text */
+  --app-placeholder: rgba(255, 255, 255, 0.4);
+  --app-border: rgba(255, 255, 255, 0.08);
+  --app-border-input: rgba(255, 255, 255, 0.12);
+  --app-border-strong: rgba(255, 255, 255, 0.15);
+  --app-border-popup: rgba(255, 255, 255, 0.1);
+  --app-divider-row: rgba(255, 255, 255, 0.06);
+  --app-hover: rgba(255, 255, 255, 0.06);
+  --app-primary: #60a5fa;
+  --app-primary-strong: #3b82f6;
+  --app-primary-text: #93c5fd;
+  --app-primary-soft: #bfdbfe;
+  --app-on-primary: #050505;
+  --app-warning: #fbbf24;
+  --app-warning-soft: #fde68a;
+  --app-error: #f87171;
+  --app-error-soft: #fecaca;
+  --app-success: #4ade80;
+
+  /* Radii */
+  --app-radius-input: 14px;
+  --app-radius-input-compact: 12px;
+  --app-radius-button: 14px;
+  --app-radius-button-sm: 12px;
+  --app-radius-card: 20px;
+  --app-radius-card-sm: 18px;
+  --app-radius-hero: 24px;
+  --app-radius-menu: 16px;
+  --app-radius-menu-item: 10px;
+  --app-radius-pill: 99px;
+  --app-radius-sheet: 28px 28px 0 0;
+
+  --app-shadow-menu: 0 16px 40px rgba(0, 0, 0, 0.5);
+
+  /*
+   * The one breakpoint: < 760px is phone. Media queries cannot read custom
+   * properties, so every @media rule repeats it as (max-width: 759.98px).
+   */
+  --app-breakpoint: 760px;
+
+  /* Safe areas (notch, home indicator); needs viewport-fit=cover. */
+  --app-safe-top: env(safe-area-inset-top, 0px);
+  --app-safe-right: env(safe-area-inset-right, 0px);
+  --app-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --app-safe-left: env(safe-area-inset-left, 0px);
+
+  flex: 1;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--app-bg);
+  color: var(--app-text);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  line-height: normal;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color-scheme: dark;
+}
+
+/* Page background behind overscroll, only while the private app is mounted. */
+html:has(> body > .app-root),
+body:has(> .app-root) {
+  background: #050505;
+}
+
+/* `overflow-x: hidden` on <body> would make it a scroll container and stop the
+   sticky desktop header; clip gives the same no-horizontal-scroll result. */
+body:has(> .app-root) {
+  overflow-x: clip;
+}
+
+.app-root :where(a) {
+  color: var(--app-primary-text);
+  text-decoration: none;
+}
+
+.app-root :where(a:hover) {
+  color: var(--app-primary-soft);
+}
+
+.app-root :where(button) {
+  cursor: pointer;
+  color: inherit;
+}
+
+.app-root :where(button:disabled) {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.app-root :where(a, button, select, summary, [role="menuitem"], [role="tab"]):focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
+}
+
+.app-root .app-h1 {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* Screen enter motion */
+@keyframes app-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-root .app-page,
+  .app-root .app-auth-card,
+  .app-root .app-toast,
+  .app-root .app-modal {
+    animation: none;
+  }
+}
+
+.app-root .app-portals {
+  display: contents;
+}

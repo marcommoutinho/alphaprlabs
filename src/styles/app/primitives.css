@@ -1,0 +1,198 @@
+/* Private app global patterns: buttons, form controls, inline errors, empty
+   states, toasts, modal / bottom sheet (handoff "Global patterns").
+   Scoped under .app-root; see tokens.css. */
+
+/* ── Buttons ──────────────────────────────────────────── */
+.app-root .app-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 52px;
+  padding: 0 22px;
+  border-radius: var(--app-radius-button);
+  white-space: nowrap;
+}
+
+.app-root .app-btn--primary {
+  border: none;
+  background: var(--app-primary);
+  color: var(--app-on-primary);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.app-root .app-btn--secondary {
+  border: 1px solid var(--app-border-strong);
+  background: transparent;
+  color: var(--app-text);
+  font-size: 15px;
+  font-weight: 400;
+}
+
+.app-root .app-btn--sm {
+  height: 40px;
+  padding: 0 16px;
+  border-radius: var(--app-radius-button-sm);
+  font-size: 14px;
+}
+
+.app-root .app-btn--block {
+  width: 100%;
+}
+
+.app-root .app-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ── Form controls ────────────────────────────────────── */
+.app-root :where(input:not([type="checkbox"], [type="radio"], [type="range"]), select, textarea) {
+  width: 100%;
+  height: 48px;
+  padding: 0 16px;
+  border: 1px solid var(--app-border-input);
+  border-radius: var(--app-radius-input);
+  background: var(--app-surface);
+  color: var(--app-text);
+  font: inherit;
+  outline: none;
+}
+
+.app-root :where(textarea) {
+  height: auto;
+  padding: 12px 16px;
+  resize: vertical;
+}
+
+.app-root :where(input, select, textarea):focus {
+  border-color: var(--app-primary);
+}
+
+.app-root :where(input, textarea)::placeholder {
+  color: var(--app-placeholder);
+}
+
+.app-root :where(select option) {
+  background: var(--app-surface);
+}
+
+.app-root :where(input[type="checkbox"]) {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  accent-color: var(--app-primary);
+}
+
+.app-root .app-input--compact {
+  height: 44px;
+  border-radius: var(--app-radius-input-compact);
+}
+
+.app-root .app-field {
+  display: block;
+}
+
+.app-root .app-field-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-inline-error {
+  font-size: 13px;
+  color: var(--app-error);
+}
+
+.app-root .app-empty {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--app-text-4);
+}
+
+/* ── Toasts ───────────────────────────────────────────── */
+.app-root .app-toast-region {
+  position: fixed;
+  left: 50%;
+  bottom: calc(32px + var(--app-safe-bottom));
+  z-index: 90;
+  width: max-content;
+  max-width: min(520px, 92vw);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.app-root .app-toast {
+  padding: 12px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(96, 165, 250, 0.4);
+  background: var(--app-surface-accent);
+  color: var(--app-primary-soft);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  animation: app-fade-up 0.2s ease;
+  pointer-events: auto;
+}
+
+.app-root .app-toast[data-tone="warn"] {
+  border-color: rgba(251, 191, 36, 0.4);
+  background: #1a1408;
+  color: var(--app-warning-soft);
+}
+
+.app-root .app-toast[data-tone="error"] {
+  border-color: rgba(248, 113, 113, 0.4);
+  background: #2a0f0f;
+  color: var(--app-error-soft);
+}
+
+/* ── Modal (desktop) / bottom sheet (phone) ───────────── */
+.app-root .app-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0, 0, 0, 0.65);
+}
+
+.app-root .app-modal-viewport {
+  position: fixed;
+  inset: 0;
+  z-index: 71;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-root .app-modal {
+  width: 100%;
+  max-width: 520px;
+  max-height: 92vh;
+  overflow: auto;
+  padding: 22px 24px 28px;
+  border-radius: var(--app-radius-hero);
+  border: 1px solid var(--app-border-popup);
+  background: var(--app-surface-sheet);
+  color: var(--app-text);
+  animation: app-fade-up 0.25s ease;
+  outline: none;
+}
+
+@media (max-width: 759.98px) {
+  .app-root .app-toast-region {
+    bottom: calc(96px + var(--app-safe-bottom));
+  }
+
+  .app-root .app-modal-viewport {
+    align-items: flex-end;
+  }
+
+  .app-root .app-modal {
+    max-height: calc(92dvh - var(--app-safe-top));
+    padding: 22px max(24px, var(--app-safe-right)) calc(28px + var(--app-safe-bottom))
+      max(24px, var(--app-safe-left));
+    border-radius: var(--app-radius-sheet);
+  }
+}

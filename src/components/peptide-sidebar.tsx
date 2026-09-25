@@ -27,6 +27,8 @@ export function PeptideSidebar() {
 
   useEffect(() => {
     if (activeCategory) {
+      // Existing public-site behavior, left unchanged by the research app work.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setExpanded((prev) => ({ ...prev, [activeCategory]: true }));
     }
   }, [activeCategory]);

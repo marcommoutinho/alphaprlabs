@@ -1,0 +1,32 @@
+/* Private app auth frame (/auth): centered column, logo, 30px titles.
+   Scoped under .app-root; see tokens.css. */
+
+.app-root .app-auth {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: calc(40px + var(--app-safe-top)) max(20px, var(--app-safe-right))
+    calc(40px + var(--app-safe-bottom)) max(20px, var(--app-safe-left));
+}
+
+.app-root .app-auth-card {
+  width: 100%;
+  max-width: 420px;
+  animation: app-fade-up 0.3s ease;
+}
+
+.app-root .app-auth-logo {
+  display: block;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+}
+
+.app-root .app-auth-title {
+  margin-top: 28px;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}

@@ -1,5 +1,32 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Local development
+
+One codebase serves the public site and the private research app (`/app` for
+researchers, `/admin`, `/auth`). Requires Node 22, Docker and the
+[Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started) (2.106+).
+
+1. **Install:** `npm ci`, then `npx playwright install chromium` (once, for browser tests).
+2. **Start local Supabase:** `npm run db:start` (stop with `npm run db:stop`). It
+   uses ports 54421–54429 so it can run beside other local Supabase projects:
+   - API `http://127.0.0.1:54421`, Postgres `postgresql://postgres:postgres@127.0.0.1:54422/postgres`
+   - Studio `http://127.0.0.1:54423`
+   - Captured-email inbox (Mailpit) `http://127.0.0.1:54424` — every email the app sends locally lands here.
+3. **Environment:** copy `.env.example` to `.env.local`. Fill the Supabase values
+   from `npm run db:status` (`API_URL`, `PUBLISHABLE_KEY`, `SECRET_KEY`). Never
+   commit `.env.local`.
+4. **Run:** `npm run dev`.
+   - Without `APP_HOST`, everything is on `http://localhost:3000` (public pages, `/app`, `/admin`, `/auth`).
+   - With `APP_HOST=app.localhost:3000` and `PUBLIC_HOST=www.localhost:3000`, the
+     app lives on `http://app.localhost:3000` and the public site on
+     `http://www.localhost:3000`, as in production (`app.alphaprlabs.com`).
+     Browsers resolve `*.localhost` to your machine. Don't use plain
+     `localhost:3000` as `PUBLIC_HOST`: the dev server would turn that redirect
+     into a relative one and loop.
+5. **Checks:** `npm run lint`, `npm run typecheck`, `npm test` (Vitest unit
+   tests) and `npm run test:e2e` (Playwright; builds and starts the app on port
+   3100 with host routing on).
+
 ## Getting Started
 
 First, run the development server:
