@@ -4,13 +4,15 @@ import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { signInUrl } from "@/lib/auth/paths";
 import { currentAdmin } from "@/lib/auth/session";
-import { validateLibraryEntry } from "@/lib/library/entry";
+import { NAME_TAKEN, validateLibraryEntry } from "@/lib/library/entry";
 import { saveLibraryEntry } from "@/lib/library/service";
 import { createClient } from "@/lib/supabase/server";
 
 export type LibraryActionResult = {
   /** Inline validation error under the editor. */
   error?: string;
+  /** The field the error belongs to, shown under that field instead. */
+  field?: "name";
   toast?: string;
   tone?: "info" | "error";
   /** The entry was saved: close the editor. */
@@ -35,6 +37,8 @@ export async function saveLibraryEntryAction(input: unknown): Promise<LibraryAct
     case "saved":
       refresh();
       return { saved: true, toast: `Library updated · ${valid.value.name}`, tone: "info" };
+    case "duplicate_name":
+      return { error: NAME_TAKEN, field: "name" };
     case "not_found":
       refresh();
       return { toast: "This entry no longer exists. The list has been refreshed.", tone: "error" };

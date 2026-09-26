@@ -5,8 +5,10 @@ import {
   availabilityBadge,
   editorTitle,
   INFORMATION_REQUIRED,
+  INVALID_ENTRY,
   libraryMeta,
   NAME_REQUIRED,
+  NAME_TAKEN,
   NAME_TOO_LONG,
   referenceNote,
   TEXT_TOO_LONG,
@@ -24,12 +26,32 @@ describe("validateLibraryEntry", () => {
     expect(validateLibraryEntry({ ...entry, name: "  ", information: "" })).toEqual({ ok: false, error: NAME_REQUIRED });
     expect(validateLibraryEntry({ ...entry, information: " \n " })).toEqual({ ok: false, error: INFORMATION_REQUIRED });
     expect(validateLibraryEntry(null)).toEqual({ ok: false, error: NAME_REQUIRED });
+    // Refused by the database (names are unique); the product owner's exact copy.
+    expect(NAME_TAKEN).toBe("A peptide with this name already exists.");
+  });
+
+  it("treats every kind of whitespace as empty, as the database does", () => {
+    for (const blank of ["\t", "\n", "\r\n", "\u00a0", " \u2003\u3000\ufeff "]) {
+      expect(validateLibraryEntry({ ...entry, name: blank })).toEqual({ ok: false, error: NAME_REQUIRED });
+      expect(validateLibraryEntry({ ...entry, information: blank })).toEqual({ ok: false, error: INFORMATION_REQUIRED });
+    }
+    expect(validateLibraryEntry({ ...entry, name: "\t Compound A\u00a0\r\n" })).toMatchObject({ ok: true, value: { name: "Compound A" } });
+  });
+
+  it("refuses a malformed id instead of treating the edit as a new entry", () => {
+    for (const id of ["not-a-uuid", "", " ", "0b8f1e2a-1c2d-4e5f-8a9b-0c1d2e3f4a5", 42, {}, true]) {
+      expect(validateLibraryEntry({ ...entry, id }), JSON.stringify(id)).toEqual({ ok: false, error: INVALID_ENTRY });
+    }
+    // The id is checked first: a malformed id is refused even with a blank name.
+    expect(validateLibraryEntry({ ...entry, id: "x", name: "" })).toEqual({ ok: false, error: INVALID_ENTRY });
+    // Absent or null means a new entry.
+    expect(validateLibraryEntry({ ...entry, id: null })).toMatchObject({ ok: true, value: { id: null } });
+    expect(validateLibraryEntry({ ...entry, id: undefined })).toMatchObject({ ok: true, value: { id: null } });
   });
 
   it("trims text, keeps optional guidance blank, and accepts only a uuid id and a true availability", () => {
     const result = validateLibraryEntry({
       ...entry,
-      id: "not-a-uuid",
       name: "  Compound A ",
       cyclingOff: "  Off for 4 weeks. ",
       available: "yes",

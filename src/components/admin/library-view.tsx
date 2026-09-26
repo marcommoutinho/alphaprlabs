@@ -32,6 +32,9 @@ const formOf = (entry: LibraryEntry): EditorForm => ({
 export function LibraryView({ entries }: { entries: LibraryEntry[] }) {
   const [form, setForm] = useState<EditorForm | null>(null);
   const { pending, error, setError, submit } = useSubmit(saveLibraryEntryAction);
+  // Set when the current error belongs under the name (a duplicate name).
+  const [errorField, setErrorField] = useState<"name" | undefined>();
+  const nameError = errorField === "name" ? error : undefined;
   const editorRef = useRef<HTMLElement>(null);
   const editing = form !== null;
 
@@ -44,6 +47,7 @@ export function LibraryView({ entries }: { entries: LibraryEntry[] }) {
 
   function open(next: EditorForm) {
     setError(undefined);
+    setErrorField(undefined);
     setForm(next);
   }
 
@@ -105,6 +109,7 @@ export function LibraryView({ entries }: { entries: LibraryEntry[] }) {
               onSubmit={(event) => {
                 event.preventDefault();
                 submit(form, (result) => {
+                  setErrorField(result.field);
                   if (result.saved) setForm(null);
                 });
               }}
@@ -115,9 +120,15 @@ export function LibraryView({ entries }: { entries: LibraryEntry[] }) {
                   autoComplete="off"
                   maxLength={LIBRARY_LIMITS.name}
                   value={form.name}
+                  aria-invalid={nameError ? true : undefined}
                   onChange={(e) => update("name", e.target.value)}
                 />
               </Field>
+              {nameError ? (
+                <div className="app-lib-field-error">
+                  <InlineError>{nameError}</InlineError>
+                </div>
+              ) : null}
               <Field label="Information researchers see">
                 <textarea
                   name="information"
@@ -155,7 +166,7 @@ export function LibraryView({ entries }: { entries: LibraryEntry[] }) {
                 Available for new cycles
               </label>
               {note ? <p className="app-lib-note">{note}</p> : null}
-              <InlineError>{error}</InlineError>
+              <InlineError>{nameError ? undefined : error}</InlineError>
               <div className="app-lib-actions">
                 <AppButton type="submit" saving={pending}>
                   Save

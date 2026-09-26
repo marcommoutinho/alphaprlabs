@@ -1,7 +1,7 @@
 // S4 peptide library (A2) against the real local Supabase (npm run db:start):
-// admin-only writes enforced in the database, researchers (and admins on the
-// research side) read available entries only, reference counts, and the
-// admin-only server action. No mocked database: the action runs as the
+// admin-only writes enforced in the database, table reads return available
+// entries only for everyone (admins included), the admin-only maintenance
+// list, reference counts, and the admin-only server action. No mocked database: the action runs as the
 // signed-in person, only its cookie session is swapped for a signed-in client.
 import { randomBytes } from "node:crypto";
 import { beforeAll, describe, expect, it, vi } from "vitest";
@@ -18,11 +18,13 @@ type Client = Awaited<ReturnType<typeof signedInClient>>;
 const admin = { email: uniqueEmail("s4-lib-admin"), name: "S4 Library Admin" };
 const researcher = { email: uniqueEmail("s4-lib-researcher"), name: "S4 Library Researcher" };
 const newResearcher = { email: uniqueEmail("s4-lib-new"), name: "S4 Unacknowledged" };
+const newAdmin = { email: uniqueEmail("s4-lib-new-admin"), name: "S4 Unacknowledged Admin" };
 
 beforeAll(async () => {
   await ensureAccount({ ...admin, role: "admin" });
   await ensureAccount({ ...researcher, role: "researcher" });
   await ensureAccount({ ...newResearcher, role: "researcher", acknowledged: false });
+  await ensureAccount({ ...newAdmin, role: "admin", acknowledged: false });
 });
 
 const tag = () => randomBytes(4).toString("hex");
@@ -88,6 +90,64 @@ describe("admins maintain the library in the database", () => {
     expect((await stored(id)).information).toBe(`[Supplied information for ${name}]`);
   });
 
+  it("whitespace of any kind (tab, newline, CRLF, NBSP, Unicode spaces) is empty, not content", async () => {
+    const client = await signedInClient(admin.email);
+    const name = `Blank ${tag()}`;
+    const id = await create(client, name);
+    for (const blank of ["\t", "\n", "\r\n", "\r", "\u00a0", " \u2003\u3000\ufeff\u000b "]) {
+      const label = JSON.stringify(blank);
+      expect((await client.rpc("save_library_peptide", { ...entry(name), p_information: blank })).error, label).not.toBeNull();
+      expect((await client.rpc("save_library_peptide", { ...entry(`x`), p_name: blank })).error, label).not.toBeNull();
+      expect((await client.rpc("save_library_peptide", { ...entry(name), p_information: blank, p_id: id })).error, label).not.toBeNull();
+      expect((await client.rpc("save_library_peptide", { ...entry(name), p_name: blank, p_id: id })).error, label).not.toBeNull();
+      // The table checks refuse it too, even for the secret key.
+      expect((await serviceClient().from("peptides").insert({ name: blank, information: "x" })).error, label).not.toBeNull();
+      expect((await serviceClient().from("peptides").insert({ name, information: blank })).error, label).not.toBeNull();
+    }
+    expect((await stored(id)).information).toBe(`[Supplied information for ${name}]`);
+    expect((await serviceClient().from("peptides").select("id").eq("name", name)).data).toEqual([{ id }]);
+
+    // Surrounding whitespace of every kind is trimmed from stored text.
+    const { error } = await client.rpc("save_library_peptide", {
+      ...entry(name),
+      p_name: `\t${name}\u00a0\r\n`,
+      p_supplement_guidance: "\n\u3000",
+      p_id: id,
+    });
+    expect(error).toBeNull();
+    expect(await stored(id)).toMatchObject({ name, supplement_guidance: "" });
+  });
+
+  it("names are unique ignoring case and whitespace; an entry keeps or re-cases its own name", async () => {
+    const client = await signedInClient(admin.email);
+    const duplicate = (result: { error: { code: string } | null }) => expect(result.error?.code).toBe("23505");
+
+    // The literal pair. The library is shared by every run, so 'BPC-157' may
+    // already exist from an earlier run; either way ' bpc-157 ' is refused.
+    const literal = await client.rpc("save_library_peptide", entry("BPC-157"));
+    if (literal.error) duplicate(literal);
+    duplicate(await client.rpc("save_library_peptide", entry(" bpc-157 ")));
+    expect((await serviceClient().from("peptides").select("id").ilike("name", "bpc-157")).data).toHaveLength(1);
+
+    const t = tag();
+    const id = await create(client, `Unique ${t}`, false);
+    for (const variant of [`unique ${t}`, ` UNIQUE ${t.toUpperCase()}\t`, `Unique\u00a0 ${t}`, `\nunique\t\t${t}\r\n`]) {
+      duplicate(await client.rpc("save_library_peptide", entry(variant)));
+      // The table itself refuses it too, even for the secret key.
+      expect((await serviceClient().from("peptides").insert({ name: variant.trim(), information: "x" })).error?.code).toBe("23505");
+    }
+    // Editing another entry to that name is refused and changes nothing.
+    const other = await create(client, `Other ${t}`);
+    duplicate(await client.rpc("save_library_peptide", { ...entry(`UNIQUE ${t}`), p_id: other }));
+    expect((await stored(other)).name).toBe(`Other ${t}`);
+
+    // The entry keeps its own name, and may change its case or spacing.
+    expect((await client.rpc("save_library_peptide", { ...entry(`Unique ${t}`, false), p_id: id })).data).toBe(id);
+    expect((await client.rpc("save_library_peptide", { ...entry(`UNIQUE  ${t}`), p_id: id })).data).toBe(id);
+    expect(await stored(id)).toMatchObject({ name: `UNIQUE  ${t}`, available: true });
+    expect((await serviceClient().from("peptides").select("id").ilike("name", `%${t}`)).data).toHaveLength(2);
+  });
+
   it("reference counts are admin-only, one row per entry, 0 until templates and cycles exist", async () => {
     const client = await signedInClient(admin.email);
     const id = await create(client, `Counted ${tag()}`, false);
@@ -102,7 +162,7 @@ describe("admins maintain the library in the database", () => {
   });
 });
 
-describe("researchers read available entries only and cannot write", () => {
+describe("table reads return available entries only, for everyone; A2 lists all through an admin-only path", () => {
   it("a researcher reads available entries only; unacknowledged and anonymous callers read none", async () => {
     const adminClient = await signedInClient(admin.email);
     const [on, off] = [await create(adminClient, `Offered ${tag()}`), await create(adminClient, `Withdrawn ${tag()}`, false)];
@@ -113,11 +173,8 @@ describe("researchers read available entries only and cannot write", () => {
     const { data: all } = await reader.from("peptides").select("available");
     expect(all!.length).toBeGreaterThan(0);
     expect(all!.every((row) => row.available)).toBe(true);
-    // The admin maintains every entry, available or not.
-    expect((await adminClient.from("peptides").select("id").in("id", ids).order("created_at")).data).toEqual([
-      { id: on },
-      { id: off },
-    ]);
+    // An admin's own table reads (the research side) are no wider.
+    expect((await adminClient.from("peptides").select("id").in("id", ids)).data).toEqual([{ id: on }]);
 
     const unacknowledged = await signedInClient(newResearcher.email);
     expect((await unacknowledged.from("peptides").select("id").in("id", ids)).data).toEqual([]);
@@ -128,6 +185,46 @@ describe("researchers read available entries only and cannot write", () => {
     expect((await reader.from("peptides").select("id").in("id", ids)).data).toEqual([]);
     await adminClient.rpc("save_library_peptide", { ...entry((await stored(off)).name, true), p_id: off });
     expect((await reader.from("peptides").select("id").in("id", ids)).data).toEqual([{ id: off }]);
+    expect((await adminClient.from("peptides").select("id").in("id", ids)).data).toEqual([{ id: off }]);
+  });
+
+  it("admins list every entry, available or not, through admin_library_peptides(), even before acknowledging", async () => {
+    const adminClient = await signedInClient(admin.email);
+    const [on, off] = [await create(adminClient, `Listed ${tag()}`), await create(adminClient, `Listed off ${tag()}`, false)];
+    const { count } = await serviceClient().from("peptides").select("id", { count: "exact", head: true });
+    const { count: availableCount } = await serviceClient()
+      .from("peptides")
+      .select("id", { count: "exact", head: true })
+      .eq("available", true);
+
+    const { data, error } = await adminClient.rpc("admin_library_peptides");
+    expect(error).toBeNull();
+    expect(data).toHaveLength(count!);
+    expect(data!.filter((row) => [on, off].includes(row.id)).map((row) => [row.id, row.available])).toEqual([
+      [on, true],
+      [off, false],
+    ]);
+    // ... while the admin's plain table read has only the available ones.
+    const { data: plain } = await adminClient.from("peptides").select("id, available");
+    expect(plain).toHaveLength(availableCount!);
+    expect(plain!.every((row) => row.available)).toBe(true);
+
+    // The back office does not need the acknowledgement; the research side does.
+    const unacknowledgedAdmin = await signedInClient(newAdmin.email);
+    const listed = await unacknowledgedAdmin.rpc("admin_library_peptides").in("id", [on, off]);
+    expect(listed.error).toBeNull();
+    expect(listed.data!.map((row) => row.id).sort()).toEqual([on, off].sort());
+    expect((await unacknowledgedAdmin.from("peptides").select("id").in("id", [on, off])).data).toEqual([]);
+    const saved = await unacknowledgedAdmin.rpc("save_library_peptide", { ...entry(`Unacknowledged admin ${tag()}`), p_available: false });
+    expect(saved.error).toBeNull();
+    expect(saved.data).toEqual(expect.any(String));
+
+    // Researchers (acknowledged or not) and anonymous callers cannot use it.
+    for (const other of [await signedInClient(researcher.email), await signedInClient(newResearcher.email), anonClient()]) {
+      const refused = await other.rpc("admin_library_peptides");
+      expect(refused.error).not.toBeNull();
+      expect(refused.data).toBeNull();
+    }
   });
 
   it("researchers and anonymous callers cannot create, edit, withdraw or delete entries", async () => {
@@ -169,6 +266,17 @@ describe("the A2 save action (server)", () => {
       await saveLibraryEntryAction({ ...form, id: data![0].id, information: "Supplied.", available: false }),
     ).toMatchObject({ saved: true });
     expect(await stored(data![0].id)).toMatchObject({ available: false });
+
+    // A name another entry has is refused, shown under the name field.
+    expect(await saveLibraryEntryAction({ ...form, name: ` ${name.toUpperCase()} `, information: "Supplied." })).toEqual({
+      error: "A peptide with this name already exists.",
+      field: "name",
+    });
+    // A malformed id is refused, never saved as a new (duplicate) entry.
+    expect(await saveLibraryEntryAction({ ...form, id: "not-a-uuid", information: "Supplied." })).toEqual({
+      error: "This entry could not be identified. Reload the page and try again.",
+    });
+    expect((await serviceClient().from("peptides").select("id").eq("name", name)).data).toEqual([{ id: data![0].id }]);
   });
 
   it("a researcher calling the action is refused before anything is saved", async () => {

@@ -248,6 +248,25 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_library_peptides: {
+        Args: never
+        Returns: {
+          available: boolean
+          created_at: string
+          cycling_off_guidance: string
+          id: string
+          information: string
+          name: string
+          supplement_guidance: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "peptides"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       can_read_researcher: { Args: { p_owner: string }; Returns: boolean }
       can_write_researcher: { Args: { p_owner: string }; Returns: boolean }
       claim_invitation: {
@@ -281,6 +300,7 @@ export type Database = {
         Args: { p_endpoint: string }
         Returns: boolean
       }
+      library_name_key: { Args: { p_name: string }; Returns: string }
       library_reference_counts: {
         Args: never
         Returns: {
@@ -325,6 +345,7 @@ export type Database = {
         }
         Returns: string
       }
+      trim_whitespace: { Args: { p_text: string }; Returns: string }
     }
     Enums: {
       app_role: "admin" | "researcher"

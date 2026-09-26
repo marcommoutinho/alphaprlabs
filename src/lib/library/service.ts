@@ -8,12 +8,18 @@ type Db = SupabaseClient<Database>;
 // Admin side (A2). `db` is the admin's own session client: RLS and the SQL
 // functions' is_admin() checks apply on top of the caller's role check.
 
-/** Every entry, available or not, oldest first, with its reference counts. */
+/**
+ * Every entry, available or not, oldest first, with its reference counts.
+ * Reads through the admin-only admin_library_peptides(): the peptides table
+ * itself returns available entries only, to everyone (admins included), so
+ * research screens never see withdrawn entries.
+ */
 export async function listLibrary(db: Db): Promise<LibraryEntry[]> {
   const [entries, counts] = await Promise.all([
     db
-      .from("peptides")
-      .select("id, name, information, cycling_off_guidance, supplement_guidance, available, updated_at")
+      .rpc("admin_library_peptides")
+      // A function's result can only be ordered by selected columns.
+      .select("id, name, information, cycling_off_guidance, supplement_guidance, available, created_at, updated_at")
       .order("created_at", { ascending: true })
       .order("id", { ascending: true }),
     db.rpc("library_reference_counts"),
@@ -35,7 +41,10 @@ export async function listLibrary(db: Db): Promise<LibraryEntry[]> {
   }));
 }
 
-export type SaveLibraryResult = { kind: "saved"; id: string } | { kind: "not_found" | "error" };
+export type SaveLibraryResult = { kind: "saved"; id: string } | { kind: "not_found" | "duplicate_name" | "error" };
+
+/** save_library_peptide's refusal of a name another entry already has. */
+const DUPLICATE_NAME = "23505";
 
 /** Creates (id null) or edits an entry through the admin-only database function. */
 export async function saveLibraryEntry(db: Db, entry: ValidLibraryEntry): Promise<SaveLibraryResult> {
@@ -47,7 +56,7 @@ export async function saveLibraryEntry(db: Db, entry: ValidLibraryEntry): Promis
     p_available: entry.available,
     ...(entry.id ? { p_id: entry.id } : {}),
   });
-  if (error) return { kind: "error" };
+  if (error) return { kind: error.code === DUPLICATE_NAME ? "duplicate_name" : "error" };
   if (!data) return { kind: "not_found" };
   return { kind: "saved", id: data };
 }

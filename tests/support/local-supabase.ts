@@ -7,7 +7,14 @@ import type { Locator, Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../../src/lib/supabase/database.types";
 
-export type LocalSupabase = { url: string; publishableKey: string; secretKey: string; mailpitUrl: string };
+export type LocalSupabase = {
+  url: string;
+  publishableKey: string;
+  secretKey: string;
+  mailpitUrl: string;
+  /** Direct Postgres connection (tests that must run SQL as a given role, rolled back). */
+  dbUrl: string;
+};
 
 let cached: LocalSupabase | undefined;
 
@@ -21,6 +28,7 @@ export function localSupabase(): LocalSupabase {
       publishableKey: env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
       secretKey: env.SUPABASE_SECRET_KEY,
       mailpitUrl: env.MAILPIT_URL ?? "http://127.0.0.1:54424",
+      dbUrl: env.SUPABASE_DB_URL ?? "postgresql://postgres:postgres@127.0.0.1:54422/postgres",
     };
     return cached;
   }
@@ -40,12 +48,14 @@ export function localSupabase(): LocalSupabase {
     publishableKey: value("PUBLISHABLE_KEY"),
     secretKey: value("SECRET_KEY"),
     mailpitUrl: value("MAILPIT_URL"),
+    dbUrl: value("DB_URL"),
   };
   // Test worker processes inherit these instead of asking `supabase status` again.
   process.env.NEXT_PUBLIC_SUPABASE_URL = cached.url;
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = cached.publishableKey;
   process.env.SUPABASE_SECRET_KEY = cached.secretKey;
   process.env.MAILPIT_URL = cached.mailpitUrl;
+  process.env.SUPABASE_DB_URL = cached.dbUrl;
   return cached;
 }
 

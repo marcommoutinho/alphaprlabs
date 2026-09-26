@@ -72,7 +72,25 @@ test("an admin adds, edits and withdraws a library entry, as designed", async ({
   );
   await expect(row(page, name).locator(".app-lib-badge")).toHaveText("Available");
 
-  // Edit: the row opens the editor with its values and is marked selected.
+  // Names are unique, ignoring case and spacing: the error sits under the name.
+  await page.getByRole("button", { name: "Add peptide" }).click();
+  await page.getByLabel("Name").fill(`  ${name.toUpperCase()} `);
+  await page.getByLabel("Information researchers see").fill("[Another information placeholder]");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  const nameError = editor(page).locator(".app-lib-field-error").getByRole("alert");
+  await expect(nameError).toHaveText("A peptide with this name already exists.");
+  await expect(page.getByLabel("Name")).toHaveAttribute("aria-invalid", "true");
+  // Directly under the name field, above the information field.
+  const [nameBox, errorBox, infoBox] = await Promise.all(
+    [page.getByLabel("Name"), nameError, page.getByLabel("Information researchers see")].map((l) => l.boundingBox()),
+  );
+  expect(errorBox!.y).toBeGreaterThan(nameBox!.y + nameBox!.height - 1);
+  expect(errorBox!.y + errorBox!.height).toBeLessThan(infoBox!.y);
+  await expect(alert(page)).toHaveCount(1);
+  await expect(row(page, name)).toHaveCount(1);
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+
+  // Edit:the row opens the editor with its values and is marked selected.
   await row(page, name).click();
   await expect(row(page, name)).toHaveAttribute("aria-current", "true");
   await expect(editor(page).getByRole("heading", { level: 2 })).toHaveText(`Edit ${name}`);
@@ -102,6 +120,10 @@ test("an admin adds, edits and withdraws a library entry, as designed", async ({
     cycling_off_guidance: "[Cycling-off guidance placeholder]",
     supplement_guidance: "[Supplement guidance placeholder]",
   });
+  // A freshly loaded A2 still lists the withdrawn entry (the admin-only
+  // maintenance read; ordinary table reads return available entries only).
+  await page.reload();
+  await expect(row(page, name).locator(".app-lib-badge")).toHaveText("Not offered");
 
   // Cancel discards changes.
   await row(page, name).click();
@@ -114,11 +136,14 @@ test("an admin adds, edits and withdraws a library entry, as designed", async ({
 
 test("on a phone the editor stacks below the list", async ({ page }) => {
   const name = `Stacked ${randomBytes(3).toString("hex")}`;
-  await serviceClient().from("peptides").insert({ name, information: "[Supplied information]" });
+  // Seeded unavailable: A2 lists and edits withdrawn entries too.
+  await serviceClient().from("peptides").insert({ name, information: "[Supplied information]", available: false });
   await page.setViewportSize({ width: 390, height: 844 });
   await openLibrary(page);
   await (await hydrated(row(page, name))).click();
   await expect(editor(page).getByRole("heading", { level: 2 })).toHaveText(`Edit ${name}`);
+  await expect(row(page, name).locator(".app-lib-badge")).toHaveText("Not offered");
+  await expect(page.getByLabel("Available for new cycles")).not.toBeChecked();
   // The editor is scrolled into view; both boxes are measured in one frame
   // because that smooth scroll may still be moving the page.
   await expect(editor(page)).toBeInViewport();

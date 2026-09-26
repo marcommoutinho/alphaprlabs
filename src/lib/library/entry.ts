@@ -11,6 +11,10 @@ export const INFORMATION_REQUIRED =
   "Add the information researchers will see (incomplete entries can't be published).";
 export const NAME_TOO_LONG = `Names can be up to ${LIBRARY_LIMITS.name} characters.`;
 export const TEXT_TOO_LONG = "Each text can be up to 4,000 characters.";
+/** Another entry has this name (case and whitespace ignored); shown under the name. */
+export const NAME_TAKEN = "A peptide with this name already exists.";
+/** A non-null id that is not a uuid: never treated as "new" (that would duplicate the entry). */
+export const INVALID_ENTRY = "This entry could not be identified. Reload the page and try again.";
 
 /** The editor's fields, as typed. `id` is absent for a new entry. */
 export type LibraryEntryInput = {
@@ -32,10 +36,14 @@ export type ValidLibraryEntry = {
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// String.prototype.trim removes Unicode whitespace and line terminators; the
+// database's public.trim_whitespace() trims exactly the same set, so text the
+// form accepts is never refused as blank there, and the reverse.
 const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
 
 /**
- * Validates an entry, first failure wins: name required, then the
+ * Validates an entry, first failure wins: a missing (null/absent) id means a
+ * new entry and any other id must be a uuid; then name required, then the
  * information researchers see (an entry without it is incomplete and can't be
  * published). Text is trimmed; optional guidance may be blank.
  */
@@ -43,8 +51,9 @@ export function validateLibraryEntry(
   input: unknown,
 ): { ok: true; value: ValidLibraryEntry } | { ok: false; error: string } {
   const raw = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
+  if (raw.id != null && !(typeof raw.id === "string" && UUID.test(raw.id))) return { ok: false, error: INVALID_ENTRY };
   const value: ValidLibraryEntry = {
-    id: typeof raw.id === "string" && UUID.test(raw.id) ? raw.id.toLowerCase() : null,
+    id: typeof raw.id === "string" ? raw.id.toLowerCase() : null,
     name: text(raw.name),
     information: text(raw.information),
     cyclingOff: text(raw.cyclingOff),

@@ -76,6 +76,11 @@
   display: contents;
 }
 
+/* A field's own error (a duplicate name) sits just under that field. */
+.app-root .app-lib-field-error {
+  margin-top: -8px;
+}
+
 .app-root .app-lib-check {
   display: flex;
   align-items: center;
