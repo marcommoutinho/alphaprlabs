@@ -210,6 +210,113 @@ export type Database = {
           },
         ]
       }
+      cycle_template_phases: {
+        Row: {
+          dose_mg: number | null
+          every_days: number | null
+          id: string
+          kind: string
+          length_days: number
+          local_time: string | null
+          offset_days: number
+          plan_id: string
+          schedule_type: string | null
+          weekdays: number[] | null
+        }
+        Insert: {
+          dose_mg?: number | null
+          every_days?: number | null
+          id?: string
+          kind: string
+          length_days: number
+          local_time?: string | null
+          offset_days: number
+          plan_id: string
+          schedule_type?: string | null
+          weekdays?: number[] | null
+        }
+        Update: {
+          dose_mg?: number | null
+          every_days?: number | null
+          id?: string
+          kind?: string
+          length_days?: number
+          local_time?: string | null
+          offset_days?: number
+          plan_id?: string
+          schedule_type?: string | null
+          weekdays?: number[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cycle_template_phases_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "cycle_template_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cycle_template_plans: {
+        Row: {
+          id: string
+          peptide_id: string
+          position: number
+          template_id: string
+        }
+        Insert: {
+          id?: string
+          peptide_id: string
+          position: number
+          template_id: string
+        }
+        Update: {
+          id?: string
+          peptide_id?: string
+          position?: number
+          template_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cycle_template_plans_peptide_id_fkey"
+            columns: ["peptide_id"]
+            isOneToOne: false
+            referencedRelation: "peptides"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cycle_template_plans_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "cycle_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cycle_templates: {
+        Row: {
+          created_at: string
+          guidance: string
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          guidance?: string
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          guidance?: string
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       invitations: {
         Row: {
           accepted_at: string | null
@@ -488,6 +595,13 @@ export type Database = {
           strength_mg: string
         }[]
       }
+      admin_cycle_template_usage: {
+        Args: never
+        Returns: {
+          cycle_count: number
+          template_id: string
+        }[]
+      }
       admin_library_peptides: {
         Args: never
         Returns: {
@@ -531,6 +645,7 @@ export type Database = {
         Args: { p_id: string; p_name: string; p_user_id: string }
         Returns: undefined
       }
+      cycle_template_content: { Args: { p_template_id: string }; Returns: Json }
       disable_push_subscription: {
         Args: { p_device_id: string; p_endpoint?: string; p_reason: string }
         Returns: boolean
@@ -550,6 +665,7 @@ export type Database = {
         Args: { p_endpoint: string }
         Returns: boolean
       }
+      is_weekday_set: { Args: { p_days: number[] }; Returns: boolean }
       library_name_key: { Args: { p_name: string }; Returns: string }
       library_reference_counts: {
         Args: never
@@ -606,6 +722,15 @@ export type Database = {
         }[]
       }
       revoke_support_access: { Args: { p_admin_id: string }; Returns: boolean }
+      save_cycle_template: {
+        Args: {
+          p_guidance: string
+          p_id?: string
+          p_name: string
+          p_plans: Json
+        }
+        Returns: string
+      }
       save_library_peptide: {
         Args: {
           p_available: boolean

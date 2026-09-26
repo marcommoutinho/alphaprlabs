@@ -1,6 +1,6 @@
 // Display formatting shared by the private app (handoff "Global patterns").
 //   Currency: CAD 1,234.00   (en-CA grouping, always 2 decimals)
-//   Dates:    Fri Sep 11 · Sep 11, 2026 · Fri Sep 11 · 07:30 (24-hour clock)
+//   Dates:    Fri Sep 11 · Sep 11 · Sep 11, 2026 · Fri Sep 11 · 07:30 (24-hour clock)
 
 const EMPTY = "—";
 
@@ -96,6 +96,12 @@ const pad2 = (n: number) => String(n).padStart(2, "0");
 export function formatDay(value: DateInput, options: DateFormatOptions = {}): string {
   const p = toParts(value, options.timeZone);
   return `${WEEKDAYS[p.weekday]} ${MONTHS[p.month - 1]} ${p.day}`;
+}
+
+/** `Sep 11` (A3 "updated Aug 28") */
+export function formatMonthDay(value: DateInput, options: DateFormatOptions = {}): string {
+  const p = toParts(value, options.timeZone);
+  return `${MONTHS[p.month - 1]} ${p.day}`;
 }
 
 /** `Sep 11, 2026` */

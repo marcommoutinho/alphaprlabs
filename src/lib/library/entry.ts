@@ -78,7 +78,7 @@ export type LibraryEntry = {
   supplement: string;
   available: boolean;
   updatedAt: string;
-  /** Templates whose plans name this entry (0 until templates exist, S8). */
+  /** Templates whose plans name this entry (S8). */
   templateCount: number;
   /** Researcher cycles whose plans name it (0 until cycles exist, S9). */
   cycleCount: number;

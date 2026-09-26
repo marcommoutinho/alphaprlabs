@@ -52,7 +52,7 @@ export async function listLibrary(db: Db): Promise<LibraryEntry[]> {
 const PAGE = 1000;
 
 /** Reads every row, a page at a time, so a large library is never cut off at the API's row cap. */
-async function allRows<Row>(
+export async function allRows<Row>(
   page: (from: number, to: number) => PromiseLike<{ data: Row[] | null; error: { message: string } | null }>,
   what: string,
 ): Promise<Row[]> {
