@@ -9,6 +9,204 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      business_purchases: {
+        Row: {
+          currency: string
+          id: string
+          idempotency_key: string
+          quantity: number
+          received_on: string
+          recorded_at: string
+          recorded_by: string | null
+          stock_item_id: string
+          total_cost: number | null
+          unit_cost: number
+        }
+        Insert: {
+          currency?: string
+          id?: string
+          idempotency_key: string
+          quantity: number
+          received_on: string
+          recorded_at?: string
+          recorded_by?: string | null
+          stock_item_id: string
+          total_cost?: number | null
+          unit_cost: number
+        }
+        Update: {
+          currency?: string
+          id?: string
+          idempotency_key?: string
+          quantity?: number
+          received_on?: string
+          recorded_at?: string
+          recorded_by?: string | null
+          stock_item_id?: string
+          total_cost?: number | null
+          unit_cost?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "business_purchases_recorded_by_fkey"
+            columns: ["recorded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "business_purchases_stock_item_id_fkey"
+            columns: ["stock_item_id"]
+            isOneToOne: false
+            referencedRelation: "business_stock_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      business_sale_allocations: {
+        Row: {
+          purchase_id: string
+          quantity: number
+          received_on: string
+          sale_id: string
+          unit_cost: number
+        }
+        Insert: {
+          purchase_id: string
+          quantity: number
+          received_on: string
+          sale_id: string
+          unit_cost: number
+        }
+        Update: {
+          purchase_id?: string
+          quantity?: number
+          received_on?: string
+          sale_id?: string
+          unit_cost?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "business_sale_allocations_purchase_id_fkey"
+            columns: ["purchase_id"]
+            isOneToOne: false
+            referencedRelation: "business_purchases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "business_sale_allocations_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "business_sales"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      business_sales: {
+        Row: {
+          buyer_name: string
+          buyer_profile_id: string | null
+          buyer_type: Database["public"]["Enums"]["business_buyer_type"]
+          cost: number
+          currency: string
+          gross_profit: number | null
+          id: string
+          idempotency_key: string
+          quantity: number
+          recorded_at: string
+          recorded_by: string | null
+          revenue: number
+          sold_on: string
+          stock_item_id: string
+          unit_price: number
+        }
+        Insert: {
+          buyer_name: string
+          buyer_profile_id?: string | null
+          buyer_type: Database["public"]["Enums"]["business_buyer_type"]
+          cost: number
+          currency?: string
+          gross_profit?: number | null
+          id?: string
+          idempotency_key: string
+          quantity: number
+          recorded_at?: string
+          recorded_by?: string | null
+          revenue: number
+          sold_on: string
+          stock_item_id: string
+          unit_price: number
+        }
+        Update: {
+          buyer_name?: string
+          buyer_profile_id?: string | null
+          buyer_type?: Database["public"]["Enums"]["business_buyer_type"]
+          cost?: number
+          currency?: string
+          gross_profit?: number | null
+          id?: string
+          idempotency_key?: string
+          quantity?: number
+          recorded_at?: string
+          recorded_by?: string | null
+          revenue?: number
+          sold_on?: string
+          stock_item_id?: string
+          unit_price?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "business_sales_buyer_profile_id_fkey"
+            columns: ["buyer_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "business_sales_recorded_by_fkey"
+            columns: ["recorded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "business_sales_stock_item_id_fkey"
+            columns: ["stock_item_id"]
+            isOneToOne: false
+            referencedRelation: "business_stock_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      business_stock_items: {
+        Row: {
+          created_at: string
+          id: string
+          peptide_id: string
+          strength_mg: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          peptide_id: string
+          strength_mg: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          peptide_id?: string
+          strength_mg?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "business_stock_items_peptide_id_fkey"
+            columns: ["peptide_id"]
+            isOneToOne: false
+            referencedRelation: "peptides"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invitations: {
         Row: {
           accepted_at: string | null
@@ -248,6 +446,44 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_business_lots: {
+        Args: { p_stock_item_id: string }
+        Returns: {
+          allocated: number
+          purchase_id: string
+          quantity: number
+          received_on: string
+          recorded_at: string
+          remaining: number
+          total_cost: string
+          unit_cost: string
+        }[]
+      }
+      admin_business_sales_totals: {
+        Args: { p_from?: string; p_stock_item_id?: string; p_to?: string }
+        Returns: {
+          cost: string
+          gross_profit: string
+          revenue: string
+          sales: number
+          stock_item_id: string
+          vials: number
+        }[]
+      }
+      admin_business_stock: {
+        Args: never
+        Returns: {
+          created_at: string
+          on_hand: number
+          peptide_available: boolean
+          peptide_id: string
+          peptide_name: string
+          purchased: number
+          sold: number
+          stock_item_id: string
+          strength_mg: string
+        }[]
+      }
       admin_library_peptides: {
         Args: never
         Returns: {
@@ -266,6 +502,14 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      business_buyer_accounts: {
+        Args: never
+        Returns: {
+          email: string
+          name: string
+          profile_id: string
+        }[]
       }
       can_read_researcher: { Args: { p_owner: string }; Returns: boolean }
       can_write_researcher: { Args: { p_owner: string }; Returns: boolean }
@@ -313,7 +557,40 @@ export type Database = {
         Args: { p_error: string; p_id: string }
         Returns: undefined
       }
+      parse_cad_amount: { Args: { p_text: string }; Returns: number }
+      parse_strength_mg: { Args: { p_text: string }; Returns: number }
       record_acknowledgement: { Args: { p_version: string }; Returns: boolean }
+      record_business_purchase: {
+        Args: {
+          p_idempotency_key: string
+          p_peptide_id?: string
+          p_quantity: number
+          p_received_on: string
+          p_stock_item_id?: string
+          p_strength_mg?: string
+          p_unit_cost: string
+        }
+        Returns: {
+          purchase_id: string
+          replayed: boolean
+          stock_item_id: string
+        }[]
+      }
+      record_business_sale: {
+        Args: {
+          p_buyer_name?: string
+          p_buyer_profile_id?: string
+          p_idempotency_key: string
+          p_quantity: number
+          p_sold_on: string
+          p_stock_item_id: string
+          p_unit_price: string
+        }
+        Returns: {
+          replayed: boolean
+          sale_id: string
+        }[]
+      }
       release_invitation: { Args: { p_id: string }; Returns: undefined }
       resend_invitation: {
         Args: { p_id: string; p_token_hash: string }
@@ -349,6 +626,7 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "researcher"
+      business_buyer_type: "account" | "outside"
       invitation_state: "pending" | "accepted" | "failed"
     }
     CompositeTypes: {
@@ -478,6 +756,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "researcher"],
+      business_buyer_type: ["account", "outside"],
       invitation_state: ["pending", "accepted", "failed"],
     },
   },
