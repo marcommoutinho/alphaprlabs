@@ -17,7 +17,8 @@ export type Database = {
           quantity: number
           received_on: string
           recorded_at: string
-          recorded_by: string | null
+          recorded_by: string
+          recorded_order: number
           stock_item_id: string
           total_cost: number | null
           unit_cost: number
@@ -29,7 +30,8 @@ export type Database = {
           quantity: number
           received_on: string
           recorded_at?: string
-          recorded_by?: string | null
+          recorded_by: string
+          recorded_order?: never
           stock_item_id: string
           total_cost?: number | null
           unit_cost: number
@@ -41,7 +43,8 @@ export type Database = {
           quantity?: number
           received_on?: string
           recorded_at?: string
-          recorded_by?: string | null
+          recorded_by?: string
+          recorded_order?: never
           stock_item_id?: string
           total_cost?: number | null
           unit_cost?: number
@@ -114,7 +117,7 @@ export type Database = {
           idempotency_key: string
           quantity: number
           recorded_at: string
-          recorded_by: string | null
+          recorded_by: string
           revenue: number
           sold_on: string
           stock_item_id: string
@@ -131,7 +134,7 @@ export type Database = {
           idempotency_key: string
           quantity: number
           recorded_at?: string
-          recorded_by?: string | null
+          recorded_by: string
           revenue: number
           sold_on: string
           stock_item_id: string
@@ -148,7 +151,7 @@ export type Database = {
           idempotency_key?: string
           quantity?: number
           recorded_at?: string
-          recorded_by?: string | null
+          recorded_by?: string
           revenue?: number
           sold_on?: string
           stock_item_id?: string
@@ -454,6 +457,7 @@ export type Database = {
           quantity: number
           received_on: string
           recorded_at: string
+          recorded_order: number
           remaining: number
           total_cost: string
           unit_cost: string
@@ -511,6 +515,8 @@ export type Database = {
           profile_id: string
         }[]
       }
+      business_check_sale: { Args: { p_sale_id: string }; Returns: undefined }
+      business_latest_date: { Args: never; Returns: string }
       can_read_researcher: { Args: { p_owner: string }; Returns: boolean }
       can_write_researcher: { Args: { p_owner: string }; Returns: boolean }
       claim_invitation: {

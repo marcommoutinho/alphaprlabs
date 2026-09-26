@@ -44,8 +44,21 @@ begin
 end;
 $$;
 
+-- The latest date a purchase or sale may carry: today in UTC+14, the first
+-- time zone to reach each date (see "Dates" in the first S5 migration). A
+-- date after this is in the future for everyone, wherever the admin is.
+create function public.business_latest_date()
+returns date
+language sql
+stable
+set search_path = ''
+as $$
+  select ((now() at time zone 'UTC') + interval '14 hours')::date;
+$$;
+
 revoke all on function public.parse_cad_amount(text) from public, anon, authenticated;
 revoke all on function public.parse_strength_mg(text) from public, anon, authenticated;
+revoke all on function public.business_latest_date() from public, anon, authenticated, service_role;
 
 -- ── Admin: record a purchase (A5) ──────────────────────────────────────────
 -- Either p_stock_item_id (an existing item) or p_peptide_id + p_strength_mg
@@ -87,6 +100,9 @@ begin
   end if;
   if p_received_on is null then
     raise exception 'received date required' using errcode = '22023';
+  end if;
+  if p_received_on > public.business_latest_date() then
+    raise exception 'the date received cannot be in the future' using errcode = 'AP006';
   end if;
   if p_quantity is null or p_quantity not between 1 and 100000 then
     raise exception 'vials must be a whole number from 1 to 100000' using errcode = '22023';
@@ -141,9 +157,12 @@ $$;
 -- Buyer: p_buyer_profile_id (a researcher or admin account; a reference only)
 -- or p_buyer_name (an outside buyer's name or reference), not both. Refuses a
 -- quantity above the vials on hand (AP001, DETAIL = on hand) and records
--- nothing. A repeated p_idempotency_key returns the sale it already recorded
--- (replayed true), even if stock has since run out; reusing it for different
--- details is refused (AP005).
+-- nothing. The sale date may be before the purchases it uses, never in the
+-- future (AP006). A repeated p_idempotency_key returns the sale it already
+-- recorded (replayed true), even if stock has since run out; reusing it for
+-- different details is refused (AP005). The replay lookup comes before any
+-- check against current data (the buyer account, stock), so a replay depends
+-- only on the recorded sale and the resubmitted details.
 create function public.record_business_sale(
   p_idempotency_key uuid,
   p_stock_item_id uuid,
@@ -188,6 +207,9 @@ begin
   if p_sold_on is null then
     raise exception 'sale date required' using errcode = '22023';
   end if;
+  if p_sold_on > public.business_latest_date() then
+    raise exception 'the sale date cannot be in the future' using errcode = 'AP006';
+  end if;
   if p_quantity is null or p_quantity not between 1 and 100000 then
     raise exception 'vials must be a whole number from 1 to 100000' using errcode = '22023';
   end if;
@@ -198,12 +220,7 @@ begin
     if v_outside_name <> '' then
       raise exception 'give a buyer account or an outside buyer, not both' using errcode = '22023';
     end if;
-    select pr.name into v_buyer_name from public.profiles pr where pr.id = p_buyer_profile_id;
-    if not found then
-      raise exception 'unknown buyer account' using errcode = 'AP004';
-    end if;
     v_buyer_type := 'account';
-    v_buyer_name := left(public.trim_whitespace(v_buyer_name), 120);
   else
     if v_outside_name = '' then
       raise exception 'buyer required' using errcode = '22023';
@@ -217,6 +234,9 @@ begin
 
   perform pg_advisory_xact_lock(hashtextextended('business_sale:' || p_idempotency_key::text, 0));
 
+  -- Replay: compared with the details as submitted. An account sale always
+  -- keeps its buyer_profile_id (profiles it references cannot be deleted), so
+  -- the account is compared by id; its stored name is a snapshot.
   select * into v_existing from public.business_sales s where s.idempotency_key = p_idempotency_key;
   if found then
     if (v_existing.stock_item_id, v_existing.sold_on, v_existing.quantity, v_existing.unit_price, v_existing.buyer_type)
@@ -227,6 +247,15 @@ begin
     end if;
     return query select v_existing.id, true;
     return;
+  end if;
+
+  -- A new sale: the buyer account must exist; its current name is kept.
+  if v_buyer_type = 'account' then
+    select left(public.trim_whitespace(pr.name), 120) into v_buyer_name
+    from public.profiles pr where pr.id = p_buyer_profile_id;
+    if not found then
+      raise exception 'unknown buyer account' using errcode = 'AP004';
+    end if;
   end if;
 
   -- Serializes every sale and purchase of this item: the remaining quantities
@@ -244,13 +273,15 @@ begin
     raise exception 'insufficient stock' using errcode = 'AP001', detail = v_on_hand::text;
   end if;
 
-  -- FIFO: oldest remaining purchase quantities first.
+  -- FIFO: oldest remaining purchase quantities first, by received date, then
+  -- recording order (business_purchases.recorded_order; the same order as
+  -- admin_business_lots and src/lib/inventory/rules.ts allocateFifo).
   for v_lot in
     select p.id, p.unit_cost, p.received_on,
            p.quantity - coalesce((select sum(a.quantity) from public.business_sale_allocations a where a.purchase_id = p.id), 0) as remaining
     from public.business_purchases p
     where p.stock_item_id = p_stock_item_id
-    order by p.received_on, p.recorded_at, p.id
+    order by p.received_on, p.recorded_order
   loop
     exit when v_need = 0;
     continue when v_lot.remaining <= 0;

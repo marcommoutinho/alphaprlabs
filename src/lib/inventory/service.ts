@@ -2,7 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Decimal from "decimal.js";
 import type { Database } from "@/lib/supabase/database.types";
-import { stockItemLabel, sumAmounts, type FifoLot, type ValidPurchase, type ValidSale } from "./rules";
+import { fifoOrder, stockItemLabel, sumAmounts, type FifoLot, type ValidPurchase, type ValidSale } from "./rules";
 
 type Db = SupabaseClient<Database>;
 
@@ -40,6 +40,8 @@ export type PurchaseLot = {
   allocated: number;
   remaining: number;
   recordedAt: string;
+  /** FIFO tie-break between lots received the same day: the order they were recorded in. */
+  recordedOrder: number;
 };
 
 export type SaleAllocation = { purchaseId: string; quantity: number; unitCost: string; receivedOn: string };
@@ -55,7 +57,7 @@ export type SaleRecord = {
   cost: string;
   grossProfit: string;
   buyerType: "account" | "outside";
-  /** The linked account (null for an outside buyer, or once that account is deleted). */
+  /** The linked account; null for an outside buyer. (A referenced account cannot be deleted.) */
   buyerProfileId: string | null;
   /** The account's name at the time of the sale, or the outside buyer's reference. */
   buyerName: string;
@@ -102,7 +104,7 @@ export async function listStock(db: Db): Promise<StockItemSummary[]> {
 const SALE_COLUMNS =
   "id, stock_item_id, sold_on, quantity, unit_price::text, revenue::text, cost::text, gross_profit::text, " +
   "buyer_type, buyer_profile_id, buyer_name, recorded_at, " +
-  "business_sale_allocations(purchase_id, quantity, unit_cost::text, received_on)";
+  "business_sale_allocations(purchase_id, quantity, unit_cost::text, received_on, business_purchases(recorded_order))";
 
 type SaleRow = {
   id: string;
@@ -117,7 +119,13 @@ type SaleRow = {
   buyer_profile_id: string | null;
   buyer_name: string;
   recorded_at: string;
-  business_sale_allocations: { purchase_id: string; quantity: number; unit_cost: string; received_on: string }[];
+  business_sale_allocations: {
+    purchase_id: string;
+    quantity: number;
+    unit_cost: string;
+    received_on: string;
+    business_purchases: { recorded_order: number };
+  }[];
 };
 
 const toSale = (row: SaleRow): SaleRecord => ({
@@ -133,9 +141,11 @@ const toSale = (row: SaleRow): SaleRecord => ({
   buyerProfileId: row.buyer_profile_id,
   buyerName: row.buyer_name,
   recordedAt: row.recorded_at,
+  // FIFO order, the order the sale took them in.
   allocations: row.business_sale_allocations
-    .map((a) => ({ purchaseId: a.purchase_id, quantity: a.quantity, unitCost: a.unit_cost, receivedOn: a.received_on }))
-    .sort((a, b) => a.receivedOn.localeCompare(b.receivedOn)),
+    .map((a) => ({ receivedOn: a.received_on, recordedOrder: a.business_purchases.recorded_order, a }))
+    .sort(fifoOrder)
+    .map(({ a }) => ({ purchaseId: a.purchase_id, quantity: a.quantity, unitCost: a.unit_cost, receivedOn: a.received_on })),
 });
 
 /** The most sale rows a page loads; totals are computed in the database over all of them. */
@@ -181,17 +191,24 @@ export async function getStockItem(db: Db, stockItemId: string): Promise<StockIt
       allocated: Number(lot.allocated),
       remaining: Number(lot.remaining),
       recordedAt: lot.recorded_at,
+      recordedOrder: lot.recorded_order,
     })),
     sales: sales.data.map(toSale),
     salesTruncated: (sales.count ?? 0) > sales.data.length,
   };
 }
 
-/** A6 live preview input: the item's lots that still have vials, in FIFO order. */
+/** A6 live preview input: the item's lots that still have vials (allocateFifo orders them). */
 export const openLots = (lots: PurchaseLot[]): FifoLot[] =>
   lots
     .filter((lot) => lot.remaining > 0)
-    .map((lot) => ({ purchaseId: lot.id, receivedOn: lot.receivedOn, unitCost: lot.unitCost, remaining: lot.remaining }));
+    .map((lot) => ({
+      purchaseId: lot.id,
+      receivedOn: lot.receivedOn,
+      recordedOrder: lot.recordedOrder,
+      unitCost: lot.unitCost,
+      remaining: lot.remaining,
+    }));
 
 /** Inclusive `YYYY-MM-DD` bounds (see salesPeriodRange) and an optional item. */
 export type SalesFilter = { from?: string | null; to?: string | null; stockItemId?: string | null };
@@ -291,6 +308,7 @@ const REFUSED = {
   AP003: "unknown_peptide",
   AP004: "unknown_buyer",
   AP005: "conflict",
+  AP006: "future_date",
 } as const;
 type Refusal = (typeof REFUSED)[keyof typeof REFUSED] | "error";
 const refusal = (code: string | undefined): Refusal => REFUSED[code as keyof typeof REFUSED] ?? "error";
@@ -335,6 +353,11 @@ export type SaleResult =
  * key was already recorded.
  */
 export async function recordSale(db: Db, sale: ValidSale): Promise<SaleResult> {
+  // The buyer is exactly an account or an outside buyer; anything else (a
+  // caller that skipped validateSale) is refused before reaching the database.
+  const buyer: unknown = sale.buyer;
+  const buyerType = typeof buyer === "object" && buyer !== null ? (buyer as { type?: unknown }).type : undefined;
+  if (buyerType !== "account" && buyerType !== "outside") return { kind: "invalid" };
   const { data, error } = await db
     .rpc("record_business_sale", {
       p_idempotency_key: sale.idempotencyKey,

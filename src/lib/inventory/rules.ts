@@ -4,7 +4,10 @@
 // no database, no React.
 //
 // Money is CAD (plan D1) as exact decimal strings, calculated with decimal.js
-// and never through binary floating point. Quantities are whole vials. The
+// and never through binary floating point. Quantities are whole vials. Every
+// form value arrives as a string (as form fields do; plan "Store amounts as
+// decimal strings at application boundaries"): a JS number is refused, never
+// converted, so no binary float reaches an amount. The
 // database (supabase/migrations/20260926160000_business_inventory.sql and
 // 20260926160100_business_inventory_writes.sql) enforces the same limits; these checks give the designed messages first.
 import Decimal from "decimal.js";
@@ -16,12 +19,15 @@ export const PURCHASE_ITEM_REQUIRED = "Choose a stock item.";
 export const PURCHASE_PEPTIDE_REQUIRED = "Choose the peptide for the new item.";
 export const PURCHASE_STRENGTH_INVALID = "Enter the vial strength in mg for the new item.";
 export const PURCHASE_DATE_REQUIRED = "Enter the date received.";
+export const PURCHASE_DATE_FUTURE = "The date received can't be in the future.";
 export const VIALS_INVALID = "Vials must be a whole number greater than 0.";
 export const COST_INVALID = "Enter the cost per vial in CAD (0 or more).";
 // A6 Record sale.
 export const SALE_ITEM_REQUIRED = "Choose a stock item.";
 export const SALE_DATE_REQUIRED = "Enter the sale date.";
+export const SALE_DATE_FUTURE = "The sale date can't be in the future.";
 export const PRICE_INVALID = "Enter the selling price per vial in CAD.";
+export const BUYER_TYPE_REQUIRED = "Choose Researcher account or Outside buyer.";
 export const ACCOUNT_REQUIRED = "Choose the buyer's researcher account.";
 export const OUTSIDE_BUYER_REQUIRED = "Name or reference the outside buyer.";
 // Limits the design does not cover.
@@ -51,7 +57,8 @@ const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const AMOUNT = /^\d+(\.\d+)?$/;
 const STRENGTH = /^\d{1,6}(\.\d{1,3})?$/;
 
-const text = (value: unknown) => (typeof value === "string" ? value.trim() : typeof value === "number" ? String(value) : "");
+/** A form string, trimmed; anything else (a number included) is "" and fails as missing or invalid. */
+const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
 const uuid = (value: unknown) => (typeof value === "string" && UUID.test(value) ? value.toLowerCase() : null);
 
 /** A real calendar date `YYYY-MM-DD`, or null. */
@@ -64,7 +71,7 @@ export function calendarDate(value: unknown): string | null {
   return match[0];
 }
 
-/** Whole vials 1..100,000 (a whole-number string or integer), or the error. */
+/** Whole vials 1..100,000 (a whole-number string), or the error. */
 function vials(value: unknown): { ok: true; value: number } | { ok: false; error: string } {
   const raw = text(value);
   if (!/^\d+$/.test(raw) || Number(raw) < 1) return { ok: false, error: VIALS_INVALID };
@@ -103,12 +110,25 @@ export type ValidPurchase = {
 };
 
 /**
+ * A date that is not after `today`: purchases and sales cannot be dated in the
+ * future (Marco, 2026-09-26). `today` is the admin's local date (`YYYY-MM-DD`)
+ * from the form; the database also refuses any date after today in UTC+14
+ * (supabase/migrations/20260926160000_business_inventory.sql "Dates").
+ */
+function notFuture(date: string, today: string): boolean {
+  const bound = calendarDate(today);
+  if (!bound) throw new RangeError(`Invalid date: ${today}`);
+  return date <= bound;
+}
+
+/**
  * A5 purchase form, first failure wins: item (or the new item's peptide),
  * date, vials, cost, then the new item's strength (the prototype's order).
  * `stockItemId: "new"` means "New peptide / strength…". The idempotency key is
  * generated once per form (crypto.randomUUID) and resent on every retry.
+ * `today` is the admin's local date; a later date received is refused.
  */
-export function validatePurchase(input: unknown): { ok: true; value: ValidPurchase } | { ok: false; error: string } {
+export function validatePurchase(input: unknown, today: string): { ok: true; value: ValidPurchase } | { ok: false; error: string } {
   const raw = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
   const idempotencyKey = uuid(raw.idempotencyKey);
   if (!idempotencyKey) return { ok: false, error: "This form could not be identified. Reload the page and try again." };
@@ -119,6 +139,7 @@ export function validatePurchase(input: unknown): { ok: true; value: ValidPurcha
   if (isNew && !peptideId) return { ok: false, error: PURCHASE_PEPTIDE_REQUIRED };
   const receivedOn = calendarDate(raw.receivedOn);
   if (!receivedOn) return { ok: false, error: PURCHASE_DATE_REQUIRED };
+  if (!notFuture(receivedOn, today)) return { ok: false, error: PURCHASE_DATE_FUTURE };
   const quantity = vials(raw.quantity);
   if (!quantity.ok) return quantity;
   const unitCost = amount(raw.unitCost, COST_INVALID);
@@ -142,9 +163,11 @@ export type ValidSale = {
 
 /**
  * A6 sale form, first failure wins: item, date, vials, price, buyer. Stock is
- * checked by the preview and again, atomically, by the database.
+ * checked by the preview and again, atomically, by the database. `today` is
+ * the admin's local date; a later sale date is refused. A sale may be dated
+ * before the purchases whose stock it uses.
  */
-export function validateSale(input: unknown): { ok: true; value: ValidSale } | { ok: false; error: string } {
+export function validateSale(input: unknown, today: string): { ok: true; value: ValidSale } | { ok: false; error: string } {
   const raw = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
   const idempotencyKey = uuid(raw.idempotencyKey);
   if (!idempotencyKey) return { ok: false, error: "This form could not be identified. Reload the page and try again." };
@@ -152,6 +175,7 @@ export function validateSale(input: unknown): { ok: true; value: ValidSale } | {
   if (!stockItemId) return { ok: false, error: SALE_ITEM_REQUIRED };
   const soldOn = calendarDate(raw.soldOn);
   if (!soldOn) return { ok: false, error: SALE_DATE_REQUIRED };
+  if (!notFuture(soldOn, today)) return { ok: false, error: SALE_DATE_FUTURE };
   const quantity = vials(raw.quantity);
   if (!quantity.ok) return quantity;
   const unitPrice = amount(raw.unitPrice, PRICE_INVALID);
@@ -161,30 +185,45 @@ export function validateSale(input: unknown): { ok: true; value: ValidSale } | {
     const profileId = uuid(raw.buyerProfileId);
     if (!profileId) return { ok: false, error: ACCOUNT_REQUIRED };
     buyer = { type: "account", profileId };
-  } else {
+  } else if (raw.buyerType === "outside") {
     const name = text(raw.buyerName);
     if (!name) return { ok: false, error: OUTSIDE_BUYER_REQUIRED };
     if (name.length > INVENTORY_LIMITS.buyerName) return { ok: false, error: BUYER_NAME_TOO_LONG };
     buyer = { type: "outside", name };
+  } else {
+    return { ok: false, error: BUYER_TYPE_REQUIRED };
   }
   return { ok: true, value: { idempotencyKey, stockItemId, soldOn, quantity: quantity.value, unitPrice: unitPrice.value, buyer } };
 }
 
-/** A purchase lot as FIFO sees it, in FIFO order (oldest first). */
-export type FifoLot = { purchaseId: string; receivedOn: string; unitCost: string; remaining: number };
+/**
+ * A purchase lot as FIFO sees it. `recordedOrder` is the lot's
+ * business_purchases.recorded_order: the order purchases were recorded in.
+ */
+export type FifoLot = { purchaseId: string; receivedOn: string; recordedOrder: number; unitCost: string; remaining: number };
 export type FifoAllocation = { purchaseId: string; receivedOn: string; unitCost: string; quantity: number };
 
 /**
- * FIFO allocation of `quantity` vials across `lots` (already in FIFO order):
- * the oldest remaining vials first, as record_business_sale does. `short` is
- * how many vials the lots cannot cover (0 when the sale fits). A6's live
- * preview; the database repeats it atomically when the sale is saved.
+ * FIFO order, exactly as record_business_sale and admin_business_lots order
+ * lots: received date, then recording order. The handoff's "by date, then id"
+ * (README Business Rules 4) relies on the prototype's insertion-ordered ids;
+ * database ids are random UUIDs, so recording order carries that meaning.
+ */
+export const fifoOrder = (a: Pick<FifoLot, "receivedOn" | "recordedOrder">, b: Pick<FifoLot, "receivedOn" | "recordedOrder">) =>
+  a.receivedOn.localeCompare(b.receivedOn) || a.recordedOrder - b.recordedOrder;
+
+/**
+ * FIFO allocation of `quantity` vials across `lots` (sorted here by
+ * fifoOrder, whatever order they arrive in): the oldest remaining vials first,
+ * as record_business_sale does. `short` is how many vials the lots cannot
+ * cover (0 when the sale fits). A6's live preview; the database repeats it
+ * atomically when the sale is saved.
  */
 export function allocateFifo(lots: FifoLot[], quantity: number): { allocations: FifoAllocation[]; cost: string; short: number } {
   let need = Math.max(0, Math.floor(quantity));
   let cost = new Decimal(0);
   const allocations: FifoAllocation[] = [];
-  for (const lot of lots) {
+  for (const lot of [...lots].sort(fifoOrder)) {
     if (need === 0) break;
     if (lot.remaining <= 0) continue;
     const take = Math.min(lot.remaining, need);

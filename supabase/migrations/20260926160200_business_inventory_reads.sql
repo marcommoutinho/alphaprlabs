@@ -50,9 +50,11 @@ end;
 $$;
 
 -- ── Admin: a stock item's purchase lots (A4 stock item, A6 preview) ────────
--- In FIFO order (the order record_business_sale allocates in), with how many
--- vials of each are already allocated to sales and how many remain. Amounts
--- as exact decimal text.
+-- In FIFO order (the order record_business_sale allocates in: received date,
+-- then recorded_order), with how many vials of each are already allocated to
+-- sales and how many remain. recorded_order is returned so the A6 preview
+-- (src/lib/inventory/rules.ts allocateFifo) sorts by exactly the same key.
+-- Amounts as exact decimal text.
 create function public.admin_business_lots(p_stock_item_id uuid)
 returns table (
   purchase_id uuid,
@@ -62,7 +64,8 @@ returns table (
   total_cost text,
   allocated bigint,
   remaining bigint,
-  recorded_at timestamptz
+  recorded_at timestamptz,
+  recorded_order bigint
 )
 language plpgsql
 stable
@@ -78,14 +81,14 @@ begin
     select p.id, p.received_on, p.quantity, p.unit_cost::text, p.total_cost::text,
            coalesce(used.quantity, 0)::bigint,
            (p.quantity - coalesce(used.quantity, 0))::bigint,
-           p.recorded_at
+           p.recorded_at, p.recorded_order
     from public.business_purchases p
     left join (
       select a.purchase_id as lot, sum(a.quantity) as quantity
       from public.business_sale_allocations a group by a.purchase_id
     ) used on used.lot = p.id
     where p.stock_item_id = p_stock_item_id
-    order by p.received_on, p.recorded_at, p.id;
+    order by p.received_on, p.recorded_order;
 end;
 $$;
 
