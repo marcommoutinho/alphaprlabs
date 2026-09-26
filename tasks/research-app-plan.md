@@ -723,7 +723,13 @@ Cleanup before G2 (accepted by Marco, 2026-09-26):
 - The admin invitation list is not paged; past 1,000 invitations the oldest
   drop out.
 
-Next: S8, cycle templates (A3).
+- S8 (cycle templates) built, reviewed (clear first pass) and integrated at
+  `5bb9806`; deployed to the closed production app with its migration on
+  2026-09-26. The admin side is complete.
+- Marco, 2026-09-26: keep building straight through, deploying to the closed
+  app at milestones (admin side done; cycles and Today; real reminders).
+
+Next: S9, cycles and the cycle builder.
 
 ## Technical references
 
