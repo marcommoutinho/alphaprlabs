@@ -147,6 +147,7 @@ export type PlanIssue =
   | { code: "no-active-phase" }
   | { code: "phase-id"; phase: number }
   | { code: "duplicate-phase-id"; phase: number }
+  | { code: "phase-kind"; phase: number }
   | { code: "dates-missing"; phase: number }
   | { code: "dates-out-of-range"; phase: number }
   | { code: "ends-before-start"; phase: number }
@@ -200,7 +201,7 @@ function daysBetween(from: LocalDate | Temporal.PlainDate, to: LocalDate | Tempo
 /**
  * Validates a plan, in the handoff builder's order: plan id, time zone, the
  * phase list (an array of objects), at least one active phase, then per phase
- * (sorted by start date) id, dates, overlap with the previous phase, and for
+ * (sorted by start date) id, kind, dates, overlap with the previous phase, and for
  * active phases dose, schedule and time. Returns every issue; an empty list
  * means valid. Copy is the calling screen's.
  */
@@ -221,6 +222,8 @@ export function validatePlan(plan: PeptidePlan): PlanIssue[] {
     if (!isKeyPart(phase.id)) issues.push({ code: "phase-id", phase: n });
     else if (seen.has(phase.id)) issues.push({ code: "duplicate-phase-id", phase: n });
     seen.add(phase.id);
+    // Exactly "active" or "break"; anything else is never read as a break.
+    if (phase.kind !== "active" && phase.kind !== "break") issues.push({ code: "phase-kind", phase: n });
     const datesValid = isLocalDate(phase.start) && isLocalDate(phase.end);
     if (!datesValid) issues.push({ code: "dates-missing", phase: n });
     else if (phase.start < EARLIEST_PHASE_DATE || phase.end > LATEST_PHASE_DATE) issues.push({ code: "dates-out-of-range", phase: n });

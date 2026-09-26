@@ -525,6 +525,26 @@ describe("limits and long phases", () => {
     expect(ranged.map((o) => `${o.key} ${o.scheduledAt}`)).toEqual(["p:i:4 2026-09-10T08:00:00Z"]);
   });
 
+  it("refuses a phase kind other than exactly \"active\" or \"break\"", () => {
+    const withKind = (kind: unknown) => ({ ...interval(), kind }) as unknown as Phase;
+    const other = weekdays({ start: "2026-10-01", end: "2026-10-31" });
+    for (const kind of ["ACTIVE", "Break", "pause", "", undefined, null, 1]) {
+      const bad = plan(withKind(kind), other);
+      expect(validatePlan(bad), String(kind)).toEqual([{ code: "phase-kind", phase: 1 }]);
+      try {
+        scheduleOccurrences(bad);
+        expect.unreachable();
+      } catch (error) {
+        expect(error, String(kind)).toBeInstanceOf(ScheduleInputError);
+        expect((error as ScheduleInputError).issues).toEqual([{ code: "phase-kind", phase: 1 }]);
+      }
+    }
+    const noKind: Partial<ActivePhase> = interval();
+    delete noKind.kind; // missing kind
+    expect(validatePlan(plan(noKind as Phase, other))).toEqual([{ code: "phase-kind", phase: 1 }]);
+    expect(validatePlan(plan(interval(), { id: "b1", kind: "break", start: "2026-10-01", end: "2026-10-07" }))).toEqual([]);
+  });
+
   it("reports malformed plans as validation issues, not crashes", () => {
     const malformed = [
       { planId: "p1", timeZone: TZ, phases: [null] },

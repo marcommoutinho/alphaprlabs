@@ -311,4 +311,3 @@ describe("display on inputs near 40 significant digits", () => {
     expect(result.units).toBe("99999999999999999999999999999700");
   });
 });
-
