@@ -525,8 +525,12 @@ export function scheduleOccurrences(
   const result: Occurrence[] = [];
   for (const phase of [...plan.phases].sort(byStart)) {
     if (phase.kind !== "active") continue;
-    if (range?.to && phase.start > range.to) continue;
-    if (range?.from && phase.end < range.from && !hasConfirmation(confirmed, `${planId}:${phase.id}:`)) continue;
+    // A phase entirely outside the range is skipped only when it has no
+    // confirmations: a confirmed (possibly backdated) dose can move or carry
+    // occurrences outside the phase's own dates, so such a phase is always
+    // replayed and left to the final local-date filter below.
+    const outsideRange = (range?.to !== undefined && phase.start > range.to) || (range?.from !== undefined && phase.end < range.from);
+    if (outsideRange && !hasConfirmation(confirmed, `${planId}:${phase.id}:`)) continue;
     const ctx: Context = { planId, timeZone, phase };
     const drafts =
       phase.schedule.type === "interval"
@@ -545,7 +549,7 @@ export function scheduleOccurrences(
     .sort((a, b) => compareInstants(a.scheduledAt, b.scheduledAt) || a.key.localeCompare(b.key));
 }
 
-// A confirmed dose may carry a recorded time outside its phase's dates.
+// True when any confirmation's key belongs to the phase (`planId:phaseId:`).
 function hasConfirmation(confirmations: Map<string, ParsedConfirmation>, prefix: string): boolean {
   for (const key of confirmations.keys()) if (key.startsWith(prefix)) return true;
   return false;

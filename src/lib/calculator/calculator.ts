@@ -8,7 +8,7 @@
 //
 // Line and capacity checks are exact (decimal.js, no floating point).
 import type Decimal from "decimal.js";
-import { Dec, Exact, formatAmount, parseDecimal, plain } from "./decimal";
+import { Dec, Exact, formatRatio, parseDecimal, plain } from "./decimal";
 
 /** Supported U-100 syringes by capacity in units. */
 export type SyringeCapacity = 100 | 50 | 30;
@@ -151,7 +151,8 @@ export function calculate(input: CalculatorInput): CalculatorResult {
   const concentration = new Dec(vialMg).dividedBy(liquidMl);
   const volume = new Dec(doseMg).times(liquidMl).dividedBy(vialMg);
   const units = new Dec(unitsNumerator).dividedBy(vialMg);
-  const unitsText = formatAmount(units);
+  // Display ("≈" or exact) is decided on the exact ratios, not the 40-digit results.
+  const unitsText = formatRatio(unitsNumerator, vialMg);
 
   const flags: CalculatorFlag[] = [];
   if (overCapacity) {
@@ -189,7 +190,11 @@ export function calculate(input: CalculatorInput): CalculatorResult {
     concentrationMgPerMl: plain(concentration),
     volumeMl: plain(volume),
     units: plain(units),
-    display: { concentration: formatAmount(concentration), volume: formatAmount(volume), units: unitsText },
+    display: {
+      concentration: formatRatio(vialMg, liquidMl),
+      volume: formatRatio(new Exact(doseMg).times(liquidMl), vialMg),
+      units: unitsText,
+    },
     onLine,
     betweenLines,
     overCapacity,

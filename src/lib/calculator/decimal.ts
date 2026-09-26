@@ -67,9 +67,35 @@ export function plain(value: Decimal): string {
  * Display format: the exact value when it has at most 6 decimal places,
  * otherwise rounded half-up to 6 places with trailing zeros removed and the
  * "≈" prefix (e.g. "10", "0.12", "≈3.333333"). Never uses exponents.
+ * For a computed quotient use {@link formatRatio}: a value already rounded to
+ * 40 significant digits can look exact when it is not.
  */
 export function formatAmount(value: Decimal): string {
   if (value.decimalPlaces() <= DISPLAY_DECIMALS) return plain(value);
   const rounded = value.toDecimalPlaces(DISPLAY_DECIMALS, Decimal.ROUND_HALF_UP);
   return `${APPROX}${plain(rounded)}`;
+}
+
+const DISPLAY_SCALE = new Exact(10).pow(DISPLAY_DECIMALS);
+
+/**
+ * Display format for the exact quotient numerator ÷ denominator (denominator
+ * non-zero), as {@link formatAmount} but decided on the exact ratio: "≈" only
+ * when the true value has more than 6 decimal places. Inputs are exact
+ * decimals of bounded length, so every step here is exact at 200 digits.
+ */
+export function formatRatio(numerator: Decimal.Value, denominator: Decimal.Value): string {
+  const n = new Exact(numerator);
+  const d = new Exact(denominator);
+  if (d.isZero()) throw new RangeError("Division by zero");
+  const negative = n.isNegative() !== d.isNegative() && !n.isZero();
+  const scaled = n.abs().times(DISPLAY_SCALE);
+  const whole = scaled.dividedToIntegerBy(d.abs());
+  const remainder = scaled.minus(whole.times(d.abs()));
+  const exact = remainder.isZero();
+  // Half-up on the magnitude: round up when the remainder is at least half the divisor.
+  const rounded = exact || remainder.times(2).lessThan(d.abs()) ? whole : whole.plus(1);
+  const value = rounded.dividedBy(DISPLAY_SCALE);
+  const text = plain(negative && !value.isZero() ? value.negated() : value);
+  return exact ? text : `${APPROX}${text}`;
 }

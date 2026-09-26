@@ -412,6 +412,11 @@ describe("limits and long phases", () => {
       [interval(), [taken("p1:i1:0", "2026-09-04T12:00:00Z", { recordedAt: "2026-09-08T12:00:00Z" }), taken("p1:i1:2", "2026-09-13T01:00:00Z")]],
       [interval({ end: "2026-12-31", schedule: { type: "interval", everyDays: 3 } }), [taken("p1:i1:4", "2026-09-15T02:00:00Z", { scheduledAt: "2026-09-15T00:00:00Z" })]],
       [weekdays({ end: "2026-11-30" }), [taken("p1:w1:2026-09-09", "2026-09-10T19:00:00Z")]],
+      // Backdated to before the phase start: the next dose moves before the phase's first date.
+      [
+        interval({ start: "2026-09-10" }),
+        [taken("p1:i1:0", "2026-09-01T12:00:00Z", { recordedAt: "2026-09-11T00:30:00Z", scheduledAt: "2026-09-11T00:00:00Z" })],
+      ],
     ];
     for (const [phase, confirmations] of cases) {
       const full = scheduleOccurrences(plan(phase), confirmations);
@@ -426,5 +431,32 @@ describe("limits and long phases", () => {
       }
     }
   });
+
+  it("replays a phase whose confirmations move doses before its start, even when the range ends before it", () => {
+    // UTC, every 5 days from Sep 10 08:00. Occurrence 0 is recorded at 09:00 as taken Sep 1 08:00.
+    const utc: PeptidePlan = {
+      planId: "p1",
+      timeZone: "UTC",
+      phases: [interval({ start: "2026-09-10", time: "08:00" })],
+    };
+    const confirmations = [taken("p1:i1:0", "2026-09-01T08:00:00Z", { recordedAt: "2026-09-10T09:00:00Z", scheduledAt: "2026-09-10T08:00:00Z" })];
+    const full = scheduleOccurrences(utc, confirmations);
+    expect(full[0]).toMatchObject({ key: "p1:i1:1", scheduledAt: "2026-09-06T08:00:00Z" });
+    const range = { from: "2026-09-06", to: "2026-09-06" };
+    const ranged = scheduleOccurrences(utc, confirmations, range);
+    expect(ranged).toEqual(full.filter((o) => o.localDate >= range.from && o.localDate <= range.to));
+    expect(ranged.map((o) => o.key)).toEqual(["p1:i1:1"]);
+  });
 });
 
+describe("confirmations recorded at the same instant", () => {
+  it("are applied together, whatever their order in the input", () => {
+    // Both recorded Mon Sep 7 21:00: i1:0 (taken Sep 2 20:00) and i1:1 (taken Sep 7 20:30).
+    const recordedAt = "2026-09-08T01:00:00Z";
+    const first = taken("p1:i1:0", "2026-09-03T00:00:00Z", { recordedAt });
+    const second = taken("p1:i1:1", "2026-09-08T00:30:00Z", { recordedAt });
+    const forward = scheduleOccurrences(plan(interval()), [first, second]);
+    expect(scheduleOccurrences(plan(interval()), [second, first])).toEqual(forward);
+    expect(when(forward).slice(0, 3)).toEqual(["p1:i1:0 2026-09-02 20:00", "p1:i1:1 2026-09-07 20:00", "p1:i1:2 2026-09-12 20:30"]);
+  });
+});

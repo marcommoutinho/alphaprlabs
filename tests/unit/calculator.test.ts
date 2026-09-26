@@ -20,7 +20,7 @@ import {
   VIAL_POSITIVE,
   VIAL_REQUIRED,
 } from "@/lib/calculator/calculator";
-import { formatAmount, normalizeDecimal, parseDecimal } from "@/lib/calculator/decimal";
+import { formatAmount, formatRatio, normalizeDecimal, parseDecimal } from "@/lib/calculator/decimal";
 
 const base: CalculatorInput = { vialMg: "8", liquidMl: "2", doseMg: "0.4", syringe: 100, lineSpacing: "2" };
 const run = (overrides: Partial<CalculatorInput>) => calculate({ ...base, ...overrides });
@@ -232,6 +232,7 @@ describe("invalid input", () => {
     expect(ok({ vialMg: "5", liquidMl: "2", doseMg: "1,25" }).units).toBe("50");
   });
 
+  // Marco (2026-09-26): thousands-looking comma forms such as "1,000" stay refused.
   it("refuses thousands separators and mixed or repeated separators rather than guessing", () => {
     for (const bad of ["1,000", "12,500", "100,000", "1,000.5", "1.000,5", "1,2,3", "1,,5", "1.5,", "1 000", "1'000"]) {
       expect(run({ vialMg: bad }), bad).toEqual({ ok: false, errors: [VIAL_REQUIRED] });
@@ -282,4 +283,32 @@ describe("decimal parsing and display", () => {
     expect(show("0.0000004")).toBe("≈0");
     expect(show("123456789012345678901234567890")).toBe("123456789012345678901234567890");
   });
+
+  it("decides \"≈\" on the exact ratio, not on the 40-digit result", () => {
+    expect(formatRatio("10", "3")).toBe("≈3.333333");
+    expect(formatRatio("2", "3")).toBe("≈0.666667");
+    expect(formatRatio("1", "8")).toBe("0.125");
+    expect(formatRatio("1", "3000000")).toBe("≈0");
+    expect(formatRatio("12", "1")).toBe("12");
+    expect(formatRatio("-2", "3")).toBe("≈-0.666667");
+    // Exact to 6 places at 40 digits would show "1"; the true value is 1 + 1e-30.
+    expect(formatRatio("1" + "0".repeat(29) + "1", "1" + "0".repeat(30))).toBe("≈1");
+  });
 });
+
+describe("display on inputs near 40 significant digits", () => {
+  it("marks units approximate when the 40-digit result looks exact but the ratio isn't", () => {
+    const nines = "9".repeat(30);
+    const almost = `${"9".repeat(29)}8`;
+    const result = ok({ vialMg: nines, liquidMl: almost, doseMg: almost, syringe: 100, lineSpacing: "1" });
+    // units = almost² × 100 ÷ nines = 99…99700 + 100/nines: not whole, not on a line.
+    expect(result.display.units).toBe("≈99999999999999999999999999999700");
+    expect(result.onLine).toBe(false);
+    expect(result.betweenLines).toEqual({ lower: "99999999999999999999999999999700", upper: "99999999999999999999999999999701" });
+    expect(result.display.concentration).toBe("≈1");
+    expect(result.display.volume.startsWith("≈")).toBe(true);
+    // Stored results stay at 40 significant digits.
+    expect(result.units).toBe("99999999999999999999999999999700");
+  });
+});
+
