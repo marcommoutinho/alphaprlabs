@@ -141,6 +141,10 @@ switches to the back office and back.
 - Changing the dose partway through an every-N-days phase keeps the rhythm
   from the last dose; it does not restart the count.
 - Calculator numbers accept a comma as the decimal point ("1,5" = 1.5).
+  Forms that look like thousands ("1,000", "2,500") are refused rather than
+  guessed; the researcher retypes.
+- The business is local: its time zone is America/Toronto. "Today" for
+  purchase and sale dates is today in Toronto.
 - Purchases and sales cannot be dated in the future. A sale may be dated
   before the purchase whose stock it uses (stock is sometimes entered late).
 - Zero-price sales (free samples) and zero-cost purchases are allowed.
