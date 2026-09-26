@@ -1,0 +1,10 @@
+SLIPSTREAM RESULT
+State: BUILT AND REVIEWED
+Slice: S3.1 Only an explicit Turn on can re-enable a device (closes S3 SS-101)
+Risk: GUARDED
+Base and reviewed SHA: 907ae91 -> 36b290c (review BLOCKED: SS-001 default device id, SS-002 sign-out fallback without off mark, SS-003 late refusal undoing Turn on) -> d011d51 (recheck CLEAR)
+Verification: supabase db reset from migrations; vitest 3x 36/36; playwright 18 passed + 1 flaky (S2 recovery email timing after cold start, passed on retry)
+Review findings and dispositions: all resolved; no new findings. Codex threads 01a0db6b-3372-7b70-8b65-9c579a6e0d80, 01a0db8a-19bc-71e0-a22f-3df8fb11dd45
+Codex judgment and Marco's decision: S3 EXTEND_ONCE blocked; Marco approved S3.1 as follow-up 2026-09-25
+Delivery / production proof: local only; real-device proof at G1
+Still owed: stale-device expiry and OS permission revocation (S13); use-reminders.ts ~450 lines; S2 recovery e2e occasional timing flake
