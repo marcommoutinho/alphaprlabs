@@ -1,0 +1,1 @@
+Test-reliability chore correction: Codex recheck VERDICT: CLEAR. vitest 5 consecutive runs 219/219; e2e 30/30 twice without retries (maker).
