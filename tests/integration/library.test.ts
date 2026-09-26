@@ -43,6 +43,18 @@ const create = async (client: Client, name: string, available = true) => {
   return data!;
 };
 
+const peptideCount = async () => (await serviceClient().from("peptides").select("id", { count: "exact", head: true })).count!;
+
+/** The list's row count is the number of library entries, between a count taken just before and one just after. */
+async function expectOneRowPerEntry(list: () => PromiseLike<{ count: number | null; error: unknown }>) {
+  const before = await peptideCount();
+  const { count, error } = await list();
+  const after = await peptideCount();
+  expect(error).toBeNull();
+  expect(count).toBeGreaterThanOrEqual(before);
+  expect(count).toBeLessThanOrEqual(after);
+}
+
 describe("admins maintain the library in the database", () => {
   it("an admin creates and edits an entry; text is trimmed and updated moves only on a change", async () => {
     const client = await signedInClient(admin.email);
@@ -151,11 +163,12 @@ describe("admins maintain the library in the database", () => {
   it("reference counts are admin-only, one row per entry, 0 until templates and cycles exist", async () => {
     const client = await signedInClient(admin.email);
     const id = await create(client, `Counted ${tag()}`, false);
-    const { data, error } = await client.rpc("library_reference_counts");
+    const { data, error } = await client.rpc("library_reference_counts").eq("peptide_id", id);
     expect(error).toBeNull();
-    expect(data!.find((row) => row.peptide_id === id)).toEqual({ peptide_id: id, template_count: 0, cycle_count: 0 });
-    const { count } = await serviceClient().from("peptides").select("id", { count: "exact", head: true });
-    expect(data).toHaveLength(count!);
+    expect(data).toEqual([{ peptide_id: id, template_count: 0, cycle_count: 0 }]);
+    // One row per entry, counted (the shared local library outgrows the API's
+    // 1,000-row cap); other test files add entries meanwhile.
+    await expectOneRowPerEntry(() => client.rpc("library_reference_counts", undefined, { count: "exact", head: true }));
     for (const other of [await signedInClient(researcher.email), anonClient()]) {
       expect((await other.rpc("library_reference_counts")).error).not.toBeNull();
     }
@@ -191,23 +204,21 @@ describe("table reads return available entries only, for everyone; A2 lists all 
   it("admins list every entry, available or not, through admin_library_peptides(), even before acknowledging", async () => {
     const adminClient = await signedInClient(admin.email);
     const [on, off] = [await create(adminClient, `Listed ${tag()}`), await create(adminClient, `Listed off ${tag()}`, false)];
-    const { count } = await serviceClient().from("peptides").select("id", { count: "exact", head: true });
-    const { count: availableCount } = await serviceClient()
-      .from("peptides")
-      .select("id", { count: "exact", head: true })
-      .eq("available", true);
-
-    const { data, error } = await adminClient.rpc("admin_library_peptides");
+    const { data, error } = await adminClient
+      .rpc("admin_library_peptides")
+      .select("id, available, created_at")
+      .in("id", [on, off])
+      .order("created_at");
     expect(error).toBeNull();
-    expect(data).toHaveLength(count!);
-    expect(data!.filter((row) => [on, off].includes(row.id)).map((row) => [row.id, row.available])).toEqual([
+    expect(data!.map((row) => [row.id, row.available])).toEqual([
       [on, true],
       [off, false],
     ]);
+    await expectOneRowPerEntry(() => adminClient.rpc("admin_library_peptides", undefined, { count: "exact", head: true }));
     // ... while the admin's plain table read has only the available ones.
-    const { data: plain } = await adminClient.from("peptides").select("id, available");
-    expect(plain).toHaveLength(availableCount!);
-    expect(plain!.every((row) => row.available)).toBe(true);
+    const plain = await adminClient.from("peptides").select("id").in("id", [on, off]);
+    expect(plain.data).toEqual([{ id: on }]);
+    expect((await adminClient.from("peptides").select("id", { count: "exact", head: true }).eq("available", false)).count).toBe(0);
 
     // The back office does not need the acknowledgement; the research side does.
     const unacknowledgedAdmin = await signedInClient(newAdmin.email);

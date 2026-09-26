@@ -482,8 +482,9 @@
     overflow-wrap: normal;
   }
 
-  /* "CAD" is dropped from the money columns on phones (still read aloud). */
-  .app-root .app-inv-item-row .app-inv-cad {
+  /* "CAD" is dropped from A7's money columns and KPIs on phones (still read aloud). */
+  .app-root .app-inv-item-row .app-inv-cad,
+  .app-root .app-inv-kpi-value .app-inv-cad {
     position: absolute;
     width: 1px;
     height: 1px;

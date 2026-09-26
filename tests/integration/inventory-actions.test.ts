@@ -15,9 +15,12 @@ import {
 import { businessToday } from "@/lib/inventory/screens";
 import { ensureAccount, serviceClient, signedInClient, uniqueEmail } from "../support/local-supabase";
 
-const acting = vi.hoisted(() => ({ client: null as unknown, refreshed: 0 }));
+const acting = vi.hoisted(() => ({ client: null as unknown, refreshed: 0, revalidated: [] as string[] }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => acting.client }));
-vi.mock("next/cache", () => ({ refresh: () => void acting.refreshed++ }));
+vi.mock("next/cache", () => ({
+  refresh: () => void acting.refreshed++,
+  revalidatePath: (path: string) => void acting.revalidated.push(path),
+}));
 
 const { recordPurchaseAction, recordSaleAction } = await import("@/app/(private)/admin/inventory/actions");
 
@@ -35,7 +38,11 @@ beforeAll(async () => {
 beforeEach(async () => {
   acting.client = await signedInClient(admin.email);
   acting.refreshed = 0;
+  acting.revalidated = [];
 });
+
+/** The pages a recorded purchase or sale must never show from a cached copy. */
+const stockPages = (itemId: string) => [`/admin/inventory/${itemId}`, "/admin/inventory", "/admin/sales"];
 
 async function newPeptide(): Promise<string> {
   const name = `Compound S6 ${randomBytes(4).toString("hex")}`;
@@ -74,6 +81,7 @@ describe("A5 and A6 actions for an admin", () => {
     expect(bought).toMatchObject({ toast: "Purchase recorded · 10 vials at CAD 20.00", tone: "info" });
     const itemId = bought.stockItemId!;
     expect(itemId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(acting.revalidated).toEqual(stockPages(itemId));
 
     // The same entry submitted again (a double click or a retry) records once.
     expect(await recordPurchaseAction(first)).toEqual({ stockItemId: itemId, toast: PURCHASE_ALREADY_RECORDED, tone: "warn" });
@@ -89,6 +97,8 @@ describe("A5 and A6 actions for an admin", () => {
       toast: "Sale recorded · 12 vials · revenue CAD 480.00 · gross profit CAD 230.00",
       tone: "info",
     });
+    // Each recorded purchase (including the replay) and the sale revalidate the stock pages.
+    expect(acting.revalidated).toEqual([1, 2, 3, 4].flatMap(() => stockPages(itemId)));
     expect(await recordSaleAction(sold)).toEqual({ stockItemId: itemId, toast: SALE_ALREADY_RECORDED, tone: "warn" });
     expect(await salesOf(itemId)).toEqual([
       { quantity: 12, revenue: 480, cost: 250, gross_profit: 230, buyer_profile_id: jordanId },

@@ -16,19 +16,26 @@ type Db = SupabaseClient<Database>;
  */
 export async function listLibrary(db: Db): Promise<LibraryEntry[]> {
   const [entries, counts] = await Promise.all([
-    db
-      .rpc("admin_library_peptides")
-      // A function's result can only be ordered by selected columns.
-      .select("id, name, information, cycling_off_guidance, supplement_guidance, available, created_at, updated_at")
-      .order("created_at", { ascending: true })
-      .order("id", { ascending: true }),
-    db.rpc("library_reference_counts"),
+    allRows(
+      (from, to) =>
+        db
+          .rpc("admin_library_peptides")
+          // A function's result can only be ordered by selected columns.
+          .select("id, name, information, cycling_off_guidance, supplement_guidance, available, created_at, updated_at")
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to),
+      "the library",
+    ),
+    allRows(
+      (from, to) =>
+        db.rpc("library_reference_counts").select("peptide_id, template_count, cycle_count").order("peptide_id").range(from, to),
+      "library references",
+    ),
   ]);
-  if (entries.error) throw new Error(`Could not load the library: ${entries.error.message}`);
-  if (counts.error) throw new Error(`Could not load library references: ${counts.error.message}`);
 
-  const byId = new Map(counts.data.map((row) => [row.peptide_id, row]));
-  return entries.data.map((row) => ({
+  const byId = new Map(counts.map((row) => [row.peptide_id, row]));
+  return entries.map((row) => ({
     id: row.id,
     name: row.name,
     information: row.information,
@@ -39,6 +46,23 @@ export async function listLibrary(db: Db): Promise<LibraryEntry[]> {
     templateCount: Number(byId.get(row.id)?.template_count ?? 0),
     cycleCount: Number(byId.get(row.id)?.cycle_count ?? 0),
   }));
+}
+
+/** Rows per request; the API caps a response at 1,000 rows. */
+const PAGE = 1000;
+
+/** Reads every row, a page at a time, so a large library is never cut off at the API's row cap. */
+async function allRows<Row>(
+  page: (from: number, to: number) => PromiseLike<{ data: Row[] | null; error: { message: string } | null }>,
+  what: string,
+): Promise<Row[]> {
+  const rows: Row[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await page(from, from + PAGE - 1);
+    if (error) throw new Error(`Could not load ${what}: ${error.message}`);
+    rows.push(...(data ?? []));
+    if (!data || data.length < PAGE) return rows;
+  }
 }
 
 export type SaveLibraryResult = { kind: "saved"; id: string } | { kind: "not_found" | "duplicate_name" | "error" };

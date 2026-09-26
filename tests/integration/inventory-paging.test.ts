@@ -6,7 +6,8 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 import { allocateFifo } from "@/lib/inventory/rules";
 import { getSale, getSaleStock, getStockItem, listSales, listStock, recordPurchase, recordSale } from "@/lib/inventory/service";
-import { ensureAccount, signedInClient, uniqueEmail } from "../support/local-supabase";
+import { listLibrary } from "@/lib/library/service";
+import { ensureAccount, serviceClient, signedInClient, uniqueEmail } from "../support/local-supabase";
 
 type Client = Awaited<ReturnType<typeof signedInClient>>;
 const admin = { email: uniqueEmail("s6-paging-admin"), name: "S6 Paging Admin" };
@@ -125,5 +126,17 @@ describe("paging", () => {
     expect(sale.allocations.map((a) => [a.purchaseId, a.quantity])).toEqual(preview.allocations.map((a) => [a.purchaseId, a.quantity]));
     expect(await getSaleStock(db, randomUUID())).toEqual({ onHand: 0, lots: [] });
     expect(await getSale(db, randomUUID())).toBeNull();
+  });
+
+  it("A5's peptide list (the admin library) is not cut off at the API's 1,000-row cap", async () => {
+    // Creates a peptide, so the newest entry is last in created order.
+    const itemId = await newItem([["2026-08-01", 1, "10"]]);
+    const newest = (await getStockItem(db, itemId))!.item.peptideName;
+    const { count } = await serviceClient().from("peptides").select("id", { count: "exact", head: true });
+    const library = await listLibrary(db);
+    expect(library.some((entry) => entry.name === newest)).toBe(true);
+    expect(new Set(library.map((entry) => entry.id)).size).toBe(library.length);
+    // Other test files add peptides meanwhile, so at least as many as a moment earlier.
+    expect(library.length).toBeGreaterThanOrEqual(count!);
   });
 });

@@ -1,6 +1,6 @@
 "use server";
 
-import { refresh } from "next/cache";
+import { refresh, revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { ToastTone } from "@/components/app-shell/toast";
 import { signInUrl } from "@/lib/auth/paths";
@@ -28,7 +28,21 @@ export type InventoryActionResult = {
   stockItemId?: string;
 };
 
-const SAVE_FAILED = "Could not save. Nothing was lost — your entry is still here. Try again.";
+/**
+ * After a purchase or sale is recorded (or found already recorded): the pages
+ * that show stock or sales are revalidated, so the stock item the form opens
+ * next, A4 Inventory and A7 Sales never come from the client router's cached
+ * copy of an earlier visit. In a Server Action, revalidatePath also marks
+ * every previously visited page to refetch on its next navigation (Next 16.2
+ * docs, revalidatePath "Good to know").
+ */
+function revalidateStock(stockItemId: string) {
+  revalidatePath(`/admin/inventory/${stockItemId}`);
+  revalidatePath("/admin/inventory");
+  revalidatePath("/admin/sales");
+}
+
+const SAVE_FAILED ="Could not save. Nothing was lost — your entry is still here. Try again.";
 const ITEM_GONE = "This stock item no longer exists. The list has been refreshed.";
 const PEPTIDE_GONE = "This peptide is no longer in the library. The list has been refreshed.";
 
@@ -48,6 +62,7 @@ export async function recordPurchaseAction(input: unknown): Promise<InventoryAct
   const result = await recordPurchase(await createClient(), valid.value);
   switch (result.kind) {
     case "recorded":
+      revalidateStock(result.stockItemId);
       return result.replayed
         ? { stockItemId: result.stockItemId, toast: PURCHASE_ALREADY_RECORDED, tone: "warn" }
         : {
@@ -88,6 +103,7 @@ export async function recordSaleAction(input: unknown): Promise<InventoryActionR
   switch (result.kind) {
     case "recorded": {
       const stockItemId = valid.value.stockItemId;
+      revalidateStock(stockItemId);
       if (result.replayed) return { stockItemId, toast: SALE_ALREADY_RECORDED, tone: "warn" };
       return { stockItemId, toast: await recordedSaleToast(db, result.saleId, valid.value.quantity), tone: "info" };
     }

@@ -13,9 +13,11 @@ const ADMIN = { email: uniqueEmail("s6-inv-admin"), name: "Inventory Admin" };
 const JORDAN = { email: uniqueEmail("s6-inv-jordan"), name: "Jordan Reyes" };
 const RESEARCHER = { email: uniqueEmail("s6-inv-researcher"), name: "Inventory Researcher" };
 
+let jordanId: string;
+
 test.beforeAll(async () => {
   await ensureAccount({ ...ADMIN, role: "admin" });
-  await ensureAccount({ ...JORDAN, role: "researcher" });
+  jordanId = await ensureAccount({ ...JORDAN, role: "researcher" });
   await ensureAccount({ ...RESEARCHER, role: "researcher" });
 });
 
@@ -73,6 +75,14 @@ test("the handoff FIFO scenario: two purchases, a sale of 12, 8 left, 9 more blo
     page.getByText("Whole vials on hand, counted per peptide and strength. Business stock only — never a researcher's personal supplies."),
   ).toBeVisible();
   await expect(activeNav(page)).toHaveText("Inventory");
+  // A7 and A4 are visited before anything is recorded: after each purchase and
+  // sale they must show fresh data, never the client's copy of this visit.
+  const nav = page.getByRole("navigation", { name: "Main" });
+  await nav.getByRole("link", { name: "Sales" }).click();
+  await expect(h1(page)).toHaveText("Sales & gross profit");
+  await nav.getByRole("link", { name: "Inventory" }).click();
+  await expect(h1(page)).toHaveText("Inventory");
+  await expect(page.getByTestId("stock-row").filter({ hasText: peptide })).toHaveCount(0);
   await page.getByRole("link", { name: "Record purchase" }).click();
 
   // A5, validation in the designed order.
@@ -144,16 +154,32 @@ test("the handoff FIFO scenario: two purchases, a sale of 12, 8 left, 9 more blo
   const account = page.getByRole("combobox", { name: /^Account/ });
   await expect(account).toHaveValue("");
   await expect(account).toHaveAttribute("placeholder", "Search by name or email");
-  await expectError(page, page.getByRole("button", { name: "Record sale" }), "Choose the buyer's researcher account.");
+  const recordSale = page.getByRole("button", { name: "Record sale" });
+  await expectError(page, recordSale, "Choose the buyer's researcher account.");
+  // Admins are in the buyer list (admins are researchers too).
+  await account.fill(ADMIN.email.split("@")[0]);
+  await page.getByRole("option", { name: `${ADMIN.name} · ${ADMIN.email}` }).click();
+  await expect(account).toHaveValue(`${ADMIN.name} · ${ADMIN.email}`);
+  // Typing another name without choosing it unlinks the admin: nothing is recorded.
+  await account.fill(JORDAN.name);
+  // Clicked while the list is still open (it hides the rest of the page from
+  // the accessibility tree, so the button is found by its markup).
+  await expect(page.getByRole("option").first()).toBeVisible();
+  await expectError(page, page.locator('form.app-inv-form button[type="submit"]'), "Choose the buyer's researcher account.");
+  await expect(account).toHaveValue("");
+  expect((await serviceClient().from("business_sales").select("id").eq("stock_item_id", itemId)).data).toEqual([]);
   await account.fill(JORDAN.email.split("@")[0].slice(4));
   const jordanOption = page.getByRole("option", { name: `${JORDAN.name} · ${JORDAN.email}` });
   await expect(page.getByRole("option")).toHaveCount(1);
   await jordanOption.click();
   await expect(account).toHaveValue(`${JORDAN.name} · ${JORDAN.email}`);
-  await page.getByRole("button", { name: "Record sale" }).click();
+  await recordSale.click();
   await expect(toast(page)).toHaveText("Sale recorded · 12 vials · revenue CAD 480.00 · gross profit CAD 230.00");
   await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory/${itemId}`);
   await expect(page.getByTestId("on-hand")).toHaveText("8");
+  expect((await serviceClient().from("business_sales").select("buyer_type, buyer_profile_id").eq("stock_item_id", itemId)).data).toEqual([
+    { buyer_type: "account", buyer_profile_id: jordanId },
+  ]);
   await expect(page.getByTestId("sale-row")).toHaveText([
     new RegExp(
       `· 12 vials · ${JORDAN.name} \\(account\\)CAD 480\\.00` +
@@ -170,8 +196,9 @@ test("the handoff FIFO scenario: two purchases, a sale of 12, 8 left, 9 more blo
   await expect(page.getByTestId("stock-row").filter({ hasText: peptide })).toHaveText(`${peptide} · 8 mg82012›`);
 
   // A7 for this item: totals match; last month has none of its sales.
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Sales" }).click();
+  await nav.getByRole("link", { name: "Sales" }).click();
   await expect(h1(page)).toHaveText("Sales & gross profit");
+  await expect(page.getByTestId("sales-list")).toContainText(`${label} · 12 vials · ${JORDAN.name} (account)`);
   await hydrated(page.getByLabel("Item"));
   await page.getByLabel("Item").selectOption({ label });
   await expect(page).toHaveURL(`${APP_ORIGIN}/admin/sales?item=${itemId}`);
@@ -301,6 +328,17 @@ test("phone: tables fit, columns stack, KPIs in two columns", async ({ page }) =
   for (const width of cells.cad) expect(width).toBeLessThanOrEqual(1);
   for (const height of cells.heights) expect(height).toBeLessThan(24);
   expect(cells.shown).toEqual(["7,999.96", "5,002.00", "2,997.96"]);
+  // The KPI numbers drop the visible "CAD" too, and each stays on one line.
+  const kpis = await page.getByTestId("kpis").evaluate((el) => ({
+    cad: [...el.querySelectorAll(".app-inv-cad")].map((cad) => cad.getBoundingClientRect().width),
+    shown: [...el.querySelectorAll(".app-inv-kpi-value .app-inv-amount")].map((value) => (value as HTMLElement).innerText),
+    heights: [...el.querySelectorAll(".app-inv-kpi-value")].map((value) => value.getBoundingClientRect().height),
+  }));
+  // 26px numbers: one line is about 32px high.
+  for (const height of kpis.heights) expect(height).toBeLessThan(45);
+  expect(kpis.cad).toHaveLength(3);
+  for (const width of kpis.cad) expect(width).toBeLessThanOrEqual(1);
+  expect(kpis.shown).toEqual(["7,999.96", "5,002.00", "2,997.96"]);
   expect(await fits()).toBe(true);
 
   await page.goto(`${APP_ORIGIN}/admin/sales`);
@@ -375,6 +413,41 @@ test("switching the stock item blocks saving until that item's preview has loade
     expect((await serviceClient().from("business_sales").select("id").eq("stock_item_id", item.id)).data).toEqual([]);
   }
   await expect(toast(page)).toHaveCount(0);
+});
+
+test("a slow response for a previously chosen item never replaces the current item's preview", async ({ page }) => {
+  const [first, slow, current] = [await seedItem(3, "10"), await seedItem(5, "12"), await seedItem(7, "14")];
+  await signInAdmin(page);
+  await page.goto(`${APP_ORIGIN}/admin/inventory/sale?item=${first.id}`);
+  await hydrated(page.getByLabel("Vials", { exact: true }));
+  await page.getByLabel("Vials", { exact: true }).fill("2");
+  await page.getByLabel("Price per vial (CAD)").fill("30");
+  const preview = page.getByTestId("sale-preview");
+  await expect(preview.locator("dd")).toHaveText(["3 vials", "CAD 60.00", "CAD 20.00", "CAD 40.00"]);
+
+  // The second item's data is held back; the third item's arrives first.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const isSlow = (url: URL) => url.pathname === "/admin/inventory/sale" && url.searchParams.get("item") === slow.id;
+  await page.route(isSlow, async (route) => {
+    if (route.request().headers()["rsc"]) await held;
+    await route.continue().catch(() => {});
+  });
+  await select(page, "stockItemId").selectOption(slow.id);
+  await expect(preview).toHaveAttribute("aria-busy", "true");
+  await select(page, "stockItemId").selectOption(current.id);
+  await expect(preview.getByRole("heading")).toHaveText(`Preview · ${current.label}`);
+  await expect(preview.locator("dd")).toHaveText(["7 vials", "CAD 60.00", "CAD 28.00", "CAD 32.00"]);
+
+  // The late response arrives: the chosen item and its preview stay as they are.
+  release();
+  await page.waitForTimeout(1_000);
+  await expect(select(page, "stockItemId")).toHaveValue(current.id);
+  await expect(preview.getByRole("heading")).toHaveText(`Preview · ${current.label}`);
+  await expect(preview.locator("dd")).toHaveText(["7 vials", "CAD 60.00", "CAD 28.00", "CAD 32.00"]);
+  await expect(preview).not.toHaveAttribute("aria-busy", "true");
+  await expect(page.getByRole("button", { name: "Record sale" })).toBeEnabled();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory/sale?item=${current.id}`);
 });
 
 test("a researcher cannot reach inventory or sales", async ({ page }) => {

@@ -9,6 +9,7 @@ import { BuyerAccountPicker } from "./buyer-account-picker";
 import { formatCurrency } from "@/lib/format";
 import { insufficientStockMessage, type FifoLot } from "@/lib/inventory/rules";
 import {
+  accountLabel,
   OUTSIDE_BUYER_PLACEHOLDER,
   previewAllocationLine,
   profitTone,
@@ -23,6 +24,8 @@ type Form = {
   soldOn: string;
   buyerType: "account" | "outside";
   buyerProfileId: string;
+  /** The text in the account search field. */
+  buyerSearch: string;
   buyerName: string;
   quantity: string;
   unitPrice: string;
@@ -60,6 +63,7 @@ export function SaleForm({
     buyerType: "account",
     // Blank until the admin picks the buyer's account (Marco, 2026-09-26).
     buyerProfileId: "",
+    buyerSearch: "",
     buyerName: "",
     quantity: "",
     unitPrice: "",
@@ -96,7 +100,11 @@ export function SaleForm({
           // Never save before the preview for the chosen item has loaded.
           if (pending || leaving || loading || preview.short) return;
           key.current ??= crypto.randomUUID();
-          submit({ ...form, idempotencyKey: key.current }, (result) => {
+          // Only the account the field shows is linked: edited text unlinks it
+          // (the server then answers "Choose the buyer's researcher account.").
+          const buyer = accounts.find((account) => account.id === form.buyerProfileId);
+          const buyerProfileId = buyer && accountLabel(buyer) === form.buyerSearch ? buyer.id : "";
+          submit({ ...form, buyerProfileId, idempotencyKey: key.current }, (result) => {
             if (!result.stockItemId) return;
             key.current = null;
             setLeaving(true);
@@ -138,7 +146,13 @@ export function SaleForm({
           </div>
         </div>
         {form.buyerType === "account" ? (
-          <BuyerAccountPicker accounts={accounts} value={form.buyerProfileId} onChange={(id) => update("buyerProfileId", id)} />
+          <BuyerAccountPicker
+            accounts={accounts}
+            value={form.buyerProfileId}
+            onChange={(id) => update("buyerProfileId", id)}
+            text={form.buyerSearch}
+            onTextChange={(text) => update("buyerSearch", text)}
+          />
         ) : (
           <Field label="Buyer name or reference">
             <input

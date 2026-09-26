@@ -189,7 +189,7 @@ describe("designed empty states, rendered", () => {
     expect(html(createElement(SalesReportView, { report: report(true, false), itemLabels: labels }))).toContain(SALES_EMPTY_NO_SALES);
     const filtered = html(createElement(SalesReportView, { report: report(true, true), itemLabels: labels }));
     expect(filtered).toContain(SALES_EMPTY_FILTERED);
-    expect(filtered).toContain("CAD 0.00");
+    expect(filtered.replace(/<[^>]+>/g, "")).toContain("CAD 0.00");
     expect(filtered).not.toContain("Sales in this view");
   });
 });

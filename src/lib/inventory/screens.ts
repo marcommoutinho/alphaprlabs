@@ -28,11 +28,14 @@ export const OUTSIDE_BUYER_PLACEHOLDER = "No app account needed";
 export const BUYER_SEARCH_PLACEHOLDER = "Search by name or email";
 export const BUYER_SEARCH_EMPTY = "No account matches.";
 
+/** A6 buyer account as shown: `Jordan Reyes · jordan@example.com`. */
+export const accountLabel = (account: { name: string; email: string }) => `${account.name} · ${account.email}`;
+
 /** A6 account search: the name, the email or `Name · email` contains the typed text (any case). */
 export function accountMatches(account: { name: string; email: string }, query: string): boolean {
   const text = query.trim().toLocaleLowerCase("en-CA");
   const lower = (value: string) => value.toLocaleLowerCase("en-CA");
-  return !text || [account.name, account.email, `${account.name} · ${account.email}`].some((value) => lower(value).includes(text));
+  return !text || [account.name, account.email, accountLabel(account)].some((value) => lower(value).includes(text));
 }
 export const SALES_NOTE =
   "Gross profit = revenue − FIFO purchase cost of the vials sold. Not net profit. Current stock is a separate figure — see Inventory.";

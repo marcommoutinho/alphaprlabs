@@ -214,9 +214,9 @@ export function SalesReportView({ report, itemLabels }: { report: SalesReport; i
     <>
       <div className="app-inv-kpis" data-testid="kpis">
         <Kpi label="Vials sold" value={totals.vials.toLocaleString("en-CA")} />
-        <Kpi label="Revenue" value={formatCurrency(totals.revenue)} />
-        <Kpi label="Cost of vials sold" value={formatCurrency(totals.cost)} />
-        <Kpi label="Gross profit" value={formatCurrency(totals.grossProfit)} tone={profitTone(totals.grossProfit)} accent />
+        <Kpi label="Revenue" value={<Money amount={totals.revenue} />} />
+        <Kpi label="Cost of vials sold" value={<Money amount={totals.cost} />} />
+        <Kpi label="Gross profit" value={<Money amount={totals.grossProfit} />} tone={profitTone(totals.grossProfit)} accent />
       </div>
       <p className="app-inv-note">{SALES_NOTE}</p>
       {empty ? (
@@ -256,9 +256,9 @@ export function SalesReportView({ report, itemLabels }: { report: SalesReport; i
 }
 
 /**
- * A money column amount: `CAD 480.00`. On phones the "CAD" label is visually
- * dropped (still read by screen readers) so amounts don't wrap (Marco,
- * 2026-09-26).
+ * An A7 amount (money columns and KPIs): `CAD 480.00`. On phones the "CAD"
+ * label is visually dropped (still read by screen readers) so amounts don't
+ * wrap (Marco, 2026-09-26).
  */
 function Money({ amount }: { amount: string }) {
   const text = formatCurrency(amount);
@@ -271,7 +271,7 @@ function Money({ amount }: { amount: string }) {
   );
 }
 
-function Kpi({ label, value, tone, accent }: { label: string; value: string; tone?: string; accent?: boolean }) {
+function Kpi({ label, value, tone, accent }: { label: string; value: React.ReactNode; tone?: string; accent?: boolean }) {
   return (
     <div>
       <div className="app-inv-kpi-label" data-accent={accent || undefined}>
