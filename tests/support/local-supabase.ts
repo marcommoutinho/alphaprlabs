@@ -107,21 +107,30 @@ const GATEWAY_NO_RESPONSE = "An invalid response was received from the upstream 
 /**
  * fetch for the test clients. The local gateway (Kong) keeps idle upstream
  * connections for 60 s, but PostgREST closes idle keep-alive connections after
- * 30–60 s; a request Kong writes onto a connection PostgREST is closing at that
- * moment comes back as Kong's 502 above, without PostgREST ever reading it.
- * Under the bursts of a parallel test run this hits a random call now and then,
- * and supabase-js turns it into `data: null` with an error that has no code.
- * Only that exact answer is sent again, once, and reported; anything else,
- * including a second gateway 502, reaches the test unchanged.
+ * 30-60 s; a request Kong sends on a connection PostgREST is closing at that
+ * moment comes back as Kong's 502 above. Under the bursts of a parallel test
+ * run this hits a random call now and then.
+ *
+ * Only reads (GET/HEAD) are sent again, once, and reported. A write (POST,
+ * PATCH, DELETE, and every RPC, which PostgREST takes as POST) is never
+ * repeated: a closed connection does not prove the first attempt was not
+ * applied, so the 502 reaches the test, and ok()/sqlState() fail with it.
  */
+const RETRYABLE_METHODS = new Set(["GET", "HEAD"]);
+
 async function gatewayFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
   const retry = input instanceof Request ? input.clone() : input;
   const response = await fetch(input, init);
   if (response.status !== 502) return response;
+  const url = input instanceof Request ? input.url : String(input);
   const body = await response.clone().text();
   if (!body.includes(GATEWAY_NO_RESPONSE)) return response;
-  const url = input instanceof Request ? input.url : String(input);
-  console.warn(`Local gateway 502 (upstream closed the connection unanswered); sending once more: ${init?.method ?? "GET"} ${url}`);
+  if (!RETRYABLE_METHODS.has(method)) {
+    console.warn(`Local gateway 502 (upstream closed the connection); not repeating the write: ${method} ${url}`);
+    return response;
+  }
+  console.warn(`Local gateway 502 (upstream closed the connection); reading once more: ${method} ${url}`);
   return fetch(retry, init);
 }
 
@@ -152,18 +161,6 @@ export async function ok<T>(call: PromiseLike<ApiResponse<T>>, what = "Database 
   const response = await call;
   if (response.error) throw new Error(describeFailure(what, response));
   return response.data;
-}
-
-/**
- * The rows a caller can see: none when the read is refused outright
- * (insufficient privilege, 42501). Any other failure throws, so it is never
- * mistaken for "sees nothing".
- */
-export async function visibleRows<T>(call: PromiseLike<ApiResponse<T[]>>, what = "Read"): Promise<T[]> {
-  const response = await call;
-  if (!response.error) return response.data ?? [];
-  if (response.error.code === "42501") return [];
-  throw new Error(describeFailure(what, response));
 }
 
 /**

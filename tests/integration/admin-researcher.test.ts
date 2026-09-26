@@ -3,7 +3,7 @@
 // records, and the admin role is never a way past ownership. No mocked database.
 import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import { anonClient, ensureAccount, serviceClient, signedInClient, uniqueEmail, visibleRows } from "../support/local-supabase";
+import { anonClient, ensureAccount, ok, serviceClient, signedInClient, uniqueEmail } from "../support/local-supabase";
 
 type Client = Awaited<ReturnType<typeof signedInClient>>;
 
@@ -151,7 +151,7 @@ describe("the admin role is never a way past ownership", () => {
     expect(await row(url)).toMatchObject({ profile_id: adminId, disabled_reason: null });
     // Admin-only rules are unchanged: a researcher gains nothing.
     expect((await researcher.rpc("is_admin")).data).toBe(false);
-    expect(await visibleRows(researcher.from("invitations").select("id"))).toEqual([]);
+    expect(await ok(researcher.from("invitations").select("id"))).toEqual([]);
     const invite = await researcher.rpc("invite_researcher", {
       p_name: "X",
       p_email: uniqueEmail("s32-nope"),

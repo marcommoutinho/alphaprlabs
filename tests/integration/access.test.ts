@@ -34,17 +34,19 @@ const accountsFor = async (email: string) =>
 describe("row level security", () => {
   it("anonymous and researcher clients cannot read or write invitations; admins can read", async () => {
     const researcherClient = await signedInClient(researcher.email);
+    // Anonymous callers have no table privilege at all (42501); a researcher
+    // may query the table but RLS shows no rows.
+    expect((await anonClient().from("invitations").select("id")).error?.code).toBe("42501");
+    expect(await ok(researcherClient.from("invitations").select("id"))).toEqual([]);
     for (const client of [anonClient(), researcherClient]) {
-      const { data } = await client.from("invitations").select("id");
-      expect(data ?? []).toHaveLength(0);
       const invite = await client.rpc("invite_researcher", {
         p_name: "X",
         p_email: uniqueEmail("nope"),
         p_token_hash: "0".repeat(64),
       });
-      expect(invite.error).not.toBeNull();
+      expect(invite.error?.code).toBe("42501");
       const claim = await client.rpc("claim_invitation", { p_token_hash: "0".repeat(64) });
-      expect(claim.error).not.toBeNull();
+      expect(claim.error?.code).toBe("42501");
     }
     const { data: adminRows } = await (await signedInClient(admin.email)).from("invitations").select("id");
     expect(adminRows?.length).toBeGreaterThan(0);

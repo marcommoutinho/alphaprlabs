@@ -5,7 +5,7 @@
 // signed-in person, only its cookie session is swapped for a signed-in client.
 import { randomBytes } from "node:crypto";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { anonClient, ensureAccount, serviceClient, signedInClient, uniqueEmail, visibleRows } from "../support/local-supabase";
+import { anonClient, ensureAccount, serviceClient, signedInClient, uniqueEmail } from "../support/local-supabase";
 
 const acting = vi.hoisted(() => ({ client: null as unknown }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => acting.client }));
@@ -191,7 +191,8 @@ describe("table reads return available entries only, for everyone; A2 lists all 
 
     const unacknowledged = await signedInClient(newResearcher.email);
     expect((await unacknowledged.from("peptides").select("id").in("id", ids)).data).toEqual([]);
-    expect(await visibleRows(anonClient().from("peptides").select("id").in("id", ids))).toEqual([]);
+    // Anonymous callers have no privilege on the table at all.
+    expect((await anonClient().from("peptides").select("id").in("id", ids)).error?.code).toBe("42501");
 
     // Withdrawing an entry hides it from researchers at once; offering it again shows it.
     await adminClient.rpc("save_library_peptide", { ...entry((await stored(on)).name, false), p_id: on });
