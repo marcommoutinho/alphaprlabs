@@ -167,13 +167,21 @@ export type CycleDetail = {
 /** The shown dose, "." as the decimal point. */
 const mg = (dose: string) => `${dose} mg`;
 
-/** An active phase cut at its dose changes: each piece's first and last date and dose. */
-function doseSegments(phase: ActivePhase): { start: LocalDate; end: LocalDate; dose: string }[] {
-  const cuts = [...new Set((phase.doseChanges ?? []).map((change) => change.from))]
+/**
+ * An active phase cut at its dose and time changes: each piece's first and
+ * last date, and the dose and time in force there (doseAt, timeOn).
+ */
+export function phaseSegments(phase: ActivePhase): { start: LocalDate; end: LocalDate; dose: string; time: string }[] {
+  const cuts = [...new Set([...(phase.doseChanges ?? []), ...(phase.timeChanges ?? [])].map((change) => change.from))]
     .filter((from) => from > phase.start && from <= phase.end)
     .sort();
   const starts = [phase.start, ...cuts];
-  return starts.map((start, i) => ({ start, end: i + 1 < starts.length ? addDay(starts[i + 1], -1) : phase.end, dose: doseAt(phase, start) }));
+  return starts.map((start, i) => ({
+    start,
+    end: i + 1 < starts.length ? addDay(starts[i + 1], -1) : phase.end,
+    dose: doseAt(phase, start),
+    time: timeOn(phase, start),
+  }));
 }
 
 const isAbove = (dose: string, base: string | null) => base !== null && new Exact(dose).greaterThan(new Exact(base));
@@ -196,15 +204,17 @@ function lane(plan: StoredPlan, start: LocalDate, total: number, occurrences: re
         },
       ];
     }
-    return doseSegments(phase).map((segment) => {
+    return phaseSegments(phase).map((segment, i, segments) => {
       const raised = isAbove(segment.dose, base);
+      // A piece cut only by a time change repeats its dose: no second caption.
+      const sameDose = i > 0 && segments[i - 1].dose === segment.dose;
       return {
         from: clamp(segment.start),
         to: clamp(segment.end),
         kind: "active",
         raised,
         title: `${mg(segment.dose)} · ${scheduleLabel(phase, segment.start)}`,
-        caption: raised ? `${mg(segment.dose)} · planned increase` : mg(segment.dose),
+        caption: sameDose ? "" : raised ? `${mg(segment.dose)} · planned increase` : mg(segment.dose),
       };
     });
   });

@@ -16,7 +16,7 @@ import {
   templateSummary,
   usedIn,
 } from "@/lib/library/research-view";
-import type { Confirmation } from "@/lib/schedule/engine";
+import type { ActivePhase, Confirmation } from "@/lib/schedule/engine";
 import type { TemplatePlan } from "@/lib/templates/rules";
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -181,8 +181,37 @@ describe("R4 cycle detail", () => {
       [12, 21, "active", true, "0.5 mg · planned increase"],
       [22, 28, "break", false, "Break"],
     ]);
+    expect(a.bars.map((bar) => bar.title)).toEqual([
+      "0.4 mg · every 2 days · 20:00",
+      "0.5 mg · every 2 days · 07:15",
+      "Break Oct 1 – Oct 7",
+    ]);
     expect(b).toMatchObject({ name: "Compound B", sub: "Mon · Wed · Fri · 07:30" });
     expect(cycleDetail(cycleOf([revision1]), peptides, "2026-11-01T16:00:00Z").timeline.todayPercent).toBeNull();
+  });
+
+  it("cuts a bar at a time-only change: titled with the time in force, one dose caption", () => {
+    const timeOnly: CycleRevision = {
+      ...revision2,
+      plans: [
+        {
+          ...revision2.plans[0],
+          phases: [{ ...(revision2.plans[0].phases[0] as ActivePhase), doseChanges: undefined }, revision2.plans[0].phases[1]],
+        },
+        revision2.plans[1],
+      ],
+    };
+    const [a] = cycleDetail(cycleOf([revision1, timeOnly]), peptides, MONDAY_NOON).timeline.lanes;
+    expect(a.bars.map(({ from, to, title, caption }) => [from, to, title, caption])).toEqual([
+      [1, 11, "0.4 mg · every 2 days · 20:00", "0.4 mg"],
+      [12, 21, "0.4 mg · every 2 days · 07:15", ""],
+      [22, 28, "Break Oct 1 – Oct 7", "Break"],
+    ]);
+    // The markers agree: 20:00 before the change, 07:15 after, on the same every-2-days days.
+    expect(a.dots.slice(5, 7).map((dot) => dot.label)).toEqual([
+      "Compound A · Sun Sep 20 · 20:00 · Unconfirmed",
+      "Compound A · Tue Sep 22 · 07:15 · Planned",
+    ]);
   });
 
   it("places one marker per dose from every revision: earlier ones kept, later ones at the new time, same rhythm", () => {

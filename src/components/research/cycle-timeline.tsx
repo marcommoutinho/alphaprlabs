@@ -50,11 +50,13 @@ export function CycleTimeline({ timeline }: { timeline: Timeline }) {
                     style={span(dot.day, dot.day)}
                   />
                 ))}
-                {lane.bars.map((bar, index) => (
-                  <div key={`cap-${index}`} className="app-cv-cap" data-raised={bar.raised || undefined} style={span(bar.from, bar.to)}>
-                    {bar.caption}
-                  </div>
-                ))}
+                {lane.bars.map((bar, index) =>
+                  bar.caption ? (
+                    <div key={`cap-${index}`} className="app-cv-cap" data-raised={bar.raised || undefined} style={span(bar.from, bar.to)}>
+                      {bar.caption}
+                    </div>
+                  ) : null,
+                )}
               </div>
             ))}
             {timeline.todayPercent !== null ? (

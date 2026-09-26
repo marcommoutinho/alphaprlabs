@@ -13,6 +13,7 @@ import { ensureAccount, hydrated, ok, serviceClient, signedInClient, signInAs, u
 const RESEARCHER = { email: uniqueEmail("s10-views"), name: "Views Researcher" };
 const OTHER = { email: uniqueEmail("s10-views-other"), name: "Other Researcher" };
 const ADMIN = { email: uniqueEmail("s10-views-admin"), name: "Views Admin" };
+let adminId = "";
 
 /** An IANA fixed-offset zone where the local time now is 12:xx (Etc/GMT signs are inverted). */
 const NOON = (() => {
@@ -26,7 +27,7 @@ const when = (days: number, time: string) => `${formatDay(d(days))} · ${time}`;
 test.beforeAll(async () => {
   await ensureAccount({ ...RESEARCHER, role: "researcher" });
   await ensureAccount({ ...OTHER, role: "researcher" });
-  await ensureAccount({ ...ADMIN, role: "admin" });
+  adminId = await ensureAccount({ ...ADMIN, role: "admin" });
 });
 
 async function seedPeptide(name: string, available = true, cyclingOff = "") {
@@ -133,6 +134,14 @@ test("R4 shows doses from every revision: a mid-cycle time change keeps the rhyt
 
   const lane = page.getByTestId("cycle-lane");
   await expect(lane.locator(".app-cv-lane-name")).toHaveText(`${A} every 2 days · 20:00`);
+  // The phase's bar is cut where the time changes, each piece titled with the time in force; one dose caption.
+  const bars = lane.locator(".app-cv-bar");
+  await expect(bars).toHaveCount(2);
+  expect(await bars.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("title")))).toEqual([
+    "0.4 mg · every 2 days · 20:00",
+    "0.4 mg · every 2 days · 07:15",
+  ]);
+  await expect(lane.locator(".app-cv-cap")).toHaveText(["0.4 mg"]);
   const dots = lane.getByRole("img");
   // Earlier doses stay at 20:00; from tomorrow the time is 07:15 on the same every-2-days days.
   await expect(dots).toHaveCount(13);
@@ -246,6 +255,28 @@ test("R6 hides withdrawn peptides; a template names one and is still a starting 
   const withdrawn = page.getByTestId("cycle-plan").filter({ hasText: W });
   await expect(withdrawn.locator(".app-cyc-withdrawn")).toHaveText("No longer offered for new cycles.");
   await expect(page.getByTestId("cycle-plan").filter({ hasText: A })).toBeVisible();
+});
+
+test("a granted admin's own Cycles show only their own cycles", async ({ page }) => {
+  const t = tag();
+  const aId = await seedPeptide(`Granted A ${t}`);
+  const grantor = { email: uniqueEmail("s10-views-grantor"), name: "Granting Researcher" };
+  await ensureAccount({ ...grantor, role: "researcher" });
+  const grantorDb = await signedInClient(grantor.email);
+  const theirs = await createCycle(grantorDb, { name: `Grantor's ${t}`, timeZone: NOON, plans: [plan(aId, [interval(d(-2), d(10))])] });
+  await ok(grantorDb.rpc("grant_support_access", { p_admin_id: adminId }), "grant");
+  const adminDb = await signedInClient(ADMIN.email);
+  // The grant is real: the admin's session can read the grantor's cycle.
+  expect(await ok(adminDb.from("cycles").select("id").eq("id", theirs), "granted read")).toHaveLength(1);
+  await createCycle(adminDb, { name: `Admin's own ${t}`, timeZone: NOON, plans: [plan(aId, [interval(d(-2), d(10))])] });
+
+  await signIn(page, ADMIN.email);
+  await page.goto(`${APP_ORIGIN}/app/cycles`);
+  await expect(page.getByTestId("cycle-card").filter({ hasText: `Admin's own ${t}` })).toBeVisible();
+  await expect(page.getByText(`Grantor's ${t}`)).toHaveCount(0);
+  // Their detail is not on the research side either (the support view is A8).
+  await page.goto(`${APP_ORIGIN}/app/cycles/${theirs}`);
+  await expect(page.getByText("This page could not be found.")).toBeVisible();
 });
 
 test("the cycle and library views work at phone width", async ({ page }) => {
