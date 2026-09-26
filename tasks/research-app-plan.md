@@ -689,12 +689,21 @@ two handoff open decisions kept out above.
 ## Progress and next decision
 
 D1–D5 approved 2026-09-09. Interface approved 2026-09-25 with the environment,
-Postmark, badge and notification-tap decisions recorded above. No application
-slice is active, built, reviewed, deployed or live.
+Postmark, badge and notification-tap decisions recorded above. Build map
+approved and building started 2026-09-25.
 
-Next: Marco approves this build map (seventeen local slices, groups A–C, and
-the proof budgets). Approval starts S1 locally. Gates G1–G3 each need their own
-authorization when reached.
+- S1, S2, S3 (with follow-up S3.1) and S3.2 are built, independently reviewed
+  and integrated on `feat/research-app` (S3.2 at `a0cf554`, after one
+  correction: the database enforces the acknowledgement before reminders can be
+  turned on, and moving a phone's reminders to another account requires that
+  phone's own subscription keys).
+- G1 passed 2026-09-26: the closed production app at `app.alphaprlabs.com`
+  (Vercel Hobby, Supabase free, Postmark live server) was installed on Marco's
+  phone with his admin account; reminders turned on and a test notification
+  arrived. Marco reported "its all working". The test-notification button stays
+  on (`PUSH_TEST_ENABLED`) while the app is closed and is turned off before G3.
+
+Next: S4, the peptide library and support-grant foundation.
 
 ## Technical references
 
