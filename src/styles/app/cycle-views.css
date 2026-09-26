@@ -1,0 +1,510 @@
+/* R2 Cycles and R4 Cycle detail (the prototype's R2 and R4 screens): status
+   groups of cycle cards; the detail's header, per-peptide timeline, plan
+   cards and scheduled-vs-actual rows. Text never goes below text-4 (the
+   prototype's .5 greys are raised to the handoff's minimum). One column on
+   phone; the timeline scrolls sideways there. Scoped under .app-root. */
+
+/* ── R2 ───────────────────────────────────────────────── */
+.app-root .app-cv-empty {
+  margin-top: 40px;
+  padding: 36px 28px;
+  border-radius: var(--app-radius-hero);
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  text-align: center;
+}
+
+.app-root .app-cv-empty h2 {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.app-root .app-cv-empty p {
+  margin-top: 8px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-cv-group {
+  margin-top: 36px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--app-text-4);
+}
+
+.app-root .app-cv-card {
+  display: block;
+  margin-top: 12px;
+  padding: 22px 24px;
+  border-radius: var(--app-radius-card);
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: inherit;
+}
+
+.app-root .app-cv-card:hover {
+  border-color: rgba(96, 165, 250, 0.5);
+  color: inherit;
+}
+
+.app-root .app-cv-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.app-root .app-cv-card-name {
+  min-width: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-cv-status,
+.app-root .app-cv-status-line {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--app-text-3);
+}
+
+.app-root :is(.app-cv-status, .app-cv-status-line)[data-status="Active"] {
+  color: var(--app-primary-text);
+}
+
+.app-root :is(.app-cv-status, .app-cv-status-line)[data-status="Ended"] {
+  color: var(--app-text-4);
+}
+
+.app-root .app-cv-card-meta {
+  display: block;
+  margin-top: 6px;
+  font-size: 14px;
+  color: var(--app-text-4);
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-cv-card-next {
+  display: block;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-cv-card-open {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--app-warning);
+}
+
+/* ── R4 header ────────────────────────────────────────── */
+.app-root .app-cv-back {
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-cv-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  margin-top: 14px;
+}
+
+.app-root .app-cv-status-line {
+  white-space: normal;
+}
+
+.app-root .app-cv-title {
+  margin-top: 6px;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-cv-meta {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--app-text-4);
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-cv-actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* ── R4 timeline ──────────────────────────────────────── */
+.app-root .app-cv-timeline {
+  margin-top: 40px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.app-root .app-cv-timeline-inner {
+  padding-bottom: 30px;
+}
+
+.app-root .app-cv-months,
+.app-root .app-cv-lane {
+  display: grid;
+  grid-template-columns: repeat(var(--cv-days), minmax(0, 1fr));
+}
+
+.app-root .app-cv-months {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--app-border);
+  font-size: 12px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-cv-months span {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.app-root .app-cv-lanes {
+  position: relative;
+}
+
+.app-root .app-cv-lane {
+  height: 104px;
+  align-items: center;
+  border-bottom: 1px solid var(--app-divider-row);
+}
+
+.app-root .app-cv-lane > * {
+  grid-row: 1;
+}
+
+.app-root .app-cv-lane-name {
+  grid-column: 1 / -1;
+  align-self: start;
+  padding-top: 18px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.app-root .app-cv-lane-name span {
+  margin-left: 8px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-cv-bar {
+  height: 6px;
+  margin-top: 12px;
+  border-radius: 5px;
+  background: var(--app-primary-strong);
+}
+
+.app-root .app-cv-bar[data-raised] {
+  height: 10px;
+  background: var(--app-primary);
+}
+
+.app-root .app-cv-bar[data-kind="break"] {
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.25) 0 3px, transparent 3px 6px);
+}
+
+.app-root .app-cv-dot,
+.app-root .app-cv-legend i {
+  border-radius: 50%;
+  background: var(--app-bg);
+}
+
+.app-root .app-cv-dot {
+  justify-self: center;
+  width: 12px;
+  height: 12px;
+  margin-top: 12px;
+  box-shadow: 0 0 0 3px var(--app-bg);
+}
+
+.app-root .app-cv-dot[data-state="taken"] {
+  border: 1.5px solid #fff;
+  background: #fff;
+}
+
+.app-root .app-cv-dot[data-state="due"] {
+  border: 1.5px solid var(--app-primary-text);
+  background: var(--app-primary);
+}
+
+.app-root .app-cv-dot[data-state="planned"] {
+  border: 1.5px solid rgba(147, 197, 253, 0.8);
+}
+
+.app-root .app-cv-dot[data-state="open"] {
+  border: 2.5px solid var(--app-warning);
+}
+
+.app-root .app-cv-cap {
+  align-self: end;
+  padding-bottom: 16px;
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--app-text-4);
+}
+
+.app-root .app-cv-cap[data-raised] {
+  color: var(--app-primary-text);
+}
+
+.app-root .app-cv-today {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.6);
+  pointer-events: none;
+}
+
+.app-root .app-cv-today-label {
+  position: absolute;
+  bottom: -22px;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: var(--app-text-3);
+}
+
+.app-root .app-cv-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin-top: 36px;
+  font-size: 12px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-cv-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.app-root .app-cv-legend i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+}
+
+.app-root .app-cv-legend i[data-state="taken"] {
+  background: #fff;
+}
+
+.app-root .app-cv-legend i[data-state="due"] {
+  background: var(--app-primary);
+}
+
+.app-root .app-cv-legend i[data-state="planned"] {
+  border: 1.5px solid rgba(147, 197, 253, 0.7);
+}
+
+.app-root .app-cv-legend i[data-state="open"] {
+  border: 2px solid var(--app-warning);
+}
+
+/* ── R4 plan cards ────────────────────────────────────── */
+.app-root .app-cv-plans {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 40px;
+}
+
+.app-root .app-cv-plan {
+  padding: 22px 24px;
+  border-radius: var(--app-radius-card);
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+}
+
+.app-root .app-cv-plan-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.app-root .app-cv-plan-head h2 {
+  min-width: 0;
+  font-size: 18px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-cv-plan-availability {
+  font-size: 12px;
+  color: var(--app-text-4);
+  text-align: right;
+}
+
+.app-root .app-cv-phases {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.app-root .app-cv-phase {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--app-border);
+  font-size: 13px;
+}
+
+.app-root .app-cv-phase[data-current] {
+  border-color: rgba(96, 165, 250, 0.3);
+  background: rgba(96, 165, 250, 0.08);
+}
+
+.app-root .app-cv-phase-word {
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--app-text-4);
+}
+
+.app-root .app-cv-phase[data-current] .app-cv-phase-word {
+  color: var(--app-primary-text);
+}
+
+.app-root .app-cv-phase-text {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.app-root .app-cv-phase-sub {
+  display: block;
+  margin-top: 2px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-cv-mix {
+  margin-top: 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--app-text-4);
+}
+
+.app-root .app-cv-guidance {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--app-border);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--app-text-3);
+}
+
+.app-root .app-cv-guidance-label {
+  margin-right: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--app-primary-text);
+}
+
+/* ── R4 scheduled vs actual ───────────────────────────── */
+.app-root .app-cv-history {
+  margin-top: 44px;
+}
+
+.app-root .app-cv-history-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.app-root .app-cv-history-head h2 {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.app-root .app-cv-history-head span {
+  font-size: 12px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-cv-history-rows,
+.app-root .app-cv-history-empty {
+  margin-top: 14px;
+}
+
+.app-root .app-cv-history-row {
+  display: grid;
+  /* The prototype's `auto` state column, at a fixed width so rows line up. */
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.1fr) minmax(0, 1.3fr) minmax(0, 1.3fr) 7.5em;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 0;
+  border-top: 1px solid var(--app-divider-row);
+  font-size: 14px;
+}
+
+.app-root .app-cv-history-label {
+  display: block;
+  font-size: 12px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-cv-history-mg,
+.app-root .app-cv-history-entered {
+  color: var(--app-text-4);
+}
+
+.app-root .app-cv-history-state {
+  font-weight: 600;
+  text-align: right;
+  color: var(--app-text-4);
+}
+
+.app-root .app-cv-history-state[data-state="taken"] {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.app-root .app-cv-history-state[data-state="due"] {
+  color: var(--app-primary-text);
+}
+
+.app-root .app-cv-history-state[data-state="open"] {
+  color: var(--app-warning);
+}
+
+.app-root .app-cv-history-more {
+  margin-top: 12px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: var(--app-primary-text);
+}
+
+@media (max-width: 759.98px) {
+  .app-root .app-cv-timeline-inner {
+    min-width: 720px;
+  }
+
+  .app-root .app-cv-plans {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-root .app-cv-history-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .app-root .app-cv-history-state {
+    text-align: left;
+  }
+}
