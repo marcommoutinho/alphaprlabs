@@ -104,7 +104,7 @@ test.describe("admin shell", () => {
     await expectMenuOpensAndClosesWithEsc(page, ADMIN_SIDE_MENU);
 
     await mainNav(page).getByRole("link", { name: "Sales" }).click();
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sales");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sales & gross profit");
     await expect(mainNav(page).locator('[aria-current="page"]')).toHaveText("Sales");
 
     await accountButton(page).click();

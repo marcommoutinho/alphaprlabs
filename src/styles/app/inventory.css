@@ -1,0 +1,436 @@
+/* A4 Inventory and Stock item, A5 Record purchase, A6 Record sale, A7 Sales &
+   gross profit. Scoped under .app-root; see tokens.css. */
+
+/* ── Shared ───────────────────────────────────────────── */
+.app-root .app-inv-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.app-root .app-inv-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.app-root .app-inv-back {
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-inv-back:hover {
+  color: var(--app-text);
+}
+
+.app-root .app-inv-back + .app-inv-head,
+.app-root .app-inv-back + .app-h1 {
+  margin-top: 14px;
+}
+
+.app-root .app-inv-empty {
+  margin-top: 32px;
+}
+
+.app-root .app-inv-muted {
+  color: var(--app-text-3);
+}
+
+.app-root .app-inv-caption {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-inv-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--app-text-4);
+}
+
+.app-root [data-tone="negative"] {
+  color: var(--app-error);
+}
+
+.app-root [data-tone="zero"] {
+  color: var(--app-text-2);
+}
+
+.app-root [data-tone="positive"] {
+  color: var(--app-success);
+}
+
+.app-root .app-inv-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── A4 Inventory table ───────────────────────────────── */
+.app-root .app-inv-table {
+  margin-top: 28px;
+}
+
+.app-root .app-inv-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 40px;
+  gap: 12px;
+  align-items: center;
+}
+
+.app-root .app-inv-thead {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--app-border);
+  font-size: 12px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-inv-row {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--app-divider-row);
+  color: inherit;
+  font-size: 15px;
+}
+
+.app-root a.app-inv-row:hover {
+  color: inherit;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.app-root .app-inv-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-inv-onhand {
+  font-weight: 700;
+}
+
+.app-root .app-inv-onhand[data-zero],
+.app-root .app-inv-hero-number[data-zero] {
+  color: var(--app-warning);
+}
+
+.app-root .app-inv-chevron {
+  text-align: right;
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+/* ── A4 Stock item ────────────────────────────────────── */
+.app-root .app-inv-hero {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.app-root .app-inv-hero-number {
+  font-size: 44px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.app-root .app-inv-hero-label {
+  font-size: 16px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-inv-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 28px;
+  margin-top: 36px;
+  align-items: start;
+}
+
+.app-root .app-inv-section-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.app-root .app-inv-section .app-empty {
+  margin-top: 14px;
+}
+
+.app-root .app-inv-entry {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--app-divider-row);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.app-root .app-inv-entry-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.app-root .app-inv-entry-line > :first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-inv-entry-amount {
+  white-space: nowrap;
+}
+
+.app-root .app-inv-entry-amount[data-muted] {
+  color: var(--app-text-2);
+}
+
+.app-root .app-inv-note {
+  margin-top: 14px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--app-text-4);
+}
+
+/* ── A5 / A6 forms ────────────────────────────────────── */
+.app-root .app-inv-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.app-root .app-inv-page-form {
+  margin-top: 28px;
+}
+
+.app-root .app-inv-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.app-root .app-inv-form input[type="date"] {
+  color-scheme: dark;
+}
+
+.app-root .app-inv-form .app-inline-error {
+  line-height: 1.5;
+}
+
+.app-root .app-inv-total {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: var(--app-radius-input);
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  font-size: 15px;
+}
+
+.app-root .app-inv-total > span {
+  color: var(--app-text-3);
+}
+
+.app-root .app-inv-submit {
+  margin-top: 22px;
+  font-size: 15px;
+}
+
+.app-root .app-inv-form .app-btn--primary {
+  font-size: 15px;
+}
+
+.app-root .app-inv-sale {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 36px;
+  margin-top: 28px;
+  align-items: start;
+}
+
+.app-root .app-inv-toggle {
+  display: flex;
+  gap: 8px;
+}
+
+.app-root .app-inv-toggle button {
+  flex: 1;
+  height: 44px;
+  border-radius: var(--app-radius-input-compact);
+  border: 1px solid var(--app-border-input);
+  background: transparent;
+  color: var(--app-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.app-root .app-inv-toggle button[aria-pressed="true"] {
+  background: #ffffff;
+  color: var(--app-on-primary);
+}
+
+/* A6 preview card */
+.app-root .app-inv-preview-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text-4);
+}
+
+.app-root .app-inv-preview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  row-gap: 12px;
+  margin-top: 16px;
+  font-size: 15px;
+}
+
+.app-root .app-inv-preview-grid dt {
+  color: var(--app-text-3);
+}
+
+/* No column gap, so the divider above Gross profit runs unbroken. */
+.app-root .app-inv-preview-grid dd {
+  padding-left: 12px;
+  text-align: right;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.app-root .app-inv-preview-grid [data-divider] {
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.app-root .app-inv-preview-grid dd[data-short] {
+  color: var(--app-error);
+}
+
+.app-root .app-inv-preview-grid dd[data-zero] {
+  color: var(--app-warning);
+}
+
+.app-root .app-inv-alloc {
+  margin-top: 16px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--app-text-4);
+}
+
+.app-root .app-inv-alloc-title {
+  font-weight: 600;
+  color: var(--app-text-2);
+}
+
+/* ── A7 Sales & gross profit ──────────────────────────── */
+.app-root .app-inv-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.app-root .app-inv-filters select {
+  width: auto;
+  max-width: 100%;
+  height: 40px;
+  border-radius: var(--app-radius-input-compact);
+  font-size: 14px;
+}
+
+.app-root .app-inv-report[aria-busy="true"] {
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+}
+
+.app-root .app-inv-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 32px;
+}
+
+.app-root .app-inv-kpi-label {
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-inv-kpi-label[data-accent] {
+  color: var(--app-primary-text);
+}
+
+.app-root .app-inv-kpi-value {
+  margin-top: 8px;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-inv-breakdown {
+  margin-top: 32px;
+}
+
+.app-root .app-inv-item-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  align-items: baseline;
+  padding: 14px 0;
+  border-top: 1px solid var(--app-border);
+  font-size: 14px;
+}
+
+.app-root .app-inv-item-row > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-inv-item-row [data-tone] {
+  font-weight: 600;
+}
+
+.app-root .app-inv-list-title {
+  margin-top: 40px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.app-root .app-inv-list-title + .app-inv-note {
+  margin-top: 6px;
+}
+
+/* ── Phone (< 760px) ──────────────────────────────────── */
+@media (max-width: 759.98px) {
+  .app-root .app-inv-grid {
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+
+  .app-root .app-inv-columns,
+  .app-root .app-inv-sale {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-root .app-inv-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .app-root .app-inv-kpi-value {
+    font-size: 26px;
+  }
+
+  .app-root .app-inv-item-row {
+    grid-template-columns: minmax(0, 1.4fr) repeat(4, minmax(0, 1fr));
+    font-size: 13px;
+  }
+
+  .app-root .app-inv-filters {
+    width: 100%;
+  }
+
+  .app-root .app-inv-filters select {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .app-root .app-inv-actions .app-btn {
+    min-height: 44px;
+  }
+}
