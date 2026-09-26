@@ -1,0 +1,1 @@
+S7 final fix; final Codex recheck VERDICT: CLEAR. Gate: lint, typecheck, vitest 163/163, build; schedule tests under TZ=Pacific/Auckland.
