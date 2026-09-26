@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { sideSwitchFor } from "@/components/app-shell/nav";
+import { hasResearchAccess } from "@/lib/app/identity";
 import { destinationFor, safeNextPath, signInUrl } from "@/lib/auth/paths";
 import { displayState, normalizeEmail } from "@/lib/invitations/state";
 
@@ -12,11 +14,30 @@ describe("return paths", () => {
     expect(signInUrl({ next: "/app/today", expired: true })).toBe("/auth?expired=1&next=%2Fapp%2Ftoday");
   });
 
-  it("sends each role to its own area and unacknowledged researchers to the acknowledgement", () => {
-    expect(destinationFor({ role: "admin", acknowledged: false }, "/app/today")).toBe("/admin/inventory");
+  it("researchers land on the research side; unacknowledged ones on the acknowledgement", () => {
+    expect(destinationFor({ role: "researcher", acknowledged: true })).toBe("/app/today");
     expect(destinationFor({ role: "researcher", acknowledged: true }, "/admin/sales")).toBe("/app/today");
     expect(destinationFor({ role: "researcher", acknowledged: true }, "/app/cycles")).toBe("/app/cycles");
     expect(destinationFor({ role: "researcher", acknowledged: false }, "/app/cycles")).toBe("/auth/acknowledge");
+    expect(destinationFor({ role: "researcher", acknowledged: false }, "/admin/sales")).toBe("/auth/acknowledge");
+  });
+
+  it("admins are researchers: research side by default, the back office when they asked for it", () => {
+    expect(destinationFor({ role: "admin", acknowledged: true })).toBe("/app/today");
+    expect(destinationFor({ role: "admin", acknowledged: true }, "/app/cycles")).toBe("/app/cycles");
+    expect(destinationFor({ role: "admin", acknowledged: true }, "/admin/sales?x=1")).toBe("/admin/sales?x=1");
+    // The research side needs the acknowledgement; the back office does not.
+    expect(destinationFor({ role: "admin", acknowledged: false })).toBe("/auth/acknowledge");
+    expect(destinationFor({ role: "admin", acknowledged: false }, "/app/today")).toBe("/auth/acknowledge");
+    expect(destinationFor({ role: "admin", acknowledged: false }, "/admin")).toBe("/admin");
+    expect(destinationFor({ role: "admin", acknowledged: true }, "/administrator")).toBe("/app/today");
+  });
+
+  it("the account menu offers the side switch to admins only", () => {
+    expect(sideSwitchFor("admin", "research")).toEqual({ label: "Admin", href: "/admin/inventory" });
+    expect(sideSwitchFor("admin", "admin")).toEqual({ label: "My research", href: "/app/today" });
+    expect(sideSwitchFor("researcher", "research")).toBeNull();
+    expect(hasResearchAccess("researcher") && hasResearchAccess("admin")).toBe(true);
   });
 });
 

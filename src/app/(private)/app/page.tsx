@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
-import { ROLE_HOME } from "@/components/app-shell/nav";
+import { RESEARCH_HOME } from "@/lib/auth/paths";
 
 export default function ResearcherHome() {
-  redirect(ROLE_HOME.researcher);
+  redirect(RESEARCH_HOME);
 }

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
-import { ROLE_HOME } from "@/components/app-shell/nav";
+import { ADMIN_HOME } from "@/lib/auth/paths";
 
 export default function AdminHome() {
-  redirect(ROLE_HOME.admin);
+  redirect(ADMIN_HOME);
 }

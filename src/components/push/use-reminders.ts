@@ -16,8 +16,8 @@ import {
 
 // Browser side of "Reminders on this phone": the service worker, this
 // device's push subscription and what this device remembers locally.
-// Used by the researcher area only (the shared account menu imports
-// signOutThisDevice, which it calls for researchers only).
+// Used by the research side (researchers and admins; the shared account menu
+// calls signOutThisDevice on both sides).
 
 const SW_URL = "/sw.js";
 // Local, per-device memory (never sent anywhere):

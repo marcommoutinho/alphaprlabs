@@ -119,7 +119,8 @@ export async function ensureAccount(opts: {
     userId = profile.id;
     await admin.auth.admin.updateUserById(userId, { password });
   }
-  const acknowledged = opts.role === "researcher" && opts.acknowledged !== false;
+  // Admins are researchers too (S3.2): both roles are acknowledged unless asked not to be.
+  const acknowledged = opts.acknowledged !== false;
   const { error } = await admin.from("profiles").upsert({
     id: userId,
     email: opts.email,

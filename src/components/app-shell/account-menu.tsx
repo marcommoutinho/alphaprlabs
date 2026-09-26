@@ -3,28 +3,37 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { Menu } from "@base-ui/react/menu";
-import { signOut } from "@/app/(private)/auth/actions";
 import { signOutThisDevice } from "@/components/push/use-reminders";
-import { initialsOf, type AppIdentity } from "@/lib/app/identity";
+import { initialsOf, type AppIdentity, type AppSide } from "@/lib/app/identity";
 import { SIGN_IN_PATH } from "@/lib/auth/paths";
 import { usePortalContainer } from "./app-root";
-import { RESEARCHER_ACCOUNT_LINKS, isUnder } from "./nav";
+import { RESEARCHER_ACCOUNT_LINKS, isUnder, sideSwitchFor } from "./nav";
 import { useToast } from "./toast";
 
 const SIGN_OUT_FAILED = "Could not sign out: reminders are still on for this phone. Try again.";
 
 /**
  * Account button + menu. One instance serves both widths: on desktop it shows
- * the avatar, name and "Admin" tag; on phone only the avatar and caret.
- * Closes on outside click, Esc (Base UI) and on any navigation (keyed to the
- * pathname it was opened on).
+ * the avatar, name and (on the admin side) the "Admin" tag; on phone only the
+ * avatar and caret. Admins also get the switch between the research side
+ * ("Admin") and the back office ("My research"). Closes on outside click, Esc
+ * (Base UI) and on any navigation (keyed to the pathname it was opened on).
  */
-export function AccountMenu({ identity, pathname }: { identity: AppIdentity; pathname: string }) {
+export function AccountMenu({
+  identity,
+  side,
+  pathname,
+}: {
+  identity: AppIdentity;
+  side: AppSide;
+  pathname: string;
+}) {
   const container = usePortalContainer();
   const [openAt, setOpenAt] = useState<string | null>(null);
   const [signingOut, startSignOut] = useTransition();
   const toast = useToast();
-  const links = identity.role === "researcher" ? RESEARCHER_ACCOUNT_LINKS : [];
+  const links = side === "research" ? RESEARCHER_ACCOUNT_LINKS : [];
+  const switchTo = sideSwitchFor(identity.role, side);
   const onAccountPage = links.some((link) => isUnder(pathname, link.href));
 
   return (
@@ -38,7 +47,7 @@ export function AccountMenu({ identity, pathname }: { identity: AppIdentity; pat
           {initialsOf(identity.name)}
         </span>
         <span className="app-account-name">{identity.name}</span>
-        {identity.role === "admin" ? <span className="app-account-tag">Admin</span> : null}
+        {side === "admin" ? <span className="app-account-tag">Admin</span> : null}
         <span className="app-account-label-phone">Account menu</span>
         <span className="app-caret" aria-hidden="true">
           ▾
@@ -63,18 +72,22 @@ export function AccountMenu({ identity, pathname }: { identity: AppIdentity; pat
               </Menu.LinkItem>
             ))}
             {links.length > 0 ? <Menu.Separator className="app-menu-divider" /> : null}
+            {switchTo ? (
+              <>
+                <Menu.LinkItem className="app-menu-item" closeOnClick render={<Link href={switchTo.href} />}>
+                  {switchTo.label}
+                </Menu.LinkItem>
+                <Menu.Separator className="app-menu-divider" />
+              </>
+            ) : null}
             <Menu.Item
               className="app-menu-item"
               disabled={signingOut}
               onClick={() =>
                 startSignOut(async () => {
-                  // Researchers: this phone must stop receiving this account's
-                  // reminders; if it can't, stay signed in and say so.
-                  const done =
-                    identity.role === "researcher"
-                      ? (await signOutThisDevice()) === "signed-out"
-                      : (await signOut()).ok;
-                  if (!done) {
+                  // Researchers and admins alike: this phone must stop receiving
+                  // this account's reminders; if it can't, stay signed in and say so.
+                  if ((await signOutThisDevice()) !== "signed-out") {
                     toast(SIGN_OUT_FAILED, "error");
                     return;
                   }

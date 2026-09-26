@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { sendTestNotification } from "@/app/(private)/app/notifications/actions";
 import { AppButton } from "@/components/app-shell/form";
 import { useToast } from "@/components/app-shell/toast";
-import { ROLE_HOME } from "@/lib/auth/paths";
+import { RESEARCH_HOME } from "@/lib/auth/paths";
 import { STATUS_LABEL, statusTone } from "@/lib/push/readiness";
 import { readinessSeen, useReminders, type Reminders } from "./use-reminders";
 import "@/styles/app/reminders.css";
@@ -74,7 +74,7 @@ export function RemindersStep({ userId, vapidPublicKey }: Props) {
   const { checking, status, canInstall } = reminders;
   const toToday = () => {
     readinessSeen.mark();
-    router.push(ROLE_HOME.researcher);
+    router.push(RESEARCH_HOME);
   };
 
   return (

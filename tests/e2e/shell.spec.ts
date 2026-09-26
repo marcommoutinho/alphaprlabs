@@ -73,13 +73,26 @@ test("host routing redirects between the public site and the app host", async ({
   await expect(page.getByRole("contentinfo")).toBeVisible();
 });
 
+// Every admin is also a researcher (S3.2): the app opens on the research side
+// and the account menu switches to the back office ("Admin") and back ("My research").
+const ADMIN_RESEARCH_MENU = [...RESEARCHER_MENU.slice(0, -1), "Admin", "Sign out"];
+const ADMIN_SIDE_MENU = ["My research", "Sign out"];
+
 test.describe("admin shell", () => {
-  test("desktop: top nav, active indicator, account menu", async ({ page }) => {
+  test("desktop: opens on the research side; the account menu switches to the admin nav and back", async ({ page }) => {
     await page.setViewportSize(DESKTOP);
     await signInAs(page, APP_ORIGIN, ADMIN.email);
-    await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory`);
+    await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
     await page.goto(`${APP_ORIGIN}/`);
+    await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
+    await expectNav(page, RESEARCHER_NAV, "Today");
+    await expect(accountButton(page).locator(".app-account-tag")).toHaveCount(0);
+    await expectMenuOpensAndClosesWithEsc(page, ADMIN_RESEARCH_MENU);
+
+    await accountButton(page).click();
+    await page.getByRole("menuitem", { name: "Admin", exact: true }).click();
     await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory`);
+    await expect(page.getByRole("menu")).toBeHidden();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Inventory");
     await expectNav(page, ADMIN_NAV, "Inventory");
     await expect(mainNav(page).locator('[aria-current="page"]')).toHaveCSS(
@@ -87,22 +100,33 @@ test.describe("admin shell", () => {
       "rgb(96, 165, 250) 0px -2px 0px 0px inset",
     );
     await expect(page.locator(".app-tabbar")).toBeHidden();
-    await expect(accountButton(page)).toContainText("Admin");
-    await expectMenuOpensAndClosesWithEsc(page, ["Sign out"]);
+    await expect(accountButton(page).locator(".app-account-tag")).toHaveText("Admin");
+    await expectMenuOpensAndClosesWithEsc(page, ADMIN_SIDE_MENU);
 
     await mainNav(page).getByRole("link", { name: "Sales" }).click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sales");
     await expect(mainNav(page).locator('[aria-current="page"]')).toHaveText("Sales");
+
+    await accountButton(page).click();
+    await page.getByRole("menuitem", { name: "My research" }).click();
+    await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
+    await expectNav(page, RESEARCHER_NAV, "Today");
   });
 
-  test("phone: tab bar without Me", async ({ page }) => {
+  test("phone: research tab bar with Me; the admin tab bar without Me after switching", async ({ page }) => {
     await page.setViewportSize(PHONE);
     await signInAs(page, APP_ORIGIN, ADMIN.email);
-    await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory`);
+    await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
     await expect(page.locator(".app-tabbar")).toBeVisible();
+    await expectNav(page, [...RESEARCHER_NAV, "Me"], "Today");
+    await expectMenuOpensAndClosesWithEsc(page, ADMIN_RESEARCH_MENU);
+
+    await accountButton(page).click();
+    await page.getByRole("menuitem", { name: "Admin", exact: true }).click();
+    await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory`);
     await expect(page.locator(".app-topnav")).toBeHidden();
     await expectNav(page, ADMIN_NAV, "Inventory");
-    await expectMenuOpensAndClosesWithEsc(page, ["Sign out"]);
+    await expectMenuOpensAndClosesWithEsc(page, ADMIN_SIDE_MENU);
   });
 });
 
@@ -135,5 +159,20 @@ test.describe("researcher shell", () => {
 
     await page.goto(`${APP_ORIGIN}/app/supplies`);
     await expect(mainNav(page).locator('[aria-current="page"]')).toHaveText("Me");
+  });
+
+  test("a researcher never sees Admin and is refused the back office", async ({ page }) => {
+    await page.setViewportSize(DESKTOP);
+    await signInAs(page, APP_ORIGIN, RESEARCHER.email);
+    await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
+    await accountButton(page).click();
+    await expect(page.getByRole("menuitem", { name: "Admin", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("menuitem", { name: "My research" })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    for (const path of ["/admin", "/admin/inventory", "/admin/invitations"]) {
+      await page.goto(`${APP_ORIGIN}${path}`);
+      await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
+      await expectNav(page, RESEARCHER_NAV, "Today");
+    }
   });
 });

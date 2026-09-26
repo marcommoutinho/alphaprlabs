@@ -1,16 +1,20 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { AuthCard } from "@/components/auth/auth-card";
 import { AcknowledgementForm } from "@/components/auth/invite-forms";
-import { ROLE_HOME, signInUrl } from "@/lib/auth/paths";
+import { hasResearchAccess } from "@/lib/app/identity";
+import { RESEARCH_HOME, signInUrl } from "@/lib/auth/paths";
 import { getSessionPerson } from "@/lib/auth/session";
 
-/** C1 step 2 of 3. Researchers are routed here until they acknowledge. */
+/**
+ * C1 step 2 of 3. Researchers and admins (every admin is also a researcher)
+ * are routed here from the research side until they acknowledge.
+ */
 export default async function AcknowledgePage() {
   const person = await getSessionPerson();
   if (!person) redirect(signInUrl());
-  if (person.role !== "researcher") redirect(ROLE_HOME[person.role]);
+  if (!hasResearchAccess(person.role)) notFound();
   // Already done: step 3 is optional and reached right after acknowledging.
-  if (person.acknowledged) redirect(ROLE_HOME.researcher);
+  if (person.acknowledged) redirect(RESEARCH_HOME);
 
   return (
     <AuthCard width={520}>

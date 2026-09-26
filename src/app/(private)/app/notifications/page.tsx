@@ -1,11 +1,11 @@
 import { AppPage } from "@/components/app-shell/app-shell";
 import { RemindersSettings } from "@/components/push/reminders-panel";
-import { requireRole } from "@/lib/auth/session";
+import { requireResearcher } from "@/lib/auth/session";
 import { pushTestEnabled } from "@/lib/push/send";
 
 /** C2 settings: reminders on this phone (per device). */
 export default async function NotificationsPage() {
-  const researcher = await requireRole("researcher", "/app/notifications");
+  const researcher = await requireResearcher("/app/notifications");
   return (
     <AppPage width="form">
       <RemindersSettings

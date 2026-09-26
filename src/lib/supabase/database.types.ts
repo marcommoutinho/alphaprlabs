@@ -192,6 +192,7 @@ export type Database = {
         Args: { p_device_id: string; p_endpoint?: string; p_reason: string }
         Returns: boolean
       }
+      has_research_access: { Args: never; Returns: boolean }
       invite_researcher: {
         Args: { p_email: string; p_name: string; p_token_hash: string }
         Returns: {

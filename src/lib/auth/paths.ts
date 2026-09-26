@@ -2,11 +2,15 @@
 // code and tests.
 import type { AppRole } from "@/lib/app/identity";
 
-/** Role-aware home: the app host's "/" and "/app" land here. */
-export const ROLE_HOME: Record<AppRole, string> = {
-  admin: "/admin/inventory",
-  researcher: "/app/today",
-};
+/**
+ * Home of the research side (Today). Every signed-in person lands here —
+ * admins too, since every admin is also a researcher (S3.2). The app host's
+ * "/" and "/app" land here.
+ */
+export const RESEARCH_HOME = "/app/today";
+
+/** Home of the admin back office, reached from the account menu's "Admin" item. */
+export const ADMIN_HOME = "/admin/inventory";
 
 export const SIGN_IN_PATH = "/auth";
 export const RECOVER_PATH = "/auth/recover";
@@ -16,7 +20,7 @@ export const ACKNOWLEDGE_PATH = "/auth/acknowledge";
 /** Version of the researcher disclaimer text shown at ACKNOWLEDGE_PATH. */
 export const ACKNOWLEDGEMENT_VERSION = "2026-09-placeholder";
 
-/** C2 step 3 of 3 (optional): reminders on this phone, then Today. Researchers only. */
+/** C2 step 3 of 3 (optional): reminders on this phone, then Today. Researchers and admins. */
 export const REMINDERS_READINESS_PATH = "/auth/reminders";
 
 /**
@@ -24,8 +28,6 @@ export const REMINDERS_READINESS_PATH = "/auth/reminders";
  * account setup): step 3, which continues to Today.
  */
 export const AFTER_ACKNOWLEDGEMENT_PATH = REMINDERS_READINESS_PATH;
-
-const PRIVATE_AREA: Record<AppRole, string> = { admin: "/admin", researcher: "/app" };
 
 /**
  * A same-site return path from `?next=`, or null. Only paths inside /app or
@@ -39,16 +41,24 @@ export function safeNextPath(next: string | null | undefined): string | null {
     : null;
 }
 
-/** The landing page for a signed-in person: their return path if it belongs to their role, else their home. */
+/** True when `path` is `area` itself or inside it (a sub-path, query or fragment). */
+const inArea = (path: string, area: string) =>
+  path === area || path.startsWith(`${area}/`) || path.startsWith(`${area}?`) || path.startsWith(`${area}#`);
+
+/**
+ * The landing page for a signed-in person: their return path if they may use
+ * it, else Today. The research side (/app) needs the acknowledgement first;
+ * the admin back office (/admin) is for admins only and does not.
+ */
 export function destinationFor(
   person: { role: AppRole; acknowledged: boolean },
   next?: string | null,
 ): string {
-  if (person.role === "researcher" && !person.acknowledged) return ACKNOWLEDGE_PATH;
   const safe = safeNextPath(next);
-  const area = PRIVATE_AREA[person.role];
-  if (safe && (safe === area || safe.startsWith(`${area}/`) || safe.startsWith(`${area}?`))) return safe;
-  return ROLE_HOME[person.role];
+  if (safe && person.role === "admin" && inArea(safe, "/admin")) return safe;
+  if (!person.acknowledged) return ACKNOWLEDGE_PATH;
+  if (safe && inArea(safe, "/app")) return safe;
+  return RESEARCH_HOME;
 }
 
 /** Sign-in URL that returns to `pathname` afterwards and, if a session lapsed, says so. */

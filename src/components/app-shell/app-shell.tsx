@@ -1,14 +1,26 @@
-import type { AppIdentity } from "@/lib/app/identity";
+import type { AppIdentity, AppSide } from "@/lib/app/identity";
 import { AppHeader } from "./app-header";
 import { TabBar } from "./tab-bar";
 
-/** Signed-in chrome for /app (researcher) and /admin. */
-export function AppShell({ identity, children }: { identity: AppIdentity; children: React.ReactNode }) {
+/**
+ * Signed-in chrome for the research side (/app) and the admin back office
+ * (/admin). `side` picks the navigation; `identity.role` only decides whether
+ * the account menu offers the switch to the admin side.
+ */
+export function AppShell({
+  identity,
+  side,
+  children,
+}: {
+  identity: AppIdentity;
+  side: AppSide;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="app-shell" data-role={identity.role}>
-      <AppHeader identity={identity} />
+    <div className="app-shell" data-side={side}>
+      <AppHeader identity={identity} side={side} />
       {children}
-      <TabBar role={identity.role} />
+      <TabBar side={side} />
     </div>
   );
 }

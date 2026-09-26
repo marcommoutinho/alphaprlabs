@@ -12,7 +12,8 @@ import {
   SquareActivity,
   type LucideIcon,
 } from "lucide-react";
-import type { AppRole } from "@/lib/app/identity";
+import type { AppIdentity, AppSide } from "@/lib/app/identity";
+import { ADMIN_HOME, RESEARCH_HOME } from "@/lib/auth/paths";
 
 export type NavItem = {
   key: string;
@@ -27,8 +28,6 @@ export type NavItem = {
 
 export type AccountLink = { label: string; href: string };
 
-export { ROLE_HOME } from "@/lib/auth/paths";
-
 /**
  * Researcher account pages. On desktop they are reached from the account menu
  * (and outline the account button); on phone they highlight the "Me" tab.
@@ -42,7 +41,7 @@ export const RESEARCHER_ACCOUNT_LINKS: readonly AccountLink[] = [
 
 // Sub-screens added by later slices must live under their parent's prefix
 // (e.g. /admin/inventory/<item>, /app/cycles/<id>) or be added to `match`.
-const NAV: Record<AppRole, readonly NavItem[]> = {
+const NAV: Record<AppSide, readonly NavItem[]> = {
   admin: [
     { key: "inventory", label: "Inventory", href: "/admin/inventory", icon: Package, match: ["/admin/inventory"] },
     { key: "sales", label: "Sales", href: "/admin/sales", icon: Receipt, match: ["/admin/sales"] },
@@ -51,7 +50,7 @@ const NAV: Record<AppRole, readonly NavItem[]> = {
     { key: "invitations", label: "Invitations", href: "/admin/invitations", icon: Mail, match: ["/admin/invitations"] },
     { key: "support", label: "Support", href: "/admin/support", icon: LifeBuoy, match: ["/admin/support"] },
   ],
-  researcher: [
+  research: [
     { key: "today", label: "Today", href: "/app/today", icon: CalendarCheck, match: ["/app/today"] },
     { key: "cycles", label: "Cycles", href: "/app/cycles", icon: ChartGantt, match: ["/app/cycles"] },
     { key: "library", label: "Library", href: "/app/library", icon: BookOpen, match: ["/app/library"] },
@@ -68,8 +67,8 @@ const NAV: Record<AppRole, readonly NavItem[]> = {
   ],
 };
 
-export function navItemsFor(role: AppRole): readonly NavItem[] {
-  return NAV[role];
+export function navItemsFor(side: AppSide): readonly NavItem[] {
+  return NAV[side];
 }
 
 /** True when `pathname` is `prefix` itself or a path below it. */
@@ -78,7 +77,17 @@ export function isUnder(pathname: string, prefix: string): boolean {
 }
 
 /** The key of the nav item that owns `pathname`, or null. */
-export function activeNavKey(role: AppRole, pathname: string): string | null {
-  const item = NAV[role].find((entry) => entry.match.some((prefix) => isUnder(pathname, prefix)));
+export function activeNavKey(side: AppSide, pathname: string): string | null {
+  const item = NAV[side].find((entry) => entry.match.some((prefix) => isUnder(pathname, prefix)));
   return item?.key ?? null;
+}
+
+/**
+ * The account menu's switch between the two sides: "Admin" on the research
+ * side (admins only: every admin is also a researcher), "My research" on the
+ * admin side. Researchers get none.
+ */
+export function sideSwitchFor(role: AppIdentity["role"], side: AppSide): AccountLink | null {
+  if (side === "admin") return { label: "My research", href: RESEARCH_HOME };
+  return role === "admin" ? { label: "Admin", href: ADMIN_HOME } : null;
 }

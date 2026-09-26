@@ -1,6 +1,6 @@
 import { AppPage } from "@/components/app-shell/app-shell";
 import { InvitationsView } from "@/components/admin/invitations-view";
-import { requireRole } from "@/lib/auth/session";
+import { requireAdmin } from "@/lib/auth/session";
 import { formatDate } from "@/lib/format";
 import { canResend, STATE_LABEL } from "@/lib/invitations/state";
 import { listInvitations } from "@/lib/invitations/service";
@@ -8,7 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 
 /** A1 Researcher invitations (admins only; RLS also limits the list to admins). */
 export default async function InvitationsPage() {
-  await requireRole("admin");
+  await requireAdmin("/admin/invitations");
   const invitations = await listInvitations(await createClient());
 
   return (

@@ -46,7 +46,7 @@ test("admin invites; the researcher accepts, sets a password, acknowledges and r
 }) => {
   const email = uniqueEmail("e2e-invitee");
   await signInAs(page, APP_ORIGIN, ADMIN.email);
-  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory`);
+  await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
   await page.goto(`${APP_ORIGIN}/admin/invitations`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Researcher invitations");
 
@@ -141,7 +141,7 @@ test("expired, unknown and failed invitations; resend", async ({ page }) => {
   await expect(page.getByText("already exists")).toHaveCount(0);
 
   await signInAs(page, APP_ORIGIN, ADMIN.email);
-  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory`);
+  await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
   await page.goto(`${APP_ORIGIN}/admin/invitations`);
   await expect(row(page, expiredEmail).locator('[data-state="expired"]')).toHaveText("Expired");
   await expect(row(page, expiredEmail).locator('[data-state="expired"]')).toHaveCSS("color", "rgb(251, 191, 36)");

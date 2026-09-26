@@ -1,18 +1,14 @@
 "use server";
 
-import { getSessionPerson } from "@/lib/auth/session";
+import { currentResearcher } from "@/lib/auth/session";
 import { canonicalEndpoint, deviceIdOf, deviceSubscriptionSchema } from "@/lib/push/device";
 import { defaultPushDeps, pushTestEnabled, sendPushToAll } from "@/lib/push/send";
 import { createClient } from "@/lib/supabase/server";
 
 // "Reminders on this phone" (C2). Every write runs under the caller's own
 // session through a database function bound to auth.uid(), so a device can
-// only ever be registered to, or turned off for, the signed-in researcher.
-
-const signedInResearcher = async () => {
-  const person = await getSessionPerson();
-  return person?.role === "researcher" && person.acknowledged ? person : null;
-};
+// only ever be registered to, or turned off for, the signed-in researcher
+// (or admin: every admin is also a researcher, with their own devices).
 
 export type SaveDeviceResult = { status: "saved" | "refused_off" | "failed" };
 
@@ -24,7 +20,7 @@ export type SaveDeviceResult = { status: "saved" | "refused_off" | "failed" };
  * account's); only an explicit turn on can switch it back on.
  */
 export async function saveDevice(input: unknown): Promise<SaveDeviceResult> {
-  if (!(await signedInResearcher())) return { status: "failed" };
+  if (!(await currentResearcher())) return { status: "failed" };
   const parsed = deviceSubscriptionSchema.safeParse(input);
   if (!parsed.success) return { status: "failed" };
 
@@ -46,7 +42,7 @@ export async function saveDevice(input: unknown): Promise<SaveDeviceResult> {
  * device (its endpoint and its device id) and marks the device off.
  */
 export async function turnOffDevice(input: { endpoint: unknown; deviceId?: unknown }): Promise<{ ok: boolean }> {
-  if (!(await signedInResearcher())) return { ok: false };
+  if (!(await currentResearcher())) return { ok: false };
   // The device id is required: it marks the device off. A non-push-service
   // endpoint has no row, so it is left out.
   const deviceId = deviceIdOf(input.deviceId);
@@ -69,7 +65,7 @@ type TestResult = { toast: string; tone: "info" | "error" };
  */
 export async function sendTestNotification(): Promise<TestResult> {
   if (!pushTestEnabled()) return { toast: "Test notifications are turned off.", tone: "error" };
-  const person = await signedInResearcher();
+  const person = await currentResearcher();
   if (!person) return { toast: "Sign in again to send a test notification.", tone: "error" };
   const deps = defaultPushDeps();
   if (!deps) return { toast: "Push is not configured on this server.", tone: "error" };

@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { AppIdentity } from "@/lib/app/identity";
+import type { AppIdentity, AppSide } from "@/lib/app/identity";
 import { AccountMenu } from "./account-menu";
 import { activeNavKey, navItemsFor } from "./nav";
 
@@ -12,10 +12,10 @@ import { activeNavKey, navItemsFor } from "./nav";
  * Phone (< 760px): 56px bar with the logo and the avatar menu; the main nav
  * moves to the bottom tab bar. Layout switches in CSS only.
  */
-export function AppHeader({ identity }: { identity: AppIdentity }) {
+export function AppHeader({ identity, side }: { identity: AppIdentity; side: AppSide }) {
   const pathname = usePathname();
-  const active = activeNavKey(identity.role, pathname);
-  const items = navItemsFor(identity.role).filter((item) => !item.phoneOnly);
+  const active = activeNavKey(side, pathname);
+  const items = navItemsFor(side).filter((item) => !item.phoneOnly);
 
   return (
     <header className="app-header">
@@ -34,7 +34,7 @@ export function AppHeader({ identity }: { identity: AppIdentity }) {
           ))}
         </nav>
       </div>
-      <AccountMenu identity={identity} pathname={pathname} />
+      <AccountMenu identity={identity} side={side} pathname={pathname} />
     </header>
   );
 }

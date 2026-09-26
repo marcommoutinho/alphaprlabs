@@ -2,17 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { AppRole } from "@/lib/app/identity";
+import type { AppSide } from "@/lib/app/identity";
 import { activeNavKey, navItemsFor } from "./nav";
 
 /** Phone-only bottom tab bar (hidden at >= 760px in CSS). */
-export function TabBar({ role }: { role: AppRole }) {
+export function TabBar({ side }: { side: AppSide }) {
   const pathname = usePathname();
-  const active = activeNavKey(role, pathname);
+  const active = activeNavKey(side, pathname);
 
   return (
     <nav aria-label="Main" className="app-tabbar">
-      {navItemsFor(role).map(({ key, href, label, icon: Icon }) => {
+      {navItemsFor(side).map(({ key, href, label, icon: Icon }) => {
         const current = key === active;
         return (
           <Link key={key} href={href} className="app-tab" aria-current={current ? "page" : undefined}>

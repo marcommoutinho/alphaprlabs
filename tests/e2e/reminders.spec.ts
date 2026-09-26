@@ -1,5 +1,6 @@
-import { expect, test, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { APP_ORIGIN, PUBLIC_ORIGIN, SERVER_ORIGIN } from "../../playwright.config";
+import { emulatePermission, fakePushService } from "../support/fake-push";
 import { ensureAccount, serviceClient, signInAs, uniqueEmail } from "../support/local-supabase";
 
 // C2: installable app files and "Reminders on this phone". Headless Chromium
@@ -26,38 +27,6 @@ test.beforeAll(async () => {
 /** Node can't resolve *.localhost: request the server directly with the host's Host header. */
 const hostGet = (request: APIRequestContext, origin: string, path: string) =>
   request.get(`${SERVER_ORIGIN}${path}`, { headers: { host: new URL(origin).host }, maxRedirects: 0 });
-
-/**
- * Headless Chromium reports notifications as denied whatever is granted, so
- * the permission is emulated: `initial`, "granted" once requested, and
- * window.setPermission() for a change made in the phone's Settings.
- */
-function emulatePermission(target: Page | BrowserContext, initial: NotificationPermission) {
-  return target.addInitScript((start) => {
-    let state = start;
-    Object.defineProperty(Notification, "permission", { get: () => state, configurable: true });
-    Notification.requestPermission = async () => (state = "granted");
-    Object.assign(window, { setPermission: (next: NotificationPermission) => (state = next) });
-  }, initial);
-}
-
-/** Fake PushManager with one subscription at `endpoint`; window.dropSubscription() loses it (as iOS can). */
-function fakePushService(target: Page | BrowserContext, endpoint: string) {
-  return target.addInitScript((url) => {
-    let current: object | null = null;
-    let subscribeCalls = 0;
-    const keys = { p256dh: "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQ", auth: "tBHItJI5svbpez7KI4CCXg" };
-    const subscription = {
-      endpoint: url,
-      options: { applicationServerKey: null },
-      toJSON: () => ({ endpoint: url, keys }),
-      unsubscribe: async () => ((current = null), true),
-    };
-    PushManager.prototype.getSubscription = async () => current as PushSubscription | null;
-    PushManager.prototype.subscribe = async () => ((subscribeCalls += 1), (current = subscription)) as unknown as PushSubscription;
-    Object.assign(window, { dropSubscription: () => (current = null), subscribeCalls: () => subscribeCalls });
-  }, endpoint);
-}
 
 type TestWindow = { setPermission: (p: NotificationPermission) => void; dropSubscription: () => void; subscribeCalls: () => number };
 const inPage = (page: Page, call: (w: TestWindow) => unknown) =>

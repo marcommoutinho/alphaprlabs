@@ -36,7 +36,7 @@ const row = async (url: string) =>
   (await serviceClient().from("push_subscriptions").select("id, profile_id, disabled_reason, last_seen_at").eq("endpoint", url).single()).data!;
 
 describe("push subscriptions", () => {
-  it("only the owner reads a device; other researchers, admins and anon cannot read, write or register", async () => {
+  it("only the owner reads a device; other researchers, admins and anon cannot read or write it", async () => {
     const [a, b, admin] = await Promise.all([signedInClient(emailA), signedInClient(emailB), signedInClient(adminEmail)]);
     const url = endpoint();
     expect((await save(a, url)).error).toBeNull();
@@ -47,11 +47,11 @@ describe("push subscriptions", () => {
       expect((await other.from("push_subscriptions").delete().eq("endpoint", url)).error).not.toBeNull();
       expect((await disable(other, url, "turned_off")).data ?? false).toBe(false);
     }
-    // No direct writes, even by the owner; admins and anon cannot register devices.
+    // No direct writes, even by the owner; anon cannot register devices. (Admins
+    // register their own devices: tests/integration/admin-researcher.test.ts.)
     const direct = await a.from("push_subscriptions").insert({ profile_id: idA, endpoint: endpoint(), p256dh: "x", auth: "y" });
     expect(direct.error).not.toBeNull();
     expect((await save(anonClient(), endpoint())).error).not.toBeNull();
-    expect((await save(admin, endpoint())).data).toBeNull();
     expect(await row(url)).toMatchObject({ profile_id: idA, disabled_reason: null });
   });
 

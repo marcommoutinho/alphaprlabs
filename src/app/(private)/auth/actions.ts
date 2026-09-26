@@ -15,6 +15,7 @@ import {
 import { startRecovery } from "@/lib/auth/recovery";
 import { canonicalEndpoint, deviceIdOf } from "@/lib/push/device";
 import { getSessionPerson } from "@/lib/auth/session";
+import { hasResearchAccess } from "@/lib/app/identity";
 import { acceptInvitation, MIN_PASSWORD_LENGTH } from "@/lib/invitations/service";
 import { createClient } from "@/lib/supabase/server";
 
@@ -55,7 +56,8 @@ export async function signIn(input: { email: unknown; password: unknown; next?: 
  * `deviceId` this browser's device id: the rows for either are disabled for
  * the person signing out and the device is marked off, so a signed-out phone
  * gets no reminders and a pending re-registration can't switch it back on.
- * A researcher is signed out only once that is recorded: without a device id,
+ * A researcher (or admin: every admin is also a researcher) is signed out
+ * only once that is recorded: without a device id,
  * or if it fails, the session is kept and `{ ok: false }` returned
  * (src/lib/push/sign-out.ts retries once). No
  * redirect (it would reject the caller's promise): the account menu reloads
@@ -63,7 +65,8 @@ export async function signIn(input: { email: unknown; password: unknown; next?: 
  */
 export async function signOut(input?: { endpoint?: unknown; deviceId?: unknown }): Promise<{ ok: boolean }> {
   const supabase = await createClient();
-  if ((await getSessionPerson())?.role === "researcher") {
+  const person = await getSessionPerson();
+  if (person && hasResearchAccess(person.role)) {
     const deviceId = deviceIdOf(input?.deviceId);
     if (deviceId === null) return { ok: false };
     const { error } = await supabase.rpc("disable_push_subscription", {
@@ -149,7 +152,8 @@ export async function acknowledge(input: { accepted: unknown }): Promise<FormRes
   }
   const person = await getSessionPerson();
   if (!person) redirect(`${SIGN_IN_PATH}?expired=1`);
-  if (person.role !== "researcher") redirect(destinationFor(person));
+  // Researchers and admins (every admin is also a researcher); own profile only.
+  if (!hasResearchAccess(person.role)) redirect(destinationFor(person));
 
   const supabase = await createClient();
   const { data: recorded, error } = await supabase.rpc("record_acknowledgement", {
