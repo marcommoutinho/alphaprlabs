@@ -320,6 +320,61 @@
   color: var(--app-text-2);
 }
 
+/* A6 buyer account search (Base UI Combobox) */
+.app-root .app-combo-positioner {
+  z-index: 80;
+  outline: none;
+}
+
+.app-root .app-combo-popup {
+  width: var(--anchor-width);
+  max-height: min(320px, var(--available-height));
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: var(--app-radius-menu);
+  border: 1px solid var(--app-border-popup);
+  background: var(--app-surface-menu);
+  box-shadow: var(--app-shadow-menu);
+  outline: none;
+}
+
+.app-root .app-combo-item {
+  display: flex;
+  align-items: center;
+  line-height: 1.4;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: var(--app-radius-menu-item);
+  font-size: 14px;
+  color: var(--app-text-2);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  outline: none;
+}
+
+.app-root .app-combo-item[data-highlighted] {
+  background: var(--app-hover);
+  color: var(--app-text);
+}
+
+.app-root .app-combo-item[data-selected] .app-combo-name {
+  font-weight: 700;
+}
+
+.app-root .app-combo-name {
+  color: var(--app-text);
+}
+
+.app-root .app-combo-email {
+  color: var(--app-text-4);
+}
+
+.app-root .app-combo-empty:not(:empty) {
+  padding: 12px;
+  font-size: 14px;
+  color: var(--app-text-4);
+}
+
 /* ── A7 Sales & gross profit ──────────────────────────── */
 .app-root .app-inv-filters {
   display: flex;
@@ -416,9 +471,25 @@
     font-size: 26px;
   }
 
+  /* Amounts keep one line: columns are at least as wide as their amount. */
   .app-root .app-inv-item-row {
-    grid-template-columns: minmax(0, 1.4fr) repeat(4, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1.4fr) repeat(4, minmax(min-content, 1fr));
     font-size: 13px;
+  }
+
+  .app-root .app-inv-item-row .app-inv-num {
+    white-space: nowrap;
+    overflow-wrap: normal;
+  }
+
+  /* "CAD" is dropped from the money columns on phones (still read aloud). */
+  .app-root .app-inv-item-row .app-inv-cad {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .app-root .app-inv-filters {

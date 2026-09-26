@@ -44,16 +44,17 @@ begin
 end;
 $$;
 
--- The latest date a purchase or sale may carry: today in UTC+14, the first
--- time zone to reach each date (see "Dates" in the first S5 migration). A
--- date after this is in the future for everyone, wherever the admin is.
+-- The latest date a purchase or sale may carry: today in the business time
+-- zone, America/Toronto (Marco, 2026-09-26: the business is local only; see
+-- "Dates" in the first S5 migration). The app computes the same date
+-- (src/lib/inventory/screens.ts businessToday).
 create function public.business_latest_date()
 returns date
 language sql
 stable
 set search_path = ''
 as $$
-  select ((now() at time zone 'UTC') + interval '14 hours')::date;
+  select (now() at time zone 'America/Toronto')::date;
 $$;
 
 revoke all on function public.parse_cad_amount(text) from public, anon, authenticated;

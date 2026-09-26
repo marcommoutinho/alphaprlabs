@@ -5,6 +5,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 import { allocateFifo } from "@/lib/inventory/rules";
+import { businessToday } from "@/lib/inventory/screens";
 import { getStockItem, listBuyerAccounts, listSales, listStock, openLots, recordPurchase, recordSale } from "@/lib/inventory/service";
 import { ensureAccount, serviceClient, signedInClient, uniqueEmail } from "../support/local-supabase";
 
@@ -301,11 +302,12 @@ describe("FIFO tie order", () => {
   });
 });
 
-/** Today's date in UTC+14, the latest date anywhere now (the database's bound), shifted by `days`. */
-const latestDate = (days = 0) => new Date(Date.now() + 14 * 3_600_000 + days * 86_400_000).toISOString().slice(0, 10);
+/** Today in the business time zone, America/Toronto (the database's bound), shifted by `days`. */
+const latestDate = (days = 0) =>
+  new Date(Date.parse(`${businessToday()}T12:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 
 describe("dates", () => {
-  it("purchases and sales cannot be dated in the future; today anywhere is accepted", async () => {
+  it("purchases and sales cannot be dated after today in Toronto; Toronto's today is accepted", async () => {
     const itemId = await buy({ peptideId: await newPeptide(), strengthMg: "8" }, "2026-08-15", 10, "20");
     const purchase = (receivedOn: string) =>
       recordPurchase(db, { idempotencyKey: randomUUID(), stockItemId: itemId, peptideId: null, strengthMg: null, receivedOn, quantity: 1, unitCost: "20" });
@@ -320,8 +322,7 @@ describe("dates", () => {
     expect((await listStock(db)).some((s) => s.peptideId === peptideId)).toBe(false);
     expect(await salesOf(itemId)).toEqual([]);
 
-    const utcToday = new Date().toISOString().slice(0, 10);
-    for (const date of [latestDate(), utcToday]) {
+    for (const date of [latestDate(), latestDate(-1)]) {
       expect((await purchase(date)).kind, date).toBe("recorded");
       expect((await recordSale(db, saleInput(itemId, 1, "30", { soldOn: date }))).kind, date).toBe("recorded");
     }

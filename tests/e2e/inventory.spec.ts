@@ -132,7 +132,6 @@ test("the handoff FIFO scenario: two purchases, a sale of 12, 8 left, 9 more blo
   await expect(preview.locator("dd")).toHaveText(["20 vials", "—", "—", "—"]);
   await hydrated(page.getByLabel("Vials", { exact: true }));
   await expect(page.getByRole("button", { name: "Researcher account" })).toHaveAttribute("aria-pressed", "true");
-  await select(page, "buyerProfileId").selectOption({ label: `${JORDAN.name} · ${JORDAN.email}` });
   await page.getByLabel("Vials", { exact: true }).fill("12");
   await page.getByLabel("Price per vial (CAD)").fill("40");
   await expect(preview.locator("dd")).toHaveText(["20 vials", "CAD 480.00", "CAD 250.00", "CAD 230.00"]);
@@ -141,6 +140,16 @@ test("the handoff FIFO scenario: two purchases, a sale of 12, 8 left, 9 more blo
       "10 × CAD 20.00 from the Aug 15, 2026 purchase" +
       "2 × CAD 25.00 from the Aug 20, 2026 purchase",
   );
+  // The buyer account starts blank and is searched by part of the email.
+  const account = page.getByRole("combobox", { name: /^Account/ });
+  await expect(account).toHaveValue("");
+  await expect(account).toHaveAttribute("placeholder", "Search by name or email");
+  await expectError(page, page.getByRole("button", { name: "Record sale" }), "Choose the buyer's researcher account.");
+  await account.fill(JORDAN.email.split("@")[0].slice(4));
+  const jordanOption = page.getByRole("option", { name: `${JORDAN.name} · ${JORDAN.email}` });
+  await expect(page.getByRole("option")).toHaveCount(1);
+  await jordanOption.click();
+  await expect(account).toHaveValue(`${JORDAN.name} · ${JORDAN.email}`);
   await page.getByRole("button", { name: "Record sale" }).click();
   await expect(toast(page)).toHaveText("Sale recorded · 12 vials · revenue CAD 480.00 · gross profit CAD 230.00");
   await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory/${itemId}`);
@@ -169,6 +178,8 @@ test("the handoff FIFO scenario: two purchases, a sale of 12, 8 left, 9 more blo
   const kpis = page.getByTestId("kpis").locator(".app-inv-kpi-value");
   await expect(kpis).toHaveText(["12", "CAD 480.00", "CAD 250.00", "CAD 230.00"]);
   await expect(page.getByTestId("by-item")).toHaveText(`${label}12 vialsCAD 480.00CAD 250.00CAD 230.00`);
+  // On wider screens the money columns show "CAD".
+  expect(await page.getByTestId("by-item").locator(".app-inv-cad").first().evaluate((el) => el.getBoundingClientRect().width)).toBeGreaterThan(10);
   await expect(page.getByTestId("sales-list").getByTestId("sale-row")).toHaveCount(1);
   await expect(page.getByTestId("sales-list")).toContainText(`${label} · 12 vials · ${JORDAN.name} (account)`);
   await page.getByLabel("Period").selectOption({ label: "This month" });
@@ -277,11 +288,93 @@ test("phone: tables fit, columns stack, KPIs in two columns", async ({ page }) =
   expect(preview!.y).toBeGreaterThanOrEqual(form!.y + form!.height);
   expect(preview!.width).toBeGreaterThan(330);
 
+  // A7 money columns drop "CAD" and keep each amount on one line.
+  await page.goto(`${APP_ORIGIN}/admin/sales?item=${itemId}`);
+  const row = page.getByTestId("by-item").locator(".app-inv-item-row");
+  await expect(row).toHaveText(/^.+4 vialsCAD 7,999\.96CAD 5,002\.00CAD 2,997\.96$/);
+  const cells = await row.evaluate((el) => ({
+    cad: [...el.querySelectorAll(".app-inv-cad")].map((cad) => cad.getBoundingClientRect().width),
+    heights: [...el.querySelectorAll(".app-inv-num")].map((cell) => cell.getBoundingClientRect().height),
+    shown: [...el.querySelectorAll(".app-inv-amount")].map((amount) => (amount as HTMLElement).innerText),
+  }));
+  expect(cells.cad).toHaveLength(3);
+  for (const width of cells.cad) expect(width).toBeLessThanOrEqual(1);
+  for (const height of cells.heights) expect(height).toBeLessThan(24);
+  expect(cells.shown).toEqual(["7,999.96", "5,002.00", "2,997.96"]);
+  expect(await fits()).toBe(true);
+
   await page.goto(`${APP_ORIGIN}/admin/sales`);
   const tops = await page.getByTestId("kpis").locator(".app-inv-kpi-value").evaluateAll((els) => els.map((el) => el.getBoundingClientRect().top));
   expect(tops[0]).toBe(tops[1]);
   expect(tops[2]).toBeGreaterThan(tops[0]);
   expect(await fits()).toBe(true);
+});
+
+/** A stock item of a new peptide with one purchase lot, recorded directly as the admin; returns its id and label. */
+async function seedItem(quantity: number, unitCost: string) {
+  const name = `Compound ${randomBytes(3).toString("hex")}`;
+  const { data: peptide, error } = await serviceClient()
+    .from("peptides")
+    .insert({ name, information: "[Supplied information]", available: true })
+    .select("id")
+    .single();
+  if (error) throw error;
+  const bought = await (await signedInClient(ADMIN.email))
+    .rpc("record_business_purchase", {
+      p_idempotency_key: randomUUID(),
+      p_peptide_id: peptide.id,
+      p_strength_mg: "5",
+      p_received_on: "2026-08-15",
+      p_quantity: quantity,
+      p_unit_cost: unitCost,
+    })
+    .single();
+  if (bought.error) throw bought.error;
+  return { id: bought.data.stock_item_id, label: `${name} · 5 mg` };
+}
+
+test("switching the stock item blocks saving until that item's preview has loaded", async ({ page }) => {
+  const [first, second] = [await seedItem(3, "10"), await seedItem(5, "12")];
+  await signInAdmin(page);
+  await page.goto(`${APP_ORIGIN}/admin/inventory/sale?item=${first.id}`);
+  await hydrated(page.getByLabel("Vials", { exact: true }));
+  await page.getByRole("button", { name: "Outside buyer" }).click();
+  await page.getByLabel("Buyer name or reference").fill("Walk-in");
+  await page.getByLabel("Vials", { exact: true }).fill("2");
+  await page.getByLabel("Price per vial (CAD)").fill("30");
+  const save = page.getByRole("button", { name: "Record sale" });
+  const preview = page.getByTestId("sale-preview");
+  await expect(save).toBeEnabled();
+  await expect(preview.locator("dd")).toHaveText(["3 vials", "CAD 60.00", "CAD 20.00", "CAD 40.00"]);
+
+  // Hold the second item's data until the save attempts are done.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route(
+    (url) => url.pathname === "/admin/inventory/sale" && url.searchParams.get("item") === second.id,
+    async (route) => {
+      if (route.request().headers()["rsc"]) await held;
+      await route.continue();
+    },
+  );
+  await select(page, "stockItemId").selectOption(second.id);
+  await expect(preview.getByRole("heading")).toHaveText(`Preview · ${second.label}`);
+  await expect(preview).toHaveAttribute("aria-busy", "true");
+  await expect(preview.locator("dd")).toHaveText(["5 vials", "CAD 60.00", "—", "—"]);
+  await expect(save).toBeDisabled();
+  // Neither Enter in a field nor a direct form submission records anything.
+  await page.getByLabel("Price per vial (CAD)").press("Enter");
+  await page.locator("form.app-inv-form").evaluate((form) => (form as HTMLFormElement).requestSubmit());
+  await expect(save).toHaveText("Record sale");
+
+  release();
+  await expect(preview).not.toHaveAttribute("aria-busy", "true");
+  await expect(preview.locator("dd")).toHaveText(["5 vials", "CAD 60.00", "CAD 24.00", "CAD 36.00"]);
+  await expect(save).toBeEnabled();
+  for (const item of [first, second]) {
+    expect((await serviceClient().from("business_sales").select("id").eq("stock_item_id", item.id)).data).toEqual([]);
+  }
+  await expect(toast(page)).toHaveCount(0);
 });
 
 test("a researcher cannot reach inventory or sales", async ({ page }) => {

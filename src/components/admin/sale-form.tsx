@@ -5,6 +5,7 @@ import { useRef, useState, useTransition } from "react";
 import { recordSaleAction } from "@/app/(private)/admin/inventory/actions";
 import { AppButton, Field, InlineError } from "@/components/app-shell/form";
 import { useSubmit } from "@/components/app-shell/use-submit";
+import { BuyerAccountPicker } from "./buyer-account-picker";
 import { formatCurrency } from "@/lib/format";
 import { insufficientStockMessage, type FifoLot } from "@/lib/inventory/rules";
 import {
@@ -35,7 +36,8 @@ export type SaleSelection = { itemId: string; onHand: number; lots: FifoLot[] };
  * A6 Record sale: the form (left) and the live preview (right; stacked on
  * phone). The preview allocates the typed quantity over the chosen item's
  * open lots exactly as the database will (allocateFifo, fifoOrder). Choosing
- * another item reloads its lots (?item=). The database re-checks stock when
+ * another item reloads its lots (?item=); until they arrive the preview shows
+ * "—" and saving is blocked. The database re-checks stock when
  * saving; if it ran out meanwhile nothing is recorded, the page data is
  * refreshed and the "Stock changed" error shows.
  */
@@ -56,7 +58,8 @@ export function SaleForm({
     stockItemId: selection.itemId,
     soldOn: today,
     buyerType: "account",
-    buyerProfileId: accounts[0]?.id ?? "",
+    // Blank until the admin picks the buyer's account (Marco, 2026-09-26).
+    buyerProfileId: "",
     buyerName: "",
     quantity: "",
     unitPrice: "",
@@ -75,7 +78,9 @@ export function SaleForm({
   }
 
   const item = items.find((option) => option.id === form.stockItemId);
+  // The chosen item's lots; null while they load after switching items.
   const current = selection.itemId === form.stockItemId ? selection : null;
+  const loading = current === null;
   const onHand = current?.onHand ?? item?.onHand ?? 0;
   const preview = salePreview({ onHand, lots: current?.lots ?? null, quantity: form.quantity, unitPrice: form.unitPrice });
   const label = item?.label ?? "—";
@@ -88,7 +93,8 @@ export function SaleForm({
         className="app-inv-form"
         onSubmit={(event) => {
           event.preventDefault();
-          if (pending || leaving || preview.short) return;
+          // Never save before the preview for the chosen item has loaded.
+          if (pending || leaving || loading || preview.short) return;
           key.current ??= crypto.randomUUID();
           submit({ ...form, idempotencyKey: key.current }, (result) => {
             if (!result.stockItemId) return;
@@ -132,15 +138,7 @@ export function SaleForm({
           </div>
         </div>
         {form.buyerType === "account" ? (
-          <Field label="Account">
-            <select name="buyerProfileId" value={form.buyerProfileId} onChange={(e) => update("buyerProfileId", e.target.value)}>
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name} · {account.email}
-                </option>
-              ))}
-            </select>
-          </Field>
+          <BuyerAccountPicker accounts={accounts} value={form.buyerProfileId} onChange={(id) => update("buyerProfileId", id)} />
         ) : (
           <Field label="Buyer name or reference">
             <input
@@ -176,12 +174,17 @@ export function SaleForm({
           </Field>
         </div>
         <InlineError>{shown}</InlineError>
-        <AppButton type="submit" saving={pending || leaving} savingLabel="Recording…" disabled={preview.short}>
+        <AppButton type="submit" saving={pending || leaving} savingLabel="Recording…" disabled={preview.short || loading}>
           Record sale
         </AppButton>
       </form>
 
-      <section className="app-card" aria-labelledby="sale-preview-title" aria-busy={loadingItem || undefined} data-testid="sale-preview">
+      <section
+        className="app-card"
+        aria-labelledby="sale-preview-title"
+        aria-busy={loading || loadingItem || undefined}
+        data-testid="sale-preview"
+      >
         <h2 id="sale-preview-title" className="app-inv-preview-title">
           Preview · {label}
         </h2>

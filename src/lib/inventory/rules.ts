@@ -111,8 +111,9 @@ export type ValidPurchase = {
 
 /**
  * A date that is not after `today`: purchases and sales cannot be dated in the
- * future (Marco, 2026-09-26). `today` is the admin's local date (`YYYY-MM-DD`)
- * from the form; the database also refuses any date after today in UTC+14
+ * future (Marco, 2026-09-26). `today` (`YYYY-MM-DD`) is today in the business
+ * time zone, America/Toronto, computed on the server (screens.ts
+ * businessToday); the database refuses any later date too
  * (supabase/migrations/20260926160000_business_inventory.sql "Dates").
  */
 function notFuture(date: string, today: string): boolean {
@@ -126,7 +127,7 @@ function notFuture(date: string, today: string): boolean {
  * date, vials, cost, then the new item's strength (the prototype's order).
  * `stockItemId: "new"` means "New peptide / strength…". The idempotency key is
  * generated once per form (crypto.randomUUID) and resent on every retry.
- * `today` is the admin's local date; a later date received is refused.
+ * `today` is the business date (America/Toronto); a later date received is refused.
  */
 export function validatePurchase(input: unknown, today: string): { ok: true; value: ValidPurchase } | { ok: false; error: string } {
   const raw = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
@@ -164,7 +165,7 @@ export type ValidSale = {
 /**
  * A6 sale form, first failure wins: item, date, vials, price, buyer. Stock is
  * checked by the preview and again, atomically, by the database. `today` is
- * the admin's local date; a later sale date is refused. A sale may be dated
+ * the business date (America/Toronto); a later sale date is refused. A sale may be dated
  * before the purchases whose stock it uses.
  */
 export function validateSale(input: unknown, today: string): { ok: true; value: ValidSale } | { ok: false; error: string } {
@@ -247,7 +248,7 @@ export type SalesPeriod = "all" | "month" | "prev";
 
 /**
  * A7 Period filter as an inclusive date range for `today` (`YYYY-MM-DD`, the
- * admin's local date): This month / Last month / All time (no bounds).
+ * business date, America/Toronto): This month / Last month / All time (no bounds).
  */
 export function salesPeriodRange(period: SalesPeriod, today: string): { from: string | null; to: string | null } {
   if (period === "all") return { from: null, to: null };

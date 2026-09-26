@@ -4,7 +4,7 @@ import { EmptyState } from "@/components/app-shell/form";
 import { SaleForm } from "@/components/admin/sale-form";
 import { requireAdmin } from "@/lib/auth/session";
 import { businessToday, INVENTORY_EMPTY, SALE_INTRO } from "@/lib/inventory/screens";
-import { getStockItem, listBuyerAccounts, listStock, openLots } from "@/lib/inventory/service";
+import { getSaleStock, listBuyerAccounts, listStock } from "@/lib/inventory/service";
 import { createClient } from "@/lib/supabase/server";
 
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
@@ -12,7 +12,7 @@ type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 /**
  * A6 Record sale (admins only). `?item=` chooses the stock item (the form
  * switches it there as the admin picks one); otherwise the first item. The
- * item's open purchase lots feed the live FIFO preview.
+ * item's open purchase lots (all of them, FIFO order) feed the live preview.
  */
 export default async function RecordSalePage({ searchParams }: { searchParams: SearchParams }) {
   await requireAdmin("/admin/inventory/sale");
@@ -20,7 +20,7 @@ export default async function RecordSalePage({ searchParams }: { searchParams: S
   const db = await createClient();
   const [stock, accounts] = await Promise.all([listStock(db), listBuyerAccounts(db)]);
   const chosen = stock.find((entry) => entry.id === item) ?? stock[0];
-  const detail = chosen ? await getStockItem(db, chosen.id) : null;
+  const saleStock = chosen ? await getSaleStock(db, chosen.id) : null;
 
   return (
     <AppPage>
@@ -29,11 +29,11 @@ export default async function RecordSalePage({ searchParams }: { searchParams: S
       </Link>
       <h1 className="app-h1">Record sale</h1>
       <p className="app-subtitle">{SALE_INTRO}</p>
-      {detail ? (
+      {chosen && saleStock ? (
         <SaleForm
           items={stock.map((entry) => ({ id: entry.id, label: entry.label, onHand: entry.onHand }))}
           accounts={accounts}
-          selection={{ itemId: detail.item.id, onHand: detail.item.onHand, lots: openLots(detail.lots) }}
+          selection={{ itemId: chosen.id, ...saleStock }}
           today={businessToday()}
         />
       ) : (

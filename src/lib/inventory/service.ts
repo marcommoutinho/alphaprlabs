@@ -10,6 +10,30 @@ type Db = SupabaseClient<Database>;
 const API_PAGE = 1000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** `pageSize` overrides API_PAGE (tests prove paging loses no row with a small page). */
+export type PageOptions = { pageSize?: number };
+
+/**
+ * Every row of a list the API returns at most `pageSize` rows of per request,
+ * by keyset paging: `page(after, limit)` returns up to `limit` rows ordered by
+ * a unique key, after the row `after` (null: from the start). Unlike offsets,
+ * a row written meanwhile can't shift a page, so no row is read twice (which
+ * would count a total twice) or skipped.
+ */
+async function allPages<Row>(
+  page: (after: Row | null, limit: number) => PromiseLike<{ data: Row[] | null; error: { message: string } | null }>,
+  what: string,
+  pageSize = API_PAGE,
+): Promise<Row[]> {
+  const rows: Row[] = [];
+  for (let after: Row | null = null; ; after = rows[rows.length - 1]) {
+    const { data, error } = await page(after, pageSize);
+    if (error) throw new Error(`Could not load ${what}: ${error.message}`);
+    rows.push(...(data ?? []));
+    if ((data ?? []).length < pageSize) return rows;
+  }
+}
+
 // Business inventory and sales (A4-A7), admin only. `db` is the admin's own
 // session client: RLS (is_admin() read policies) and the SQL functions' own
 // is_admin() checks apply on top of the caller's role check. Money arrives as
@@ -81,19 +105,16 @@ const toSummary = (row: Database["public"]["Functions"]["admin_business_stock"][
 });
 
 /** A4 Inventory: every stock item with vials purchased, sold and on hand, by peptide name then strength. */
-export async function listStock(db: Db): Promise<StockItemSummary[]> {
-  // Page through: the API returns at most API_PAGE rows per request.
-  const items: StockItemSummary[] = [];
-  for (let from = 0; ; from += API_PAGE) {
-    const { data, error } = await db
-      .rpc("admin_business_stock")
-      .order("stock_item_id")
-      .range(from, from + API_PAGE - 1);
-    if (error) throw new Error(`Could not load inventory: ${error.message}`);
-    items.push(...data.map(toSummary));
-    if (data.length < API_PAGE) break;
-  }
-  return items.sort(
+export async function listStock(db: Db, options: PageOptions = {}): Promise<StockItemSummary[]> {
+  const rows = await allPages<Database["public"]["Functions"]["admin_business_stock"]["Returns"][number]>(
+    (after, limit) => {
+      const query = db.rpc("admin_business_stock");
+      return (after ? query.gt("stock_item_id", after.stock_item_id) : query).order("stock_item_id").limit(limit);
+    },
+    "inventory",
+    options.pageSize,
+  );
+  return rows.map(toSummary).sort(
     (a, b) =>
       a.peptideName.localeCompare(b.peptideName, "en", { sensitivity: "base" }) ||
       a.peptideId.localeCompare(b.peptideId) ||
@@ -161,12 +182,45 @@ export type StockItemDetail = {
   salesTruncated: boolean;
 };
 
-/** A4 Stock item (and A6's preview input): the item, its purchase lots and its sales. Null when unknown. */
-export async function getStockItem(db: Db, stockItemId: string): Promise<StockItemDetail | null> {
+type LotRow = Database["public"]["Functions"]["admin_business_lots"]["Returns"][number];
+
+const toLot = (lot: LotRow): PurchaseLot => ({
+  id: lot.purchase_id,
+  receivedOn: lot.received_on,
+  quantity: lot.quantity,
+  unitCost: lot.unit_cost,
+  totalCost: lot.total_cost,
+  allocated: Number(lot.allocated),
+  remaining: Number(lot.remaining),
+  recordedAt: lot.recorded_at,
+  recordedOrder: lot.recorded_order,
+});
+
+/**
+ * A stock item's purchase lots, every page of them (paged by recording order,
+ * which is unique and only grows), in FIFO order: received date, then
+ * recording order. `open` keeps only lots with vials left.
+ */
+async function lotPages(db: Db, stockItemId: string, open: boolean, options: PageOptions): Promise<PurchaseLot[]> {
+  const rows = await allPages<LotRow>(
+    (after, limit) => {
+      let query = db.rpc("admin_business_lots", { p_stock_item_id: stockItemId });
+      if (open) query = query.gt("remaining", 0);
+      if (after) query = query.gt("recorded_order", after.recorded_order);
+      return query.order("recorded_order").limit(limit);
+    },
+    "purchases",
+    options.pageSize,
+  );
+  return rows.map(toLot).sort(fifoOrder);
+}
+
+/** A4 Stock item: the item, all of its purchase lots and its newest sales. Null when unknown. */
+export async function getStockItem(db: Db, stockItemId: string, options: PageOptions = {}): Promise<StockItemDetail | null> {
   if (!UUID.test(stockItemId)) return null;
   const [item, lots, sales] = await Promise.all([
     db.rpc("admin_business_stock").eq("stock_item_id", stockItemId).maybeSingle(),
-    db.rpc("admin_business_lots", { p_stock_item_id: stockItemId }),
+    lotPages(db, stockItemId, false, options),
     db
       .from("business_sales")
       .select(SALE_COLUMNS, { count: "exact" })
@@ -177,28 +231,17 @@ export async function getStockItem(db: Db, stockItemId: string): Promise<StockIt
       .overrideTypes<SaleRow[], { merge: false }>(),
   ]);
   if (item.error) throw new Error(`Could not load the stock item: ${item.error.message}`);
-  if (lots.error) throw new Error(`Could not load purchases: ${lots.error.message}`);
   if (sales.error) throw new Error(`Could not load sales: ${sales.error.message}`);
   if (!item.data) return null;
   return {
     item: toSummary(item.data),
-    lots: lots.data.map((lot) => ({
-      id: lot.purchase_id,
-      receivedOn: lot.received_on,
-      quantity: lot.quantity,
-      unitCost: lot.unit_cost,
-      totalCost: lot.total_cost,
-      allocated: Number(lot.allocated),
-      remaining: Number(lot.remaining),
-      recordedAt: lot.recorded_at,
-      recordedOrder: lot.recorded_order,
-    })),
+    lots,
     sales: sales.data.map(toSale),
     salesTruncated: (sales.count ?? 0) > sales.data.length,
   };
 }
 
-/** A6 live preview input: the item's lots that still have vials (allocateFifo orders them). */
+/** The item's lots that still have vials, as FIFO sees them. */
 export const openLots = (lots: PurchaseLot[]): FifoLot[] =>
   lots
     .filter((lot) => lot.remaining > 0)
@@ -209,6 +252,34 @@ export const openLots = (lots: PurchaseLot[]): FifoLot[] =>
       unitCost: lot.unitCost,
       remaining: lot.remaining,
     }));
+
+/**
+ * A6 live preview input: the item's stock and every lot that still has vials,
+ * in FIFO order, read from the database (all pages) without the item's
+ * history. Null when the item is unknown. `onHand` is the sum of the open
+ * lots, so the preview's stock and lots are one consistent reading.
+ */
+export async function getSaleStock(
+  db: Db,
+  stockItemId: string,
+  options: PageOptions = {},
+): Promise<{ onHand: number; lots: FifoLot[] } | null> {
+  if (!UUID.test(stockItemId)) return null;
+  const lots = openLots(await lotPages(db, stockItemId, true, options));
+  return { onHand: lots.reduce((n, lot) => n + lot.remaining, 0), lots };
+}
+
+/** One sale by id (the toast after recording it), or null. */
+export async function getSale(db: Db, saleId: string): Promise<SaleRecord | null> {
+  if (!UUID.test(saleId)) return null;
+  const { data, error } = await db
+    .from("business_sales")
+    .select(SALE_COLUMNS)
+    .eq("id", saleId)
+    .overrideTypes<SaleRow[], { merge: false }>();
+  if (error) throw new Error(`Could not load the sale: ${error.message}`);
+  return data[0] ? toSale(data[0]) : null;
+}
 
 /** Inclusive `YYYY-MM-DD` bounds (see salesPeriodRange) and an optional item. */
 export type SalesFilter = { from?: string | null; to?: string | null; stockItemId?: string | null };
@@ -225,8 +296,8 @@ export type SalesReport = {
   hasSales: boolean;
 };
 
-/** A7 Sales & gross profit for a period and item: exact totals, the by-item breakdown and the sales. */
-export async function listSales(db: Db, filter: SalesFilter = {}): Promise<SalesReport> {
+/** A7 Sales & gross profit for a period and item: exact totals, the by-item breakdown and the sales. `options.pageSize` pages the totals. */
+export async function listSales(db: Db, filter: SalesFilter = {}, options: PageOptions = {}): Promise<SalesReport> {
   let sales = db.from("business_sales").select(SALE_COLUMNS, { count: "exact" });
   if (filter.from) sales = sales.gte("sold_on", filter.from);
   if (filter.to) sales = sales.lte("sold_on", filter.to);
@@ -234,36 +305,42 @@ export async function listSales(db: Db, filter: SalesFilter = {}): Promise<Sales
 
   const [stock, totals, rows] = await Promise.all([
     listStock(db),
-    db.rpc("admin_business_sales_totals", {
-      ...(filter.from ? { p_from: filter.from } : {}),
-      ...(filter.to ? { p_to: filter.to } : {}),
-      ...(filter.stockItemId ? { p_stock_item_id: filter.stockItemId } : {}),
-    }),
+    // One row per stock item with sales in the view: every page of them.
+    allPages<Database["public"]["Functions"]["admin_business_sales_totals"]["Returns"][number]>(
+      (after, limit) => {
+        const query = db.rpc("admin_business_sales_totals", {
+          ...(filter.from ? { p_from: filter.from } : {}),
+          ...(filter.to ? { p_to: filter.to } : {}),
+          ...(filter.stockItemId ? { p_stock_item_id: filter.stockItemId } : {}),
+        });
+        return (after ? query.gt("stock_item_id", after.stock_item_id) : query).order("stock_item_id").limit(limit);
+      },
+      "sales totals",
+      options.pageSize,
+    ),
     sales
       .order("sold_on", { ascending: false })
       .order("recorded_at", { ascending: false })
       .limit(SALES_PAGE_SIZE)
       .overrideTypes<SaleRow[], { merge: false }>(),
   ]);
-  if (totals.error) throw new Error(`Could not load sales totals: ${totals.error.message}`);
   if (rows.error) throw new Error(`Could not load sales: ${rows.error.message}`);
 
-  const perItem = new Map(totals.data.map((row) => [row.stock_item_id, row]));
-  const byItem = stock.flatMap((item) => {
-    const row = perItem.get(item.id);
-    if (!row) return [];
-    return [
-      {
-        stockItemId: item.id,
-        label: item.label,
-        sales: Number(row.sales),
-        vials: Number(row.vials),
-        revenue: row.revenue,
-        cost: row.cost,
-        grossProfit: row.gross_profit,
-      },
-    ];
-  });
+  // Every totals row counts, in inventory order (an item created after the
+  // stock list was read still counts, labelled from nothing: last).
+  const order = new Map(stock.map((item, index) => [item.id, index]));
+  const labels = new Map(stock.map((item) => [item.id, item.label]));
+  const byItem = totals
+    .map((row) => ({
+      stockItemId: row.stock_item_id,
+      label: labels.get(row.stock_item_id) ?? "—",
+      sales: Number(row.sales),
+      vials: Number(row.vials),
+      revenue: row.revenue,
+      cost: row.cost,
+      grossProfit: row.gross_profit,
+    }))
+    .sort((a, b) => (order.get(a.stockItemId) ?? Infinity) - (order.get(b.stockItemId) ?? Infinity));
   return {
     totals: {
       sales: byItem.reduce((n, row) => n + row.sales, 0),
@@ -276,7 +353,7 @@ export async function listSales(db: Db, filter: SalesFilter = {}): Promise<Sales
     sales: rows.data.map(toSale),
     salesTruncated: (rows.count ?? 0) > rows.data.length,
     hasPurchases: stock.some((item) => item.purchased > 0),
-    hasSales: stock.some((item) => item.sold > 0),
+    hasSales: byItem.length > 0 || stock.some((item) => item.sold > 0),
   };
 }
 

@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { InventoryList, SalesReportView, StockItemView } from "@/components/admin/inventory-views";
 import { allocateFifo, type FifoLot } from "@/lib/inventory/rules";
 import {
+  accountMatches,
   allocationSummary,
   buyerLabel,
   businessToday,
@@ -126,6 +127,14 @@ describe("screen helpers", () => {
     // Winter (EST, UTC−5): New Year's Eve until 05:00 UTC.
     expect(businessToday(new Date("2027-01-01T04:59:00Z"))).toBe("2026-12-31");
     expect(businessToday(new Date("2027-01-01T05:00:00Z"))).toBe("2027-01-01");
+  });
+
+  it("A6 account search matches part of the name or email, any case", () => {
+    const jordan = { name: "Jordan Reyes", email: "jordan.reyes@example.test" };
+    for (const query of ["", "  ", "jord", "REYES", "reyes@exa", "example.test", "Jordan Reyes · jordan"]) {
+      expect(accountMatches(jordan, query), query).toBe(true);
+    }
+    for (const query of ["osei", "jordan@", "Reyes Jordan"]) expect(accountMatches(jordan, query), query).toBe(false);
   });
 
   it("A7 empty state for the view", () => {

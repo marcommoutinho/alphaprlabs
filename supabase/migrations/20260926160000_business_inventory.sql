@@ -47,11 +47,11 @@
 --
 -- Dates: a purchase or sale cannot be dated in the future (Marco,
 -- 2026-09-26); a sale may be dated before the purchase whose stock it uses.
--- No business time zone is defined, so the database refuses a date later than
--- today in UTC+14, the first time zone to reach each date
--- (public.business_latest_date()): an admin's own local date is never
--- refused, wherever they are. The forms check the admin's local date first
--- (src/lib/inventory/rules.ts), which is the tighter bound.
+-- "Today" is the date in the business time zone, America/Toronto (Marco,
+-- 2026-09-26: the business is local only). The database refuses a date later
+-- than that (public.business_latest_date()); the app checks the same date
+-- first (src/lib/inventory/screens.ts businessToday, passed to
+-- src/lib/inventory/rules.ts) to give the designed messages.
 --
 -- Refusals (SQLSTATE; the app maps them, src/lib/inventory/service.ts):
 --   42501 not an admin              22023 invalid input (message names it)

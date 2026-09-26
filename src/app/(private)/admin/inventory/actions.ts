@@ -16,7 +16,7 @@ import {
   validateSale,
 } from "@/lib/inventory/rules";
 import { businessToday, purchaseRecordedToast, saleRecordedToast, SUBMISSION_CONFLICT, vials } from "@/lib/inventory/screens";
-import { getStockItem, recordPurchase, recordSale } from "@/lib/inventory/service";
+import { getSale, recordPurchase, recordSale } from "@/lib/inventory/service";
 import { createClient } from "@/lib/supabase/server";
 
 export type InventoryActionResult = {
@@ -89,7 +89,7 @@ export async function recordSaleAction(input: unknown): Promise<InventoryActionR
     case "recorded": {
       const stockItemId = valid.value.stockItemId;
       if (result.replayed) return { stockItemId, toast: SALE_ALREADY_RECORDED, tone: "warn" };
-      return { stockItemId, toast: await recordedSaleToast(db, stockItemId, result.saleId, valid.value.quantity), tone: "info" };
+      return { stockItemId, toast: await recordedSaleToast(db, result.saleId, valid.value.quantity), tone: "info" };
     }
     case "insufficient":
       refresh();
@@ -110,9 +110,9 @@ export async function recordSaleAction(input: unknown): Promise<InventoryActionR
 }
 
 /** The toast with the revenue and gross profit the database froze (not the preview's). */
-async function recordedSaleToast(db: Awaited<ReturnType<typeof createClient>>, stockItemId: string, saleId: string, quantity: number) {
+async function recordedSaleToast(db: Awaited<ReturnType<typeof createClient>>, saleId: string, quantity: number) {
   try {
-    const sale = (await getStockItem(db, stockItemId))?.sales.find((row) => row.id === saleId);
+    const sale = await getSale(db, saleId);
     if (sale) return saleRecordedToast(sale);
   } catch {
     // The sale is recorded; only the amounts for the toast could not be read.

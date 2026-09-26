@@ -230,10 +230,14 @@ export function SalesReportView({ report, itemLabels }: { report: SalesReport; i
               <div key={row.stockItemId} className="app-inv-item-row">
                 <b>{row.label}</b>
                 <span className="app-inv-num app-inv-muted">{vials(row.vials)}</span>
-                <span className="app-inv-num">{formatCurrency(row.revenue)}</span>
-                <span className="app-inv-num app-inv-muted">{formatCurrency(row.cost)}</span>
+                <span className="app-inv-num">
+                  <Money amount={row.revenue} />
+                </span>
+                <span className="app-inv-num app-inv-muted">
+                  <Money amount={row.cost} />
+                </span>
                 <span className="app-inv-num" data-tone={profitTone(row.grossProfit)}>
-                  {formatCurrency(row.grossProfit)}
+                  <Money amount={row.grossProfit} />
                 </span>
               </div>
             ))}
@@ -247,6 +251,22 @@ export function SalesReportView({ report, itemLabels }: { report: SalesReport; i
           </div>
         </>
       )}
+    </>
+  );
+}
+
+/**
+ * A money column amount: `CAD 480.00`. On phones the "CAD" label is visually
+ * dropped (still read by screen readers) so amounts don't wrap (Marco,
+ * 2026-09-26).
+ */
+function Money({ amount }: { amount: string }) {
+  const text = formatCurrency(amount);
+  if (!text.startsWith("CAD ")) return <>{text}</>;
+  return (
+    <>
+      <span className="app-inv-cad">CAD </span>
+      <span className="app-inv-amount">{text.slice(4)}</span>
     </>
   );
 }

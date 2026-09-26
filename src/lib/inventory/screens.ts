@@ -25,6 +25,15 @@ export const SALE_INTRO =
 export const SALE_PREVIEW_FOOTNOTE =
   "Gross profit is revenue minus the purchase cost of these vials. It is not net profit; other expenses aren't included.";
 export const OUTSIDE_BUYER_PLACEHOLDER = "No app account needed";
+export const BUYER_SEARCH_PLACEHOLDER = "Search by name or email";
+export const BUYER_SEARCH_EMPTY = "No account matches.";
+
+/** A6 account search: the name, the email or `Name · email` contains the typed text (any case). */
+export function accountMatches(account: { name: string; email: string }, query: string): boolean {
+  const text = query.trim().toLocaleLowerCase("en-CA");
+  const lower = (value: string) => value.toLocaleLowerCase("en-CA");
+  return !text || [account.name, account.email, `${account.name} · ${account.email}`].some((value) => lower(value).includes(text));
+}
 export const SALES_NOTE =
   "Gross profit = revenue − FIFO purchase cost of the vials sold. Not net profit. Current stock is a separate figure — see Inventory.";
 export const SALES_EMPTY_NOTHING = "No purchases or sales yet.";
