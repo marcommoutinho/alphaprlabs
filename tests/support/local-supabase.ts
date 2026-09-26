@@ -97,12 +97,86 @@ export function appTestEnv(): Record<string, string> {
   };
 }
 
-const noSession = { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } };
+/**
+ * Kong's own 502 body when the service behind it closed the connection
+ * without answering ("upstream prematurely closed connection while reading
+ * response header" in Kong's error log).
+ */
+const GATEWAY_NO_RESPONSE = "An invalid response was received from the upstream server";
+
+/**
+ * fetch for the test clients. The local gateway (Kong) keeps idle upstream
+ * connections for 60 s, but PostgREST closes idle keep-alive connections after
+ * 30–60 s; a request Kong writes onto a connection PostgREST is closing at that
+ * moment comes back as Kong's 502 above, without PostgREST ever reading it.
+ * Under the bursts of a parallel test run this hits a random call now and then,
+ * and supabase-js turns it into `data: null` with an error that has no code.
+ * Only that exact answer is sent again, once, and reported; anything else,
+ * including a second gateway 502, reaches the test unchanged.
+ */
+async function gatewayFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const retry = input instanceof Request ? input.clone() : input;
+  const response = await fetch(input, init);
+  if (response.status !== 502) return response;
+  const body = await response.clone().text();
+  if (!body.includes(GATEWAY_NO_RESPONSE)) return response;
+  const url = input instanceof Request ? input.url : String(input);
+  console.warn(`Local gateway 502 (upstream closed the connection unanswered); sending once more: ${init?.method ?? "GET"} ${url}`);
+  return fetch(retry, init);
+}
+
+const clientOptions = {
+  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  global: { fetch: gatewayFetch },
+};
 
 export const serviceClient = () =>
-  createClient<Database>(localSupabase().url, localSupabase().secretKey, noSession);
+  createClient<Database>(localSupabase().url, localSupabase().secretKey, clientOptions);
 export const anonClient = () =>
-  createClient<Database>(localSupabase().url, localSupabase().publishableKey, noSession);
+  createClient<Database>(localSupabase().url, localSupabase().publishableKey, clientOptions);
+
+type ApiError = { message: string; code?: string; details?: string | null; hint?: string | null };
+// A supabase-js response: data on success, an error (and null data) on failure.
+type ApiResponse<T> = ({ data: T; error: null } | { data: null; error: ApiError }) & { status: number };
+
+const describeFailure = (what: string, { error, status }: { error: ApiError | null; status: number }) =>
+  `${what} failed (HTTP ${status}${error?.code ? `, ${error.code}` : ""}): ${error?.message ?? "no error body"}` +
+  (error?.details ? ` — ${error.details}` : "");
+
+/**
+ * The data of a PostgREST call that must succeed. A failed call throws with
+ * the real status and error instead of reading as `data: null`, so a test
+ * never mistakes a failure for an empty or negative answer.
+ */
+export async function ok<T>(call: PromiseLike<ApiResponse<T>>, what = "Database call"): Promise<T> {
+  const response = await call;
+  if (response.error) throw new Error(describeFailure(what, response));
+  return response.data;
+}
+
+/**
+ * The rows a caller can see: none when the read is refused outright
+ * (insufficient privilege, 42501). Any other failure throws, so it is never
+ * mistaken for "sees nothing".
+ */
+export async function visibleRows<T>(call: PromiseLike<ApiResponse<T[]>>, what = "Read"): Promise<T[]> {
+  const response = await call;
+  if (!response.error) return response.data ?? [];
+  if (response.error.code === "42501") return [];
+  throw new Error(describeFailure(what, response));
+}
+
+/**
+ * The SQLSTATE a PostgREST call was refused with, or "ok" when it succeeded.
+ * An error without a SQLSTATE (the gateway, the network) throws instead:
+ * it is neither a refusal nor a success.
+ */
+export async function sqlState(call: PromiseLike<{ error: ApiError | null; status: number }>, what = "Database call"): Promise<string> {
+  const response = await call;
+  if (!response.error) return "ok";
+  if (!response.error.code) throw new Error(describeFailure(what, response));
+  return response.error.code;
+}
 
 export const uniqueEmail = (label: string) =>
   `${label}-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}@example.test`;
@@ -124,10 +198,12 @@ export async function ensureAccount(opts: {
   if (created.data.user) {
     userId = created.data.user.id;
   } else {
-    const { data: profile } = await admin.from("profiles").select("id").eq("email", opts.email).maybeSingle();
+    const { data: profile, error: lookupError } = await admin.from("profiles").select("id").eq("email", opts.email).maybeSingle();
+    if (lookupError) throw lookupError;
     if (!profile) throw created.error ?? new Error(`Could not create ${opts.email}`);
     userId = profile.id;
-    await admin.auth.admin.updateUserById(userId, { password });
+    const { error: passwordError } = await admin.auth.admin.updateUserById(userId, { password });
+    if (passwordError) throw passwordError;
   }
   // Admins are researchers too (S3.2): both roles are acknowledged unless asked not to be.
   const acknowledged = opts.acknowledged !== false;

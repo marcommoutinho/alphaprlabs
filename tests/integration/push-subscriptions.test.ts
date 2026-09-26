@@ -3,7 +3,7 @@
 // background syncs that can never switch a device back on.
 import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import { anonClient, appTestEnv, ensureAccount, serviceClient, signedInClient, uniqueEmail } from "../support/local-supabase";
+import { anonClient, appTestEnv, ensureAccount, serviceClient, signedInClient, uniqueEmail, visibleRows } from "../support/local-supabase";
 
 Object.assign(process.env, appTestEnv());
 const { disableGoneSubscription } = await import("@/lib/push/send");
@@ -42,7 +42,7 @@ describe("push subscriptions", () => {
     expect((await save(a, url)).error).toBeNull();
     expect((await a.from("push_subscriptions").select("endpoint")).data).toEqual([{ endpoint: url }]);
     for (const other of [b, admin, anonClient()]) {
-      expect((await other.from("push_subscriptions").select("id")).data ?? []).toHaveLength(0);
+      expect(await visibleRows(other.from("push_subscriptions").select("id"))).toHaveLength(0);
       expect((await other.from("push_subscriptions").update({ profile_id: idB }).eq("endpoint", url)).error).not.toBeNull();
       expect((await other.from("push_subscriptions").delete().eq("endpoint", url)).error).not.toBeNull();
       expect((await disable(other, url, "turned_off")).data ?? false).toBe(false);

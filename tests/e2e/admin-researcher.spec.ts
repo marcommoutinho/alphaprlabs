@@ -5,7 +5,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { APP_ORIGIN } from "../../playwright.config";
 import { emulatePermission, fakePushService } from "../support/fake-push";
-import { ensureAccount, serviceClient, signInAs, uniqueEmail } from "../support/local-supabase";
+import { ensureAccount, hydrated, serviceClient, signInAs, uniqueEmail } from "../support/local-supabase";
 
 const ADMIN = { email: uniqueEmail("s32-admin"), name: "Avery Admin" };
 let adminId: string;
@@ -33,7 +33,8 @@ test("an admin acknowledges, turns on reminders, uses the research side and swit
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Researcher acknowledgement");
   await page.goto(`${APP_ORIGIN}/app/notifications`);
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth/acknowledge`);
-  await page.getByLabel("I have read the acknowledgement and confirm I am a researcher.").check();
+  // A full page load: the form only works once React has hydrated it.
+  await (await hydrated(page.getByLabel("I have read the acknowledgement and confirm I am a researcher."))).check();
   await page.getByRole("button", { name: "Continue" }).click();
 
   // Step 3: reminders on this phone, then Today.

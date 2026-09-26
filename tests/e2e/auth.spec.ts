@@ -26,11 +26,12 @@ test.beforeAll(async () => {
 const alert = (page: Page) => page.locator('.app-inline-error[role="alert"]');
 const toast = (page: Page) => page.locator(".app-toast");
 const row = (page: Page, email: string) => page.getByTestId("invitation-row").filter({ hasText: email });
-const rowIndex = async (page: Page, email: string) =>
-  (await page.getByTestId("invitation-row").allTextContents()).findIndex((text) => text.includes(email));
+/** The given emails in the order their rows are listed (a missing row is left out). */
+const rowOrder = async (page: Page, emails: string[]) =>
+  (await page.getByTestId("invitation-row").allTextContents()).flatMap((text) => emails.filter((email) => text.includes(email)));
 
 async function invite(page: Page, name: string, email: string) {
-  await page.getByLabel("Name").fill(name);
+  await (await hydrated(page.getByLabel("Name"))).fill(name);
   await page.getByLabel("Email").fill(email);
   await page.getByRole("button", { name: "Send invitation" }).click();
 }
@@ -74,7 +75,7 @@ test("admin invites; the researcher accepts, sets a password, acknowledges and r
   await expect(researcher.getByText("Step 1 of 3")).toBeVisible();
   await expect(researcher.getByLabel("Name")).toHaveValue("Jordan Reyes");
   await expect(researcher.getByLabel("Email (from your invitation)")).toHaveValue(email);
-  await researcher.getByLabel("Password · at least 8 characters").fill("short");
+  await (await hydrated(researcher.getByLabel("Password · at least 8 characters"))).fill("short");
   await researcher.getByRole("button", { name: "Continue" }).click();
   await expect(alert(researcher)).toHaveText("Password needs at least 8 characters.");
   await researcher.getByLabel("Password · at least 8 characters").fill(TEST_PASSWORD);
@@ -84,7 +85,7 @@ test("admin invites; the researcher accepts, sets a password, acknowledges and r
   // Until acknowledged, the app routes back here.
   await researcher.goto(`${APP_ORIGIN}/app/today`);
   await expect(researcher).toHaveURL(`${APP_ORIGIN}/auth/acknowledge`);
-  await researcher.getByRole("button", { name: "Continue" }).click();
+  await (await hydrated(researcher.getByRole("button", { name: "Continue" }))).click();
   await expect(alert(researcher)).toHaveText(
     "Tick the acknowledgement to continue. It is required for researcher accounts.",
   );
@@ -94,7 +95,7 @@ test("admin invites; the researcher accepts, sets a password, acknowledges and r
   await expect(researcher).toHaveURL(`${APP_ORIGIN}/auth/reminders`);
   await expect(researcher.getByText("Step 3 of 3 · optional")).toBeVisible();
   await expect(researcher.getByRole("heading", { level: 1 })).toHaveText("Reminders on your phone");
-  await researcher.getByRole("button", { name: "Not now" }).click();
+  await (await hydrated(researcher.getByRole("button", { name: "Not now" }))).click();
   await expect(researcher).toHaveURL(`${APP_ORIGIN}/app/today`);
   await expect(researcher.getByRole("heading", { level: 1 })).toHaveText("Today");
   await expect(toast(researcher)).toHaveCount(0);
@@ -149,9 +150,9 @@ test("expired, unknown and failed invitations; resend", async ({ page }) => {
   await expect(row(page, failedEmail).locator('[data-state="failed"]')).toHaveText("Send failed");
   await expect(row(page, failedEmail).locator('[data-state="failed"]')).toHaveCSS("color", "rgb(248, 113, 113)");
   // Newest first by the "Sent" date.
-  expect(await rowIndex(page, failedEmail)).toBeLessThan(await rowIndex(page, expiredEmail));
+  await expect.poll(() => rowOrder(page, [failedEmail, expiredEmail])).toEqual([failedEmail, expiredEmail]);
 
-  await row(page, failedEmail).getByRole("button", { name: "Resend" }).click();
+  await (await hydrated(row(page, failedEmail).getByRole("button", { name: "Resend" }))).click();
   await expect(toast(page)).toHaveText(`Invitation resent to ${failedEmail}`);
   await expect(row(page, failedEmail)).toContainText("Pending");
   await expect(row(page, failedEmail).getByRole("button", { name: "Resend" })).toHaveCount(0);
@@ -160,7 +161,7 @@ test("expired, unknown and failed invitations; resend", async ({ page }) => {
   await row(page, expiredEmail).getByRole("button", { name: "Resend" }).click();
   await expect(row(page, expiredEmail)).toContainText("Pending");
   // Resending moves the older invitation above the newer one.
-  expect(await rowIndex(page, expiredEmail)).toBeLessThan(await rowIndex(page, failedEmail));
+  await expect.poll(() => rowOrder(page, [failedEmail, expiredEmail])).toEqual([expiredEmail, failedEmail]);
   // The old link died with the resend.
   await page.goto(`${APP_ORIGIN}/auth/invite/${expiredToken}`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("This invitation was already used");

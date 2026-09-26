@@ -17,6 +17,13 @@ export const APP_ORIGIN = `http://app.localhost:${port}`;
 export default defineConfig({
   testDir: "tests/e2e",
   fullyParallel: true,
+  // One `next start` process (a single Node thread) serves every worker, and
+  // each page view also prefetches its visible links. Playwright's default,
+  // half the CPU cores, gives 16 browsers on a 32-core machine: the server
+  // queues, a client navigation then takes 3-6 s to commit, and assertions
+  // with the default 5 s timeout fail at random. A fixed count keeps the
+  // server responsive (and the suite equally reliable) on any machine.
+  workers: 4,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: "list",

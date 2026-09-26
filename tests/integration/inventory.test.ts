@@ -7,7 +7,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { allocateFifo } from "@/lib/inventory/rules";
 import { businessToday } from "@/lib/inventory/screens";
 import { getStockItem, listBuyerAccounts, listSales, listStock, openLots, recordPurchase, recordSale } from "@/lib/inventory/service";
-import { ensureAccount, serviceClient, signedInClient, uniqueEmail } from "../support/local-supabase";
+import { ensureAccount, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
 
 type Client = Awaited<ReturnType<typeof signedInClient>>;
 
@@ -359,35 +359,34 @@ describe("validation", () => {
         p_buyer_name: "Walk-in",
         ...args,
       });
-    const code = async (call: PromiseLike<{ error: { code: string } | null }>) => (await call).error?.code ?? "ok";
 
     for (const quantity of [0, -1, 100_001, null]) {
-      expect(await code(purchase({ p_quantity: quantity })), `purchase qty ${quantity}`).toBe("22023");
-      expect(await code(sale({ p_quantity: quantity })), `sale qty ${quantity}`).toBe("22023");
+      expect(await sqlState(purchase({ p_quantity: quantity })), `purchase qty ${quantity}`).toBe("22023");
+      expect(await sqlState(sale({ p_quantity: quantity })), `sale qty ${quantity}`).toBe("22023");
     }
-    expect(await code(purchase({ p_quantity: 1.5 })), "fractional vials").toBe("22P02");
+    expect(await sqlState(purchase({ p_quantity: 1.5 })), "fractional vials").toBe("22P02");
     for (const amount of ["-1", "-0.01", "1.005", "abc", "", " ", "NaN", "Infinity", "1e3", "1,000", "1000000.01", null]) {
-      expect(await code(purchase({ p_unit_cost: amount })), `cost ${amount}`).toBe("22023");
-      expect(await code(sale({ p_unit_price: amount })), `price ${amount}`).toBe("22023");
+      expect(await sqlState(purchase({ p_unit_cost: amount })), `cost ${amount}`).toBe("22023");
+      expect(await sqlState(sale({ p_unit_price: amount })), `price ${amount}`).toBe("22023");
     }
     // Zero is allowed (A5 "0 or more"; A6 "price ≥ 0"), and surrounding whitespace is trimmed.
-    expect(await code(purchase({ p_unit_cost: "0" }))).toBe("ok");
-    expect(await code(sale({ p_unit_price: "\t0.00 " }))).toBe("ok");
-    expect(await code(purchase({ p_unit_cost: " 1000000 " }))).toBe("ok");
+    expect(await sqlState(purchase({ p_unit_cost: "0" }))).toBe("ok");
+    expect(await sqlState(sale({ p_unit_price: "\t0.00 " }))).toBe("ok");
+    expect(await sqlState(purchase({ p_unit_cost: " 1000000 " }))).toBe("ok");
 
     const newItem = (strength: unknown) => purchase({ p_stock_item_id: undefined, p_peptide_id: peptideId, p_strength_mg: strength });
     for (const strength of ["0", "-8", "8.0001", "abc", "", "　", "100001", null]) {
-      expect(await code(newItem(strength)), `strength ${strength}`).toBe("22023");
+      expect(await sqlState(newItem(strength)), `strength ${strength}`).toBe("22023");
     }
     // '8.0' and ' 8.000 ' are the existing 8 mg item.
     expect((await newItem("8.0")).data).toEqual([expect.objectContaining({ stock_item_id: itemId })]);
     expect((await newItem(" 8.000 ")).data).toEqual([expect.objectContaining({ stock_item_id: itemId })]);
-    expect(await code(purchase({ p_peptide_id: peptideId }))).toBe("22023"); // item and peptide both given
-    expect(await code(purchase({ p_stock_item_id: undefined }))).toBe("22023"); // neither
-    expect(await code(purchase({ p_received_on: null }))).toBe("22023");
-    expect(await code(sale({ p_sold_on: null }))).toBe("22023");
-    expect(await code(purchase({ p_idempotency_key: null }))).toBe("22023");
-    expect(await code(sale({ p_idempotency_key: null }))).toBe("22023");
+    expect(await sqlState(purchase({ p_peptide_id: peptideId }))).toBe("22023"); // item and peptide both given
+    expect(await sqlState(purchase({ p_stock_item_id: undefined }))).toBe("22023"); // neither
+    expect(await sqlState(purchase({ p_received_on: null }))).toBe("22023");
+    expect(await sqlState(sale({ p_sold_on: null }))).toBe("22023");
+    expect(await sqlState(purchase({ p_idempotency_key: null }))).toBe("22023");
+    expect(await sqlState(sale({ p_idempotency_key: null }))).toBe("22023");
   });
 
   it("unknown stock items, peptides and buyer accounts are refused; whitespace-only buyers are empty", async () => {
@@ -448,7 +447,8 @@ describe("buyer accounts", () => {
     if (first.kind !== "recorded") throw new Error(first.kind);
 
     // Accounts are never hard-deleted (closing is a soft delete): the ledger's reference refuses it.
-    expect((await serviceClient().auth.admin.deleteUser(buyerId)).error).not.toBeNull();
+    // (Auth reports the refused delete as a database error; the profile check below proves why.)
+    expect((await serviceClient().auth.admin.deleteUser(buyerId)).error?.message).toBe("Database error deleting user");
     expect((await serviceClient().from("profiles").select("id").eq("id", buyerId)).data).toHaveLength(1);
     const sale = (await getStockItem(db, itemId))!.sales[0];
     expect(sale).toMatchObject({ buyerType: "account", buyerProfileId: buyerId, buyerName: "Temporary Buyer", cost: "40.00" });

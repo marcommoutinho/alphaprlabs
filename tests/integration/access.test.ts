@@ -8,6 +8,7 @@ import {
   emailCount,
   ensureAccount,
   latestEmail,
+  ok,
   seedInvitation,
   serviceClient,
   signedInClient,
@@ -28,7 +29,7 @@ beforeAll(async () => {
 });
 
 const accountsFor = async (email: string) =>
-  (await serviceClient().from("profiles").select("id, role").eq("email", email)).data ?? [];
+  ok(serviceClient().from("profiles").select("id, role").eq("email", email));
 
 describe("row level security", () => {
   it("anonymous and researcher clients cannot read or write invitations; admins can read", async () => {
