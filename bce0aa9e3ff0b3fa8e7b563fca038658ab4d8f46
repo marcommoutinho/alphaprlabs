@@ -1,0 +1,1 @@
+S6 final round (+ stale page fix, phone KPIs); final recheck BLOCKED only on >1,000-row edge cases (embedded allocations cap; library paging test lacks >1,000 proof). Marco accepted merge with follow-up before G2.
