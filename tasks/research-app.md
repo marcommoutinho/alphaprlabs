@@ -158,6 +158,25 @@ switches to the back office and back.
 - Entry limits (typo guards): 100,000 vials per entry, CAD 1,000,000.00 per
   vial, 100,000 mg vial strength.
 
+### Template and cycle decisions (Marco, 2026-09-26)
+
+- A template that includes a peptide later marked "Not offered" can still be
+  edited and saved; it keeps showing a warning. A peptide that is not offered
+  still cannot be newly added to a template.
+- A researcher starting a cycle from such a template gets the withdrawn peptide
+  in their copy, as the template has it. (Browsing the library still hides
+  withdrawn peptides; a custom cycle still cannot newly add one.)
+- Each peptide appears once per template; dose changes over time are phases
+  within that one entry.
+- A new cycle may start in the past, to log a cycle already under way.
+- Changing the dose time partway through an every-N-days phase keeps the
+  rhythm: doses stay on the same every-N-days days and only the clock time
+  moves. (Dose changes already keep the rhythm.)
+- A peptide that has started in a cycle cannot be deleted from it; the
+  researcher ends it by shortening its phase, keeping history intact.
+- An edit applies from today if today's dose time has not passed, otherwise
+  from tomorrow.
+
 ### Launch exclusions
 
 - Blended or multi-peptide vials. A cycle may still contain several separately
