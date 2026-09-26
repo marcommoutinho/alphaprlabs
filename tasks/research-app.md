@@ -149,6 +149,12 @@ switches to the back office and back.
   before the purchase whose stock it uses (stock is sometimes entered late).
 - Zero-price sales (free samples) and zero-cost purchases are allowed.
 - The buyer list for a sale includes admins, since admins are researchers.
+  It starts blank (no account preselected) and can be searched by name or
+  email.
+- With no stock items yet, "Record sale" shows "No stock items yet. Record a
+  purchase to create one." instead of the form.
+- On phones, the Sales page drops the "CAD" label from money columns (all
+  amounts are CAD).
 - Entry limits (typo guards): 100,000 vials per entry, CAD 1,000,000.00 per
   vial, 100,000 mg vial strength.
 
