@@ -107,6 +107,15 @@ only after that researcher explicitly grants access.
   outside buyer. A sale does not add stock to personal inventory or grant access
   to private researcher history.
 
+### Admins are researchers (Marco, 2026-09-26)
+
+Every admin is also a researcher and uses the app the same way: cycles,
+reminders, confirmations, calculator, supplies, progress and supplements, plus
+the admin back office. An admin's own records are private like any researcher's;
+viewing another researcher's history still requires that researcher's grant.
+The app opens on the research side; an "Admin" item in the account menu
+switches to the back office and back.
+
 ### Launch exclusions
 
 - Blended or multi-peptide vials. A cycle may still contain several separately

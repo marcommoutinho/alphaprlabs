@@ -302,6 +302,16 @@ apply to the build:
    invitation, and correcting or voiding recorded purchases and sales. Real
    library text is admin-entered content and does not block the build.
 
+8. **Admins are researchers** (Marco, 2026-09-26; supersedes the handoff's
+   separate roles). The admin role adds the back office to a full researcher
+   account. The app opens on the research side (Today); the account menu gets
+   an "Admin" item that switches to the admin navigation, and the admin side's
+   menu offers "My research" to switch back. Admins pass the same researcher
+   acknowledgement before using research features and can turn on reminders.
+   Researcher-only rules in the database and server become "researcher or
+   admin" for the caller's own records; admin-only rules are unchanged; support
+   grants still apply to other researchers' history. Built as slice S3.2.
+
 ## Build phases
 
 Every slice is **local BUILD only** in this repo, using Slipstream with one
@@ -372,6 +382,17 @@ action to the signed-in person's own devices.
 device row; the denied, unsupported and iPhone-not-installed states match the
 design; private pages are not cached by the service worker. Local browser proof
 **5–8 min.** Real delivery is proven at G1, not claimed locally.
+
+#### S3.2: Admins are researchers
+
+**Outcome:** An admin account has every researcher capability plus the back
+office, per Handoff reconciliation item 8. **Risk:** GUARDED (authorization).
+**Owns:** role checks in routes, server actions and database functions for the
+caller's own records; role-aware home and account-menu switch between the
+research and admin navigations. **Proof:** an admin can acknowledge, open
+`/app`, turn on reminders and use the test notification; an admin still cannot
+read another researcher's private records without a grant; researchers still
+cannot reach `/admin`. **5–10 min.**
 
 #### Gate G1: Closed production phone proof (SHIP, needs authorization)
 
