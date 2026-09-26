@@ -131,6 +131,23 @@ switches to the back office and back.
   replaced. How an account is closed is not yet designed; it is not part of
   the approved MVP screens.
 
+### Schedule, calculator and inventory decisions (Marco, 2026-09-26)
+
+- Doses and reminders follow the phone's clock: an 8:05 PM dose stays at
+  8:05 PM across a daylight-saving change, including every-N-days routines.
+- One dose time per day per peptide phase; twice-a-day routines are not needed.
+- A reminder more than 15 minutes late (for example after a reminder outage)
+  is skipped; the 30-minute and 2-hour follow-ups still go out.
+- Changing the dose partway through an every-N-days phase keeps the rhythm
+  from the last dose; it does not restart the count.
+- Calculator numbers accept a comma as the decimal point ("1,5" = 1.5).
+- Purchases and sales cannot be dated in the future. A sale may be dated
+  before the purchase whose stock it uses (stock is sometimes entered late).
+- Zero-price sales (free samples) and zero-cost purchases are allowed.
+- The buyer list for a sale includes admins, since admins are researchers.
+- Entry limits (typo guards): 100,000 vials per entry, CAD 1,000,000.00 per
+  vial, 100,000 mg vial strength.
+
 ### Launch exclusions
 
 - Blended or multi-peptide vials. A cycle may still contain several separately
