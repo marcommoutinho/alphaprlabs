@@ -591,6 +591,7 @@ branch `feat/research-app`.
 | 2 | S2 Accounts and invitations | C1, A1 | S1 | GUARDED | 30-day invite states; signup and self-admin blocked | 5–10 min |
 | 3 | S3 Install and notifications | C2 | S2 | GUARDED | Owner-bound device subscriptions; install/permission states | 5–8 min |
 | G1 | Closed production phone proof | — | S3 | SHIP | Real iPhone and Android: install, notify closed, badge, tap opens | 15–30 min |
+| 3b | S3.2 Admins are researchers | Shell, C1, C2 | S3 | GUARDED | Admin uses research side and reminders; grants still required for others | 5–10 min |
 | 4 | S4 Library and grant foundation | A2 | G1 | GUARDED | Admin library; cross-user isolation | 5–10 min |
 | 5A | S5 → S6 Inventory, FIFO sales, screens | A4–A7 | S4 | GUARDED | Handoff FIFO scenario; no oversell | 12–18 min |
 | 5B | S7 Schedule engine and calculator math | — | S4 | GUARDED | Schedule and calculation cases | 5–8 min |
