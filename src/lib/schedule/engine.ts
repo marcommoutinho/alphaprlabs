@@ -143,6 +143,7 @@ export type OccurrenceState = "taken" | "due" | "open" | "planned";
 export type PlanIssue =
   | { code: "plan-id" }
   | { code: "time-zone" }
+  | { code: "phases" }
   | { code: "no-active-phase" }
   | { code: "phase-id"; phase: number }
   | { code: "duplicate-phase-id"; phase: number }
@@ -181,7 +182,8 @@ export const MAX_EVERY_DAYS = 365;
 // guards bad input.
 const MAX_OCCURRENCES_PER_PHASE = 20_000;
 
-const byStart = (a: Phase, b: Phase) => (a.start ?? "").localeCompare(b.start ?? "");
+const startOf = (phase: Phase) => (typeof phase?.start === "string" ? phase.start : "");
+const byStart = (a: Phase, b: Phase) => startOf(a).localeCompare(startOf(b));
 
 function isWeekday(value: unknown): value is Weekday {
   return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 6;
@@ -196,17 +198,21 @@ function daysBetween(from: LocalDate | Temporal.PlainDate, to: LocalDate | Tempo
 }
 
 /**
- * Validates a plan, in the handoff builder's order: plan id, time zone, at
- * least one active phase, then per phase (sorted by start date) id, dates,
- * overlap with the previous phase, and for active phases dose, schedule and
- * time. Returns every issue; an empty list means valid. Copy is the calling
- * screen's.
+ * Validates a plan, in the handoff builder's order: plan id, time zone, the
+ * phase list (an array of objects), at least one active phase, then per phase
+ * (sorted by start date) id, dates, overlap with the previous phase, and for
+ * active phases dose, schedule and time. Returns every issue; an empty list
+ * means valid. Copy is the calling screen's.
  */
 export function validatePlan(plan: PeptidePlan): PlanIssue[] {
   const issues: PlanIssue[] = [];
   if (!isKeyPart(plan?.planId)) issues.push({ code: "plan-id" });
   if (!isValidTimeZone(plan?.timeZone)) issues.push({ code: "time-zone" });
-  const phases = Array.isArray(plan?.phases) ? [...plan.phases].sort(byStart) : [];
+  // Malformed input (not a list, or entries that aren't objects) is an issue, not a crash.
+  const list: unknown[] = Array.isArray(plan?.phases) ? plan.phases : [];
+  const isObject = (value: unknown): value is Phase => typeof value === "object" && value !== null && !Array.isArray(value);
+  if (!Array.isArray(plan?.phases) || !list.every(isObject)) issues.push({ code: "phases" });
+  const phases = list.filter(isObject).sort(byStart);
   if (!phases.some((p) => p?.kind === "active")) issues.push({ code: "no-active-phase" });
 
   const seen = new Set<string>();
@@ -342,17 +348,14 @@ function draft({ planId, timeZone, phase }: Context, key: string, planned: Slot,
   };
 }
 
-type Window = { from?: Temporal.PlainDate; to?: Temporal.PlainDate };
-
 /**
  * Every-N-days occurrences. The schedule is replayed in the order the
  * confirmations were recorded: at each recording, every unconfirmed
  * occurrence already due by then (and the one being confirmed) is frozen at
  * the time it had; only occurrences still in the future are re-anchored.
- * Occurrences after the last confirmation and the last recording follow a
- * plain N-day rhythm, so generation jumps straight to the requested window.
+ * The whole phase is generated; there is no range shortcut.
  */
-function intervalDrafts(ctx: Context, everyDays: number, confirmations: Map<string, ParsedConfirmation>, window: Window): Draft[] {
+function intervalDrafts(ctx: Context, everyDays: number, confirmations: Map<string, ParsedConfirmation>): Draft[] {
   const { planId, timeZone, phase } = ctx;
   const prefix = `${planId}:${phase.id}:`;
   const start = Temporal.PlainDate.from(phase.start).toPlainDateTime(Temporal.PlainTime.from(phase.time));
@@ -439,37 +442,24 @@ function intervalDrafts(ctx: Context, everyDays: number, confirmations: Map<stri
     }
   }
 
-  // Final schedule: frozen history, then the live rhythm, clipped to the window.
-  const maxFrozen = Math.max(-1, ...frozen.keys());
+  // Final schedule: the frozen history, then the live rhythm to the phase end.
+  // Always the whole phase (at most MAX_PHASE_DAYS days); callers filter.
+  const lastFixed = Math.max(-1, maxApplied, ...frozen.keys());
   const drafts: Draft[] = [];
   const push = (index: number, slot: Slot) => drafts.push(draft(ctx, `${prefix}${index}`, slot, applied.get(index)?.confirmation));
   for (let index = 0; index < lowest; index++) push(index, frozen.get(index)!);
 
   let latest = latestBelow;
   let reference: Anchor | null = lowest === 0 ? null : referenceOf(lowest - 1);
-  let jumped = false;
-  for (let index = lowest; index < MAX_OCCURRENCES_PER_PHASE; index++) {
-    const settled = index - 1 > Math.max(maxFrozen, maxApplied);
-    // Past all history the rhythm is plain N-day steps from the previous
-    // unconfirmed dose: skip whole steps that end before the window.
-    if (!jumped && settled && window.from && reference && (!latest || Temporal.Instant.compare(reference.instant, latest.instant) >= 0)) {
-      jumped = true;
-      const gap = daysBetween(reference.wall.toPlainDate().add({ days: everyDays }), window.from.subtract({ days: 1 }));
-      const skip = gap >= 1 ? Math.floor((gap - 1) / everyDays) + 1 : 0;
-      if (skip > 0) {
-        index += skip;
-        const wall = reference.wall.add({ days: skip * everyDays });
-        reference = { instant: slotAt(wall, timeZone).instant, wall };
-        if (index >= MAX_OCCURRENCES_PER_PHASE) break;
-      }
-    }
-    const slot = frozen.get(index) ?? slotAt(reference === null ? start : laterAnchor(reference, latest).wall.add({ days: everyDays }), timeZone);
+  for (let index = lowest; ; index++) {
+    if (index >= MAX_OCCURRENCES_PER_PHASE) throw new ScheduleInputError(`Phase ${phase.id} has too many occurrences`);
+    const fixed = frozen.get(index);
+    const slot = fixed ?? slotAt(reference === null ? start : laterAnchor(reference, latest).wall.add({ days: everyDays }), timeZone);
     const entry = applied.get(index);
-    const inPhase = entry !== undefined || frozen.has(index) || !beyondEnd(slot);
-    if (inPhase) push(index, slot);
-    const done = index >= Math.max(maxFrozen, maxApplied);
-    // Stop past the phase, or one occurrence past the window (its time ends the previous one's reminders).
-    if (done && (!inPhase || (window.to && Temporal.PlainDate.compare(slot.wall.toPlainDate(), window.to) > 0))) break;
+    // Frozen and confirmed doses are always kept; a live dose past the phase end is dropped,
+    // and once past every frozen or confirmed index, so is everything after it.
+    if (fixed || entry || !beyondEnd(slot)) push(index, slot);
+    else if (index > lastFixed) break;
     if (entry) {
       reference = entry.anchor;
       latest = laterAnchor(entry.anchor, latest);
@@ -480,17 +470,13 @@ function intervalDrafts(ctx: Context, everyDays: number, confirmations: Map<stri
   return drafts;
 }
 
-function weekdayDrafts(ctx: Context, days: Weekday[], confirmations: Map<string, ParsedConfirmation>, window: Window): Draft[] {
+// Every selected weekday in the phase. Always the whole phase; callers filter.
+function weekdayDrafts(ctx: Context, days: Weekday[], confirmations: Map<string, ParsedConfirmation>): Draft[] {
   const { planId, timeZone, phase } = ctx;
   const drafts: Draft[] = [];
-  // Clip to the window, a day either side for recorded times that cross
-  // midnight, plus a week after it so the last occurrence knows the next one.
-  let first = Temporal.PlainDate.from(phase.start);
-  let last = Temporal.PlainDate.from(phase.end);
-  if (window.from && Temporal.PlainDate.compare(window.from.subtract({ days: 1 }), first) > 0) first = window.from.subtract({ days: 1 });
-  if (window.to && Temporal.PlainDate.compare(window.to.add({ days: 8 }), last) < 0) last = window.to.add({ days: 8 });
+  const last = Temporal.PlainDate.from(phase.end);
   const time = Temporal.PlainTime.from(phase.time);
-  for (let date = first; Temporal.PlainDate.compare(date, last) <= 0; date = date.add({ days: 1 })) {
+  for (let date = Temporal.PlainDate.from(phase.start); Temporal.PlainDate.compare(date, last) <= 0; date = date.add({ days: 1 })) {
     if (!days.includes((date.dayOfWeek % 7) as Weekday)) continue;
     const key = `${planId}:${phase.id}:${date.toString()}`;
     drafts.push(draft(ctx, key, slotAt(date.toPlainDateTime(time), timeZone), confirmations.get(key)));
@@ -501,8 +487,10 @@ function weekdayDrafts(ctx: Context, days: Weekday[], confirmations: Map<string,
 /**
  * The plan's active-phase occurrences, sorted by scheduled time (then key),
  * optionally limited to local dates `from`–`to` (inclusive, in the plan's
- * zone). Only occurrences near the range are generated, so a long phase stays
- * cheap. Confirmations whose key matches no occurrence are ignored.
+ * zone). Every phase is always computed in full (at most MAX_PHASE_DAYS
+ * days) and only then filtered by local date, so a ranged result is exactly
+ * the matching part of the full schedule. Confirmations whose key matches no
+ * occurrence are ignored.
  * Throws ScheduleInputError for an invalid plan, confirmation or range.
  */
 export function scheduleOccurrences(
@@ -517,25 +505,15 @@ export function scheduleOccurrences(
   }
   const confirmed = parseConfirmations(confirmations);
   const { planId, timeZone } = plan;
-  const window: Window = {
-    from: range?.from ? Temporal.PlainDate.from(range.from) : undefined,
-    to: range?.to ? Temporal.PlainDate.from(range.to) : undefined,
-  };
 
   const result: Occurrence[] = [];
   for (const phase of [...plan.phases].sort(byStart)) {
     if (phase.kind !== "active") continue;
-    // A phase entirely outside the range is skipped only when it has no
-    // confirmations: a confirmed (possibly backdated) dose can move or carry
-    // occurrences outside the phase's own dates, so such a phase is always
-    // replayed and left to the final local-date filter below.
-    const outsideRange = (range?.to !== undefined && phase.start > range.to) || (range?.from !== undefined && phase.end < range.from);
-    if (outsideRange && !hasConfirmation(confirmed, `${planId}:${phase.id}:`)) continue;
     const ctx: Context = { planId, timeZone, phase };
     const drafts =
       phase.schedule.type === "interval"
-        ? intervalDrafts(ctx, phase.schedule.everyDays, confirmed, window)
-        : weekdayDrafts(ctx, phase.schedule.days, confirmed, window);
+        ? intervalDrafts(ctx, phase.schedule.everyDays, confirmed)
+        : weekdayDrafts(ctx, phase.schedule.days, confirmed);
     const phaseEnd = endOfLocalDay(phase.end, timeZone);
     drafts.forEach(({ occurrence }, i) => {
       const next = drafts[i + 1]?.instant;
@@ -547,12 +525,6 @@ export function scheduleOccurrences(
   return result
     .filter((o) => (!range?.from || o.localDate >= range.from) && (!range?.to || o.localDate <= range.to))
     .sort((a, b) => compareInstants(a.scheduledAt, b.scheduledAt) || a.key.localeCompare(b.key));
-}
-
-// True when any confirmation's key belongs to the phase (`planId:phaseId:`).
-function hasConfirmation(confirmations: Map<string, ParsedConfirmation>, prefix: string): boolean {
-  for (const key of confirmations.keys()) if (key.startsWith(prefix)) return true;
-  return false;
 }
 
 function compareInstants(a: string, b: string): number {

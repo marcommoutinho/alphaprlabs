@@ -380,21 +380,39 @@ describe("limits and long phases", () => {
     expect(() => scheduleOccurrences(plan(interval()), [], { from: "2026-9-1" })).toThrow(ScheduleInputError);
   });
 
-  it("generates only the requested range of a long phase", () => {
-    const long = { start: "2026-01-01", end: "2036-01-08" };
-    const started = performance.now();
-    const fixed = scheduleOccurrences(plan(weekdays({ ...long, schedule: { type: "weekdays", days: [0, 1, 2, 3, 4, 5, 6] } })), [], {
-      from: "2035-06-01",
-      to: "2035-06-07",
+  it("computes a whole ten-year daily phase quickly, even with every dose confirmed", () => {
+    const long = { start: "2026-01-01", end: "2036-01-08" }; // MAX_PHASE_DAYS
+    const daily = plan(interval({ ...long, schedule: { type: "interval", everyDays: 1 } }));
+    const everyDay = plan(weekdays({ ...long, schedule: { type: "weekdays", days: [0, 1, 2, 3, 4, 5, 6] } }));
+    // Every dose taken and recorded an hour after it was due.
+    const all: Confirmation[] = scheduleOccurrences(daily).map((o) => {
+      const at = new Date(Date.parse(o.scheduledAt) + 3_600_000).toISOString();
+      return taken(o.key, at);
     });
-    const rolling = scheduleOccurrences(plan(interval({ ...long, schedule: { type: "interval", everyDays: 1 } })), [taken("p1:i1:0", "2026-01-02T12:00:00Z")], {
-      from: "2035-06-01",
-      to: "2035-06-07",
-    });
-    expect(performance.now() - started).toBeLessThan(500);
-    expect(fixed.map((o) => o.localDate)).toEqual(["2035-06-01", "2035-06-02", "2035-06-03", "2035-06-04", "2035-06-05", "2035-06-06", "2035-06-07"]);
+    const week = { from: "2035-06-01", to: "2035-06-07" };
+    const time = (run: () => unknown) => {
+      const started = performance.now();
+      run();
+      return performance.now() - started;
+    };
+    const weekdayMs = time(() => scheduleOccurrences(everyDay, [], week));
+    const intervalMs = time(() => scheduleOccurrences(daily, [taken("p1:i1:0", "2026-01-02T12:00:00Z")], week));
+    const allConfirmedMs = time(() => scheduleOccurrences(daily, all, week));
+    expect(weekdayMs).toBeLessThan(1000);
+    expect(intervalMs).toBeLessThan(1000);
+    expect(allConfirmedMs).toBeLessThan(2000);
+
+    expect(scheduleOccurrences(everyDay, [], week).map((o) => o.localDate)).toEqual([
+      "2035-06-01",
+      "2035-06-02",
+      "2035-06-03",
+      "2035-06-04",
+      "2035-06-05",
+      "2035-06-06",
+      "2035-06-07",
+    ]);
     // Taken Jan 2 at 07:00 EST: the daily rhythm keeps 07:00 on the wall clock, into summer time.
-    expect(when(rolling)).toEqual([
+    expect(when(scheduleOccurrences(daily, [taken("p1:i1:0", "2026-01-02T12:00:00Z")], week))).toEqual([
       "p1:i1:3437 2035-06-01 07:00",
       "p1:i1:3438 2035-06-02 07:00",
       "p1:i1:3439 2035-06-03 07:00",
@@ -403,33 +421,125 @@ describe("limits and long phases", () => {
       "p1:i1:3442 2035-06-06 07:00",
       "p1:i1:3443 2035-06-07 07:00",
     ]);
+    expect(scheduleOccurrences(daily, all, week).every((o) => o.actualAt !== null)).toBe(true);
   });
 
   it("returns exactly the matching part of the full schedule for any range", () => {
-    const cases: [Phase, Confirmation[]][] = [
-      [interval(), []],
-      [interval(), [taken("p1:i1:0", "2026-09-03T13:15:00Z")]],
-      [interval(), [taken("p1:i1:0", "2026-09-04T12:00:00Z", { recordedAt: "2026-09-08T12:00:00Z" }), taken("p1:i1:2", "2026-09-13T01:00:00Z")]],
-      [interval({ end: "2026-12-31", schedule: { type: "interval", everyDays: 3 } }), [taken("p1:i1:4", "2026-09-15T02:00:00Z", { scheduledAt: "2026-09-15T00:00:00Z" })]],
-      [weekdays({ end: "2026-11-30" }), [taken("p1:w1:2026-09-09", "2026-09-10T19:00:00Z")]],
-      // Backdated to before the phase start: the next dose moves before the phase's first date.
+    // interval(): Toronto, every 5 days at 20:00 — i1:0 Sep 2, i1:1 Sep 7, i1:2 Sep 12, i1:3 Sep 17, i1:4 Sep 22, i1:5 Sep 27.
+    const toOctober = interval({ end: "2026-10-31" });
+    const cases: [string, Phase, Confirmation[]][] = [
+      ["no confirmations", interval(), []],
+      ["late dose", interval(), [taken("p1:i1:0", "2026-09-03T13:15:00Z")]],
       [
+        "backdated after the next was due, then the next confirmed",
+        interval(),
+        [taken("p1:i1:0", "2026-09-04T12:00:00Z", { recordedAt: "2026-09-08T12:00:00Z" }), taken("p1:i1:2", "2026-09-13T01:00:00Z")],
+      ],
+      [
+        "backdated before the next was due",
+        toOctober,
+        [taken("p1:i1:0", "2026-09-04T12:00:00Z", { recordedAt: "2026-09-05T12:00:00Z" })],
+      ],
+      [
+        "older backdate after a newer confirmed dose",
+        toOctober,
+        [taken("p1:i1:1", "2026-09-08T00:00:00Z"), taken("p1:i1:0", "2026-09-01T12:00:00Z", { recordedAt: "2026-09-09T12:00:00Z" })],
+      ],
+      [
+        "confirmations separated from later ranges by unconfirmed doses",
+        toOctober,
+        [taken("p1:i1:1", "2026-09-08T00:00:00Z"), taken("p1:i1:4", "2026-09-24T02:00:00Z", { scheduledAt: "2026-09-23T00:00:00Z" })],
+      ],
+      [
+        "a future dose confirmed early (its actual time anchors the next)",
+        toOctober,
+        [taken("p1:i1:3", "2026-09-05T12:00:00Z", { recordedAt: "2026-09-07T13:00:00Z" })],
+      ],
+      [
+        "early, late and backdated confirmations together",
+        toOctober,
+        [
+          taken("p1:i1:2", "2026-09-10T12:00:00Z"),
+          taken("p1:i1:0", "2026-08-30T12:00:00Z", { recordedAt: "2026-09-20T12:00:00Z" }),
+          taken("p1:i1:5", "2026-09-21T12:00:00Z", { recordedAt: "2026-09-21T12:00:00Z" }),
+          taken("p1:i1:7", "2026-10-09T00:00:00Z", { recordedAt: "2026-10-12T00:00:00Z" }),
+        ],
+      ],
+      [
+        "every 3 days with a recorded scheduled time",
+        interval({ end: "2026-12-31", schedule: { type: "interval", everyDays: 3 } }),
+        [taken("p1:i1:4", "2026-09-15T02:00:00Z", { scheduledAt: "2026-09-15T00:00:00Z" })],
+      ],
+      [
+        "daily at 01:30 across the Nov 1 repeated hour",
+        interval({ start: "2026-10-28", end: "2026-11-05", time: "01:30", schedule: { type: "interval", everyDays: 1 } }),
+        [taken("p1:i1:2", "2026-10-30T09:00:00Z")],
+      ],
+      [
+        "backdated to before the phase start",
         interval({ start: "2026-09-10" }),
         [taken("p1:i1:0", "2026-09-01T12:00:00Z", { recordedAt: "2026-09-11T00:30:00Z", scheduledAt: "2026-09-11T00:00:00Z" })],
       ],
+      [
+        "fixed weekdays with late, early and off-day recorded times",
+        weekdays({ end: "2026-11-30" }),
+        [
+          taken("p1:w1:2026-09-09", "2026-09-10T19:00:00Z"),
+          taken("p1:w1:2026-09-11", "2026-09-10T20:00:00Z", { scheduledAt: "2026-09-13T11:30:00Z" }),
+          taken("p1:w1:2026-10-02", "2026-10-02T11:30:00Z", { scheduledAt: "2026-09-25T11:30:00Z" }),
+        ],
+      ],
     ];
-    for (const [phase, confirmations] of cases) {
+    const day = (offset: number) => new Date(Date.UTC(2026, 7, 25 + offset)).toISOString().slice(0, 10); // from Aug 25
+    for (const [name, phase, confirmations] of cases) {
       const full = scheduleOccurrences(plan(phase), confirmations);
-      for (let day = 0; day < 100; day += 3) {
-        const from = new Date(Date.UTC(2026, 8, 1 + day)).toISOString().slice(0, 10);
-        for (const length of [0, 1, 6, 20]) {
-          const to = new Date(Date.UTC(2026, 8, 1 + day + length)).toISOString().slice(0, 10);
-          const expected = full.filter((o) => o.localDate >= from && o.localDate <= to);
-          expect(scheduleOccurrences(plan(phase), confirmations, { from, to }), `${phase.id} ${from}–${to}`).toEqual(expected);
-        }
-        expect(scheduleOccurrences(plan(phase), confirmations, { from })).toEqual(full.filter((o) => o.localDate >= from));
+      const check = (range: { from?: string; to?: string }) => {
+        const expected = full.filter((o) => (!range.from || o.localDate >= range.from) && (!range.to || o.localDate <= range.to));
+        expect(scheduleOccurrences(plan(phase), confirmations, range), `${name}: ${range.from ?? "…"}–${range.to ?? "…"}`).toEqual(expected);
+      };
+      // Every single day from Aug 25 to Dec 3, plus longer and open-ended windows.
+      for (let offset = 0; offset <= 100; offset++) {
+        check({ from: day(offset), to: day(offset) });
+        if (offset % 2 === 0) check({ from: day(offset), to: day(offset + 4) });
+        if (offset % 4 === 1) check({ from: day(offset), to: day(offset + 17) });
+        if (offset % 5 === 0) check({ from: day(offset) });
+        if (offset % 5 === 2) check({ to: day(offset) });
       }
     }
+  });
+
+  it("finds a dose anchored on an early confirmation outside the range", () => {
+    // UTC, every 5 days at 08:00 from Sep 1. Occurrence 3 (due Sep 16) is recorded
+    // on Sep 7 as taken Sep 5 08:00, so occurrence 4 falls due Sep 10 08:00.
+    const utc: PeptidePlan = {
+      planId: "p",
+      timeZone: "UTC",
+      phases: [interval({ id: "i", start: "2026-09-01", end: "2026-10-31", time: "08:00" })],
+    };
+    const confirmations = [taken("p:i:3", "2026-09-05T08:00:00Z", { recordedAt: "2026-09-07T09:00:00Z" })];
+    const full = scheduleOccurrences(utc, confirmations);
+    expect(full.find((o) => o.key === "p:i:4")?.scheduledAt).toBe("2026-09-10T08:00:00Z");
+    const range = { from: "2026-09-10", to: "2026-09-10" };
+    const ranged = scheduleOccurrences(utc, confirmations, range);
+    expect(ranged).toEqual(full.filter((o) => o.localDate >= range.from && o.localDate <= range.to));
+    expect(ranged.map((o) => `${o.key} ${o.scheduledAt}`)).toEqual(["p:i:4 2026-09-10T08:00:00Z"]);
+  });
+
+  it("reports malformed plans as validation issues, not crashes", () => {
+    const malformed = [
+      { planId: "p1", timeZone: TZ, phases: [null] },
+      { planId: "p1", timeZone: TZ, phases: [interval(), 42] },
+      { planId: "p1", timeZone: TZ, phases: "i1" },
+      { planId: "p1", timeZone: TZ, phases: [{ ...interval(), start: 20260902 }] },
+      { planId: "p1", timeZone: TZ, phases: [{ ...interval(), doseChanges: [null] }] },
+      { planId: "p1", timeZone: TZ },
+      null,
+    ];
+    for (const bad of malformed) {
+      expect(() => scheduleOccurrences(bad as unknown as PeptidePlan), JSON.stringify(bad)).toThrow(ScheduleInputError);
+    }
+    expect(validatePlan({ planId: "p1", timeZone: TZ, phases: [null] } as unknown as PeptidePlan)).toEqual([{ code: "phases" }, { code: "no-active-phase" }]);
+    expect(validatePlan({ planId: "p1", timeZone: TZ, phases: [interval(), null] } as unknown as PeptidePlan)).toEqual([{ code: "phases" }]);
   });
 
   it("replays a phase whose confirmations move doses before its start, even when the range ends before it", () => {
