@@ -1,0 +1,10 @@
+SLIPSTREAM RESULT
+State: BLOCKED
+Slice: S3 Installable app and notifications (C2)
+Risk: GUARDED
+Base and reviewed SHA: ee4fa3e -> c7f44be (BLOCKED) -> a938a39 (recheck BLOCKED, new) -> 907ae91 (EXTEND_ONCE recheck BLOCKED)
+Verification: e2e 17/17; vitest 34/34 (1 of 9 runs harness flake: concurrent supabase status)
+Review findings and dispositions: SS-001..004 resolved; SS-102, SS-103 resolved; SS-101 NOT RESOLVED: serialization is per page, a sync pending in another tab/window can re-enable the device row after Turn off/Sign out. Harness flake: SUCCESSOR.
+Codex judgment and Marco's decision: EXTEND_ONCE approved by Marco 2026-09-25; extension still blocked -> stop, return to Marco
+Delivery / production proof: none
+Still owed: SS-101 cross-tab fix; harness flake; use-reminders.ts 402 lines
