@@ -1,0 +1,121 @@
+/* A2 Peptide library: two panes (list left, editor right), stacked on phone.
+   Scoped under .app-root; see tokens.css. */
+
+.app-root .app-lib-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.app-root .app-lib {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 36px;
+  align-items: start;
+  margin-top: 28px;
+}
+
+.app-root .app-lib-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 16px 0;
+  border: none;
+  border-bottom: 1px solid var(--app-divider-row);
+  background: transparent;
+  font: inherit;
+  font-size: 15px;
+  text-align: left;
+}
+
+.app-root .app-lib-row[data-selected] {
+  background: rgba(96, 165, 250, 0.06);
+}
+
+.app-root .app-lib-row-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-lib-row-name {
+  display: block;
+  font-weight: 700;
+}
+
+.app-root .app-lib-row-meta {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--app-text-4);
+}
+
+.app-root .app-lib-badge {
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--app-text-3);
+}
+
+.app-root .app-lib-badge[data-available="false"] {
+  color: var(--app-warning);
+}
+
+.app-root .app-lib-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  scroll-margin-top: calc(72px + var(--app-safe-top));
+}
+
+/* The form's fields share the card's 14px column gap. */
+.app-root .app-lib-fields {
+  display: contents;
+}
+
+.app-root .app-lib-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.app-root .app-lib-note {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--app-text-4);
+}
+
+.app-root .app-lib-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.app-root .app-lib-actions .app-btn {
+  height: 48px;
+  font-size: 15px;
+}
+
+.app-root .app-lib-actions .app-btn--primary {
+  padding: 0 20px;
+}
+
+.app-root .app-lib-actions .app-btn--secondary {
+  padding: 0 18px;
+}
+
+.app-root .app-lib-idle {
+  padding-top: 16px;
+  font-size: 14px;
+  color: var(--app-text-4);
+}
+
+@media (max-width: 759.98px) {
+  .app-root .app-lib {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

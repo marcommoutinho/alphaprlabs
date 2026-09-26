@@ -62,6 +62,39 @@ export type Database = {
           },
         ]
       }
+      peptides: {
+        Row: {
+          available: boolean
+          created_at: string
+          cycling_off_guidance: string
+          id: string
+          information: string
+          name: string
+          supplement_guidance: string
+          updated_at: string
+        }
+        Insert: {
+          available?: boolean
+          created_at?: string
+          cycling_off_guidance?: string
+          id?: string
+          information: string
+          name: string
+          supplement_guidance?: string
+          updated_at?: string
+        }
+        Update: {
+          available?: boolean
+          created_at?: string
+          cycling_off_guidance?: string
+          id?: string
+          information?: string
+          name?: string
+          supplement_guidance?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           acknowledged_at: string | null
@@ -171,11 +204,52 @@ export type Database = {
           },
         ]
       }
+      support_grants: {
+        Row: {
+          admin_id: string
+          granted_at: string
+          id: string
+          researcher_id: string
+          revoked_at: string | null
+        }
+        Insert: {
+          admin_id: string
+          granted_at?: string
+          id?: string
+          researcher_id: string
+          revoked_at?: string | null
+        }
+        Update: {
+          admin_id?: string
+          granted_at?: string
+          id?: string
+          researcher_id?: string
+          revoked_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_grants_admin_id_fkey"
+            columns: ["admin_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_grants_researcher_id_fkey"
+            columns: ["researcher_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      can_read_researcher: { Args: { p_owner: string }; Returns: boolean }
+      can_write_researcher: { Args: { p_owner: string }; Returns: boolean }
       claim_invitation: {
         Args: { p_token_hash: string }
         Returns: {
@@ -192,6 +266,7 @@ export type Database = {
         Args: { p_device_id: string; p_endpoint?: string; p_reason: string }
         Returns: boolean
       }
+      grant_support_access: { Args: { p_admin_id: string }; Returns: string }
       has_research_access: { Args: never; Returns: boolean }
       invite_researcher: {
         Args: { p_email: string; p_name: string; p_token_hash: string }
@@ -206,6 +281,14 @@ export type Database = {
         Args: { p_endpoint: string }
         Returns: boolean
       }
+      library_reference_counts: {
+        Args: never
+        Returns: {
+          cycle_count: number
+          peptide_id: string
+          template_count: number
+        }[]
+      }
       mark_invitation_send_failed: {
         Args: { p_error: string; p_id: string }
         Returns: undefined
@@ -218,6 +301,18 @@ export type Database = {
           email: string
           name: string
         }[]
+      }
+      revoke_support_access: { Args: { p_admin_id: string }; Returns: boolean }
+      save_library_peptide: {
+        Args: {
+          p_available: boolean
+          p_cycling_off_guidance: string
+          p_id?: string
+          p_information: string
+          p_name: string
+          p_supplement_guidance: string
+        }
+        Returns: string
       }
       save_push_subscription: {
         Args: {
