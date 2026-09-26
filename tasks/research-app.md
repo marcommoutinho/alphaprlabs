@@ -176,6 +176,9 @@ switches to the back office and back.
   researcher ends it by shortening its phase, keeping history intact.
 - An edit applies from today if today's dose time has not passed, otherwise
   from tomorrow.
+- The business is strictly local. Rare time zones with two-hour clock changes
+  (e.g. Antarctica/Troll) are not supported by the database's due-time check;
+  accepted, since the app will never operate there.
 
 ### Launch exclusions
 
