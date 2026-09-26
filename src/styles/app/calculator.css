@@ -1,0 +1,364 @@
+/* R7 Calculator (the prototype's calculator screen): inputs in a 380px
+   column, results and saved mixtures beside them; one column on phone.
+   Scoped under .app-root; see tokens.css. */
+
+.app-root .app-calc {
+  display: grid;
+  grid-template-columns: 380px minmax(0, 1fr);
+  gap: 64px;
+}
+
+.app-root .app-calc-inputs,
+.app-root .app-calc-output {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.app-root .app-calc-inputs {
+  gap: 22px;
+}
+
+.app-root .app-calc-output {
+  gap: 36px;
+}
+
+.app-root .app-calc-inputs .app-field-label {
+  margin-bottom: 8px;
+}
+
+.app-root .app-calc-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.app-root .app-calc-dose-label {
+  color: var(--app-primary-text);
+}
+
+.app-root .app-calc-dose {
+  height: 64px;
+  font-size: 28px;
+  font-weight: 700;
+  background: var(--app-surface-accent);
+  border-color: var(--app-primary);
+}
+
+.app-root .app-calc-syringes {
+  display: flex;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.app-root .app-calc-syringe-btn {
+  flex: 1;
+  min-height: 44px;
+  padding: 12px 6px;
+  border-radius: 12px;
+  border: 1px solid var(--app-border-popup);
+  background: var(--app-surface);
+  color: var(--app-text);
+  font: inherit;
+  font-weight: 400;
+}
+
+.app-root .app-calc-syringe-btn span {
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.app-root .app-calc-syringe-btn[aria-pressed="true"] {
+  background: #fff;
+  color: var(--app-on-primary);
+  font-weight: 600;
+}
+
+.app-root .app-calc-lines {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-calc-lines select {
+  width: auto;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.app-root .app-calc-note {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--app-text-4);
+}
+
+.app-root .app-calc-errors {
+  padding: 18px 20px;
+  border-radius: 16px;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  background: rgba(248, 113, 113, 0.06);
+}
+
+.app-root .app-calc-errors b {
+  font-size: 14px;
+  color: var(--app-error-soft);
+}
+
+.app-root .app-calc-errors ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  list-style: disc;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--app-error-soft);
+}
+
+/* Results. */
+.app-root .app-calc-numbers {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.app-root .app-calc-num-label {
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-calc-num-label--accent {
+  color: var(--app-primary-text);
+}
+
+.app-root .app-calc-num {
+  margin-top: 8px;
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-calc-units {
+  color: var(--app-primary-text);
+}
+
+.app-root .app-calc-units[data-flagged] {
+  color: var(--app-warning);
+}
+
+.app-root .app-calc-unit {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--app-text-4);
+}
+
+.app-root .app-calc-syringe {
+  position: relative;
+  height: 64px;
+  border-radius: 10px;
+  border: 1px solid var(--app-border-input);
+  background: var(--app-surface);
+  overflow: hidden;
+}
+
+.app-root .app-calc-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--app-primary);
+}
+
+.app-root .app-calc-fill[data-flagged] {
+  background: rgba(251, 191, 36, 0.7);
+}
+
+.app-root .app-calc-ticks {
+  position: absolute;
+  inset: 0;
+}
+
+.app-root .app-calc-major {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 24px;
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.8) 0 1px, transparent 1px 10%);
+}
+
+.app-root .app-calc-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #fff;
+}
+
+.app-root .app-calc-scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-calc-summary {
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-calc-flag {
+  padding: 18px 22px;
+  border-radius: 16px;
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  font-size: 14px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.app-root .app-calc-flag b {
+  color: var(--app-warning);
+}
+
+/* Save mixture, with the plans it serves. */
+.app-root .app-calc-links {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.app-root .app-calc-links legend {
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-calc-plan {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.app-root .app-calc-plan input {
+  flex: none;
+}
+
+.app-root .app-calc-plan-meta {
+  color: var(--app-text-4);
+}
+
+.app-root .app-calc-save-errors {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--app-error);
+}
+
+.app-root .app-calc-save {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-calc-save-btn {
+  height: 48px;
+  padding: 0 22px;
+  border-radius: var(--app-radius-button);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* Saved mixtures. */
+.app-root .app-calc-saved {
+  padding-top: 22px;
+  border-top: 1px solid var(--app-border);
+}
+
+.app-root .app-calc-saved-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.app-root .app-calc-saved-head h2 {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.app-root .app-calc-saved-head a {
+  font-size: 13px;
+  color: var(--app-primary-text);
+}
+
+.app-root .app-calc-none {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-calc-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--app-divider-row);
+  font-size: 14px;
+}
+
+.app-root .app-calc-row-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-calc-row-sub {
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-calc-row-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+}
+
+.app-root .app-calc-link {
+  min-height: 44px;
+  border: none;
+  background: transparent;
+  color: var(--app-primary-text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.app-root .app-calc-link--quiet {
+  color: var(--app-text-4);
+}
+
+@media (max-width: 759.98px) {
+  .app-root .app-calc {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 36px;
+  }
+
+  .app-root .app-calc-num {
+    font-size: 30px;
+  }
+}

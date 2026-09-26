@@ -210,6 +210,51 @@ export type Database = {
           },
         ]
       }
+      cycle_plan_mixtures: {
+        Row: {
+          id: string
+          linked_at: string
+          mixture_id: string
+          owner_id: string
+          peptide_id: string
+          plan_id: string
+          unlinked_at: string | null
+        }
+        Insert: {
+          id?: string
+          linked_at: string
+          mixture_id: string
+          owner_id: string
+          peptide_id: string
+          plan_id: string
+          unlinked_at?: string | null
+        }
+        Update: {
+          id?: string
+          linked_at?: string
+          mixture_id?: string
+          owner_id?: string
+          peptide_id?: string
+          plan_id?: string
+          unlinked_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cycle_plan_mixtures_mixture"
+            columns: ["mixture_id", "owner_id", "peptide_id"]
+            isOneToOne: false
+            referencedRelation: "mixtures"
+            referencedColumns: ["id", "owner_id", "peptide_id"]
+          },
+          {
+            foreignKeyName: "cycle_plan_mixtures_plan"
+            columns: ["plan_id", "owner_id", "peptide_id"]
+            isOneToOne: false
+            referencedRelation: "cycle_plans"
+            referencedColumns: ["id", "owner_id", "peptide_id"]
+          },
+        ]
+      }
       cycle_plans: {
         Row: {
           created_at: string
@@ -617,6 +662,98 @@ export type Database = {
           },
         ]
       }
+      mixture_versions: {
+        Row: {
+          created_at: string
+          id: string
+          line_spacing: number | null
+          liquid_ml: number
+          mixture_id: string
+          number: number
+          owner_id: string
+          syringe_units: number
+          vial_mg: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          line_spacing?: number | null
+          liquid_ml: number
+          mixture_id: string
+          number: number
+          owner_id: string
+          syringe_units: number
+          vial_mg: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          line_spacing?: number | null
+          liquid_ml?: number
+          mixture_id?: string
+          number?: number
+          owner_id?: string
+          syringe_units?: number
+          vial_mg?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mixture_versions_mixture"
+            columns: ["mixture_id", "owner_id"]
+            isOneToOne: false
+            referencedRelation: "mixtures"
+            referencedColumns: ["id", "owner_id"]
+          },
+        ]
+      }
+      mixtures: {
+        Row: {
+          created_at: string
+          current_version: number
+          deleted_at: string | null
+          id: string
+          owner_id: string
+          peptide_id: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          current_version?: number
+          deleted_at?: string | null
+          id?: string
+          owner_id: string
+          peptide_id: string
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          created_at?: string
+          current_version?: number
+          deleted_at?: string | null
+          id?: string
+          owner_id?: string
+          peptide_id?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mixtures_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mixtures_peptide_id_fkey"
+            columns: ["peptide_id"]
+            isOneToOne: false
+            referencedRelation: "peptides"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       peptides: {
         Row: {
           available: boolean
@@ -649,6 +786,90 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      personal_supply_settings: {
+        Row: {
+          owner_id: string
+          tracking_enabled: boolean
+          updated_at: string
+        }
+        Insert: {
+          owner_id: string
+          tracking_enabled?: boolean
+          updated_at?: string
+        }
+        Update: {
+          owner_id?: string
+          tracking_enabled?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "personal_supply_settings_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      personal_vials: {
+        Row: {
+          created_at: string
+          finished_at: string | null
+          id: string
+          label: string
+          mixture_id: string | null
+          owner_id: string
+          peptide_id: string
+          strength_mg: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          finished_at?: string | null
+          id?: string
+          label: string
+          mixture_id?: string | null
+          owner_id: string
+          peptide_id: string
+          strength_mg: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          finished_at?: string | null
+          id?: string
+          label?: string
+          mixture_id?: string | null
+          owner_id?: string
+          peptide_id?: string
+          strength_mg?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "personal_vials_mixture"
+            columns: ["mixture_id", "owner_id", "peptide_id"]
+            isOneToOne: false
+            referencedRelation: "mixtures"
+            referencedColumns: ["id", "owner_id", "peptide_id"]
+          },
+          {
+            foreignKeyName: "personal_vials_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "personal_vials_peptide_id_fkey"
+            columns: ["peptide_id"]
+            isOneToOne: false
+            referencedRelation: "peptides"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       profiles: {
         Row: {
@@ -928,10 +1149,15 @@ export type Database = {
         }
         Returns: boolean
       }
+      delete_mixture: {
+        Args: { p_mixture_id: string; p_version: number }
+        Returns: boolean
+      }
       disable_push_subscription: {
         Args: { p_device_id: string; p_endpoint?: string; p_reason: string }
         Returns: boolean
       }
+      finish_personal_vial: { Args: { p_vial_id: string }; Returns: boolean }
       grant_support_access: { Args: { p_admin_id: string }; Returns: string }
       has_research_access: { Args: never; Returns: boolean }
       invite_researcher: {
@@ -962,8 +1188,17 @@ export type Database = {
         Args: { p_error: string; p_id: string }
         Returns: undefined
       }
+      mixture_check_peptide: {
+        Args: { p_owner: string; p_peptide_id: string }
+        Returns: undefined
+      }
+      mixture_decimal: { Args: { p_text: string }; Returns: number }
       parse_cad_amount: { Args: { p_text: string }; Returns: number }
       parse_strength_mg: { Args: { p_text: string }; Returns: number }
+      plan_mixture_version_at: {
+        Args: { p_at: string; p_plan_id: string }
+        Returns: string
+      }
       record_acknowledgement: { Args: { p_version: string }; Returns: boolean }
       record_business_purchase: {
         Args: {
@@ -1038,6 +1273,29 @@ export type Database = {
         }
         Returns: string
       }
+      save_mixture: {
+        Args: {
+          p_line_spacing: string
+          p_liquid_ml: string
+          p_mixture_id?: string
+          p_peptide_id: string
+          p_plan_ids?: string[]
+          p_syringe_units: number
+          p_version?: number
+          p_vial_mg: string
+        }
+        Returns: string
+      }
+      save_personal_vial: {
+        Args: {
+          p_label: string
+          p_mixture_id?: string
+          p_peptide_id: string
+          p_strength_mg: string
+          p_vial_id?: string
+        }
+        Returns: string
+      }
       save_push_subscription: {
         Args: {
           p_auth: string
@@ -1049,6 +1307,7 @@ export type Database = {
         }
         Returns: string
       }
+      set_supply_tracking: { Args: { p_enabled: boolean }; Returns: boolean }
       template_peptides: {
         Args: { p_template_id: string }
         Returns: {
