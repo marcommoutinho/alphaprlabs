@@ -15,10 +15,11 @@ import {
   type Phase,
   type PlanIssue,
   type Schedule,
+  timeOn,
   validatePlan,
   type Weekday,
 } from "@/lib/schedule/engine";
-import { isLocalDate, isValidTimeZone, type LocalDate } from "@/lib/schedule/zone";
+import { isLocalDate, isValidTimeZone, type LocalDate, localDateOf } from "@/lib/schedule/zone";
 import { templatePlanToEngine, type TemplatePlan } from "@/lib/templates/rules";
 
 /** Mirrors the database checks (20260926180000_cycles.sql, save_cycle). */
@@ -57,6 +58,8 @@ export type CycleRecord = {
   templateGuidance: string;
   templateUpdatedAt: string | null;
   currentRevision: number;
+  /** The concurrency token: advances on every successful edit, metadata-only included. */
+  version: number;
   createdAt: string;
   updatedAt: string;
   /** Oldest first; the last is the current revision. */
@@ -85,8 +88,8 @@ export type CyclePlanForm = { planId: string | null; peptideId: string; phases: 
 
 export type CycleForm = {
   cycleId: string | null;
-  /** The revision the edit starts from (null for a new cycle). */
-  revision: number | null;
+  /** The cycle version the edit starts from (CycleRecord.version; null for a new cycle). */
+  version: number | null;
   templateId: string | null;
   name: string;
   timeZone: string;
@@ -100,6 +103,18 @@ export const DEFAULT_TIME = "08:00";
 const DEFAULT_DAYS: Weekday[] = [1, 3, 5];
 
 export const addDays = (date: LocalDate, days: number): LocalDate => Temporal.PlainDate.from(date).add({ days }).toString();
+
+/** Tomorrow in `timeZone` as of `now` (ISO): where a new cycle's first phases start (the prototype). */
+export const tomorrowIn = (now: string, timeZone: string): LocalDate => addDays(localDateOf(now, timeZone), 1);
+
+/** The zone default dates are computed in before the builder knows the cycle's (server rendering). */
+export const DATES_ZONE = "UTC";
+
+/** A plan with every phase date moved by `days` (the builder's default dates, on a time zone change). */
+export function shiftPlan(plan: CyclePlanForm, days: number): CyclePlanForm {
+  const move = (date: string) => (isLocalDate(date) ? addDays(date, days) : date);
+  return { ...plan, phases: plan.phases.map((phase) => ({ ...phase, start: move(phase.start), end: move(phase.end) })) };
+}
 
 /** "+ Phase (change amount or frequency)": active, 28 days, every 5 days, 08:00, dose blank. */
 export const newActivePhase = (start: LocalDate): CyclePhaseForm => ({
@@ -139,7 +154,7 @@ export function doseAt(phase: ActivePhase, date: LocalDate): string {
   return normalizeDecimal(dose) ?? dose;
 }
 
-/** A stored phase as the form shows it; an active phase shows its dose from `from` on. */
+/** A stored phase as the form shows it; an active phase shows its dose and time from `from` on. */
 export function phaseForm(phase: Phase, from: LocalDate): CyclePhaseForm {
   const base = { ...newActivePhase(phase.start), id: phase.id, start: phase.start, end: phase.end };
   if (phase.kind === "break") return { ...base, kind: "break" };
@@ -147,7 +162,7 @@ export function phaseForm(phase: Phase, from: LocalDate): CyclePhaseForm {
   return {
     ...base,
     mg: doseAt(phase, on),
-    time: phase.time,
+    time: timeOn(phase, on),
     schedule: phase.schedule.type,
     every: phase.schedule.type === "interval" ? String(phase.schedule.everyDays) : "5",
     days: phase.schedule.type === "weekdays" ? [...phase.schedule.days] : [...DEFAULT_DAYS],
@@ -162,7 +177,7 @@ export function formOfCycle(cycle: CycleRecord, effective: ReadonlyMap<string, L
   const revision = cycle.revisions[cycle.revisions.length - 1];
   return {
     cycleId: cycle.id,
-    revision: revision.number,
+    version: cycle.version,
     templateId: null,
     name: cycle.name,
     timeZone: revision.timeZone,
@@ -189,7 +204,7 @@ export function formFromTemplate(
 ): CycleForm {
   return {
     cycleId: null,
-    revision: null,
+    version: null,
     templateId: template.id,
     name: template.name,
     timeZone,
@@ -270,8 +285,8 @@ export function readCycleForm(input: unknown): CycleForm | null {
   const templateId = optionalId(raw.templateId);
   if (cycleId === undefined || templateId === undefined || !Array.isArray(raw.plans)) return null;
   if (cycleId !== null && templateId !== null) return null;
-  const revision = raw.revision == null ? null : Number.isInteger(raw.revision) && (raw.revision as number) >= 1 ? (raw.revision as number) : undefined;
-  if (revision === undefined || (cycleId === null) !== (revision === null)) return null;
+  const version = raw.version == null ? null : Number.isInteger(raw.version) && (raw.version as number) >= 1 ? (raw.version as number) : undefined;
+  if (version === undefined || (cycleId === null) !== (version === null)) return null;
   const plans: CyclePlanForm[] = [];
   for (const plan of raw.plans as unknown[]) {
     const p = (typeof plan === "object" && plan !== null ? plan : {}) as Record<string, unknown>;
@@ -289,7 +304,7 @@ export function readCycleForm(input: unknown): CycleForm | null {
   if (cycleId === null && ids.length > 0) return null;
   return {
     cycleId,
-    revision,
+    version,
     templateId,
     name: str(raw.name).trim(),
     timeZone: str(raw.timeZone),
@@ -371,10 +386,16 @@ function planMessages(name: string, issues: PlanIssue[], form: CyclePlanForm): s
 /**
  * Validates the builder as R3 does and returns every message in order:
  * name, time zone, goal, the limits, at least one peptide, peptides no longer
- * offered (only for plans the save would add), then each peptide's messages
- * (planMessages). `peptides` holds the names the caller may read.
+ * offered (only for plans the save would add, except those a new cycle copies
+ * from its template: `templatePeptides`, the peptides that template names),
+ * then each peptide's messages (planMessages). `peptides` holds the names the
+ * caller may read.
  */
-export function validateCycle(input: unknown, peptides: readonly CyclePeptide[]): CycleValidation {
+export function validateCycle(
+  input: unknown,
+  peptides: readonly CyclePeptide[],
+  templatePeptides: ReadonlySet<string> = new Set(),
+): CycleValidation {
   const form = readCycleForm(input);
   if (!form) return { ok: false, errors: [INVALID_CYCLE] };
   const errors: string[] = [];
@@ -390,8 +411,11 @@ export function validateCycle(input: unknown, peptides: readonly CyclePeptide[])
 
   const library = new Map(peptides.map((peptide) => [peptide.id, peptide]));
   const nameOf = (id: string) => library.get(id)?.name ?? "Unknown peptide";
+  const copied = (id: string) => form.cycleId === null && form.templateId !== null && templatePeptides.has(id);
   for (const plan of form.plans) {
-    if (plan.planId === null && !library.get(plan.peptideId)?.available) errors.push(unavailableMessage(nameOf(plan.peptideId)));
+    if (plan.planId === null && !library.get(plan.peptideId)?.available && !copied(plan.peptideId)) {
+      errors.push(unavailableMessage(nameOf(plan.peptideId)));
+    }
   }
 
   const plans: DraftPlan[] = form.plans.map((plan) => {

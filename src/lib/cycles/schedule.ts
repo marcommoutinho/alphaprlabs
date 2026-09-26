@@ -1,16 +1,24 @@
 // A cycle's schedule across its revisions, for R2/R4 (S10), Today and
 // confirmation (S12) and reminders (S13). Pure.
 //
-// Occurrences: each revision schedules each of its plans from the plan's
-// effective date (effectiveFrom; the whole plan when null) up to the next
-// revision's effective date for that plan, each in its own revision's time
-// zone. A plan the next revision removed stops at that revision's creation
-// (only a plan that had not started can be removed). Before an effective date
-// a revision repeats the previous one exactly (revise.ts), so with an
-// unchanged time zone this equals the current revision alone; it matters
-// when the researcher moved the cycle to another zone: earlier doses keep the
-// times they had. Keys are the engine's (planId:phaseId:index|date) and are
-// the same in every revision for the same dose.
+// Occurrences: revision 1 schedules each plan whole. Each later revision
+// takes over a plan at ONE instant, its seam: the start of the plan's
+// effective date (effectiveFrom) in THAT revision's time zone. Each
+// occurrence key belongs to exactly one revision:
+//   * an occurrence the plan had (so far) before the seam keeps that
+//     version, even when the new revision schedules the same key elsewhere
+//     (e.g. in another time zone, or re-anchored by a late confirmation);
+//   * every other occurrence is the new revision's: its occurrences for keys
+//     not kept above, and nothing else (an earlier occurrence at or after the
+//     seam that the new revision does not have was removed by the edit).
+// A plan the next revision removed keeps the occurrences before that
+// revision's creation (only a plan with no dose yet can be removed).
+// The instant decides, never local dates computed separately in two zones,
+// so no occurrence is dropped or duplicated across a time zone change.
+// reviseCycle (revise.ts) only allows an edit when every occurrence the seam
+// hands to the new revision is still ahead and unconfirmed, so past and
+// confirmed doses always keep their time. Keys are the engine's
+// (planId:phaseId:index|date).
 import { Temporal } from "@js-temporal/polyfill";
 import { type Confirmation, type Occurrence, type PeptidePlan, scheduleOccurrences } from "@/lib/schedule/engine";
 import { type InstantInput, type LocalDate, localDateOf, toInstant } from "@/lib/schedule/zone";
@@ -20,6 +28,51 @@ import type { CycleRevision, StoredPlan } from "./rules";
 export function enginePlan(revision: Pick<CycleRevision, "timeZone">, plan: StoredPlan): PeptidePlan {
   return { planId: plan.planId, timeZone: revision.timeZone, phases: plan.phases };
 }
+
+/** The seam: the first instant of `effectiveFrom` in the revision's time zone. */
+export function seamOf(effectiveFrom: LocalDate, timeZone: string): Temporal.Instant {
+  return Temporal.PlainDate.from(effectiveFrom).toZonedDateTime({ timeZone }).toInstant();
+}
+
+const instantOf = (occurrence: Occurrence) => Temporal.Instant.from(occurrence.scheduledAt);
+const before = (occurrence: Occurrence, at: Temporal.Instant) => Temporal.Instant.compare(instantOf(occurrence), at) < 0;
+
+/**
+ * A plan's occurrences so far with a revision taking over at `seam`: those
+ * before the seam are kept, every other key is `fresh`'s (see the header).
+ */
+export function takeOver(soFar: readonly Occurrence[], fresh: readonly Occurrence[], seam: Temporal.Instant): Occurrence[] {
+  const kept = soFar.filter((occurrence) => before(occurrence, seam));
+  const keys = new Set(kept.map((occurrence) => occurrence.key));
+  return [...kept, ...fresh.filter((occurrence) => !keys.has(occurrence.key))];
+}
+
+/** Each plan's occurrences across the revisions (see the header), by plan id, unsorted. */
+export function planOccurrences(
+  revisions: readonly CycleRevision[],
+  confirmations: readonly Confirmation[] = [],
+): Map<string, Occurrence[]> {
+  const byPlan = new Map<string, Occurrence[]>();
+  revisions.forEach((revision, index) => {
+    const previous = revisions[index - 1];
+    const kept = new Set(revision.plans.map((plan) => plan.planId));
+    for (const plan of previous?.plans ?? []) {
+      if (kept.has(plan.planId)) continue;
+      const removedAt = Temporal.Instant.from(revision.createdAt);
+      byPlan.set(plan.planId, (byPlan.get(plan.planId) ?? []).filter((occurrence) => before(occurrence, removedAt)));
+    }
+    for (const plan of revision.plans) {
+      const fresh = scheduleOccurrences(enginePlan(revision, plan), confirmations);
+      const soFar = byPlan.get(plan.planId);
+      // Revision 1, or a plan this revision adds: all of it.
+      if (!soFar || !plan.effectiveFrom) byPlan.set(plan.planId, fresh);
+      else byPlan.set(plan.planId, takeOver(soFar, fresh, seamOf(plan.effectiveFrom, revision.timeZone)));
+    }
+  });
+  return byPlan;
+}
+
+const byTime = (a: Occurrence, b: Occurrence) => Temporal.Instant.compare(instantOf(a), instantOf(b)) || a.key.localeCompare(b.key);
 
 /**
  * Every active-phase occurrence of the cycle, across its revisions (see the
@@ -32,27 +85,10 @@ export function cycleOccurrences(
   confirmations: readonly Confirmation[] = [],
   range?: { from?: LocalDate; to?: LocalDate },
 ): Occurrence[] {
-  const byKey = new Map<string, Occurrence>();
-  revisions.forEach((revision, index) => {
-    const next = revisions[index + 1];
-    const nextStart = next ? Temporal.Instant.from(next.createdAt) : null;
-    for (const plan of revision.plans) {
-      const later = next?.plans.find((p) => p.planId === plan.planId);
-      for (const occurrence of scheduleOccurrences(enginePlan(revision, plan), confirmations)) {
-        if (plan.effectiveFrom && occurrence.localDate < plan.effectiveFrom) continue;
-        if (later?.effectiveFrom && occurrence.localDate >= later.effectiveFrom) continue;
-        if (next && !later && Temporal.Instant.compare(Temporal.Instant.from(occurrence.scheduledAt), nextStart!) >= 0) continue;
-        // A later revision's occurrence with the same key replaces an earlier one.
-        byKey.set(occurrence.key, occurrence);
-      }
-    }
-  });
-  return [...byKey.values()]
+  return [...planOccurrences(revisions, confirmations).values()]
+    .flat()
     .filter((o) => (!range?.from || o.localDate >= range.from) && (!range?.to || o.localDate <= range.to))
-    .sort(
-      (a, b) =>
-        Temporal.Instant.compare(Temporal.Instant.from(a.scheduledAt), Temporal.Instant.from(b.scheduledAt)) || a.key.localeCompare(b.key),
-    );
+    .sort(byTime);
 }
 
 /** R2/R4 status (the prototype's cycleStatus). */

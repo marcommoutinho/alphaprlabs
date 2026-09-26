@@ -14,9 +14,13 @@ export const fromTemplateNote = (name: string) =>
   `Started from the supplied template “${name}”. This copy is yours — later template changes won't touch it.`;
 export const HISTORY_NOTE =
   "This cycle already has recorded doses. Changes here apply to future occurrences only; what you've already confirmed stays exactly as recorded.";
-/** R6's warning for a template that can't be used (it names a peptide no longer offered). */
-export const TEMPLATE_BLOCKED =
-  "This template includes a peptide that is no longer offered, so it can't be used to start a new cycle. Existing cycles that used it keep their records.";
+/**
+ * Not in the prototype: a plan whose peptide is no longer offered (kept by a
+ * cycle, or copied from a template that names it; Marco, 2026-09-26).
+ */
+export const WITHDRAWN_NOTE = "No longer offered for new cycles.";
+/** The template being copied was deleted or can't be read. */
+export const TEMPLATE_GONE = "This template is no longer available. Go back to the library and choose another.";
 
 // Not in the prototype (edits there rewrote the whole plan): what the builder
 // says when an edit would reach a dose that is already due or recorded.

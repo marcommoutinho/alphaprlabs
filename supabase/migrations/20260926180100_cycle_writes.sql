@@ -18,15 +18,27 @@
 --     and every 1-365 days or 1-7 weekdays, no overlapping phases, at least
 --     one active phase per plan.
 --   * new references: a plan added (on creation or by an edit) needs a
---     peptide that is still offered; a template being copied must exist and
---     offer every peptide it names. Existing plans keep their peptide even
---     after it is withdrawn.
---   * edits: p_revision must be the cycle's current revision (else AP010:
---     someone saved in between). Each plan carries effective_from, between
---     today and today + 2 in the new time zone, and the rules in the header
---     of 20260926180000_cycles.sql hold (else AP009): earlier phases carried
---     over with their ids, nothing new before effective_from, and a plan that
---     has started (a phase before today) is never dropped.
+--     peptide that is still offered, except that a cycle created from a
+--     template may keep a peptide the template names even after it was
+--     withdrawn (Marco, 2026-09-26: the researcher's copy gets it). A
+--     template being copied must exist. Existing plans keep their peptide
+--     even after it is withdrawn.
+--   * edits: p_version must be the cycle's version (else AP010: someone
+--     saved in between; every successful edit advances it, metadata-only
+--     included). Each plan carries effective_from, between today and
+--     today + 2 in the new time zone, and the rules in the header of
+--     20260926180000_cycles.sql hold (else AP009): earlier phases carried
+--     over with their ids, nothing new before effective_from, and:
+--       - the effective date rule: effective_from may be today only while
+--         none of the plan's doses today is due. The new revision takes over
+--         at the start of effective_from in the new zone (the seam): none of
+--         the current revision's doses from the seam on may be due, and every
+--         dose the new revision gets (not the current one's before the seam,
+--         matched by phase and occurrence key) must be ahead.
+--       - a plan that has started (its first dose time has passed) is never
+--         dropped.
+--     Both count planned doses without confirmations (cycle_phase_instants);
+--     S12 extends them to recorded doses.
 --
 -- p_plans, in the builder's order:
 --   [{ "plan_id": uuid | null,            -- null: a new plan
@@ -37,7 +49,8 @@
 --          "kind": "active", "start_date": "2026-10-01", "end_date": "2026-10-28",
 --          "dose_mg": "0.4", "local_time": "08:00",
 --          "schedule_type": "interval", "every_days": 5,
---          "dose_changes": [{ "from": "2026-10-15", "dose_mg": "0.5" }] },
+--          "dose_changes": [{ "from": "2026-10-15", "dose_mg": "0.5" }],
+--          "time_changes": [{ "from": "2026-10-15", "local_time": "20:00" }] },
 --        { ..., "schedule_type": "weekdays", "weekdays": [1, 3, 5] },
 --        { "phase_id": null, "kind": "break", "start_date": ..., "end_date": ... } ] }]
 -- Decimals are strings with a dot. Returns the cycle id, or null (see above).
@@ -46,7 +59,7 @@
 --   42501 not an acknowledged researcher      22023 invalid cycle
 --   AP003 unknown peptide     AP007 peptide no longer offered
 --   AP008 unknown template    AP009 the edit would change the past
---   AP010 the cycle changed since it was opened (stale revision)
+--   AP010 the cycle changed since it was opened (stale version)
 
 create function public.save_cycle(
   p_name text,
@@ -56,7 +69,7 @@ create function public.save_cycle(
   p_plans jsonb,
   p_template_id uuid default null,
   p_cycle_id uuid default null,
-  p_revision integer default null
+  p_version integer default null
 )
 returns uuid
 language plpgsql
@@ -74,7 +87,10 @@ declare
   v_cycle_id uuid;
   v_template public.cycle_templates%rowtype;
   v_prev_rev uuid;
+  v_prev_zone text;
   v_rev uuid;
+  v_seam timestamptz;
+  v_template_peptides uuid[] := '{}';
   v_number integer := 1;
   v_today date;
   v_plan jsonb;
@@ -90,6 +106,7 @@ declare
   v_schedule text;
   v_dose text;
   v_changes jsonb;
+  v_times jsonb;
   v_uuid constant text := '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
   v_date constant text := '^[0-9]{4}-[0-9]{2}-[0-9]{2}$';
   v_decimal constant text := '^[0-9]*\.?[0-9]+$';
@@ -111,20 +128,17 @@ begin
   v_today := (now() at time zone p_time_zone)::date;
 
   if not v_editing then
-    if p_revision is not null then
-      raise exception 'a new cycle has no revision' using errcode = '22023';
+    if p_version is not null then
+      raise exception 'a new cycle has no version' using errcode = '22023';
     end if;
     if p_template_id is not null then
       select t.* into v_template from public.cycle_templates t where t.id = p_template_id for share;
       if not found then
         raise exception 'unknown template' using errcode = 'AP008';
       end if;
-      if exists (
-        select 1 from public.cycle_template_plans pl join public.peptides p on p.id = pl.peptide_id
-        where pl.template_id = p_template_id and not p.available
-      ) then
-        raise exception 'template includes a peptide no longer offered' using errcode = 'AP007';
-      end if;
+      -- The copy may keep these even when no longer offered.
+      v_template_peptides := array(
+        select pl.peptide_id from public.cycle_template_plans pl where pl.template_id = p_template_id);
     end if;
     insert into public.cycles (owner_id, name, goal, baseline, template_id, template_name, template_guidance, template_updated_at)
     values (v_uid, v_name, v_goal, v_baseline, v_template.id, coalesce(v_template.name, ''),
@@ -138,15 +152,15 @@ begin
     if p_template_id is not null then
       raise exception 'the template is fixed when a cycle is created' using errcode = '22023';
     end if;
-    if p_revision is distinct from v_cycle.current_revision then
+    if p_version is distinct from v_cycle.version then
       raise exception 'the cycle changed since it was opened' using errcode = 'AP010';
     end if;
     v_cycle_id := v_cycle.id;
     v_number := v_cycle.current_revision + 1;
-    select r.id into v_prev_rev from public.cycle_revisions r
+    select r.id, r.time_zone into v_prev_rev, v_prev_zone from public.cycle_revisions r
     where r.cycle_id = v_cycle_id and r.number = v_cycle.current_revision;
     update public.cycles c
-    set name = v_name, goal = v_goal, baseline = v_baseline,
+    set name = v_name, goal = v_goal, baseline = v_baseline, version = c.version + 1,
         updated_at = case when (c.name, c.goal, c.baseline) is distinct from (v_name, v_goal, v_baseline)
                           then now() else c.updated_at end
     where c.id = v_cycle_id;
@@ -177,13 +191,14 @@ begin
     end if;
 
     if v_plan_id is null then
-      -- A new reference: the peptide must still be offered. A shared lock
-      -- makes a concurrent withdrawal wait until this save commits.
+      -- A new reference: the peptide must still be offered, unless it comes
+      -- with the template being copied. A shared lock makes a concurrent
+      -- withdrawal wait until this save commits.
       select p.available into v_available from public.peptides p where p.id = v_peptide_id for share;
       if not found then
         raise exception 'unknown peptide' using errcode = 'AP003';
       end if;
-      if not v_available then
+      if not v_available and not (v_peptide_id = any (v_template_peptides)) then
         raise exception 'peptide no longer offered' using errcode = 'AP007';
       end if;
       insert into public.cycle_plans (cycle_id, owner_id, peptide_id)
@@ -233,6 +248,7 @@ begin
       v_dose := v_phase ->> 'dose_mg';
       v_schedule := v_phase ->> 'schedule_type';
       v_changes := coalesce(v_phase -> 'dose_changes', '[]'::jsonb);
+      v_times := coalesce(v_phase -> 'time_changes', '[]'::jsonb);
       if jsonb_typeof(v_phase -> 'dose_mg') is distinct from 'string'
          or char_length(v_dose) > 30
          or v_dose !~ v_decimal
@@ -249,13 +265,19 @@ begin
                        or coalesce(c ->> 'from', '') !~ v_date
                        or jsonb_typeof(c -> 'dose_mg') is distinct from 'string'
                        or char_length(c ->> 'dose_mg') > 30
-                       or (c ->> 'dose_mg') !~ v_decimal) then
+                       or (c ->> 'dose_mg') !~ v_decimal)
+         or jsonb_typeof(v_times) <> 'array'
+         or exists (select 1 from jsonb_array_elements(v_times) c
+                    where jsonb_typeof(c) <> 'object'
+                       or coalesce(c ->> 'from', '') !~ v_date
+                       or jsonb_typeof(c -> 'local_time') is distinct from 'string') then
         raise exception 'invalid active phase' using errcode = '22023';
       end if;
 
       insert into public.cycle_revision_phases (
         revision_id, phase_id, plan_id, owner_id, kind, start_date, end_date,
-        dose_mg, local_time, schedule_type, every_days, weekdays, dose_change_from, dose_change_mg
+        dose_mg, local_time, schedule_type, every_days, weekdays, dose_change_from, dose_change_mg,
+        time_change_from, time_change_time
       ) values (
         v_rev, v_phase_id, v_plan_id, v_uid, 'active',
         (v_phase ->> 'start_date')::date, (v_phase ->> 'end_date')::date,
@@ -267,7 +289,9 @@ begin
           array(select d::text::smallint from jsonb_array_elements(v_phase -> 'weekdays') d)
         end,
         array(select (c ->> 'from')::date from jsonb_array_elements(v_changes) with ordinality x(c, n) order by n),
-        array(select trim_scale((c ->> 'dose_mg')::numeric) from jsonb_array_elements(v_changes) with ordinality x(c, n) order by n)
+        array(select trim_scale((c ->> 'dose_mg')::numeric) from jsonb_array_elements(v_changes) with ordinality x(c, n) order by n),
+        array(select (c ->> 'from')::date from jsonb_array_elements(v_times) with ordinality x(c, n) order by n),
+        array(select c ->> 'local_time' from jsonb_array_elements(v_times) with ordinality x(c, n) order by n)
       );
     end loop;
 
@@ -292,8 +316,8 @@ begin
     if v_editing then
       -- Every phase that began before effective_from is carried over with its
       -- id, kind and start. One that ended before it is identical; one
-      -- running across it keeps its time, schedule, dose and earlier dose
-      -- changes, and ends no earlier than the day before effective_from.
+      -- running across it keeps its schedule, dose, time and earlier dose and
+      -- time changes, and ends no earlier than the day before effective_from.
       if exists (
         select 1
         from public.cycle_revision_phases p
@@ -305,10 +329,10 @@ begin
             or n.start_date <> p.start_date
             or (p.end_date < v_effective
                 and (n.end_date, n.dose_mg, n.local_time, n.schedule_type, n.every_days, n.weekdays,
-                     n.dose_change_from, n.dose_change_mg)
+                     n.dose_change_from, n.dose_change_mg, n.time_change_from, n.time_change_time)
                     is distinct from
                     (p.end_date, p.dose_mg, p.local_time, p.schedule_type, p.every_days, p.weekdays,
-                     p.dose_change_from, p.dose_change_mg))
+                     p.dose_change_from, p.dose_change_mg, p.time_change_from, p.time_change_time))
             or (p.end_date >= v_effective
                 and (n.end_date < v_effective - 1
                   or (n.dose_mg, n.local_time, n.schedule_type, n.every_days, n.weekdays)
@@ -317,9 +341,40 @@ begin
                       from unnest(n.dose_change_from, n.dose_change_mg) x(f, m) where f < v_effective)
                      is distinct from
                      (select coalesce(jsonb_agg(jsonb_build_array(f, m) order by f), '[]'::jsonb)
-                      from unnest(p.dose_change_from, p.dose_change_mg) x(f, m) where f < v_effective))))
+                      from unnest(p.dose_change_from, p.dose_change_mg) x(f, m) where f < v_effective)
+                  or (select coalesce(jsonb_agg(jsonb_build_array(f, t) order by f), '[]'::jsonb)
+                      from unnest(n.time_change_from, n.time_change_time) x(f, t) where f < v_effective)
+                     is distinct from
+                     (select coalesce(jsonb_agg(jsonb_build_array(f, t) order by f), '[]'::jsonb)
+                      from unnest(p.time_change_from, p.time_change_time) x(f, t) where f < v_effective))))
       ) then
         raise exception 'the edit would change phases already under way' using errcode = 'AP009';
+      end if;
+      -- The effective date rule (the app's seam, src/lib/cycles/revise.ts):
+      -- nothing the edit replaces or introduces may already be due. The
+      -- revision takes over at the seam, the start of effective_from in the
+      -- new zone: the current revision's doses from the seam on are replaced,
+      -- so none may be due yet; and every dose the new revision gets (all but
+      -- those the current one had before the seam, matched by phase and key)
+      -- must be ahead. So effective_from is today only while none of today's
+      -- doses, old or new, is due. Dates: a key's local date differs by at
+      -- most two days between zones.
+      v_seam := public.cycle_local_instant(v_effective, '00:00', p_time_zone);
+      if exists (
+          select 1 from public.cycle_revision_phases p
+          cross join lateral public.cycle_phase_instants(
+            p, v_prev_zone, (v_seam at time zone v_prev_zone)::date, (now() at time zone v_prev_zone)::date) i
+          where p.revision_id = v_prev_rev and p.plan_id = v_plan_id and i.planned_at between v_seam and now())
+        or exists (
+          select 1 from public.cycle_revision_phases n
+          cross join lateral public.cycle_phase_instants(n, p_time_zone, v_effective - 3, v_today) i
+          where n.revision_id = v_rev and n.plan_id = v_plan_id and i.planned_at <= now()
+            and not exists (
+              select 1 from public.cycle_revision_phases p
+              cross join lateral public.cycle_phase_instants(p, v_prev_zone, v_effective - 5, v_today + 2) o
+              where p.revision_id = v_prev_rev and p.plan_id = v_plan_id and p.phase_id = n.phase_id
+                and o.key = i.key and o.planned_at < v_seam)) then
+        raise exception 'a dose of this peptide is already due on the effective date' using errcode = 'AP009';
       end if;
       -- Anything else starts on or after effective_from.
       if exists (
@@ -336,12 +391,15 @@ begin
   end loop;
 
   if v_editing then
-    -- A plan that has started is ended through its phases, never dropped.
+    -- A plan that has started (its first dose time has passed) is ended
+    -- through its phases, never dropped. A phase's first dose falls within
+    -- its first 7 days, if at all.
     if exists (
       select 1
       from public.cycle_revision_plans rp
       join public.cycle_revision_phases p on p.revision_id = rp.revision_id and p.plan_id = rp.plan_id
-      where rp.revision_id = v_prev_rev and p.start_date < v_today
+      cross join lateral public.cycle_phase_instants(p, v_prev_zone, p.start_date, p.start_date + 6) i
+      where rp.revision_id = v_prev_rev and i.planned_at <= now()
         and not exists (select 1 from public.cycle_revision_plans n where n.revision_id = v_rev and n.plan_id = rp.plan_id)
     ) then
       raise exception 'a peptide that has started cannot be removed' using errcode = 'AP009';

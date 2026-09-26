@@ -71,6 +71,7 @@ const cycle: CycleRecord = {
   templateGuidance: "",
   templateUpdatedAt: null,
   currentRevision: 1,
+  version: 1,
   createdAt: revision1.createdAt,
   updatedAt: revision1.createdAt,
   revisions: [revision1],
@@ -83,12 +84,12 @@ const EARLY_MORNING = "2026-09-15T10:00:00Z";
 
 /** The builder's form for the cycle as of `now`, edited by `change`, validated and revised. */
 function edit(now: string, change: (form: CycleForm) => void, confirmations: Confirmation[] = []) {
-  const { effective } = editWindow(revision1, now, confirmations);
+  const { effective } = editWindow([revision1], now, confirmations);
   const form = formOfCycle(cycle, effective, "2026-09-15");
   change(form);
   const valid = validateCycle(form, peptides);
   if (!valid.ok) throw new Error(`Invalid form: ${valid.errors.join("; ")}`);
-  return reviseCycle(revision1, valid.value, now, confirmations);
+  return reviseCycle([revision1], valid.value, now, confirmations);
 }
 
 const planA = (form: CycleForm) => form.plans[0];
@@ -116,7 +117,7 @@ const summary = (o: { key: string; scheduledAt: string; doseMg: string; actualAt
 
 describe("R3 validation", () => {
   it("lists every message in the designed order", () => {
-    const empty: CycleForm = { cycleId: null, revision: null, templateId: null, name: " ", timeZone: "Mars/Olympus", goal: "", baseline: "", plans: [] };
+    const empty: CycleForm = { cycleId: null, version: null, templateId: null, name: " ", timeZone: "Mars/Olympus", goal: "", baseline: "", plans: [] };
     expect(validateCycle(empty, peptides)).toEqual({
       ok: false,
       errors: ["Give the cycle a name.", "Choose the time zone this cycle follows.", "Add a goal — results are reviewed against it.", "Add at least one peptide."],
@@ -152,7 +153,7 @@ describe("R3 validation", () => {
   it("accepts a multi-peptide cycle with decimal commas, stored as plain decimals by start date", () => {
     const form: CycleForm = {
       cycleId: null,
-      revision: null,
+      version: null,
       templateId: null,
       name: " Recomp ",
       timeZone: TORONTO,
@@ -236,12 +237,12 @@ describe("editing: a new revision that changes future doses only", () => {
     const cycle2: CycleRecord = { ...cycle, currentRevision: 2, revisions: [revision1, second] };
     // Two days later, only Compound B's dose changes.
     const now = "2026-09-17T15:00:00Z";
-    const { effective } = editWindow(second, now);
+    const { effective } = editWindow(cycle2.revisions, now);
     const form = formOfCycle(cycle2, effective, "2026-09-17");
     expect(phaseById(form, A1).mg).toBe("0.5");
     phaseById(form, B1).mg = "2";
     const valid = validateCycle(form, peptides);
-    const result = valid.ok ? reviseCycle(second, valid.value, now) : null;
+    const result = valid.ok ? reviseCycle(cycle2.revisions, valid.value, now) : null;
     expect(result?.ok).toBe(true);
     if (!result?.ok) return;
     expect(result.plans[0].phases).toEqual(second.plans[0].phases);
@@ -262,9 +263,39 @@ describe("editing: a new revision that changes future doses only", () => {
     expect(today?.doseMg).toBe("0.5");
   });
 
-  it("a time or schedule change ends the running phase yesterday and starts a new one; earlier keys stay", () => {
+  it("a time change keeps the phase and its every-N-days rhythm; only the clock time moves (Marco, 2026-09-26)", () => {
+    const result = edit(LATE_MORNING, (form) => void (phaseById(form, A1).time = "20:00"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const a = result.plans[0];
+    expect(a.effectiveFrom).toBe("2026-09-16");
+    expect(a.phases.map((p) => p.id)).toEqual([A0, A1, BREAK, A2]);
+    expect(a.phases[1]).toMatchObject({ time: "08:00", timeChanges: [{ from: "2026-09-16", time: "20:00" }] });
+    expect(a.phases[1]).not.toHaveProperty("doseChanges");
+
+    const before = cycleOccurrences([revision1]);
+    const after = cycleOccurrences([revision1, revision2(result.plans)]);
+    const a1 = (list: typeof before) => list.filter((o) => o.phaseId === A1).map((o) => `${o.key.split(":")[2]} ${o.localDate} ${o.localTime}`);
+    // Same keys on the same days (Sep 1, 3, ... 29); from Sep 16 at 20:00.
+    expect(a1(after).map((row) => row.slice(0, -6))).toEqual(a1(before).map((row) => row.slice(0, -6)));
+    expect(a1(after).slice(6, 10)).toEqual(["6 2026-09-13 08:00", "7 2026-09-15 08:00", "8 2026-09-17 20:00", "9 2026-09-19 20:00"]);
+    const past = (list: typeof before) => list.filter((o) => o.localDate < "2026-09-16").map(summary);
+    expect(past(after)).toEqual(past(before));
+
+    // A later edit shows the new time and keeps it as stored.
+    const second = revision2(result.plans);
+    const now = "2026-09-18T15:00:00Z";
+    const cycle2: CycleRecord = { ...cycle, currentRevision: 2, revisions: [revision1, second] };
+    const form = formOfCycle(cycle2, editWindow(cycle2.revisions, now).effective, "2026-09-18");
+    expect(phaseById(form, A1).time).toBe("20:00");
+    const valid = validateCycle(form, peptides);
+    const again = valid.ok ? reviseCycle(cycle2.revisions, valid.value, now) : null;
+    expect(again?.ok && again.plans[0].phases).toEqual(second.plans[0].phases);
+  });
+
+  it("a schedule change ends the running phase yesterday and starts a new one; earlier keys stay", () => {
     const result = edit(LATE_MORNING, (form) => {
-      phaseById(form, A1).time = "20:00";
+      phaseById(form, A1).every = "3";
       phaseById(form, B1).days = [2, 4, 6];
     });
     expect(result.ok).toBe(true);
@@ -277,7 +308,7 @@ describe("editing: a new revision that changes future doses only", () => {
       [BREAK, "2026-10-01", "2026-10-07"],
       [A2, "2026-10-08", "2026-10-31"],
     ]);
-    expect(a.phases[2]).toMatchObject({ kind: "active", time: "20:00", schedule: { type: "interval", everyDays: 2 } });
+    expect(a.phases[2]).toMatchObject({ kind: "active", time: "08:00", schedule: { type: "interval", everyDays: 3 } });
     expect(b.phases.map((p) => [p.id, p.end])).toEqual([[B1, "2026-09-15"], [null, "2026-10-10"]]);
 
     const before = cycleOccurrences([revision1]);
@@ -285,8 +316,17 @@ describe("editing: a new revision that changes future doses only", () => {
     const past = (list: typeof before) => list.filter((o) => o.localDate < "2026-09-16").map(summary);
     expect(past(after)).toEqual(past(before));
     const firstNew = after.find((o) => o.localDate >= "2026-09-16" && o.planId === PLAN_A);
-    expect(firstNew).toMatchObject({ localDate: "2026-09-16", localTime: "20:00" });
+    expect(firstNew).toMatchObject({ localDate: "2026-09-16", localTime: "08:00" });
     expect(firstNew?.phaseId).not.toBe(A1);
+  });
+
+  it("E is today only while none of today's doses, old or new, is due", () => {
+    // 06:00: moving today's 08:00 dose to 05:00 would introduce a dose already due, so from tomorrow.
+    const earlier = edit(EARLY_MORNING, (form) => void (phaseById(form, A1).time = "05:00"));
+    expect(earlier.ok && earlier.plans[0].effectiveFrom).toBe("2026-09-16");
+    // Moving it to 07:00 is still ahead: from today.
+    const later = edit(EARLY_MORNING, (form) => void (phaseById(form, A1).time = "07:00"));
+    expect(later.ok && later.plans[0]).toMatchObject({ effectiveFrom: "2026-09-15", phases: [{}, { timeChanges: [{ from: "2026-09-15", time: "07:00" }] }, {}, {}] });
   });
 
   it("moving the cycle to another time zone keeps the times earlier doses had", () => {
@@ -323,9 +363,48 @@ describe("editing: a new revision that changes future doses only", () => {
   it("an unchanged edit gives the same plans, and the builder locks what has happened", () => {
     const result = edit(LATE_MORNING, () => {});
     expect(result.ok && result.plans.map((p) => p.phases)).toEqual(revision1.plans.map((p) => p.phases));
-    const { effective, locks } = editWindow(revision1, LATE_MORNING);
+    const { effective, locks, started } = editWindow([revision1], LATE_MORNING);
     expect(Object.fromEntries(effective)).toEqual({ [PLAN_A]: "2026-09-16", [PLAN_B]: "2026-09-16" });
     expect(Object.fromEntries(locks)).toEqual({ [A0]: "ended", [A1]: "started", [BREAK]: null, [A2]: null, [B1]: "started" });
+    expect([...started]).toEqual([PLAN_A, PLAN_B]);
+  });
+
+  it("a peptide can be removed until its first dose time has passed, even on the day it starts", () => {
+    const PLAN_C = uuid(3);
+    const C1 = uuid(30);
+    // Compound B starts today (Sep 15) at 20:00.
+    const today: CycleRevision = {
+      ...revision1,
+      plans: [
+        revision1.plans[0],
+        { planId: PLAN_C, peptideId: PB, effectiveFrom: null, phases: [{ id: C1, kind: "active", start: "2026-09-15", end: "2026-09-30", doseMg: "1", time: "20:00", schedule: { type: "interval", everyDays: 1 } }] },
+      ],
+    };
+    const withoutC = (now: string) => {
+      const record: CycleRecord = { ...cycle, revisions: [today] };
+      const form = formOfCycle(record, editWindow([today], now).effective, "2026-09-15");
+      form.plans.splice(1, 1);
+      const valid = validateCycle(form, peptides);
+      return valid.ok ? reviseCycle([today], valid.value, now) : null;
+    };
+    expect(editWindow([today], LATE_MORNING).started.has(PLAN_C)).toBe(false);
+    expect(withoutC(LATE_MORNING)?.ok).toBe(true);
+    // 20:00 Toronto has passed.
+    const evening = "2026-09-16T00:30:00Z";
+    expect(editWindow([today], evening).started.has(PLAN_C)).toBe(true);
+    expect(withoutC(evening)).toEqual({ ok: false, issues: [{ code: "plan-started", peptideId: PB }] });
+  });
+});
+
+describe("template copies keep peptides no longer offered (Marco, 2026-09-26)", () => {
+  it("allows a withdrawn peptide the template names on a new cycle only", () => {
+    const form: CycleForm = { cycleId: null, version: null, templateId: uuid(800), name: "Copy", timeZone: TORONTO, goal: "Strength", baseline: "", plans: [newPlan(PC, "2026-10-01")] };
+    form.plans[0].phases[0].mg = "1";
+    expect(validateCycle(form, peptides, new Set([PC])).ok).toBe(true);
+    // Not from this template, or not a template copy: refused as before.
+    const refused = ["Compound C is no longer offered for new cycles. Remove it before saving."];
+    expect(validateCycle(form, peptides, new Set([PA]))).toEqual({ ok: false, errors: refused });
+    expect(validateCycle({ ...form, templateId: null }, peptides, new Set([PC]))).toEqual({ ok: false, errors: refused });
   });
 });
 

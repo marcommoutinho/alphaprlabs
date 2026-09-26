@@ -1,9 +1,9 @@
 // S9 R3 Cycle builder: a researcher builds a custom multi-peptide cycle,
-// meeting the designed validation list in order, in the device's time zone;
-// copies a template, which the admin then edits without touching the copy
-// (the handoff scenario); edits the copy's future plan as a new revision; a
-// template naming a peptide no longer offered can't be used; and another
-// researcher can't open the cycle. Against the real local Supabase; library
+// meeting the designed validation list in order, in the device's time zone
+// (default dates follow the chosen zone); copies a template, which the admin
+// then edits without touching the copy (the handoff scenario); edits the
+// copy's future plan as a new revision; a template naming a peptide no longer
+// offered is copied with it; and another researcher can't open the cycle. Against the real local Supabase; library
 // rows are shared by every run, so names are unique per run.
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { randomBytes } from "node:crypto";
@@ -104,9 +104,26 @@ test("a researcher builds a multi-peptide custom cycle, with the designed valida
 
   const a = plan(page, A);
   const b = plan(page, B);
-  const start = localDay(1, "America/Toronto");
-  await expect(phase(a, 0).getByLabel("Start", { exact: true })).toHaveValue(start);
+  // New phases start tomorrow in the cycle's time zone.
+  const start = localDay(1, ZONE);
+  const startOf = (block: Locator) => phase(block, 0).getByLabel("Start", { exact: true });
+  await expect(startOf(a)).toHaveValue(start);
+  await expect(phase(a, 0).getByLabel("End")).toHaveValue(localDay(28, ZONE));
   await expect(phase(a, 0).locator(".app-cyc-phase-title")).toHaveText("Phase 1");
+
+  // Changing the zone moves the default dates to tomorrow there (UTC+14 and
+  // UTC-11 are always on different dates); a date the researcher typed stays.
+  const zone = page.getByLabel("Time zone");
+  await zone.selectOption("Pacific/Kiritimati");
+  await expect(startOf(a)).toHaveValue(localDay(1, "Pacific/Kiritimati"));
+  await expect(phase(a, 0).getByLabel("End")).toHaveValue(localDay(28, "Pacific/Kiritimati"));
+  await zone.selectOption("Pacific/Pago_Pago");
+  await expect(startOf(a)).toHaveValue(localDay(1, "Pacific/Pago_Pago"));
+  await expect(startOf(b)).toHaveValue(localDay(1, "Pacific/Pago_Pago"));
+  await startOf(b).fill(localDay(3, ZONE));
+  await zone.selectOption(ZONE);
+  await expect(startOf(a)).toHaveValue(start);
+  await expect(startOf(b)).toHaveValue(localDay(3, ZONE));
 
   // Every message, in order: per peptide, phases by start date.
   await phase(a, 0).getByLabel("Every (days)").fill("0");
@@ -130,8 +147,8 @@ test("a researcher builds a multi-peptide custom cycle, with the designed valida
   await phase(a, 0).getByLabel("Dose per administration (mg)").fill("0,4");
   await phase(a, 0).getByLabel("Every (days)").fill("5");
   await phase(a, 0).getByLabel("Local time").fill("20:00");
-  await phase(a, 1).getByLabel("Start", { exact: true }).fill(localDay(29, "America/Toronto"));
-  await expect(phase(a, 1).getByLabel("End")).toHaveValue(localDay(35, "America/Toronto"));
+  await phase(a, 1).getByLabel("Start", { exact: true }).fill(localDay(29, ZONE));
+  await expect(phase(a, 1).getByLabel("End")).toHaveValue(localDay(35, ZONE));
   await phase(b, 0).getByLabel("End").fill(localDay(40, ZONE));
   await phase(b, 0).getByLabel("Dose per administration (mg)").fill("0.3");
   await days.getByRole("button", { name: "Tue" }).click();
@@ -146,10 +163,12 @@ test("a researcher builds a multi-peptide custom cycle, with the designed valida
   expect(stored.revisions[0].time_zone).toBe(ZONE);
   const [pa, pb] = stored.revisions[0].plans;
   expect(pa.phases.map((p) => [p.kind, p.start_date, p.end_date, p.dose_mg, p.local_time, p.every_days])).toEqual([
-    ["active", start, localDay(28, "America/Toronto"), "0.4", "20:00", 5],
-    ["break", localDay(29, "America/Toronto"), localDay(35, "America/Toronto"), null, null, null],
+    ["active", start, localDay(28, ZONE), "0.4", "20:00", 5],
+    ["break", localDay(29, ZONE), localDay(35, ZONE), null, null, null],
   ]);
-  expect(pb.phases).toMatchObject([{ kind: "active", schedule_type: "weekdays", weekdays: [2, 4], dose_mg: "0.3", end_date: localDay(40, ZONE) }]);
+  expect(pb.phases).toMatchObject([
+    { kind: "active", schedule_type: "weekdays", weekdays: [2, 4], dose_mg: "0.3", start_date: localDay(3, ZONE), end_date: localDay(40, ZONE) },
+  ]);
 });
 
 test("a template copy stays the researcher's own when the admin edits the template, and its future plan can change", async ({ page }) => {
@@ -170,28 +189,37 @@ test("a template copy stays the researcher's own when the admin edits the templa
   ];
   const { data: templateId, error } = await adminDb.rpc("save_cycle_template", { p_name: templateName, p_guidance: "", p_plans: plans });
   if (error || !templateId) throw new Error(`Could not create the template: ${error?.message ?? "no id"}`);
-  const { data: blockedId, error: blockedError } = await adminDb.rpc("save_cycle_template", {
-    p_name: `Blocked ${t}`,
+  const withdrawnName = `Copy withdrawn ${t}`;
+  const withdrawnTemplate = `With withdrawn ${t}`;
+  const { data: withdrawnTemplateId, error: withdrawnError } = await adminDb.rpc("save_cycle_template", {
+    p_name: withdrawnTemplate,
     p_guidance: "",
     p_plans: [{ peptide_id: withdrawn, phases: phases("1") }],
   });
-  if (blockedError || !blockedId) throw new Error(`Could not create the template: ${blockedError?.message ?? "no id"}`);
-  await serviceClient().from("peptides").update({ available: false }).eq("id", withdrawn);
+  if (withdrawnError || !withdrawnTemplateId) throw new Error(`Could not create the template: ${withdrawnError?.message ?? "no id"}`);
+  const { error: withdrawError } = await serviceClient().from("peptides").update({ available: false }).eq("id", withdrawn);
+  if (withdrawError) throw new Error(`Could not withdraw: ${withdrawError.message}`);
 
   await signInAs(page, APP_ORIGIN, RESEARCHER.email);
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
 
-  // A template naming a peptide no longer offered can't be used.
-  await page.goto(`${APP_ORIGIN}/app/cycles/new?template=${blockedId}`);
-  await expect(page.getByRole("alert").filter({ hasText: "no longer offered" })).toHaveText(
-    "This template includes a peptide that is no longer offered, so it can't be used to start a new cycle. Existing cycles that used it keep their records.",
-  );
-  await expect(page.getByRole("button", { name: "Save cycle" })).toHaveCount(0);
+  // A template naming a peptide no longer offered can still be copied, and the
+  // copy keeps it (Marco, 2026-09-26); the library picker still doesn't offer it.
+  await page.goto(`${APP_ORIGIN}/app/cycles/new?template=${withdrawnTemplateId}`);
+  await expect(plan(page, withdrawnName)).toBeVisible();
+  await expect(plan(page, withdrawnName).locator(".app-cyc-withdrawn")).toHaveText("No longer offered for new cycles.");
+  await expect(page.getByLabel("Peptide to add").locator("option", { hasText: withdrawnName })).toHaveCount(0);
+  await (await hydrated(page.getByLabel("Goal"))).fill("Keep it");
+  await page.getByRole("button", { name: "Save cycle" }).click();
+  await expect(page.locator(".app-toast")).toHaveText("Cycle saved.");
+  const keptCopy = await storedCycle(withdrawnTemplate);
+  expect(keptCopy.revisions[0].plans.map((p) => p.peptide_id)).toEqual([withdrawn]);
 
   await page.goto(`${APP_ORIGIN}/app/cycles/new?template=${templateId}`);
   await expect(page.getByText(`Started from the supplied template “${templateName}”. This copy is yours — later template changes won't touch it.`)).toBeVisible();
   await expect(page.getByLabel("Cycle name")).toHaveValue(templateName);
-  const tomorrow = localDay(1, "America/Toronto");
+  // Tomorrow in the cycle's zone (the device's, suggested).
+  const tomorrow = localDay(1, ZONE);
   await expect(phase(plan(page, A), 0).getByLabel("Start", { exact: true })).toHaveValue(tomorrow);
   await expect(phase(plan(page, A), 1).locator(".app-cyc-phase-title")).toHaveText("Break");
   await (await hydrated(page.getByLabel("Goal"))).fill("Recomp");

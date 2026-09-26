@@ -162,7 +162,8 @@ const ANCHOR_ZONE = "UTC";
 
 export const NAME_REQUIRED = "Name is required.";
 export const PEPTIDE_REQUIRED = "Add at least one peptide — an empty template can't be saved.";
-export const REMOVE_UNAVAILABLE = "Remove peptides that are no longer offered before saving.";
+/** A peptide no longer offered can stay in a template that has it, but can't be added (Marco, 2026-09-26). */
+export const unavailableAdded = (name: string) => `${name} is no longer offered, so it can't be added. Remove it before saving.`;
 export const NAME_TOO_LONG = `Names can be up to ${TEMPLATE_LIMITS.name} characters.`;
 export const GUIDANCE_TOO_LONG = "Guidance can be up to 4,000 characters.";
 /** Malformed input the editor never sends (a bad id, a repeated peptide). */
@@ -309,19 +310,26 @@ function planMessages(name: string, form: PlanForm, drafts: Draft[]): string[] {
 
 /**
  * Validates a template as A3 does. First failure wins for: a malformed form,
- * name required, at least one peptide, no unavailable peptides (then the
- * name and guidance limits). Then every phase and peptide message in order
- * (see planMessages); `error` is the first plus "(+N more)". `peptides` is the
- * whole library (an id not in it counts as no longer offered).
+ * name required, at least one peptide, no unavailable peptide added (one the
+ * stored template already names, `kept`, may stay; then the name and
+ * guidance limits). Then every phase and peptide message in order (see
+ * planMessages); `error` is the first plus "(+N more)". `peptides` is the
+ * whole library (an id not in it counts as unknown).
  */
-export function validateTemplate(input: unknown, peptides: readonly TemplatePeptide[]): TemplateValidation {
+export function validateTemplate(
+  input: unknown,
+  peptides: readonly TemplatePeptide[],
+  kept: ReadonlySet<string> = new Set(),
+): TemplateValidation {
   const fail = (error: string, errors = [error]): TemplateValidation => ({ ok: false, error, errors });
   const form = readForm(input);
   if (!form) return fail(INVALID_TEMPLATE);
   if (!form.name) return fail(NAME_REQUIRED);
   if (form.plans.length === 0) return fail(PEPTIDE_REQUIRED);
   const library = new Map(peptides.map((peptide) => [peptide.id, peptide]));
-  if (form.plans.some((plan) => !library.get(plan.peptideId)?.available)) return fail(REMOVE_UNAVAILABLE);
+  if (form.plans.some((plan) => !library.has(plan.peptideId))) return fail(INVALID_TEMPLATE);
+  const added = form.plans.find((plan) => !library.get(plan.peptideId)!.available && !kept.has(plan.peptideId));
+  if (added) return fail(unavailableAdded(library.get(added.peptideId)!.name));
   if (form.name.length > TEMPLATE_LIMITS.name) return fail(NAME_TOO_LONG);
   if (form.guidance.length > TEMPLATE_LIMITS.guidance) return fail(GUIDANCE_TOO_LONG);
 

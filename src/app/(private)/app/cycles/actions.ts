@@ -12,11 +12,11 @@ import {
   editIssueMessage,
   FUTURE_PLAN_UPDATED,
   PAST_REACHED,
-  TEMPLATE_BLOCKED,
+  TEMPLATE_GONE,
 } from "@/lib/cycles/display";
 import { type RevisedPlan, reviseCycle } from "@/lib/cycles/revise";
-import { INVALID_CYCLE, validateCycle } from "@/lib/cycles/rules";
-import { getCycle, listCyclePeptides, saveCycle } from "@/lib/cycles/service";
+import { type CyclePeptide, INVALID_CYCLE, readCycleForm, validateCycle } from "@/lib/cycles/rules";
+import { getCycle, getTemplateForCopy, listCyclePeptides, saveCycle } from "@/lib/cycles/service";
 import { createClient } from "@/lib/supabase/server";
 
 export type CycleActionResult = {
@@ -43,13 +43,26 @@ export async function saveCycleAction(input: unknown): Promise<CycleActionResult
   if (!person) redirect(signInUrl({ next: "/app/cycles" }));
 
   const db = await createClient();
-  let peptides;
+  // The library, plus (for a template copy) the peptides that template names:
+  // the copy keeps them even when no longer offered.
+  const form = readCycleForm(input);
+  const templateId = form && form.cycleId === null ? form.templateId : null;
+  const load = async (): Promise<{ peptides: CyclePeptide[]; copied: Set<string> } | "gone"> => {
+    const [library, template] = await Promise.all([listCyclePeptides(db), templateId ? getTemplateForCopy(db, templateId) : null]);
+    if (templateId && !template) return "gone";
+    const named = template?.peptides ?? [];
+    const known = new Set(library.map((peptide) => peptide.id));
+    return { peptides: [...library, ...named.filter((peptide) => !known.has(peptide.id))], copied: new Set(named.map((peptide) => peptide.id)) };
+  };
+  let loaded;
   try {
-    peptides = await listCyclePeptides(db);
+    loaded = await load();
   } catch {
     return failed();
   }
-  const valid = validateCycle(input, peptides);
+  if (loaded === "gone") return { errors: [TEMPLATE_GONE] };
+  const { peptides, copied } = loaded;
+  const valid = validateCycle(input, peptides, copied);
   if (!valid.ok) return { errors: valid.errors };
   const cycle = valid.value;
   const nameOf = (id: string) => peptides.find((peptide) => peptide.id === id)?.name ?? "Unknown peptide";
@@ -64,9 +77,9 @@ export async function saveCycleAction(input: unknown): Promise<CycleActionResult
     }
     // Only the owner edits; a support grant reads but never writes.
     if (!current || current.ownerId !== person.id) return { toast: CYCLE_GONE, tone: "error" };
-    if (current.currentRevision !== cycle.revision) return { errors: [CYCLE_CHANGED] };
+    if (current.version !== cycle.version) return { errors: [CYCLE_CHANGED] };
     // Recorded doses (S12) will be passed here so none is ever replaced.
-    const revision = reviseCycle(current.revisions[current.revisions.length - 1], cycle, new Date());
+    const revision = reviseCycle(current.revisions, cycle, new Date());
     if (!revision.ok) return { errors: revision.issues.map((issue) => editIssueMessage(issue, nameOf)) };
     revised = revision.plans;
   }
@@ -78,12 +91,13 @@ export async function saveCycleAction(input: unknown): Promise<CycleActionResult
       return { saved: true, cycleId: result.id, toast: cycle.cycleId ? FUTURE_PLAN_UPDATED : CYCLE_SAVED, tone: "info" };
     case "unavailable": {
       // Withdrawn after the check above: say which, from the library as it is now.
-      const again = validateCycle(input, await listCyclePeptides(db).catch(() => peptides));
-      if (!again.ok) return { errors: again.errors };
-      return { errors: [cycle.templateId ? TEMPLATE_BLOCKED : INVALID_CYCLE] };
+      const fresh = await load().catch(() => loaded);
+      if (fresh === "gone") return { errors: [TEMPLATE_GONE] };
+      const again = validateCycle(input, fresh.peptides, fresh.copied);
+      return { errors: again.ok ? [INVALID_CYCLE] : again.errors };
     }
     case "template":
-      return { errors: [TEMPLATE_BLOCKED] };
+      return { errors: [TEMPLATE_GONE] };
     case "stale":
       return { errors: [CYCLE_CHANGED] };
     case "past":

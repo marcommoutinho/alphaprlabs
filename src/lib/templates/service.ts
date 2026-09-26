@@ -121,7 +121,18 @@ export type SaveTemplateResult =
   | { kind: "saved"; id: string }
   | { kind: "not_found" | "unavailable" | "error" };
 
-/** save_cycle_template's refusals: a peptide no longer offered (AP007) or not in the library (AP003). */
+/**
+ * The peptides a stored template names (none when `templateId` is null or
+ * names no template): those it may keep after they are withdrawn.
+ */
+export async function storedTemplatePeptides(db: Db, templateId: string | null): Promise<Set<string>> {
+  if (!templateId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(templateId)) return new Set();
+  const { data, error } = await db.from("cycle_template_plans").select("peptide_id").eq("template_id", templateId.toLowerCase());
+  if (error) throw new Error(`Could not load the template: ${error.message}`);
+  return new Set((data ?? []).map((row) => row.peptide_id));
+}
+
+/** save_cycle_template's refusals: a peptide no longer offered newly added (AP007) or not in the library (AP003). */
 const UNAVAILABLE = new Set(["AP007", "AP003"]);
 
 /** The database function's plans argument (see the S8 migration). */

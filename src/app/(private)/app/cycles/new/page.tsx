@@ -1,13 +1,10 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AppPage } from "@/components/app-shell/app-shell";
 import { CycleBuilder } from "@/components/research/cycle-builder";
 import { requireResearcher } from "@/lib/auth/session";
-import { TEMPLATE_BLOCKED, timeZoneOptions } from "@/lib/cycles/display";
-import { addDays, type CycleForm, formFromTemplate } from "@/lib/cycles/rules";
+import { timeZoneOptions } from "@/lib/cycles/display";
+import { type CycleForm, type CyclePeptide, DATES_ZONE, formFromTemplate, tomorrowIn } from "@/lib/cycles/rules";
 import { getTemplateForCopy, listCyclePeptides } from "@/lib/cycles/service";
-import { BUSINESS_TIME_ZONE } from "@/lib/inventory/screens";
-import { localDateOf } from "@/lib/schedule/zone";
 import { createClient } from "@/lib/supabase/server";
 import "@/styles/app/cycles.css";
 
@@ -15,7 +12,7 @@ type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 
 const CUSTOM: CycleForm = {
   cycleId: null,
-  revision: null,
+  version: null,
   templateId: null,
   name: "",
   timeZone: "",
@@ -27,43 +24,37 @@ const CUSTOM: CycleForm = {
 /**
  * R3 New cycle: custom, or `?template=<id>` to start from a supplied
  * template (R6 "Use as starting point", S10). The copy's phases get dates
- * from tomorrow; it is the researcher's own from then on.
+ * from tomorrow in the cycle's time zone; it is the researcher's own from
+ * then on, including any peptide the template names that is no longer
+ * offered (Marco, 2026-09-26).
  */
 export default async function NewCyclePage({ searchParams }: { searchParams: SearchParams }) {
   const { template: templateParam } = await searchParams;
   const templateId = typeof templateParam === "string" ? templateParam : null;
   await requireResearcher(templateId ? `/app/cycles/new?template=${encodeURIComponent(templateId)}` : "/app/cycles/new");
   const db = await createClient();
-  const peptides = await listCyclePeptides(db);
-  // Tomorrow, as in the prototype. The cycle's zone is chosen in the builder;
-  // the business zone stands in for the date until then.
-  const tomorrow = addDays(localDateOf(new Date(), BUSINESS_TIME_ZONE), 1);
+  let peptides: CyclePeptide[] = await listCyclePeptides(db);
+  // The builder computes "tomorrow" in the zone chosen for the cycle (the
+  // device's until one is picked) from this instant, and moves the dates it
+  // set itself when the zone changes. The server renders before it knows the
+  // device's zone, so these first dates are DATES_ZONE's.
+  const now = new Date().toISOString();
 
   let initial = CUSTOM;
   let templateName: string | undefined;
   if (templateId) {
-    const template = await getTemplateForCopy(db, templateId, peptides);
+    const template = await getTemplateForCopy(db, templateId);
     if (!template) notFound();
-    if (!template.usable) {
-      return (
-        <AppPage>
-          <Link href="/app/cycles" className="app-cyc-back">
-            ‹ Cycles
-          </Link>
-          <h1 className="app-h1 app-cyc-title">{template.name}</h1>
-          <p className="app-cyc-blocked" role="alert">
-            {TEMPLATE_BLOCKED}
-          </p>
-        </AppPage>
-      );
-    }
-    initial = formFromTemplate(template, tomorrow, "");
+    initial = formFromTemplate(template, tomorrowIn(now, DATES_ZONE), "");
     templateName = template.name;
+    // Names for the template's peptides the library no longer lists.
+    const known = new Set(peptides.map((peptide) => peptide.id));
+    peptides = [...peptides, ...template.peptides.filter((peptide) => !known.has(peptide.id))];
   }
 
   return (
     <AppPage>
-      <CycleBuilder initial={initial} peptides={peptides} zones={timeZoneOptions(["UTC"])} defaultStart={tomorrow} templateName={templateName} />
+      <CycleBuilder initial={initial} peptides={peptides} zones={timeZoneOptions(["UTC"])} now={now} templateName={templateName} />
     </AppPage>
   );
 }

@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { allRows } from "@/lib/library/service";
-import type { DoseChange, Phase, Weekday } from "@/lib/schedule/engine";
+import type { DoseChange, Phase, TimeChange, Weekday } from "@/lib/schedule/engine";
 import type { Database, Json } from "@/lib/supabase/database.types";
 import type { TemplatePhase, TemplatePlan } from "@/lib/templates/rules";
 import type { RevisedPlan } from "./revise";
@@ -46,6 +46,8 @@ type PhaseRow = {
   weekdays: number[] | null;
   dose_change_from: string[];
   dose_change_mg: string;
+  time_change_from: string[];
+  time_change_time: string[];
 };
 
 /** "{0.5,0.75}" (numeric[] read as text, so no decimal passes through a float) as strings. */
@@ -56,6 +58,7 @@ function phaseOf(row: PhaseRow): Phase {
   if (row.kind === "break") return { ...dates, kind: "break" };
   const doses = textArray(row.dose_change_mg);
   const doseChanges: DoseChange[] = row.dose_change_from.map((from, index) => ({ from, doseMg: doses[index] }));
+  const timeChanges: TimeChange[] = row.time_change_from.map((from, index) => ({ from, time: row.time_change_time[index] }));
   return {
     ...dates,
     kind: "active",
@@ -66,11 +69,12 @@ function phaseOf(row: PhaseRow): Phase {
         ? { type: "weekdays", days: (row.weekdays ?? []) as Weekday[] }
         : { type: "interval", everyDays: row.every_days ?? 0 },
     ...(doseChanges.length ? { doseChanges } : {}),
+    ...(timeChanges.length ? { timeChanges } : {}),
   };
 }
 
 const PHASE_COLUMNS =
-  "revision_id, phase_id, plan_id, kind, start_date, end_date, dose_mg::text, local_time, schedule_type, every_days, weekdays, dose_change_from, dose_change_mg::text";
+  "revision_id, phase_id, plan_id, kind, start_date, end_date, dose_mg::text, local_time, schedule_type, every_days, weekdays, dose_change_from, dose_change_mg::text, time_change_from, time_change_time";
 
 /** Cycles with every revision, oldest first, for one owner or one cycle id. */
 async function readCycles(db: Db, filter: { ownerId: string } | { cycleId: string }): Promise<CycleRecord[]> {
@@ -79,7 +83,7 @@ async function readCycles(db: Db, filter: { ownerId: string } | { cycleId: strin
     (from, to) => {
       const query = db
         .from("cycles")
-        .select("id, owner_id, name, goal, baseline, template_id, template_name, template_guidance, template_updated_at, current_revision, created_at, updated_at");
+        .select("id, owner_id, name, goal, baseline, template_id, template_name, template_guidance, template_updated_at, current_revision, version, created_at, updated_at");
       return (byOwner ? query.eq("owner_id", filter.ownerId) : query.eq("id", filter.cycleId))
         .order("created_at", { ascending: false })
         .order("id")
@@ -162,6 +166,7 @@ async function readCycles(db: Db, filter: { ownerId: string } | { cycleId: strin
       templateGuidance: row.template_guidance,
       templateUpdatedAt: row.template_updated_at,
       currentRevision: row.current_revision,
+      version: row.version,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       // Up to the current revision: one saved concurrently is not current yet.
@@ -210,14 +215,15 @@ export function cycleSummary(cycle: CycleRecord, now: Date | string): CycleSumma
 
 /**
  * A template to copy, as the researcher reads it, or null when there is no
- * such template. `usable` is false when it names a peptide that is no longer
- * offered (or one the researcher cannot read): R6 blocks it.
+ * such template. The copy includes every peptide it names, even one no
+ * longer offered (Marco, 2026-09-26); `peptides` are those peptides' names
+ * and availability (template_peptides(): readable for this template only,
+ * while the library itself still hides withdrawn entries).
  */
 export async function getTemplateForCopy(
   db: Db,
   templateId: string,
-  peptides: readonly CyclePeptide[],
-): Promise<{ id: string; name: string; plans: TemplatePlan[]; usable: boolean } | null> {
+): Promise<{ id: string; name: string; plans: TemplatePlan[]; peptides: CyclePeptide[] } | null> {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(templateId)) return null;
   const { data, error } = await db
     .from("cycle_templates")
@@ -249,8 +255,10 @@ export async function getTemplateForCopy(
           };
         }),
     }));
-  const available = new Set(peptides.filter((peptide) => peptide.available).map((peptide) => peptide.id));
-  return { id: data.id, name: data.name, plans, usable: plans.every((plan) => available.has(plan.peptideId)) };
+  const named = await db.rpc("template_peptides", { p_template_id: data.id });
+  if (named.error) throw new Error(`Could not load the template's peptides: ${named.error.message}`);
+  const peptides = (named.data ?? []).map(({ id, name, available }) => ({ id, name, available }));
+  return { id: data.id, name: data.name, plans, peptides };
 }
 
 // ── Writes ──────────────────────────────────────────────────────────────────
@@ -265,6 +273,7 @@ function phaseArgument(phase: DraftPhase) {
     schedule_type: phase.schedule.type,
     ...(phase.schedule.type === "interval" ? { every_days: phase.schedule.everyDays } : { weekdays: phase.schedule.days }),
     dose_changes: (phase.doseChanges ?? []).map((change) => ({ from: change.from, dose_mg: change.doseMg })),
+    time_changes: (phase.timeChanges ?? []).map((change) => ({ from: change.from, local_time: change.time })),
   };
 }
 
@@ -302,7 +311,7 @@ export async function saveCycle(db: Db, cycle: ValidCycle, revised?: readonly Re
     p_time_zone: cycle.timeZone,
     p_plans: plansArgument(revised ?? cycle.plans),
     ...(cycle.templateId ? { p_template_id: cycle.templateId } : {}),
-    ...(cycle.cycleId ? { p_cycle_id: cycle.cycleId, p_revision: cycle.revision ?? undefined } : {}),
+    ...(cycle.cycleId ? { p_cycle_id: cycle.cycleId, p_version: cycle.version ?? undefined } : {}),
   });
   if (error) return { kind: REFUSALS[error.code] ?? "error" };
   if (!data) return { kind: "not_found" };

@@ -4,7 +4,8 @@
 // a grant reads nothing; a granted admin reads but never writes; revoking
 // denies the next read; no one writes the tables directly; an unacknowledged
 // account writes nothing; a researcher reads a peptide that is no longer
-// offered only through their OWN cycles; and the library and template counts
+// offered only through their OWN cycles (and a template's peptide names
+// through template_peptides()); and the library and template counts
 // include cycles, for admins only, as numbers.
 import { beforeAll, describe, expect, it } from "vitest";
 import { getCycle, listCycles, plansArgument } from "@/lib/cycles/service";
@@ -74,7 +75,7 @@ describe("cycles are the owner's; grants read, never write", () => {
     expect(await sqlState(anonClient().from("cycles").select("id").eq("id", cycleId), "anon")).toBe("42501");
 
     // Nobody edits it but its owner: another person's save returns nothing and changes nothing.
-    const edit = { cycleId, revision: 1, name: "Taken over", plans: cyclePlans() };
+    const edit = { cycleId, version: 1, name: "Taken over", plans: cyclePlans() };
     expect(await ok(saveCycle(db.blair, edit), "blair edits")).toBeNull();
     expect(await ok(saveCycle(db.noah, edit), "noah edits")).toBeNull();
 
@@ -129,7 +130,7 @@ describe("peptides no longer offered, and the admin counts", () => {
       const [revision] = (await getCycle(db.alex, cycleId))!.revisions;
       const current = plansArgument(revision.plans.map((p) => ({ ...p, effectiveFrom: day(0) }))) as { phases: { dose_mg?: string }[] }[];
       current[1].phases[0].dose_mg = "0.5";
-      expect(await ok(saveCycle(db.alex, { cycleId, revision: 1, plans: current }), "edit")).toBe(cycleId);
+      expect(await ok(saveCycle(db.alex, { cycleId, version: 1, plans: current }), "edit")).toBe(cycleId);
       const edited = (await getCycle(db.alex, cycleId))!;
       expect(edited.currentRevision).toBe(2);
       expect(edited.revisions[1].plans[1]).toMatchObject({ peptideId: peptide.withdrawn, phases: [{ doseMg: "0.5" }] });
@@ -142,29 +143,60 @@ describe("peptides no longer offered, and the admin counts", () => {
         ...(plansArgument(otherRevision.plans.map((p) => ({ ...p, effectiveFrom: day(0) }))) as unknown[]),
         plan(peptide.withdrawn, [interval(day(3), day(8))], null, day(0)),
       ];
-      expect(await sqlState(saveCycle(db.alex, { cycleId: other, revision: 1, plans: withNew }), "new plan")).toBe("AP007");
+      expect(await sqlState(saveCycle(db.alex, { cycleId: other, version: 1, plans: withNew }), "new plan")).toBe("AP007");
     } finally {
       await setAvailable(db.grace, peptide.withdrawn, peptide.withdrawnName, true);
     }
   });
 
-  it("a template naming a peptide no longer offered can't be copied", async () => {
+  it("a template naming a peptide no longer offered can be copied with it; only its names are readable (Marco, 2026-09-26)", async () => {
     const name = `Template only ${tag()}`;
     const only = await createPeptide(db.grace, name);
-    const templateId = await ok(
+    const templateId = (await ok(
       db.grace.rpc("save_cycle_template", {
         p_name: `Needs ${name}`,
         p_guidance: "",
-        p_plans: [{ peptide_id: only, phases: [{ kind: "active", offset_days: 0, length_days: 5, dose_mg: "1", local_time: "08:00", schedule_type: "interval", every_days: 1 }] }],
+        p_plans: [
+          { peptide_id: only, phases: [{ kind: "active", offset_days: 0, length_days: 5, dose_mg: "1", local_time: "08:00", schedule_type: "interval", every_days: 1 }] },
+          { peptide_id: peptide.open, phases: [{ kind: "active", offset_days: 0, length_days: 5, dose_mg: "1", local_time: "08:00", schedule_type: "interval", every_days: 1 }] },
+        ],
       }),
       "template",
-    );
+    ))!;
+    const other = (await ok(
+      db.grace.rpc("save_cycle_template", {
+        p_name: `Other ${name}`,
+        p_guidance: "",
+        p_plans: [{ peptide_id: peptide.open, phases: [{ kind: "active", offset_days: 0, length_days: 5, dose_mg: "1", local_time: "08:00", schedule_type: "interval", every_days: 1 }] }],
+      }),
+      "other template",
+    ))!;
     await setAvailable(db.grace, only, name, false);
-    // Even with a plan of offered peptides only, the copy is refused.
-    const args = { plans: [plan(peptide.open, [interval(day(1), day(5))])], templateId: templateId! };
-    expect(await sqlState(saveCycle(db.blair, args), "template copy")).toBe("AP007");
-    await setAvailable(db.grace, only, name, true);
-    expect(await sqlState(saveCycle(db.blair, args), "template copy once offered again")).toBe("ok");
+
+    // The template's peptides, withdrawn one included, for acknowledged readers only.
+    const named = await ok(db.blair.rpc("template_peptides", { p_template_id: templateId }), "template peptides");
+    expect(named.find((p) => p.id === only)).toEqual({ id: only, name, available: false });
+    expect(named.map((p) => p.id).sort()).toEqual([only, peptide.open].sort());
+    expect((await ok(db.blair.rpc("template_peptides", { p_template_id: other }), "other")).map((p) => p.id)).toEqual([peptide.open]);
+    expect(await sqlState(db.una.rpc("template_peptides", { p_template_id: templateId }), "unacknowledged")).toBe("42501");
+    expect(await sqlState(anonClient().rpc("template_peptides", { p_template_id: templateId }), "anon")).toBe("42501");
+    // The library itself still hides it.
+    expect(await ok(db.blair.from("peptides").select("id").eq("id", only), "library")).toEqual([]);
+
+    // Copying the template keeps it; a custom cycle, another template's copy, or a later new plan can't add it.
+    const withdrawnPlan = plan(only, [interval(day(1), day(5), "1", 1)]);
+    const copy = { plans: [withdrawnPlan, plan(peptide.open, [interval(day(1), day(5))])], templateId };
+    const cycleId = (await ok(saveCycle(db.blair, copy), "template copy"))!;
+    expect((await getCycle(db.blair, cycleId))!.revisions[0].plans.map((p) => p.peptideId)).toEqual([only, peptide.open]);
+    expect(await sqlState(saveCycle(db.blair, { plans: [withdrawnPlan] }), "custom")).toBe("AP007");
+    expect(await sqlState(saveCycle(db.blair, { plans: [withdrawnPlan], templateId: other }), "another template")).toBe("AP007");
+    const plain = await createCycle(db.blair, { plans: [plan(peptide.open, [interval(day(3), day(8))])] });
+    const [plainRevision] = (await getCycle(db.blair, plain))!.revisions;
+    const withNew = [
+      ...(plansArgument(plainRevision.plans.map((p) => ({ ...p, effectiveFrom: day(0) }))) as unknown[]),
+      plan(only, [interval(day(3), day(8))], null, day(0)),
+    ];
+    expect(await sqlState(saveCycle(db.blair, { cycleId: plain, version: 1, plans: withNew }), "new plan")).toBe("AP007");
   });
 
   it("count cycles in the library's 'referenced by' and the template usage, for admins only", async () => {

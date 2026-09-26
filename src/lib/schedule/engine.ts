@@ -37,6 +37,12 @@
 // - Dose changes apply from a local date within an active phase, without
 //   restarting an every-N-days rhythm. (Starting a new phase does restart it:
 //   a phase's first dose is always on its start date.)
+// - Time changes also apply from a local date and keep the rhythm: only the
+//   clock time moves. Fixed weekdays use the time in effect on each date.
+//   Every N days: the next dose's date is still N days after the previous
+//   dose's actual (or planned) date; if a time change starts after that date
+//   and on or before the next date, the next dose is at the latest such
+//   change's time, else at the previous dose's wall-clock time as before.
 import { Temporal } from "@js-temporal/polyfill";
 import { isPositiveDecimal, normalizeDecimal } from "@/lib/calculator/decimal";
 import {
@@ -64,6 +70,9 @@ export type Schedule = { type: "interval"; everyDays: number } | { type: "weekda
 /** A dose that applies to occurrences on or after `from` (local date) within its phase. */
 export type DoseChange = { from: LocalDate; doseMg: string };
 
+/** A local time of day that applies from `from` (local date) within its phase; the rhythm is kept. */
+export type TimeChange = { from: LocalDate; time: LocalTime };
+
 export type ActivePhase = {
   /** Stable, unique within the plan, without ":". Occurrence keys are built from it. */
   id: string;
@@ -77,6 +86,7 @@ export type ActivePhase = {
   time: LocalTime;
   schedule: Schedule;
   doseChanges?: DoseChange[];
+  timeChanges?: TimeChange[];
 };
 
 export type BreakPhase = { id: string; kind: "break"; start: LocalDate; end: LocalDate };
@@ -158,7 +168,8 @@ export type PlanIssue =
   | { code: "interval"; phase: number }
   | { code: "weekdays"; phase: number }
   | { code: "time"; phase: number }
-  | { code: "dose-change"; phase: number };
+  | { code: "dose-change"; phase: number }
+  | { code: "time-change"; phase: number };
 
 export class ScheduleInputError extends Error {
   constructor(
@@ -249,35 +260,46 @@ export function validatePlan(plan: PeptidePlan): PlanIssue[] {
       issues.push({ code: "schedule", phase: n });
     }
     if (!isLocalTime(phase.time)) issues.push({ code: "time", phase: n });
-    const changes = phase.doseChanges ?? [];
-    const froms = new Set<string>();
-    const changesValid =
-      Array.isArray(changes) &&
-      changes.every((change) => {
-        const ok =
-          isLocalDate(change?.from) &&
-          (!datesValid || (change.from >= phase.start && change.from <= phase.end)) &&
-          isPositiveDecimal(change.doseMg) &&
-          !froms.has(change.from);
-        froms.add(change?.from);
-        return ok;
-      });
-    if (!changesValid) issues.push({ code: "dose-change", phase: n });
+    // Changes: dated within the phase, one per date, each with a valid value.
+    const changesValid = <T extends { from: LocalDate }>(changes: T[] | undefined, valueOk: (change: T) => boolean) => {
+      const froms = new Set<string>();
+      return (
+        Array.isArray(changes ?? []) &&
+        (changes ?? []).every((change) => {
+          const ok =
+            isLocalDate(change?.from) &&
+            (!datesValid || (change.from >= phase.start && change.from <= phase.end)) &&
+            valueOk(change) &&
+            !froms.has(change.from);
+          froms.add(change?.from);
+          return ok;
+        })
+      );
+    };
+    if (!changesValid(phase.doseChanges, (change) => isPositiveDecimal(change.doseMg))) issues.push({ code: "dose-change", phase: n });
+    if (!changesValid(phase.timeChanges, (change) => isLocalTime(change.time))) issues.push({ code: "time-change", phase: n });
   });
   return issues;
 }
 
-function doseOn(phase: ActivePhase, date: LocalDate): string {
-  let dose = phase.doseMg;
-  let from = "";
-  for (const change of phase.doseChanges ?? []) {
-    if (change.from <= date && change.from > from) {
-      dose = change.doseMg;
-      from = change.from;
-    }
+/** The latest change dated after `after` (exclusive, "" for none) and on or before `on`. */
+function latestChange<T extends { from: LocalDate }>(changes: T[] | undefined, after: LocalDate, on: LocalDate): T | null {
+  let found: T | null = null;
+  for (const change of changes ?? []) {
+    if (change.from > after && change.from <= on && (!found || change.from > found.from)) found = change;
   }
+  return found;
+}
+
+function doseOn(phase: ActivePhase, date: LocalDate): string {
+  const dose = latestChange(phase.doseChanges, "", date)?.doseMg ?? phase.doseMg;
   // Validated: always a decimal. Canonical text, "." as the decimal point.
   return normalizeDecimal(dose) ?? dose.trim();
+}
+
+/** The local time in effect on `date` (the phase time, or the latest time change from on or before it). */
+export function timeOn(phase: ActivePhase, date: LocalDate): LocalTime {
+  return latestChange(phase.timeChanges, "", date)?.time ?? phase.time;
 }
 
 /** A point to count an interval from: its instant, and the wall-clock time the next dose repeats. */
@@ -361,9 +383,18 @@ function draft({ planId, timeZone, phase }: Context, key: string, planned: Slot,
 function intervalDrafts(ctx: Context, everyDays: number, confirmations: Map<string, ParsedConfirmation>): Draft[] {
   const { planId, timeZone, phase } = ctx;
   const prefix = `${planId}:${phase.id}:`;
-  const start = Temporal.PlainDate.from(phase.start).toPlainDateTime(Temporal.PlainTime.from(phase.time));
+  const start = Temporal.PlainDate.from(phase.start).toPlainDateTime(Temporal.PlainTime.from(timeOn(phase, phase.start)));
   const end = Temporal.PlainDate.from(phase.end);
   const beyondEnd = (slot: Slot) => Temporal.PlainDate.compare(slot.wall.toPlainDate(), end) > 0;
+  // The next intended wall-clock time: N days after the anchor, at a time
+  // change's time when one starts after the anchor's date and by the next date.
+  const nextWall = (reference: Anchor | null, latest: Anchor | null): Temporal.PlainDateTime => {
+    if (reference === null) return start;
+    const anchor = laterAnchor(reference, latest).wall;
+    const next = anchor.add({ days: everyDays });
+    const change = latestChange(phase.timeChanges, anchor.toPlainDate().toString(), next.toPlainDate().toString());
+    return change ? next.toPlainDate().toPlainDateTime(Temporal.PlainTime.from(change.time)) : next;
+  };
 
   // This phase's confirmations, grouped by recording instant, oldest first.
   type Entry = { index: number; confirmation: ParsedConfirmation; anchor: Anchor };
@@ -403,7 +434,7 @@ function intervalDrafts(ctx: Context, everyDays: number, confirmations: Map<stri
       const fixed = frozen.get(index);
       // The intended wall-clock time. An unconfirmed dose repeats its intended
       // time, so a daylight-saving shift on one day doesn't carry forward.
-      const slot = fixed ?? slotAt(reference === null ? start : laterAnchor(reference, latest).wall.add({ days: everyDays }), timeZone);
+      const slot = fixed ?? slotAt(nextWall(reference, latest), timeZone);
       yield { index, slot, isFrozen: fixed !== undefined };
       const entry = applied.get(index);
       if (entry) {
@@ -457,7 +488,7 @@ function intervalDrafts(ctx: Context, everyDays: number, confirmations: Map<stri
   for (let index = lowest; ; index++) {
     if (index >= MAX_OCCURRENCES_PER_PHASE) throw new ScheduleInputError(`Phase ${phase.id} has too many occurrences`);
     const fixed = frozen.get(index);
-    const slot = fixed ?? slotAt(reference === null ? start : laterAnchor(reference, latest).wall.add({ days: everyDays }), timeZone);
+    const slot = fixed ?? slotAt(nextWall(reference, latest), timeZone);
     const entry = applied.get(index);
     // Frozen and confirmed doses are always kept; a live dose past the phase end is dropped,
     // and once past every frozen or confirmed index, so is everything after it.
@@ -478,10 +509,10 @@ function weekdayDrafts(ctx: Context, days: Weekday[], confirmations: Map<string,
   const { planId, timeZone, phase } = ctx;
   const drafts: Draft[] = [];
   const last = Temporal.PlainDate.from(phase.end);
-  const time = Temporal.PlainTime.from(phase.time);
   for (let date = Temporal.PlainDate.from(phase.start); Temporal.PlainDate.compare(date, last) <= 0; date = date.add({ days: 1 })) {
     if (!days.includes((date.dayOfWeek % 7) as Weekday)) continue;
     const key = `${planId}:${phase.id}:${date.toString()}`;
+    const time = Temporal.PlainTime.from(timeOn(phase, date.toString()));
     drafts.push(draft(ctx, key, slotAt(date.toPlainDateTime(time), timeZone), confirmations.get(key)));
   }
   return drafts;

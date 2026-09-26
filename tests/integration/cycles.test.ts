@@ -103,7 +103,7 @@ describe("creating a cycle", () => {
       ["a phase id on a new cycle", { plans: a([{ ...ok1, phase_id: "00000000-0000-4000-8000-000000000001" }]) }],
       ["a plan id on a new cycle", { plans: [plan(peptide.a, [ok1], "00000000-0000-4000-8000-000000000001")] }],
       ["an effective date on a new cycle", { plans: [plan(peptide.a, [ok1], null, day(0))] }],
-      ["a revision on a new cycle", { plans: a([ok1]), revision: 1 }],
+      ["a version on a new cycle", { plans: a([ok1]), version: 1 }],
       ["a dose change before its phase", { plans: a([{ ...ok1, dose_changes: [{ from: day(0), dose_mg: "1" }] }]) }],
     ];
     for (const [label, args] of invalid) {
@@ -171,7 +171,7 @@ describe("editing a cycle: the next revision, future doses only", () => {
     });
     const original = (await getCycle(alexDb, id))!;
     const now = new Date();
-    const { effective } = editWindow(original.revisions[0], now);
+    const { effective } = editWindow(original.revisions, now);
     const form = formOfCycle(original, effective, localDateOf(now, TORONTO));
     form.plans[0].phases[0].mg = "1.5";
     form.name = "Renamed";
@@ -196,13 +196,13 @@ describe("editing a cycle: the next revision, future doses only", () => {
     expect(await saveCycleAction(form)).toEqual({ errors: ["This cycle was changed elsewhere. Reload the page to see the latest plan."] });
 
     // A name-only save adds no revision.
-    const again = formOfCycle(edited, editWindow(edited.revisions[1], now).effective, localDateOf(now, TORONTO));
+    const again = formOfCycle(edited, editWindow(edited.revisions, now).effective, localDateOf(now, TORONTO));
     expect(await saveCycleAction({ ...again, goal: "New goal" })).toMatchObject({ saved: true });
-    expect(await getCycle(alexDb, id)).toMatchObject({ goal: "New goal", currentRevision: 2 });
+    expect(await getCycle(alexDb, id)).toMatchObject({ goal: "New goal", currentRevision: 2, version: 3 });
 
     // The database refuses what the app would never send.
     const current = plansArgument(edited.revisions[1].plans.map((p) => ({ ...p, effectiveFrom: day(1) }))) as Record<string, unknown>[];
-    const base = { cycleId: id, revision: 2, plans: current };
+    const base = { cycleId: id, version: 3, plans: current };
     const moved = structuredClone(current) as { phases: Record<string, unknown>[] }[];
     moved[0].phases[0].start_date = day(-9);
     expect(await sqlState(saveCycle(alexDb, { ...base, plans: moved }), "moved start")).toBe("AP009");
@@ -213,7 +213,7 @@ describe("editing a cycle: the next revision, future doses only", () => {
     const backdated = structuredClone(current) as { phases: Record<string, unknown>[] }[];
     backdated[1].phases.push(pause(day(-3), day(-2)));
     expect(await sqlState(saveCycle(alexDb, { ...base, plans: backdated }), "new phase in the past")).toBe("AP009");
-    expect(await sqlState(saveCycle(alexDb, { ...base, revision: 1 }), "stale")).toBe("AP010");
+    expect(await sqlState(saveCycle(alexDb, { ...base, version: 2 }), "stale")).toBe("AP010");
     expect(await sqlState(saveCycle(alexDb, { ...base, templateId: peptide.a }), "template on edit")).toBe("22023");
     const foreign = structuredClone(current) as { phases: Record<string, unknown>[] }[];
     foreign[1].phases[0].phase_id = original.revisions[0].plans[0].phases[1].id;
@@ -223,7 +223,7 @@ describe("editing a cycle: the next revision, future doses only", () => {
 
   it("shows the designed messages, in order, from the server action", async () => {
     acting.client = alexDb;
-    const result = await saveCycleAction({ cycleId: null, revision: null, templateId: null, name: "", timeZone: TORONTO, goal: "", baseline: "", plans: [] });
+    const result = await saveCycleAction({ cycleId: null, version: null, templateId: null, name: "", timeZone: TORONTO, goal: "", baseline: "", plans: [] });
     expect(result).toEqual({ errors: ["Give the cycle a name.", "Add a goal — results are reviewed against it.", "Add at least one peptide."] });
   });
 });

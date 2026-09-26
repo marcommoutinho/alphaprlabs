@@ -227,10 +227,10 @@
   color: var(--app-text-4);
 }
 
-.app-root .app-cyc-blocked {
-  margin-top: 16px;
-  font-size: 14px;
-  line-height: 1.55;
+.app-root .app-cyc-withdrawn {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--app-warning);
 }
 

@@ -33,16 +33,28 @@
 --   * a phase that ended before effective_from: identical;
 --   * a phase running across it: same id, kind and start; only its end may
 --     move (not before effective_from - 1) and, for an active phase, a dose
---     change from effective_from on may be added (dose_change_*). Its time
---     and schedule stay, so an every-N-days rhythm continues (Marco,
---     2026-09-26). The app turns a time, schedule or kind change into this
---     phase ending the day before plus a new phase (new id) from then;
+--     change and a time change from effective_from on may be added
+--     (dose_change_*, time_change_*). Its schedule stays, so an every-N-days
+--     rhythm continues (Marco, 2026-09-26: a dose or time change keeps the
+--     rhythm; only the amount or the clock time moves). The app turns a
+--     schedule or kind change into this phase ending the day before plus a
+--     new phase (new id) from then;
 --   * phases starting on or after effective_from, and new phases, are free,
 --     but may not start before it.
 -- So every occurrence before effective_from keeps its key and time, and
 -- confirmations recorded against it stay attached. save_cycle() (next
--- migration) enforces all of this; the app (src/lib/cycles) chooses
--- effective_from so only doses still in the future change.
+-- migration) enforces all of this, and the effective date rule: a plan's
+-- changes start today only when none of its doses today (in the cycle's new
+-- zone) is already due; otherwise tomorrow or later.
+--
+-- The seam (src/lib/cycles/schedule.ts): across revisions, each occurrence
+-- key belongs to exactly one revision. A revision takes over a plan at ONE
+-- instant, the start of effective_from in the revision's own time zone:
+-- occurrences the plan had before that instant keep their earlier version;
+-- every other occurrence is the new revision's.
+--
+-- cycles.version advances on every successful edit (metadata-only included);
+-- save_cycle() refuses an edit made from an older version (AP010).
 --
 -- Access model (deny by default), per the S4 grant rules
 -- (20260926150000_support_grants.sql):
@@ -55,8 +67,10 @@
 --     public.can_write_researcher(owner) itself: only the acknowledged owner,
 --     never a grant.
 --   * Peptides: a researcher may also read an entry that is no longer
---     offered when one of THEIR OWN cycles refers to it (policy below). The
---     S4 available-only rule is unchanged for everything else.
+--     offered when one of THEIR OWN cycles refers to it (policy below), and
+--     the id, name and availability of the peptides ONE template names, to
+--     copy it (template_peptides()). The S4 available-only rule is unchanged
+--     for everything else: library browsing still hides withdrawn entries.
 --   * Counts: admin_cycle_template_usage() and library_reference_counts()
 --     now count cycles, admin-only and as numbers only.
 
@@ -103,6 +117,50 @@ $$;
 revoke all on function public.cycle_dose_changes_valid(date[], numeric[], date, date) from public, anon;
 grant execute on function public.cycle_dose_changes_valid(date[], numeric[], date, date) to authenticated, service_role;
 
+-- An active phase's time changes (the engine's timeChanges): parallel arrays
+-- of local dates and "HH:MM" times, dated as dose changes are. At most 100.
+create function public.cycle_time_changes_valid(p_from date[], p_time text[], p_start date, p_end date)
+returns boolean
+language sql
+immutable
+parallel safe
+set search_path = ''
+as $$
+  select p_from is not null and p_time is not null
+    and cardinality(p_from) = cardinality(p_time)
+    and cardinality(p_from) <= 100
+    and array_position(p_from, null) is null
+    and array_position(p_time, null) is null
+    and not exists (select 1 from unnest(p_time) t where t !~ '^([01][0-9]|2[0-3]):[0-5][0-9]$')
+    and not exists (select 1 from unnest(p_from) f where f <= p_start or f > p_end)
+    and p_from = array(select distinct f from unnest(p_from) f order by f);
+$$;
+
+revoke all on function public.cycle_time_changes_valid(date[], text[], date, date) from public, anon;
+grant execute on function public.cycle_time_changes_valid(date[], text[], date, date) to authenticated, service_role;
+
+-- The instant of a local date and "HH:MM" in a zone, by the engine's rule
+-- (src/lib/schedule/zone.ts): a time in a spring-forward gap moves forward by
+-- the gap (as AT TIME ZONE does); a repeated time uses the EARLIER instant
+-- (AT TIME ZONE takes the later one, so step back when that is the same wall
+-- time: 1 hour, or 30 minutes for zones such as Australia/Lord_Howe).
+create function public.cycle_local_instant(p_date date, p_time text, p_time_zone text)
+returns timestamptz
+language sql
+stable
+parallel safe
+set search_path = ''
+as $$
+  select case
+           when ((x.at - interval '1 hour') at time zone p_time_zone) = x.wall then x.at - interval '1 hour'
+           when ((x.at - interval '30 minutes') at time zone p_time_zone) = x.wall then x.at - interval '30 minutes'
+           else x.at
+         end
+  from (select p_date + p_time::time as wall, (p_date + p_time::time) at time zone p_time_zone as at) x;
+$$;
+
+revoke all on function public.cycle_local_instant(date, text, text) from public, anon, authenticated;
+
 -- ── Tables ─────────────────────────────────────────────────────────────────
 
 create table public.cycles (
@@ -120,6 +178,8 @@ create table public.cycles (
   template_guidance text not null default '',
   template_updated_at timestamptz,
   current_revision integer not null default 1 check (current_revision >= 1),
+  -- The concurrency token: + 1 on every successful edit, metadata-only included.
+  version integer not null default 1 check (version >= 1),
   created_at timestamptz not null default now(),
   -- Moves when a save changes anything.
   updated_at timestamptz not null default now(),
@@ -192,7 +252,7 @@ create table public.cycle_revision_phases (
   end_date date not null check (end_date <= date '2100-12-31'),
   -- Dose in mg, stored without trailing zeros.
   dose_mg numeric check (dose_mg > 0 and dose_mg = trim_scale(dose_mg)),
-  -- One local time of day per phase, "HH:MM" (24-hour).
+  -- The phase's local time of day, "HH:MM" (24-hour), until a time change.
   local_time text check (local_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'),
   schedule_type text check (schedule_type in ('interval', 'weekdays')),
   every_days integer check (every_days between 1 and 365),
@@ -202,6 +262,10 @@ create table public.cycle_revision_phases (
   -- each date on. Only added by an edit, never before its effective date.
   dose_change_from date[] not null default '{}',
   dose_change_mg numeric[] not null default '{}',
+  -- Time changes within the phase (the engine's timeChanges): the local time
+  -- from each date on, keeping the rhythm. Added like dose changes.
+  time_change_from date[] not null default '{}',
+  time_change_time text[] not null default '{}',
   primary key (revision_id, phase_id),
   constraint cycle_revision_phases_plan foreign key (revision_id, plan_id, owner_id)
     references public.cycle_revision_plans (revision_id, plan_id, owner_id) on delete cascade,
@@ -209,9 +273,11 @@ create table public.cycle_revision_phases (
   constraint cycle_revision_phases_shape check (
     (kind = 'break' and dose_mg is null and local_time is null and schedule_type is null
       and every_days is null and weekdays is null
-      and cardinality(dose_change_from) = 0 and cardinality(dose_change_mg) = 0)
+      and cardinality(dose_change_from) = 0 and cardinality(dose_change_mg) = 0
+      and cardinality(time_change_from) = 0 and cardinality(time_change_time) = 0)
     or (kind = 'active' and dose_mg is not null and local_time is not null
       and public.cycle_dose_changes_valid(dose_change_from, dose_change_mg, start_date, end_date)
+      and public.cycle_time_changes_valid(time_change_from, time_change_time, start_date, end_date)
       and ((schedule_type = 'interval' and every_days is not null and weekdays is null)
         or (schedule_type = 'weekdays' and weekdays is not null and every_days is null)))
   ),
@@ -287,6 +353,82 @@ as $$
 $$;
 
 revoke all on function public.cycle_revision_content(uuid) from public, anon, authenticated;
+
+-- ── A phase's planned instants, for the effective date rule ────────────────
+-- The phase's occurrences on local dates p_from to p_to (inclusive) in
+-- p_time_zone, as the engine plans them WITHOUT confirmations: fixed weekdays
+-- on each selected weekday; every N days on start + k * N days (with no
+-- confirmation, each dose is exactly N days after the previous one); each at
+-- the local time in effect that date (the latest time change on or before it,
+-- else local_time). `key` is the engine's occurrence key within the phase:
+-- the index k for every N days, the local date for fixed weekdays. S12 adds
+-- confirmations: an every-N-days dose then counts from the previous dose's
+-- actual time, and save_cycle()'s checks must count from recorded doses too.
+-- Internal.
+create function public.cycle_phase_instants(
+  p_phase public.cycle_revision_phases,
+  p_time_zone text,
+  p_from date,
+  p_to date
+)
+returns table (key text, planned_at timestamptz)
+language sql
+stable
+set search_path = ''
+as $$
+  select case when p_phase.schedule_type = 'interval'
+              then ((d.day - p_phase.start_date) / p_phase.every_days)::text
+              else d.day::text end,
+         public.cycle_local_instant(
+           d.day,
+           coalesce((select x.t from unnest(p_phase.time_change_from, p_phase.time_change_time) x(f, t)
+                     where x.f <= d.day order by x.f desc limit 1),
+                    p_phase.local_time),
+           p_time_zone)
+  from (
+    select greatest(p_from, p_phase.start_date) + i as day
+    from generate_series(0, least(p_to, p_phase.end_date) - greatest(p_from, p_phase.start_date)) i
+  ) d
+  where p_phase.kind = 'active'
+    and case p_phase.schedule_type
+          when 'interval' then (d.day - p_phase.start_date) % p_phase.every_days = 0
+          else extract(dow from d.day)::smallint = any (p_phase.weekdays)
+        end;
+$$;
+
+revoke all on function public.cycle_phase_instants(public.cycle_revision_phases, text, date, date) from public, anon, authenticated;
+
+-- ── The peptides a template names, to copy it (R6 / R3) ────────────────────
+-- A researcher copying a template gets every peptide in it, including one
+-- no longer offered (Marco, 2026-09-26), so the builder needs those names.
+-- Id, name and availability of the peptides THIS template names, nothing
+-- else: the library itself still hides withdrawn entries. Readers are those
+-- who may read templates (20260926170000_cycle_templates.sql).
+create function public.template_peptides(p_template_id uuid)
+returns table (id uuid, name text, available boolean)
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+begin
+  if not (public.is_admin() or public.is_acknowledged_researcher()) then
+    raise exception 'not authorized' using errcode = '42501';
+  end if;
+
+  return query
+    select p.id, p.name, p.available
+    from public.peptides p
+    where exists (
+      select 1 from public.cycle_template_plans pl
+      where pl.template_id = p_template_id and pl.peptide_id = p.id
+    )
+    order by p.name, p.id;
+end;
+$$;
+
+revoke all on function public.template_peptides(uuid) from public, anon;
+grant execute on function public.template_peptides(uuid) to authenticated;
 
 -- ── Admin counts now include cycles (S4 and S8 contracts) ──────────────────
 -- Same signatures, admin checks, one row per template / entry, and grants.

@@ -28,8 +28,8 @@ import {
   newPlan,
   nextPhaseDay,
   PEPTIDE_REQUIRED,
-  REMOVE_UNAVAILABLE,
   templatePlanToEngine,
+  unavailableAdded,
   type PhaseForm,
   type TemplateForm,
   type TemplatePlan,
@@ -103,20 +103,30 @@ describe("relative days on the schedule engine", () => {
 });
 
 describe("validateTemplate: the designed messages, in order", () => {
-  it("first failure wins for the name, an empty template and a peptide no longer offered", () => {
+  it("first failure wins for the name, an empty template and a peptide no longer offered being added", () => {
     expect(NAME_REQUIRED).toBe("Name is required.");
     expect(PEPTIDE_REQUIRED).toBe("Add at least one peptide — an empty template can't be saved.");
-    expect(REMOVE_UNAVAILABLE).toBe("Remove peptides that are no longer offered before saving.");
+    const added = "Compound C is no longer offered, so it can't be added. Remove it before saving.";
+    expect(unavailableAdded("Compound C")).toBe(added);
     // Name first, even with an empty template and bad phases.
     expect(errorOf(form([], { name: " \t" })).errors).toEqual([NAME_REQUIRED]);
     expect(errorOf(form([{ peptideId: A, phases: [] }], { name: "" })).error).toBe(NAME_REQUIRED);
     expect(errorOf(form([])).error).toBe(PEPTIDE_REQUIRED);
-    // An unavailable peptide blocks saving before any phase message.
-    expect(errorOf(form([newPlan(A), { peptideId: C, phases: [active()] }])).errors).toEqual([REMOVE_UNAVAILABLE]);
-    // A peptide not in the library at all counts the same.
-    expect(errorOf(form([{ peptideId: "00000000-0000-4000-8000-0000000000ff", phases: [active()] }])).error).toBe(REMOVE_UNAVAILABLE);
+    // Adding an unavailable peptide blocks saving before any phase message.
+    expect(errorOf(form([newPlan(A), { peptideId: C, phases: [active()] }])).errors).toEqual([added]);
+    // A peptide not in the library at all is malformed input.
+    expect(errorOf(form([{ peptideId: "00000000-0000-4000-8000-0000000000ff", phases: [active()] }])).error).toBe(INVALID_TEMPLATE);
     expect(errorOf(form([newPlan(A)], { name: "x".repeat(121) })).error).toBe(NAME_TOO_LONG);
     expect(errorOf(form([newPlan(A)], { guidance: "x".repeat(4001) })).error).toBe(GUIDANCE_TOO_LONG);
+  });
+
+  it("keeps a peptide no longer offered that the stored template already names (Marco, 2026-09-26)", () => {
+    const withC = form([{ peptideId: A, phases: [active()] }, { peptideId: C, phases: [active()] }], { id: A });
+    const kept = validateTemplate(withC, LIBRARY, new Set([C]));
+    expect(kept.ok).toBe(true);
+    // Still never newly added: B kept, C not.
+    const other = validateTemplate(withC, LIBRARY, new Set([B]));
+    expect(other.ok ? null : other.errors).toEqual(["Compound C is no longer offered, so it can't be added. Remove it before saving."]);
   });
 
   it("per phase: start day, length, dose, then interval or weekdays; then overlaps; then a missing active phase", () => {
@@ -272,7 +282,7 @@ describe("display text", () => {
     expect(templateSummary(template, byId)).toBe("Compound A · 2 phase(s) + Compound B · 1 phase(s)");
     expect(templateWarning(template, byId)).toBeNull();
     expect(templateWarning({ plans: [{ peptideId: C, phases: [] }] }, byId)).toBe(
-      "Includes a peptide that is no longer offered — researchers can't start from it.",
+      "Includes a peptide that is no longer offered — researchers who start from it still get it. It can't be added to other templates.",
     );
     expect(templateUsage(0)).toBe("0 researcher cycle(s) were started from it — they won't change.");
     expect(templateUsage(3)).toBe("3 researcher cycle(s) were started from it — they won't change.");

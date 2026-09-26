@@ -1,8 +1,8 @@
 // S8 A3 Cycle templates: the admin creates a template with two peptides and a
 // break, hitting the designed validation messages in order with "(+N more)",
-// saves, edits ("updated" moves only on a real change), and is blocked by a
-// peptide that is no longer offered; the phone layout; a researcher is sent
-// away. Against the real local Supabase; templates and the library are shared
+// saves, edits ("updated" moves only on a real change), and keeps editing it
+// after one of its peptides is no longer offered (Marco, 2026-09-26), which
+// then can't be added back; the phone layout; a researcher is sent away. Against the real local Supabase; templates and the library are shared
 // by every run, so rows are found by their unique names.
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { randomBytes } from "node:crypto";
@@ -54,7 +54,7 @@ async function openTemplates(page: Page) {
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Cycle templates");
 }
 
-test("an admin creates, edits and unblocks a template, as designed", async ({ page }) => {
+test("an admin creates and edits a template, which keeps a peptide withdrawn since, as designed", async ({ page }) => {
   const t = randomBytes(3).toString("hex");
   const [A, B, C] = [`Compound A ${t}`, `Compound B ${t}`, `Compound C ${t}`];
   const aId = await seedPeptide(A);
@@ -189,19 +189,24 @@ test("an admin creates, edits and unblocks a template, as designed", async ({ pa
   const edited = await storedTemplate(name);
   expect(new Date(edited.updated_at).getTime()).toBeGreaterThan(new Date(created.updated_at).getTime());
 
-  // A peptide withdrawn later: the template keeps it, with a warning, and
-  // can be saved again only once it is removed.
+  // A peptide withdrawn later: the template keeps it, with a warning, and can
+  // still be edited and saved with it (Marco, 2026-09-26); it just can't be
+  // added again once removed.
   const { error } = await serviceClient().from("peptides").update({ available: false }).eq("id", aId);
   expect(error).toBeNull();
   await page.reload();
   await expect(row(page, name).locator(".app-tpl-row-warn")).toHaveText(
-    "Includes a peptide that is no longer offered — researchers can't start from it.",
+    "Includes a peptide that is no longer offered — researchers who start from it still get it. It can't be added to other templates.",
   );
   await (await hydrated(row(page, name))).click();
   await expect(plan(page, A)).toHaveCount(1);
   await expect(picker.locator("option", { hasText: A })).toHaveCount(0);
+  await phase(a, 0).getByLabel("Dose (mg)").fill("0.6");
   await save(page);
-  await expect(alert(page)).toHaveText("Remove peptides that are no longer offered before saving.");
+  await expect(page.locator(".app-toast")).toHaveText("Template updated for future copies. Existing cycles unchanged.");
+  expect((await storedTemplate(name)).cycle_template_plans.map((p) => p.peptide_id)).toContain(aId);
+  await expect(row(page, name).locator(".app-tpl-row-warn")).toHaveCount(1);
+  await row(page, name).click();
   await plan(page, A).getByRole("button", { name: "Remove peptide" }).click();
   await save(page);
   await expect(page.locator(".app-toast")).toHaveText("Template updated for future copies. Existing cycles unchanged.");

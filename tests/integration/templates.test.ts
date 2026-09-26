@@ -208,7 +208,7 @@ describe("admins create and edit templates in the database", () => {
 });
 
 describe("unavailable peptides", () => {
-  it("can't be added to a new or existing template; a template keeps a peptide withdrawn later until the admin removes it", async () => {
+  it("can't be added to a new or existing template; a template that has one withdrawn later stays editable with it (Marco, 2026-09-26)", async () => {
     const withdrawnPlan = { peptide_id: peptide.withdrawn, phases: [interval(0, 7)] };
     expect(await sqlState(save(adminDb, `New ${tag()}`, [withdrawnPlan]))).toBe("AP007");
     const id = await create(`Existing ${tag()}`);
@@ -234,11 +234,20 @@ describe("unavailable peptides", () => {
       "withdraw",
     );
     expect(await stored(kept!)).toEqual(before);
-    // As designed, saving it again needs the peptide removed first.
-    expect(await sqlState(save(adminDb, name, [{ peptide_id: later, phases: [interval(0, 28)] }, recompPlans()[1]], kept!))).toBe("AP007");
-    expect(await stored(kept!)).toEqual(before);
+    // Saved again with it, and with its phases changed: kept.
+    expect(await ok(save(adminDb, name, [{ peptide_id: later, phases: [interval(0, 21)] }, recompPlans()[1]], kept!), "keep it")).toBe(kept);
+    expect((await stored(kept!)).plans.map((plan) => plan.peptide_id)).toEqual([later, peptide.b]);
+    // Still never newly added: not to this template alongside it, nor to another one.
+    const withBoth = [{ peptide_id: later, phases: [interval(0, 21)] }, recompPlans()[1], withdrawnPlan];
+    expect(await sqlState(save(adminDb, name, withBoth, kept!))).toBe("AP007");
+    expect(await sqlState(save(adminDb, "Existing", [...recompPlans(), { peptide_id: later, phases: [interval(0, 7)] }], id!))).toBe("AP007");
+    // Once removed, it can't come back.
+    const after = await stored(kept!);
     expect(await ok(save(adminDb, name, [recompPlans()[1]], kept!), "remove it")).toBe(kept);
     expect((await stored(kept!)).plans.map((plan) => plan.peptide_id)).toEqual([peptide.b]);
+    expect(await sqlState(save(adminDb, name, after.plans.map((plan) => ({ peptide_id: plan.peptide_id, phases: [interval(0, 7)] })), kept!))).toBe(
+      "AP007",
+    );
   });
 });
 
@@ -346,8 +355,9 @@ describe("the A3 save action (server)", () => {
     const form = { id: null, name, guidance: "", plans: [{ peptideId: peptide.a, phases: [phase] }] };
     expect(await saveTemplateAction({ ...form, name: " " })).toEqual({ error: "Name is required." });
     expect(await saveTemplateAction({ ...form, plans: [] })).toEqual({ error: "Add at least one peptide — an empty template can't be saved." });
+    const [{ name: withdrawnName }] = await ok(serviceClient().from("peptides").select("name").eq("id", peptide.withdrawn), "name");
     expect(await saveTemplateAction({ ...form, plans: [{ peptideId: peptide.withdrawn, phases: [phase] }] })).toEqual({
-      error: "Remove peptides that are no longer offered before saving.",
+      error: `${withdrawnName} is no longer offered, so it can't be added. Remove it before saving.`,
     });
     const [{ name: aName }] = await ok(serviceClient().from("peptides").select("name").eq("id", peptide.a), "name");
     expect(
@@ -365,6 +375,22 @@ describe("the A3 save action (server)", () => {
       toast: "This template no longer exists. The list has been refreshed.",
       tone: "error",
     });
+  });
+
+  it("an admin saves an edit of a template that names a peptide withdrawn since (Marco, 2026-09-26)", async () => {
+    acting.client = adminDb;
+    const t = tag();
+    const later = await createPeptide(`Action withdrawn ${t}`);
+    const name = `Action keeps ${t}`;
+    const id = await create(name, [{ peptide_id: later, phases: [interval(0, 28)] }]);
+    expect(await ok(serviceClient().from("peptides").update({ available: false }).eq("id", later).select("id"), "withdraw")).toHaveLength(1);
+    const form = { id, name, guidance: "", plans: [{ peptideId: later, phases: [{ ...phase, mg: "0.5" }] }] };
+    expect(await saveTemplateAction(form)).toEqual({
+      saved: true,
+      toast: "Template updated for future copies. Existing cycles unchanged.",
+      tone: "info",
+    });
+    expect((await stored(id!)).plans.map((plan) => plan.peptide_id)).toEqual([later]);
   });
 
   it("a researcher calling the action is refused before anything is saved", async () => {

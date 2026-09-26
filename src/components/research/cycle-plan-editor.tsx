@@ -1,6 +1,7 @@
 "use client";
 
 import { Field } from "@/components/app-shell/form";
+import { WITHDRAWN_NOTE } from "@/lib/cycles/display";
 import type { PhaseLock } from "@/lib/cycles/revise";
 import { type CyclePhaseForm, type CyclePlanForm, newActivePhase, newBreak, nextPhaseStart } from "@/lib/cycles/rules";
 import { formatDay } from "@/lib/format";
@@ -10,30 +11,34 @@ import { WEEKDAY_TOGGLES } from "@/lib/templates/display";
 /**
  * R3: one peptide's section with its dated phases, "+ Phase" and "+ Break".
  * While editing, a phase that has ended is read-only and one under way keeps
- * its start date (changes apply from `from`); a peptide that has started
- * can't be removed, only ended through its phases.
+ * its start date (changes apply from `from`); a peptide that has started (a
+ * dose already due) can't be removed, only ended through its phases.
  */
 export function CyclePlanEditor({
   name,
+  withdrawn,
   plan,
   locks,
   from,
+  started,
   defaultStart,
   onChange,
   onRemove,
 }: {
   name: string;
+  /** The peptide is no longer offered (kept, or copied from a template). */
+  withdrawn: boolean;
   plan: CyclePlanForm;
   locks: Readonly<Record<string, PhaseLock>>;
   /** The plan's earliest effective date while editing (null for a new cycle). */
   from: string | null;
+  started: boolean;
   defaultStart: string;
   onChange: (plan: CyclePlanForm) => void;
   onRemove: () => void;
 }) {
   const setPhases = (phases: CyclePhaseForm[]) => onChange({ ...plan, phases });
   const lockOf = (phase: CyclePhaseForm) => (phase.id ? (locks[phase.id] ?? null) : null);
-  const started = plan.phases.some((phase) => lockOf(phase) !== null);
   const start = nextPhaseStart(plan, defaultStart);
   // New phases start on the effective date at the earliest.
   const addAt = from && start < from ? from : start;
@@ -52,6 +57,7 @@ export function CyclePlanEditor({
           </button>
         )}
       </div>
+      {withdrawn ? <p className="app-cyc-withdrawn">{WITHDRAWN_NOTE}</p> : null}
       <div className="app-cyc-phases">
         {plan.phases.map((phase, index) => (
           <PhaseEditor

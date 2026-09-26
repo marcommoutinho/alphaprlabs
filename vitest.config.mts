@@ -14,7 +14,12 @@ import { defineConfig } from "vitest/config";
 // the fixture's foreign key locks public.profiles against writes. Run beside
 // other files, a sign-up or sign-in waiting on those locks deadlocks with the
 // fixture and Auth answers 500 "Database error creating new user".
-const EXCLUSIVE = ["tests/integration/support-grants-rls.test.ts", "tests/integration/inventory-access.test.ts"];
+const EXCLUSIVE = [
+  "tests/integration/support-grants-rls.test.ts",
+  "tests/integration/inventory-access.test.ts",
+  // Read-only owner SQL through psql (no fixture), kept apart all the same.
+  "tests/integration/cycle-parity.test.ts",
+];
 
 export default defineConfig({
   resolve: {

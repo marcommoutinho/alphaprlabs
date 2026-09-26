@@ -6,8 +6,8 @@ import type { ToastTone } from "@/components/app-shell/toast";
 import { signInUrl } from "@/lib/auth/paths";
 import { currentAdmin } from "@/lib/auth/session";
 import { TEMPLATE_CREATED, TEMPLATE_UPDATED } from "@/lib/templates/display";
-import { REMOVE_UNAVAILABLE, validateTemplate } from "@/lib/templates/rules";
-import { listTemplatePeptides, saveTemplate } from "@/lib/templates/service";
+import { INVALID_TEMPLATE, validateTemplate } from "@/lib/templates/rules";
+import { listTemplatePeptides, saveTemplate, storedTemplatePeptides } from "@/lib/templates/service";
 import { createClient } from "@/lib/supabase/server";
 
 export type TemplateActionResult = {
@@ -35,20 +35,24 @@ function revalidateTemplates() {
 /**
  * A3 Save: create or edit a template. Every call re-checks that the requester
  * is a signed-in admin; the database function checks it again, and re-checks
- * every rule, including that each peptide is still offered.
+ * every rule, including that each peptide is still offered unless the stored
+ * template already names it (Marco, 2026-09-26: kept, never newly added).
  */
 export async function saveTemplateAction(input: unknown): Promise<TemplateActionResult> {
   const admin = await currentAdmin();
   if (!admin) redirect(signInUrl({ next: "/admin/templates" }));
 
   const db = await createClient();
-  let peptides;
+  const id = typeof input === "object" && input !== null ? (input as { id?: unknown }).id : null;
+  const load = () =>
+    Promise.all([listTemplatePeptides(db), storedTemplatePeptides(db, typeof id === "string" ? id : null)]);
+  let peptides, kept;
   try {
-    peptides = await listTemplatePeptides(db);
+    [peptides, kept] = await load();
   } catch {
     return { toast: SAVE_FAILED, tone: "error" };
   }
-  const valid = validateTemplate(input, peptides);
+  const valid = validateTemplate(input, peptides, kept);
   if (!valid.ok) return { error: valid.error };
 
   const result = await saveTemplate(db, valid.value);
@@ -56,10 +60,14 @@ export async function saveTemplateAction(input: unknown): Promise<TemplateAction
     case "saved":
       revalidateTemplates();
       return { saved: true, toast: valid.value.id ? TEMPLATE_UPDATED : TEMPLATE_CREATED, tone: "info" };
-    case "unavailable":
-      // Withdrawn after the check above: show the page's current availability.
+    case "unavailable": {
+      // Withdrawn after the check above: say which, and show the page's current availability.
       revalidateTemplates();
-      return { error: REMOVE_UNAVAILABLE };
+      const again = await load()
+        .then(([fresh, stored]) => validateTemplate(input, fresh, stored))
+        .catch(() => null);
+      return { error: again && !again.ok ? again.error : INVALID_TEMPLATE };
+    }
     case "not_found":
       revalidateTemplates();
       return { toast: TEMPLATE_GONE, tone: "error" };

@@ -264,6 +264,8 @@ export type Database = {
           revision_id: string
           schedule_type: string | null
           start_date: string
+          time_change_from: string[]
+          time_change_time: string[]
           weekdays: number[] | null
         }
         Insert: {
@@ -280,6 +282,8 @@ export type Database = {
           revision_id: string
           schedule_type?: string | null
           start_date: string
+          time_change_from?: string[]
+          time_change_time?: string[]
           weekdays?: number[] | null
         }
         Update: {
@@ -296,6 +300,8 @@ export type Database = {
           revision_id?: string
           schedule_type?: string | null
           start_date?: string
+          time_change_from?: string[]
+          time_change_time?: string[]
           weekdays?: number[] | null
         }
         Relationships: [
@@ -509,6 +515,7 @@ export type Database = {
           template_name: string
           template_updated_at: string | null
           updated_at: string
+          version: number
         }
         Insert: {
           baseline?: string
@@ -523,6 +530,7 @@ export type Database = {
           template_name?: string
           template_updated_at?: string | null
           updated_at?: string
+          version?: number
         }
         Update: {
           baseline?: string
@@ -537,6 +545,7 @@ export type Database = {
           template_name?: string
           template_updated_at?: string | null
           updated_at?: string
+          version?: number
         }
         Relationships: [
           {
@@ -892,8 +901,33 @@ export type Database = {
         }
         Returns: boolean
       }
+      cycle_local_instant: {
+        Args: { p_date: string; p_time: string; p_time_zone: string }
+        Returns: string
+      }
+      cycle_phase_instants: {
+        Args: {
+          p_from: string
+          p_phase: Database["public"]["Tables"]["cycle_revision_phases"]["Row"]
+          p_time_zone: string
+          p_to: string
+        }
+        Returns: {
+          key: string
+          planned_at: string
+        }[]
+      }
       cycle_revision_content: { Args: { p_revision_id: string }; Returns: Json }
       cycle_template_content: { Args: { p_template_id: string }; Returns: Json }
+      cycle_time_changes_valid: {
+        Args: {
+          p_end: string
+          p_from: string[]
+          p_start: string
+          p_time: string[]
+        }
+        Returns: boolean
+      }
       disable_push_subscription: {
         Args: { p_device_id: string; p_endpoint?: string; p_reason: string }
         Returns: boolean
@@ -978,9 +1012,9 @@ export type Database = {
           p_goal: string
           p_name: string
           p_plans: Json
-          p_revision?: number
           p_template_id?: string
           p_time_zone: string
+          p_version?: number
         }
         Returns: string
       }
@@ -1014,6 +1048,14 @@ export type Database = {
           p_p256dh: string
         }
         Returns: string
+      }
+      template_peptides: {
+        Args: { p_template_id: string }
+        Returns: {
+          available: boolean
+          id: string
+          name: string
+        }[]
       }
       trim_whitespace: { Args: { p_text: string }; Returns: string }
     }

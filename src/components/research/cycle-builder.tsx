@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Temporal } from "@js-temporal/polyfill";
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { saveCycleAction } from "@/app/(private)/app/cycles/actions";
 import { AppButton, Field } from "@/components/app-shell/form";
@@ -9,7 +10,17 @@ import { useSubmit } from "@/components/app-shell/use-submit";
 import { CyclePlanEditor } from "@/components/research/cycle-plan-editor";
 import { builderTitle, ERRORS_HEADING, fromTemplateNote, HISTORY_NOTE, saveLabel, scopeNote } from "@/lib/cycles/display";
 import type { PhaseLock } from "@/lib/cycles/revise";
-import { CYCLE_LIMITS, type CycleForm, type CyclePeptide, newPlan } from "@/lib/cycles/rules";
+import {
+  CYCLE_LIMITS,
+  type CycleForm,
+  type CyclePeptide,
+  type CyclePlanForm,
+  DATES_ZONE,
+  newPlan,
+  shiftPlan,
+  tomorrowIn,
+} from "@/lib/cycles/rules";
+import { isValidTimeZone } from "@/lib/schedule/zone";
 import "@/styles/app/cycles.css";
 
 const CYCLES = "/app/cycles";
@@ -20,39 +31,54 @@ const noSubscription = () => () => {};
 const deviceZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone ?? "";
 const noZone = () => "";
 
+/** A phase date was edited (not a phase added or removed). */
+const datesEdited = (before: CyclePlanForm, after: CyclePlanForm) =>
+  before.phases.length === after.phases.length &&
+  before.phases.some((phase, i) => phase.start !== after.phases[i].start || phase.end !== after.phases[i].end);
+
 /**
  * R3 Cycle builder: a new cycle (custom, or a template's copy) or "Edit
  * future plan" for an existing one. The time zone is named and stored with
  * the cycle: a new cycle suggests the device's zone, an existing cycle keeps
  * its own (a phone in another zone never changes it silently).
+ *
+ * Default dates ("tomorrow", as the prototype) are tomorrow in the cycle's
+ * time zone. When the zone changes, the peptides added here whose dates the
+ * researcher hasn't edited move with it; edited dates stay as typed.
  */
 export function CycleBuilder({
   initial,
   peptides,
   zones,
-  defaultStart,
+  now,
   templateName,
   hasHistory = false,
   locks = {},
   effective = {},
+  started = [],
 }: {
+  /** New plans' dates are tomorrow in DATES_ZONE (new cycle) or the cycle's zone (edit). */
   initial: CycleForm;
   peptides: CyclePeptide[];
   /** IANA zone names for the select. */
   zones: string[];
-  /** Where a new peptide's first phase starts (tomorrow). */
-  defaultStart: string;
+  /** The server's "now" (ISO), for tomorrow in the chosen zone. */
+  now: string;
   templateName?: string;
   /** The cycle has recorded doses (S12 supplies this). */
   hasHistory?: boolean;
-  /** While editing: each stored phase's lock, and each plan's effective date. */
+  /** While editing: each stored phase's lock, each plan's effective date, and the plans that have started. */
   locks?: Record<string, PhaseLock>;
   effective?: Record<string, string>;
+  started?: string[];
 }) {
   const editing = initial.cycleId !== null;
   const [form, setForm] = useState<CycleForm>(initial);
   const [errors, setErrors] = useState<string[]>([]);
   const [toAdd, setToAdd] = useState("");
+  // Peptides (added here) whose dates the researcher edited, and the zone the others' dates are for.
+  const [touched, setTouched] = useState<ReadonlySet<string>>(new Set());
+  const [datedFor, setDatedFor] = useState(editing ? initial.timeZone : DATES_ZONE);
   const router = useRouter();
   const { pending, submit } = useSubmit(saveCycleAction);
   const device = useSyncExternalStore(noSubscription, deviceZone, noZone);
@@ -60,6 +86,17 @@ export function CycleBuilder({
 
   // A new cycle follows the device's zone until the researcher picks one.
   const timeZone = form.timeZone || (editing ? "" : device);
+  const datesZone = isValidTimeZone(timeZone) ? timeZone : datedFor;
+  if (datesZone !== datedFor) {
+    // The zone changed (or the device's became known): move untouched default dates to its tomorrow.
+    const days = Temporal.PlainDate.from(tomorrowIn(now, datedFor)).until(tomorrowIn(now, datesZone)).days;
+    setDatedFor(datesZone);
+    if (days !== 0) {
+      const moves = (plan: CyclePlanForm) => plan.planId === null && !touched.has(plan.peptideId);
+      setForm((current) => ({ ...current, plans: current.plans.map((plan) => (moves(plan) ? shiftPlan(plan, days) : plan)) }));
+    }
+  }
+  const defaultStart = tomorrowIn(now, datesZone);
   const zoneOptions = useMemo(
     () => [...new Set([...zones, ...(timeZone ? [timeZone] : [])])].sort(),
     [zones, timeZone],
@@ -132,11 +169,16 @@ export function CycleBuilder({
         <CyclePlanEditor
           key={plan.planId ?? plan.peptideId}
           name={library.get(plan.peptideId)?.name ?? "Unknown peptide"}
+          withdrawn={library.get(plan.peptideId)?.available === false}
           plan={plan}
           locks={locks}
           from={plan.planId ? (effective[plan.planId] ?? null) : null}
+          started={plan.planId !== null && started.includes(plan.planId)}
           defaultStart={defaultStart}
-          onChange={(next) => update({ plans: form.plans.map((p, j) => (j === index ? next : p)) })}
+          onChange={(next) => {
+            if (datesEdited(plan, next)) setTouched((current) => new Set(current).add(plan.peptideId));
+            update({ plans: form.plans.map((p, j) => (j === index ? next : p)) });
+          }}
           onRemove={() => update({ plans: form.plans.filter((_, j) => j !== index) })}
         />
       ))}
@@ -153,7 +195,10 @@ export function CycleBuilder({
           type="button"
           className="app-cyc-add-btn"
           disabled={!selected}
-          onClick={() => update({ plans: [...form.plans, newPlan(selected, defaultStart)] })}
+          onClick={() => {
+            setTouched((current) => new Set([...current].filter((id) => id !== selected)));
+            update({ plans: [...form.plans, newPlan(selected, defaultStart)] });
+          }}
         >
           + Add peptide from library
         </button>

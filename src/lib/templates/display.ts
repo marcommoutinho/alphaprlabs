@@ -12,7 +12,10 @@ export const RECEIVE_HELPER =
 export const IDLE = "Select a template to inspect or update it.";
 /** Not in the prototype, which always had seeded templates. */
 export const NO_TEMPLATES = "No templates yet.";
-export const UNAVAILABLE_WARNING = "Includes a peptide that is no longer offered — researchers can't start from it.";
+// Marco, 2026-09-26: such a template stays editable, and a researcher who
+// starts from it gets the peptide too.
+export const UNAVAILABLE_WARNING =
+  "Includes a peptide that is no longer offered — researchers who start from it still get it. It can't be added to other templates.";
 export const TEMPLATE_CREATED = "Template created.";
 export const TEMPLATE_UPDATED = "Template updated for future copies. Existing cycles unchanged.";
 

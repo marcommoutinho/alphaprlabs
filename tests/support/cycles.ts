@@ -93,7 +93,7 @@ export type CycleArgs = {
   plans: unknown[];
   templateId?: string;
   cycleId?: string;
-  revision?: number;
+  version?: number;
 };
 
 /** save_cycle's arguments. */
@@ -105,7 +105,7 @@ export const cycleArgs = (args: CycleArgs) => ({
   p_plans: args.plans as Json,
   ...(args.templateId ? { p_template_id: args.templateId } : {}),
   ...(args.cycleId ? { p_cycle_id: args.cycleId } : {}),
-  ...(args.revision !== undefined ? { p_revision: args.revision } : {}),
+  ...(args.version !== undefined ? { p_version: args.version } : {}),
 });
 
 export const saveCycle = (db: Client, args: CycleArgs) => db.rpc("save_cycle", cycleArgs(args));
