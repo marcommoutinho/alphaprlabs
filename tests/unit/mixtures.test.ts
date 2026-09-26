@@ -6,7 +6,8 @@
 import { describe, expect, it } from "vitest";
 import { calculate, DOSE_OVER_VIAL, LIQUID_REQUIRED, UNKNOWN_LINES_MESSAGE, VIAL_REQUIRED } from "@/lib/calculator/calculator";
 import type { CycleRecord } from "@/lib/cycles/rules";
-import { linkablePlans, planDoseOn, plansFor } from "@/lib/mixtures/plans";
+import { planOccurrences } from "@/lib/cycles/schedule";
+import { linkablePlans, planDose, plansFor } from "@/lib/mixtures/plans";
 import {
   blankForm,
   calculatorInput,
@@ -166,18 +167,27 @@ describe("plans to link", () => {
     schedule: { type: "interval", everyDays: 2 },
     ...(doseChanges ? { doseChanges } : {}),
   });
+  // Every 2 days at 08:00 UTC: Oct 1, 3, 5, 7, 9; the dose rises to 0.5 from Oct 3; a break; then 0.6.
   const phases = [
-    active("p1", "2026-10-01", "2026-10-10", "0.4", [{ from: "2026-10-05", doseMg: "0.5" }]),
+    active("p1", "2026-10-01", "2026-10-10", "0.4", [{ from: "2026-10-03", doseMg: "0.5" }]),
     { id: "b", kind: "break" as const, start: "2026-10-11", end: "2026-10-15" },
     active("p2", "2026-10-16", "2026-10-20", "0.6"),
   ];
+  const revision = { id: "r1", number: 1, timeZone: "UTC", createdAt: "2026-09-01T00:00:00Z", plans: [{ planId: "plan", peptideId: PEPTIDE, effectiveFrom: null, phases }] };
+  const doseAt = (now: string) => planDose(planOccurrences([revision]).get("plan") ?? [], now);
 
-  it("shows today's dose, else the next planned one, else the last", () => {
-    expect(planDoseOn({ phases }, "2026-09-20")).toBe("0.4");
-    expect(planDoseOn({ phases }, "2026-10-06")).toBe("0.5");
-    expect(planDoseOn({ phases }, "2026-10-12")).toBe("0.6");
-    expect(planDoseOn({ phases }, "2026-11-01")).toBe("0.6");
-    expect(planDoseOn({ phases: [] }, "2026-11-01")).toBeNull();
+  it("shows today's occurrence's dose, else the next occurrence's, else the last", () => {
+    expect(doseAt("2026-09-20T12:00:00Z")).toBe("0.4");
+    // Oct 2 has no dose; the next one (Oct 3) already has the increase.
+    expect(doseAt("2026-10-02T12:00:00Z")).toBe("0.5");
+    // Oct 3: today's occurrence, before and after its time.
+    expect(doseAt("2026-10-03T06:00:00Z")).toBe("0.5");
+    expect(doseAt("2026-10-03T20:00:00Z")).toBe("0.5");
+    expect(doseAt("2026-10-01T20:00:00Z")).toBe("0.4");
+    // In the break: the next phase's first dose; after the end: the last dose.
+    expect(doseAt("2026-10-12T12:00:00Z")).toBe("0.6");
+    expect(doseAt("2026-11-01T12:00:00Z")).toBe("0.6");
+    expect(planDose([], "2026-11-01T12:00:00Z")).toBeNull();
   });
 
   it("lists current plans with their mixture, hiding ended cycles unless linked to this mixture", () => {

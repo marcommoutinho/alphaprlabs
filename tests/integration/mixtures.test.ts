@@ -192,6 +192,43 @@ describe("versions keep history", () => {
   });
 });
 
+describe("moving a plan between mixtures", () => {
+  const save = (who: Client, mixtureId: string, version: number, planIds: string[]) =>
+    who.rpc("save_mixture", setup({ p_mixture_id: mixtureId, p_version: version, p_plan_ids: planIds }));
+  const currentLinks = async (planIds: string[]) =>
+    ok(db.alex.from("cycle_plan_mixtures").select("plan_id, mixture_id").in("plan_id", planIds).is("unlinked_at", null).order("plan_id"), "links");
+
+  it("advances the version of the mixture a plan leaves, so a stale tab can't move it back", async () => {
+    const cycleId = await createCycle(db.alex, { plans: [plan(peptide.a, [interval(day(2), day(9))])] });
+    const p = await planIdOf(db.alex, cycleId, peptide.a);
+    const a = (await ok(db.alex.rpc("save_mixture", setup({ p_plan_ids: [p] })), "a"))!;
+    const stale = (await getMixture(db.alex, a))!.version;
+    const b = (await ok(db.alex.rpc("save_mixture", setup({ p_vial_mg: "6", p_plan_ids: [p] })), "b takes the plan"))!;
+    expect((await getMixture(db.alex, a))!).toMatchObject({ version: stale + 1, planIds: [] });
+    expect(await sqlState(save(db.alex, a, stale, [p]), "stale a")).toBe("AP011");
+    expect(await currentLinks([p])).toEqual([{ plan_id: p, mixture_id: b }]);
+  });
+
+  it("concurrent saves claiming each other's plans never deadlock and leave one current link per plan", async () => {
+    const cycles = await Promise.all([1, 2].map(() => createCycle(db.alex, { plans: [plan(peptide.a, [interval(day(2), day(9))])] })));
+    const [p, q] = await Promise.all(cycles.map((c) => planIdOf(db.alex, c, peptide.a)));
+    const a = (await ok(db.alex.rpc("save_mixture", setup({ p_plan_ids: [p] })), "a"))!;
+    const b = (await ok(db.alex.rpc("save_mixture", setup({ p_vial_mg: "6", p_plan_ids: [q] })), "b"))!;
+    for (let round = 0; round < 5; round++) {
+      // Reset: p on a, q on b.
+      await ok(save(db.alex, a, (await getMixture(db.alex, a))!.version, [p]), "reset a");
+      await ok(save(db.alex, b, (await getMixture(db.alex, b))!.version, [q]), "reset b");
+      const [va, vb] = [(await getMixture(db.alex, a))!.version, (await getMixture(db.alex, b))!.version];
+      // a takes q (and lets p go); b takes p (and lets q go): each locks both mixtures.
+      const results = await Promise.all([sqlState(save(db.alex, a, va, [q]), "a takes q"), sqlState(save(db.alex, b, vb, [p]), "b takes p")]);
+      // The first to commit wins whole; it advanced the other's version, so the other is refused.
+      expect([...results].sort(), results.join()).toEqual(["AP011", "ok"]);
+      const winner = results[0] === "ok" ? { plan_id: q, mixture_id: a } : { plan_id: p, mixture_id: b };
+      expect(await currentLinks([p, q])).toEqual([winner]);
+    }
+  });
+});
+
 describe("peptides no longer offered", () => {
   it("need the researcher's own cycle for a new mixture, and stay readable through their mixtures", async () => {
     await setAvailable(db.grace, peptide.withdrawn, peptide.withdrawnName, false);

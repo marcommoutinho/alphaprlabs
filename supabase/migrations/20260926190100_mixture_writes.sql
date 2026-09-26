@@ -66,9 +66,10 @@ revoke all on function public.mixture_check_peptide(uuid, uuid) from public, ano
 --
 -- p_plan_ids: every cycle peptide plan that should use this mixture after the
 -- save, all the caller's own and for this peptide (else AP012). A plan
--- linked to another mixture moves to this one; a plan linked to this one and
--- not listed is unlinked. Earlier links are closed, never rewritten, so the
--- mixture each plan used at any past instant stays known.
+-- linked to another mixture moves to this one, and that mixture's version
+-- advances too; a plan linked to this one and not listed is unlinked.
+-- Earlier links are closed, never rewritten, so the mixture each plan used
+-- at any past instant stays known.
 -- p_line_spacing: '0.5', '1', '2' (units between printed lines) or 'unknown'.
 -- Returns the mixture id, or null (not the caller's, or deleted).
 create function public.save_mixture(
@@ -93,6 +94,7 @@ declare
   v_liquid numeric := public.mixture_decimal(p_liquid_ml);
   v_spacing numeric;
   v_plans uuid[];
+  v_others uuid[];
   v_mixture public.mixtures%rowtype;
   v_current public.mixture_versions%rowtype;
   v_now timestamptz;
@@ -112,16 +114,43 @@ begin
   v_spacing := case when p_line_spacing = 'unknown' then null else p_line_spacing::numeric end;
   v_plans := array(select distinct x from unnest(p_plan_ids) x);
 
+  if p_mixture_id is null and p_version is not null then
+    raise exception 'a new mixture has no version' using errcode = '22023';
+  end if;
+
+  -- Lock order, so concurrent saves never deadlock: the plans (by id), then
+  -- every mixture whose links this save changes (by id).
+  -- The plans: the caller's own, for this peptide. A concurrent save for the
+  -- same plan waits here (no key update is compatible with cycle saves).
+  if cardinality(v_plans) <> (
+    select count(*) from (
+      select 1 from public.cycle_plans cp
+      where cp.id = any (v_plans) and cp.owner_id = v_uid and cp.peptide_id = p_peptide_id
+      order by cp.id
+      for no key update
+    ) own
+  ) then
+    raise exception 'unknown cycle plan' using errcode = 'AP012';
+  end if;
+
+  -- The mixtures: this one, and those the plans move from. With the plans
+  -- locked, their current links can only end (another mixture's save or
+  -- delete), never begin, so the set read here covers every change below.
+  v_others := array(
+    select distinct l.mixture_id from public.cycle_plan_mixtures l
+    where l.plan_id = any (v_plans) and l.unlinked_at is null and l.mixture_id is distinct from p_mixture_id);
+  perform 1 from public.mixtures m
+  where m.id = any (array_append(v_others, p_mixture_id))
+  order by m.id
+  for update;
+
   if p_mixture_id is null then
-    if p_version is not null then
-      raise exception 'a new mixture has no version' using errcode = '22023';
-    end if;
     perform public.mixture_check_peptide(v_uid, p_peptide_id);
     insert into public.mixtures (owner_id, peptide_id)
     values (v_uid, p_peptide_id)
     returning * into v_mixture;
   else
-    select m.* into v_mixture from public.mixtures m where m.id = p_mixture_id for update;
+    select m.* into v_mixture from public.mixtures m where m.id = p_mixture_id;
     if not found or not public.can_write_researcher(v_mixture.owner_id) or v_mixture.deleted_at is not null then
       return null;
     end if;
@@ -144,20 +173,13 @@ begin
     end if;
   end if;
 
-  -- The plans: the caller's own, for this peptide. Locked so a concurrent
-  -- save for the same plan waits (key-share compatible with cycle saves).
-  if cardinality(v_plans) <> (
-    select count(*) from (
-      select 1 from public.cycle_plans cp
-      where cp.id = any (v_plans) and cp.owner_id = v_uid and cp.peptide_id = v_mixture.peptide_id
-      for no key update
-    ) own
-  ) then
-    raise exception 'unknown cycle plan' using errcode = 'AP012';
-  end if;
-
   -- One instant for this save's version and links, taken after the locks.
   v_now := clock_timestamp();
+
+  -- The mixtures the plans actually move from (read again under the locks).
+  v_others := array(
+    select distinct l.mixture_id from public.cycle_plan_mixtures l
+    where l.plan_id = any (v_plans) and l.unlinked_at is null and l.mixture_id <> v_mixture.id);
 
   if v_changed then
     insert into public.mixture_versions (mixture_id, owner_id, number, vial_mg, liquid_ml, syringe_units, line_spacing, created_at)
@@ -189,6 +211,9 @@ begin
   else
     update public.mixtures m set created_at = v_now, updated_at = v_now where m.id = v_mixture.id;
   end if;
+  -- A mixture that lost a plan changed too: a tab still holding its old
+  -- version can't save it and silently move the plan back (AP011).
+  update public.mixtures m set version = m.version + 1 where m.id = any (v_others);
 
   return v_mixture.id;
 end;
