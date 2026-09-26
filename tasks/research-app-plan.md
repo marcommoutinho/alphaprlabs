@@ -699,8 +699,11 @@ approved and building started 2026-09-25.
   phone's own subscription keys).
 - G1 passed 2026-09-26: the closed production app at `app.alphaprlabs.com`
   (Vercel Hobby, Supabase free, Postmark live server) was installed on Marco's
-  phone with his admin account; reminders turned on and a test notification
-  arrived. Marco reported "its all working". The test-notification button stays
+  iPhone with his admin account; reminders turned on, a test notification
+  arrived and the app-icon badge showed. Not yet proven, carried forward
+  (Marco, 2026-09-26: "We can test android later"): Android install and
+  notification, and tapping a notification to open the app. Both must pass
+  before G2 closes; if either fails, S3 reopens. The test-notification button stays
   on (`PUSH_TEST_ENABLED`) while the app is closed and is turned off before G3.
 
 Next: S4, the peptide library and support-grant foundation.
