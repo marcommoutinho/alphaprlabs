@@ -710,7 +710,9 @@ approved and building started 2026-09-25.
   (inventory screens) and S7 (schedule engine and calculator) are built,
   independently reviewed and integrated (S7 at `0fa0829`, S6 at `bce0aa9`).
   S6 and S7 needed Marco-approved rounds beyond the standard one correction.
-  Not yet deployed to the closed production app.
+  Deployed to the closed production app on 2026-09-26 at Marco's request
+  (all 10 migrations applied; branch `feat/research-app` at `07b9a7d`) so he
+  can start entering the peptide library.
 
 Cleanup before G2 (accepted by Marco, 2026-09-26):
 - A sale drawing on more than 1,000 purchase lots shows a truncated allocation
