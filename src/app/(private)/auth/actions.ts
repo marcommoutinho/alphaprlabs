@@ -54,9 +54,11 @@ export async function signIn(input: { email: unknown; password: unknown; next?: 
  * `endpoint` is this device's push subscription, if it has one: its row is
  * disabled for the person signing out, so a signed-out phone gets no
  * reminders. If that fails the session is kept and `{ ok: false }` returned;
- * src/lib/push/sign-out.ts handles the device-side fallback and retry.
+ * src/lib/push/sign-out.ts handles the device-side fallback and retry. No
+ * redirect (it would reject the caller's promise): the account menu reloads
+ * to the sign-in page, which also clears all client state.
  */
-export async function signOut(input?: { endpoint?: unknown }): Promise<{ ok: false } | undefined> {
+export async function signOut(input?: { endpoint?: unknown }): Promise<{ ok: boolean }> {
   const supabase = await createClient();
   const endpoint = canonicalEndpoint(input?.endpoint);
   if (endpoint && (await getSessionPerson())) {
@@ -64,7 +66,7 @@ export async function signOut(input?: { endpoint?: unknown }): Promise<{ ok: fal
     if (error) return { ok: false };
   }
   await supabase.auth.signOut();
-  redirect(SIGN_IN_PATH);
+  return { ok: true };
 }
 
 // ── Recover access ───────────────────────────────────────────────────────────

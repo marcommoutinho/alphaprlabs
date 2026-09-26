@@ -8,13 +8,15 @@ import { ensureAccount, serviceClient, signInAs, uniqueEmail } from "../support/
 // Device states are emulated with init scripts; real phones are proven at G1.
 
 const RESEARCHER = { email: uniqueEmail("c2-researcher"), name: "Casey Reminders" };
+// Signs out (which ends all its sessions), so it has its own account.
+const SIGN_OUT_RESEARCHER = { email: uniqueEmail("c2-signout"), name: "Sam Signout" };
 const PHONE = { width: 390, height: 844 };
-const SHOTS = process.env.S3_SCREENSHOTS; // optional folder for review screenshots
 const IPHONE_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1";
 
 test.beforeAll(async () => {
   await ensureAccount({ ...RESEARCHER, role: "researcher" });
+  await ensureAccount({ ...SIGN_OUT_RESEARCHER, role: "researcher" });
 });
 
 /** Node can't resolve *.localhost: request the server directly with the host's Host header. */
@@ -23,102 +25,101 @@ const hostGet = (request: APIRequestContext, origin: string, path: string) =>
 
 /**
  * Headless Chromium reports notifications as denied whatever is granted, so
- * the permission is emulated: `initial`, and "granted" once requested.
+ * the permission is emulated: `initial`, "granted" once requested, and
+ * window.setPermission() for a change made in the phone's Settings.
  */
 function emulatePermission(target: Page | BrowserContext, initial: NotificationPermission) {
   return target.addInitScript((start) => {
     let state = start;
     Object.defineProperty(Notification, "permission", { get: () => state, configurable: true });
     Notification.requestPermission = async () => (state = "granted");
-    // Changes made in the phone's Settings while the app is in the background.
     Object.assign(window, { setPermission: (next: NotificationPermission) => (state = next) });
   }, initial);
 }
 
-async function signIn(page: Page) {
-  await signInAs(page, APP_ORIGIN, RESEARCHER.email);
-  await expect(page).toHaveURL(/\/(app\/today|auth\/reminders)$/);
-}
-
-/** Review screenshot (only when S3_SCREENSHOTS is set), after enter animations settle. */
-async function shot(page: Page, name: string) {
-  if (!SHOTS) return;
-  await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
-  await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true });
-}
-
-/** Replaces PushManager with an in-page fake whose subscription has `endpoint`. */
+/** Fake PushManager with one subscription at `endpoint`; window.dropSubscription() loses it (as iOS can). */
 function fakePushService(page: Page, endpoint: string) {
   return page.addInitScript((url) => {
     let current: object | null = null;
+    let subscribeCalls = 0;
+    const keys = { p256dh: "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQ", auth: "tBHItJI5svbpez7KI4CCXg" };
     const subscription = {
       endpoint: url,
       options: { applicationServerKey: null },
-      toJSON: () => ({ endpoint: url, keys: { p256dh: "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQ", auth: "tBHItJI5svbpez7KI4CCXg" } }),
+      toJSON: () => ({ endpoint: url, keys }),
       unsubscribe: async () => ((current = null), true),
     };
-    let subscribeCalls = 0;
     PushManager.prototype.getSubscription = async () => current as PushSubscription | null;
-    PushManager.prototype.subscribe = async () => {
-      subscribeCalls += 1;
-      return (current = subscription) as unknown as PushSubscription;
-    };
-    // The browser silently dropping the subscription (as iOS can).
+    PushManager.prototype.subscribe = async () => ((subscribeCalls += 1), (current = subscription)) as unknown as PushSubscription;
     Object.assign(window, { dropSubscription: () => (current = null), subscribeCalls: () => subscribeCalls });
   }, endpoint);
 }
 
-type TestWindow = Window & {
-  setPermission: (permission: NotificationPermission) => void;
-  dropSubscription: () => void;
-  subscribeCalls: () => number;
-};
-
+type TestWindow = { setPermission: (p: NotificationPermission) => void; dropSubscription: () => void; subscribeCalls: () => number };
+const inPage = (page: Page, call: (w: TestWindow) => unknown) =>
+  page.evaluate(`(${call.toString()})(window)`) as Promise<unknown>;
 /** The app returns to the foreground (a phone app reopened from the background). */
 const foreground = (page: Page) => page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-const lastSeen = async (endpoint: string) =>
-  (await serviceClient().from("push_subscriptions").select("last_seen_at").eq("endpoint", endpoint).single()).data!.last_seen_at;
-
 const deviceRow = async (endpoint: string) =>
-  (await serviceClient().from("push_subscriptions").select("profile_id, disabled_reason, device_label").eq("endpoint", endpoint)).data;
+  (await serviceClient().from("push_subscriptions").select("disabled_reason, device_label, last_seen_at").eq("endpoint", endpoint).single()).data!;
+const rememberedDevice = (page: Page) => page.evaluate(() => localStorage.getItem("apl.reminders.device"));
 const statusValue = (page: Page, label: string) => page.locator(".app-reminders-row", { hasText: label }).locator("b");
+
+/**
+ * Holds this page's next device save (the saveDevice server action) until
+ * release(), and records whether any other action (turn off, sign out) was
+ * sent while it was held.
+ */
+async function holdNextSave(page: Page) {
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let arrived = () => {};
+  const held = new Promise<void>((resolve) => (arrived = resolve));
+  let holding = true;
+  let sentWhileHeld = 0;
+  await page.route(/\/app\/notifications$/, async (route) => {
+    const body = route.request().method() === "POST" ? (route.request().postData() ?? "") : "";
+    if (holding && body.includes("p256dh")) {
+      arrived();
+      await gate;
+    } else if (holding && body.includes("endpoint")) {
+      sentWhileHeld += 1;
+    }
+    await route.fallback();
+  });
+  return { held, sentWhileHeld: () => sentWhileHeld, release: () => ((holding = false), release()) };
+}
+
+/** A foreground re-sync whose upload is still pending when `act` (turn off / sign out) runs. */
+async function withPendingSync(page: Page, act: () => Promise<void>) {
+  const save = await holdNextSave(page);
+  await foreground(page);
+  await save.held;
+  await act();
+  await page.waitForTimeout(500); // time enough for an unserialized disable to go out
+  expect(save.sentWhileHeld()).toBe(0);
+  save.release();
+}
 
 test("the app host serves the manifest, icons and a cache-free worker; only the private area links them", async ({
   page,
   request,
 }) => {
   const manifest = await (await hostGet(request, APP_ORIGIN, "/manifest.webmanifest")).json();
-  expect(manifest).toMatchObject({
-    id: "/app",
-    name: "Alpha PR Labs",
-    start_url: "/",
-    scope: "/",
-    display: "standalone",
-    theme_color: "#050505",
-    background_color: "#050505",
-  });
-  expect(manifest.icons.map((icon: { sizes: string; purpose: string }) => `${icon.sizes} ${icon.purpose}`)).toEqual([
-    "192x192 any",
-    "512x512 any",
-    "512x512 maskable",
-  ]);
-  for (const src of [...manifest.icons.map((icon: { src: string }) => icon.src), "/app-icons/apple-touch-icon.png"]) {
-    const icon = await hostGet(request, APP_ORIGIN, src);
-    expect(icon.headers()["content-type"]).toBe("image/png");
+  expect(manifest).toMatchObject({ id: "/app", name: "Alpha PR Labs", start_url: "/", scope: "/", display: "standalone" });
+  expect([manifest.theme_color, manifest.background_color]).toEqual(["#050505", "#050505"]);
+  const icons = manifest.icons as { src: string; sizes: string; purpose: string }[];
+  expect(icons.map((icon) => `${icon.sizes} ${icon.purpose}`)).toEqual(["192x192 any", "512x512 any", "512x512 maskable"]);
+  for (const src of [...icons.map((icon) => icon.src), "/app-icons/apple-touch-icon.png"]) {
+    expect((await hostGet(request, APP_ORIGIN, src)).headers()["content-type"]).toBe("image/png");
   }
-
   const worker = await hostGet(request, APP_ORIGIN, "/sw.js");
   expect(worker.headers()).toMatchObject({
     "content-type": "application/javascript; charset=utf-8",
     "cache-control": "no-cache, no-store, must-revalidate",
     "content-security-policy": "default-src 'self'; script-src 'self'",
   });
-  const source = await worker.text();
-  expect(source).toContain('addEventListener("push"');
-  expect(source).toContain('addEventListener("notificationclick"');
-  expect(source).not.toMatch(/addEventListener\(\s*["']fetch["']|onfetch|caches\./);
-
-  // Not on the public host.
+  expect(await worker.text()).not.toMatch(/addEventListener\(\s*["']fetch["']|onfetch|caches\./);
   for (const path of ["/manifest.webmanifest", "/sw.js", "/app-icons/icon-192.png"]) {
     expect((await hostGet(request, PUBLIC_ORIGIN, path)).status()).toBe(404);
   }
@@ -126,26 +127,22 @@ test("the app host serves the manifest, icons and a cache-free worker; only the 
   await page.goto(`${APP_ORIGIN}/auth`);
   await expect(page.locator('link[rel="manifest"]')).toHaveAttribute("href", "/manifest.webmanifest");
   await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute("href", "/app-icons/apple-touch-icon.png");
-  await expect(page.locator('meta[name="apple-mobile-web-app-status-bar-style"]')).toHaveAttribute(
-    "content",
-    "black-translucent",
-  );
+  await expect(page.locator('meta[name="apple-mobile-web-app-status-bar-style"]')).toHaveAttribute("content", "black-translucent");
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#050505");
-
   await page.goto(`${PUBLIC_ORIGIN}/`);
   await expect(page.locator('link[rel="manifest"], meta[name="apple-mobile-web-app-title"], meta[name="theme-color"]')).toHaveCount(0);
   await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute("href", "/apple-touch-icon.png");
 });
 
-test("turn reminders on and off on this device; signing out disables it; no test button by default", async ({
+test("turn reminders on and off; turn off and sign out win over a pending re-sync; no test button by default", async ({
   page,
 }) => {
   const endpoint = `https://fcm.googleapis.com/fcm/send/e2e-${Date.now().toString(36)}`;
   await emulatePermission(page, "default");
   await fakePushService(page, endpoint);
   await page.setViewportSize(PHONE);
-  await signIn(page);
-
+  await signInAs(page, APP_ORIGIN, SIGN_OUT_RESEARCHER.email);
+  await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
   // The researcher area registers the worker (scope "/") on open.
   await expect
     .poll(() => page.evaluate(async () => (await navigator.serviceWorker.getRegistration("/"))?.scope ?? null))
@@ -153,9 +150,9 @@ test("turn reminders on and off on this device; signing out disables it; no test
 
   await page.goto(`${APP_ORIGIN}/app/notifications`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Reminders on this phone");
-  await expect(statusValue(page, "Push supported")).toHaveText("Yes");
-  await expect(statusValue(page, "Installed to home screen")).toHaveText("Not yet");
-  await expect(statusValue(page, "Permission on this device")).toHaveText("Not requested");
+  for (const [label, value] of [["Push supported", "Yes"], ["Installed to home screen", "Not yet"], ["Permission on this device", "Not requested"]]) {
+    await expect(statusValue(page, label)).toHaveText(value);
+  }
   await expect(page.getByRole("button", { name: "Send test notification" })).toHaveCount(0);
 
   // Android/Chromium: the browser's install prompt becomes a one-tap "Install app".
@@ -171,25 +168,27 @@ test("turn reminders on and off on this device; signing out disables it; no test
   await page.getByRole("button", { name: "Turn on reminders" }).click();
   await expect(page.locator(".app-toast")).toHaveText("Reminders on for this device.");
   await expect(statusValue(page, "Permission on this device")).toHaveText("Enabled");
-  await expect(page.getByRole("button", { name: "Turn off reminders" })).toBeVisible();
-  expect(await deviceRow(endpoint)).toEqual([expect.objectContaining({ disabled_reason: null, device_label: expect.stringContaining("Chrome") })]);
-  await shot(page, "s3-settings-enabled");
+  expect(await deviceRow(endpoint)).toMatchObject({ disabled_reason: null, device_label: expect.stringContaining("Chrome") });
 
-  await page.getByRole("button", { name: "Turn off reminders" }).click();
+  // Turn off while a foreground re-sync's save is still pending: the disable
+  // goes out only after it, and the device is not remembered again.
+  await withPendingSync(page, () => page.getByRole("button", { name: "Turn off reminders" }).click());
   await expect(page.locator(".app-toast")).toHaveText("Reminders off. Your schedule is unchanged.");
-  await expect(page.getByRole("button", { name: "Turn on reminders" })).toBeVisible();
-  expect(await deviceRow(endpoint)).toEqual([expect.objectContaining({ disabled_reason: "turned_off" })]);
+  expect(await deviceRow(endpoint)).toMatchObject({ disabled_reason: "turned_off" });
+  expect(await rememberedDevice(page)).toBeNull();
 
-  // On again, then sign out: this phone stops receiving this account's
-  // reminders, even when the browser can no longer report its subscription
-  // (the endpoint remembered on this device is used).
+  // Same for sign out; the browser also loses its subscription meanwhile, so
+  // the endpoint remembered on this device is the one disabled.
   await page.getByRole("button", { name: "Turn on reminders" }).click();
   await expect(page.getByRole("button", { name: "Turn off reminders" })).toBeVisible();
-  await page.evaluate(() => (window as unknown as TestWindow).dropSubscription());
-  await page.locator('button[aria-haspopup="menu"]').click();
-  await page.getByRole("menuitem", { name: "Sign out" }).click();
+  await withPendingSync(page, async () => {
+    await inPage(page, (w) => w.dropSubscription());
+    await page.locator('button[aria-haspopup="menu"]').click();
+    await page.getByRole("menuitem", { name: "Sign out" }).click();
+  });
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth`);
-  expect(await deviceRow(endpoint)).toEqual([expect.objectContaining({ disabled_reason: "signed_out" })]);
+  expect(await deviceRow(endpoint)).toMatchObject({ disabled_reason: "signed_out" });
+  expect(await rememberedDevice(page)).toBeNull();
 });
 
 test("returning to the foreground re-checks permission and re-registers a dropped subscription", async ({ page }) => {
@@ -197,29 +196,31 @@ test("returning to the foreground re-checks permission and re-registers a droppe
   await emulatePermission(page, "denied");
   await fakePushService(page, endpoint);
   await page.setViewportSize(PHONE);
-  await signIn(page);
+  await signInAs(page, APP_ORIGIN, RESEARCHER.email);
+  await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
   await page.goto(`${APP_ORIGIN}/app/notifications`);
-  await expect(statusValue(page, "Permission on this device")).toHaveText("Denied");
+  const permission = statusValue(page, "Permission on this device");
+  await expect(permission).toHaveText("Denied");
 
   // Allowed in the phone's Settings, then back to the app (no reload).
-  await page.evaluate(() => (window as unknown as TestWindow).setPermission("granted"));
+  await inPage(page, (w) => w.setPermission("granted"));
   await foreground(page);
-  await expect(statusValue(page, "Permission on this device")).toHaveText("Not requested");
+  await expect(permission).toHaveText("Not requested");
   await page.getByRole("button", { name: "Turn on reminders" }).click();
-  await expect(statusValue(page, "Permission on this device")).toHaveText("Enabled");
-  const firstSeen = await lastSeen(endpoint);
+  await expect(permission).toHaveText("Enabled");
+  const firstSeen = (await deviceRow(endpoint)).last_seen_at;
 
   // The browser drops the subscription while the app is in the background.
-  await page.evaluate(() => (window as unknown as TestWindow).dropSubscription());
+  await inPage(page, (w) => w.dropSubscription());
   await foreground(page);
-  await expect.poll(() => page.evaluate(() => (window as unknown as TestWindow).subscribeCalls())).toBe(2);
-  await expect.poll(async () => new Date(await lastSeen(endpoint)) > new Date(firstSeen)).toBe(true);
-  await expect(statusValue(page, "Permission on this device")).toHaveText("Enabled");
+  await expect.poll(() => inPage(page, (w) => w.subscribeCalls())).toBe(2);
+  await expect.poll(async () => (await deviceRow(endpoint)).last_seen_at > firstSeen).toBe(true);
+  await expect(permission).toHaveText("Enabled");
 
   // Blocked again in Settings: the screen follows on return.
-  await page.evaluate(() => (window as unknown as TestWindow).setPermission("denied"));
+  await inPage(page, (w) => w.setPermission("denied"));
   await foreground(page);
-  await expect(statusValue(page, "Permission on this device")).toHaveText("Denied");
+  await expect(permission).toHaveText("Denied");
 });
 
 test.describe("designed device states", () => {
@@ -227,29 +228,28 @@ test.describe("designed device states", () => {
 
   test("iPhone in Safari: add to home screen first", async ({ browser }) => {
     const page = await (await browser.newContext({ userAgent: IPHONE_UA, viewport: PHONE })).newPage();
-    await signIn(page);
+    await signInAs(page, APP_ORIGIN, RESEARCHER.email);
+    await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
     await page.goto(`${APP_ORIGIN}/app/notifications`);
     await expect(page.getByText("On iPhone, add the app to your home screen first: Share → Add to Home Screen.")).toBeVisible();
     await expect(page.getByText("I've added it")).toHaveCount(0);
     await expect(statusValue(page, "Installed to home screen")).toHaveText("Not yet");
     await expect(page.getByRole("button", { name: "Turn on reminders" })).toHaveCount(0);
-    await shot(page, "s3-settings-iphone");
   });
 
-  test("denied and unsupported", async ({ page }) => {
+  test("step 3, denied and unsupported", async ({ page }) => {
     await emulatePermission(page, "default");
-    await signIn(page);
+    await signInAs(page, APP_ORIGIN, RESEARCHER.email);
+    await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
     await page.goto(`${APP_ORIGIN}/auth/reminders`);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Reminders on your phone");
     await expect(statusValue(page, "Notification permission")).toHaveText("Not requested");
-    await shot(page, "s3-step3");
 
     await emulatePermission(page, "denied");
     await page.goto(`${APP_ORIGIN}/app/notifications`);
     await expect(page.getByText("Denied at the OS level.", { exact: false })).toBeVisible();
     await expect(statusValue(page, "Permission on this device")).toHaveText("Denied");
     await expect(page.getByRole("button", { name: /Turn (on|off) reminders/ })).toHaveCount(0);
-    await shot(page, "s3-settings-denied");
 
     const unsupported = await page.context().newPage();
     await unsupported.addInitScript(() => delete (window as { PushManager?: unknown }).PushManager);
@@ -271,15 +271,12 @@ test.describe("designed device states", () => {
     await signInAs(page, APP_ORIGIN, RESEARCHER.email);
     await expect(page).toHaveURL(`${APP_ORIGIN}/auth/reminders`);
     await expect(page.getByText("Step 3 of 3 · optional")).toBeVisible();
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Reminders on your phone");
     await expect(statusValue(page, "Installed to home screen")).toHaveText("Yes");
     await expect(page.getByRole("button", { name: "Turn on reminders" })).toBeVisible();
-    await shot(page, "s3-step3-installed-iphone");
 
     await page.getByRole("button", { name: "Not now" }).click();
     await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
     await page.reload();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Today");
-    await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
   });
 });

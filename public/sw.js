@@ -15,26 +15,28 @@ self.addEventListener("activate", (event) => {
 const APP_HOME = "/app";
 
 /**
- * The absolute URL to open for a notification: a relative path inside the
- * researcher app (/app or below) on this origin; anything else, including
- * other same-origin paths (which redirect to the public site), opens /app.
- * Same rule as appNotificationPath() in src/lib/push/send.ts.
+ * A notification's target as a relative path inside the researcher app
+ * (/app or below); anything else, including other same-origin paths (which
+ * redirect to the public site), becomes /app. Same rule as
+ * appNotificationPath() in src/lib/push/send.ts. The push handler stores this
+ * path and the click handler checks it again before opening it.
  */
-function appUrl(path) {
-  const home = new URL(APP_HOME, self.location.origin).href;
-  if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//")) return home;
-  if (/[\\\s\x00-\x1f\x7f]/.test(path)) return home;
+function appPath(path) {
+  if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//")) return APP_HOME;
+  if (/[\\\s\x00-\x1f\x7f]/.test(path)) return APP_HOME;
   try {
     const url = new URL(path, self.location.origin);
     // Resolved, so "/app/../about" and "/app/%2e%2e/about" are caught here.
     if (url.origin === self.location.origin && (url.pathname === APP_HOME || url.pathname.startsWith(`${APP_HOME}/`))) {
-      return url.href;
+      return `${url.pathname}${url.search}${url.hash}`;
     }
   } catch {
     // fall through
   }
-  return home;
+  return APP_HOME;
 }
+
+const appUrl = (path) => new URL(appPath(path), self.location.origin).href;
 
 /** App icon badge: a count (iPhone) or dot (some Android launchers); 0 clears it. */
 function setBadge(count) {
@@ -61,7 +63,7 @@ self.addEventListener("push", (event) => {
   const options = {
     body: typeof data.body === "string" ? data.body : "",
     icon: "/app-icons/icon-192.png",
-    data: { url: appUrl(data.url) },
+    data: { url: appPath(data.url) },
     // A newer notification with the same tag replaces the older one and alerts again.
     ...(tag ? { tag, renotify: true } : {}),
   };

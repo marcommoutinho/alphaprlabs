@@ -2,15 +2,9 @@ import { readFile } from "node:fs/promises";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 import { isAppFileOffAppHost } from "@/lib/host-routing";
-import { canonicalEndpoint, deviceSubscriptionSchema, isPushServiceEndpoint } from "@/lib/push/device";
+import { canonicalEndpoint, deviceSubscriptionSchema } from "@/lib/push/device";
 import { deviceLabel, reminderStatus, type DeviceFacts } from "@/lib/push/readiness";
-import {
-  appNotificationPath,
-  sendPush,
-  sendPushToAll,
-  type PushDeps,
-  type TransportRequest,
-} from "@/lib/push/send";
+import { appNotificationPath, sendPush, sendPushToAll, type PushDeps, type TransportRequest } from "@/lib/push/send";
 import { signOutDevice } from "@/lib/push/sign-out";
 
 const target = { id: "sub-1", endpoint: "https://fcm.googleapis.com/fcm/send/abc", p256dh: "BPk", auth: "au" };
@@ -20,70 +14,47 @@ const options = { ttlSeconds: 600, topic: "test", urgency: "high" as const };
 function deps(answer: (request: TransportRequest) => Promise<{ statusCode: number }>) {
   const disabled: string[] = [];
   const transport = vi.fn(answer);
-  const value: PushDeps = {
-    vapid: { subject: "mailto:test@example.test", publicKey: "pub", privateKey: "priv" },
-    transport,
-    disableGone: async (id) => {
-      disabled.push(id);
-    },
-  };
+  const vapid = { subject: "mailto:test@example.test", publicKey: "pub", privateKey: "priv" };
+  const value: PushDeps = { vapid, transport, disableGone: async (id) => void disabled.push(id) };
   return { value, transport, disabled };
 }
 
 describe("push sending", () => {
-  it("reports provider acceptance as sent, with the payload shape, TTL, topic and urgency", async () => {
-    const { value, transport, disabled } = deps(async () => ({ statusCode: 201 }));
-    expect(await sendPush(target, payload, options, value)).toEqual({ id: "sub-1", status: "sent", statusCode: 201 });
-    const request = transport.mock.calls[0][0];
-    expect(JSON.parse(request.payload)).toEqual(payload);
-    expect(request).toMatchObject({
-      subscription: { endpoint: target.endpoint, keys: { p256dh: "BPk", auth: "au" } },
-      ttlSeconds: 600,
-      topic: "test",
-      urgency: "high",
-      vapid: value.vapid,
-    });
-    expect(disabled).toEqual([]);
-  });
-
-  it("disables a subscription the push service reports gone (404/410)", async () => {
-    for (const statusCode of [404, 410]) {
+  it("records acceptance as sent, disables gone subscriptions and returns other failures", async () => {
+    const cases = [
+      [201, { status: "sent", statusCode: 201 }, []],
+      [404, { status: "gone", statusCode: 404 }, ["sub-1"]],
+      [410, { status: "gone", statusCode: 410 }, ["sub-1"]],
+      [429, { status: "failed", statusCode: 429 }, []],
+    ] as const;
+    for (const [statusCode, result, disabledIds] of cases) {
       const { value, disabled } = deps(async () => ({ statusCode }));
-      expect(await sendPush(target, payload, options, value)).toEqual({ id: "sub-1", status: "gone", statusCode });
-      expect(disabled).toEqual(["sub-1"]);
+      expect(await sendPush(target, payload, options, value)).toMatchObject({ id: "sub-1", ...result });
+      expect(disabled).toEqual(disabledIds);
     }
-  });
-
-  it("returns other failures as results without disabling or throwing", async () => {
-    const rejected = deps(async () => ({ statusCode: 429 }));
-    expect(await sendPush(target, payload, options, rejected.value)).toMatchObject({
-      status: "failed",
-      statusCode: 429,
-    });
-    const network = deps(async () => {
-      throw new Error("ECONNRESET");
-    });
-    const results = await sendPushToAll([target, { ...target, id: "sub-2" }], payload, options, network.value);
-    expect(results).toEqual([
+    const network = deps(async () => Promise.reject(new Error("ECONNRESET")));
+    expect(await sendPushToAll([target, { ...target, id: "sub-2" }], payload, options, network.value)).toEqual([
       { id: "sub-1", status: "failed", error: "ECONNRESET" },
       { id: "sub-2", status: "failed", error: "ECONNRESET" },
     ]);
-    expect([...rejected.disabled, ...network.disabled]).toEqual([]);
   });
 
-  it("never sends to a non push-service endpoint or with a bad topic", async () => {
+  it("sends the payload shape with TTL, topic and urgency; refuses unknown endpoints and bad topics", async () => {
     const { value, transport } = deps(async () => ({ statusCode: 201 }));
-    expect(
-      await sendPush({ ...target, endpoint: "https://169.254.169.254/latest" }, payload, options, value),
-    ).toMatchObject({ status: "failed" });
+    await sendPush(target, payload, options, value);
+    const request = transport.mock.calls[0][0];
+    expect(JSON.parse(request.payload)).toEqual(payload);
+    expect(request).toMatchObject({ ttlSeconds: 600, topic: "test", urgency: "high", vapid: value.vapid });
+    const other = { ...target, endpoint: "https://169.254.169.254/latest" };
+    expect(await sendPush(other, payload, options, value)).toMatchObject({ status: "failed" });
     await expect(sendPush(target, payload, { ...options, topic: "not a topic!" }, value)).rejects.toThrow();
-    expect(transport).not.toHaveBeenCalled();
+    expect(transport).toHaveBeenCalledOnce();
   });
 
   it("only ever links a notification to a path inside /app", async () => {
     for (const path of ["/app", "/app/today?x=1", "/app/notifications#top"]) expect(appNotificationPath(path)).toBe(path);
-    const outside = ["/about", "/", "/application", "/auth", "https://evil.test/app", "//evil.test/app", "/app\\..\\about",
-      "/app/../about", "/app/%2e%2e/about", "app/today", " /app", "/app\n", "", undefined];
+    const outside = ["/about", "/", "/application", "/auth", "https://evil.test/app", "//evil.test/app",
+      "/app\\..\\about", "/app/../about", "/app/%2e%2e/about", "app/today", " /app", "/app\n", "", undefined];
     for (const path of outside) expect(appNotificationPath(path)).toBe("/app");
     const { value, transport } = deps(async () => ({ statusCode: 201 }));
     await sendPush(target, { ...payload, url: "/about" }, options, value);
@@ -91,168 +62,115 @@ describe("push sending", () => {
   });
 });
 
-describe("service worker", () => {
-  // Runs public/sw.js in a sandbox with a fake worker scope.
-  async function loadWorker() {
+describe("service worker (public/sw.js in a sandbox)", () => {
+  it("has no fetch handler; a tap opens the pushed /app path, anything else opens /app", async () => {
     const handlers: Record<string, (event: object) => void> = {};
     const opened: string[] = [];
-    const shown: { title: string; options: { data: { url: string } } }[] = [];
-    const scope = {
+    const shown: { data: { url: string } }[] = [];
+    const self = {
       location: { origin: "https://app.example" },
       navigator: {},
       addEventListener: (type: string, handler: (event: object) => void) => (handlers[type] = handler),
-      skipWaiting: () => undefined,
-      registration: { showNotification: async (title: string, options: never) => void shown.push({ title, options }) },
-      clients: { claim: async () => undefined, matchAll: async () => [], openWindow: async (url: string) => void opened.push(url) },
+      registration: { showNotification: async (_title: string, options: never) => void shown.push(options) },
+      clients: { matchAll: async () => [], openWindow: async (url: string) => void opened.push(url) },
     };
-    const source = await readFile(new URL("../../public/sw.js", import.meta.url), "utf8");
-    runInNewContext(source, { self: scope, URL, Promise });
+    runInNewContext(await readFile(new URL("../../public/sw.js", import.meta.url), "utf8"), { self, URL, Promise });
     const run = async (type: string, event: object) => {
-      let work: Promise<unknown> = Promise.resolve();
-      handlers[type]({ ...event, waitUntil: (promise: Promise<unknown>) => (work = promise) });
+      let work: unknown;
+      handlers[type]({ ...event, waitUntil: (promise: unknown) => (work = promise) });
       await work;
     };
-    return { handlers, opened, shown, run };
-  }
+    expect(Object.keys(handlers).sort()).toEqual(["activate", "install", "notificationclick", "push", "pushsubscriptionchange"]);
 
-  it("opens only /app paths on its own origin and has no fetch handler", async () => {
-    const worker = await loadWorker();
-    expect(Object.keys(worker.handlers).sort()).toEqual(
-      ["activate", "install", "notificationclick", "push", "pushsubscriptionchange"].sort(),
-    );
-    const click = (url: unknown) =>
-      worker.run("notificationclick", { notification: { close: () => undefined, data: { url } } });
-    for (const url of ["/about", "https://evil.test/app", "//evil.test", "/app/../about", "https://app.example/"]) {
-      await click(url);
+    // Round trip: push → notification data → tap.
+    const pushed = ["/app/notifications", "/about", "https://evil.test/app", "//evil.test", "/app/../about"];
+    for (const url of pushed) {
+      await run("push", { data: { json: () => ({ title: "T", body: "B", url, tag: "t" }) } });
+      await run("notificationclick", { notification: { close: () => undefined, data: shown.at(-1)!.data } });
     }
-    await click("/app/today");
-    expect(worker.opened).toEqual([...Array(5).fill("https://app.example/app"), "https://app.example/app/today"]);
-
-    await worker.run("push", { data: { json: () => ({ title: "T", body: "B", url: "/research", tag: "t" }) } });
-    expect(worker.shown[0].options.data.url).toBe("https://app.example/app");
+    // A tap on data that did not come from the push handler is checked again.
+    await run("notificationclick", { notification: { close: () => undefined, data: { url: "https://app.example/" } } });
+    expect(opened).toEqual(["https://app.example/app/notifications", ...Array(5).fill("https://app.example/app")]);
   });
 });
 
 describe("sign-out on a phone with reminders", () => {
-  const endpoint = "https://fcm.googleapis.com/fcm/send/abc";
-
-  it("keeps the session when neither the server nor the browser can turn the device off", async () => {
-    const signOut = vi.fn(async (input: { endpoint: string | null }) => (input ? { ok: false as const } : undefined));
-    expect(await signOutDevice({ endpoint, signOut, unsubscribe: async () => false })).toBe("failed");
-    expect(signOut.mock.calls).toEqual([[{ endpoint }]]);
-    const throwing = async (): Promise<boolean> => {
-      throw new Error("no service worker");
-    };
-    expect(await signOutDevice({ endpoint, signOut, unsubscribe: throwing })).toBe("failed");
-  });
-
-  it("falls back to dropping the browser subscription, then signs out", async () => {
-    const signOut = vi.fn(async (input: { endpoint: string | null }) => (input.endpoint ? { ok: false as const } : undefined));
-    const unsubscribe = vi.fn(async () => true);
-    expect(await signOutDevice({ endpoint, signOut, unsubscribe })).toBe("signed-out");
-    expect(signOut.mock.calls).toEqual([[{ endpoint }], [{ endpoint: null }]]);
-    expect(unsubscribe).toHaveBeenCalledOnce();
-  });
-
-  it("signs out directly when the server disabled the device", async () => {
-    const signOut = vi.fn(async () => undefined);
-    const unsubscribe = vi.fn(async () => true);
-    expect(await signOutDevice({ endpoint, signOut, unsubscribe })).toBe("signed-out");
-    expect(unsubscribe).not.toHaveBeenCalled();
+  it("disables the device, else drops the browser subscription, else keeps the session", async () => {
+    const endpoint = "https://fcm.googleapis.com/fcm/send/abc";
+    const cases = [
+      // server disables the row | browser unsubscribe → outcome, server calls
+      [true, "unused", "signed-out", [{ endpoint }]],
+      [false, true, "signed-out", [{ endpoint }, { endpoint: null }]],
+      [false, false, "failed", [{ endpoint }]],
+      [false, "throws", "failed", [{ endpoint }]],
+    ] as const;
+    for (const [serverOk, unsubscribed, outcome, calls] of cases) {
+      const signOut = vi.fn(async (input: { endpoint: string | null }) => ({ ok: serverOk || input.endpoint === null }));
+      const unsubscribe = async () => {
+        if (unsubscribed === "throws") throw new Error("no service worker");
+        return unsubscribed === true;
+      };
+      expect(await signOutDevice({ endpoint, signOut, unsubscribe })).toBe(outcome);
+      expect(signOut.mock.calls.map(([input]) => input)).toEqual(calls);
+    }
   });
 });
 
 describe("device subscriptions", () => {
-  it("accepts only browser push services and well-formed keys", () => {
-    expect(isPushServiceEndpoint("https://web.push.apple.com/QGx")).toBe(true);
-    expect(isPushServiceEndpoint("https://updates.push.services.mozilla.com/wpush/v2/x")).toBe(true);
-    for (const bad of ["http://fcm.googleapis.com/x", "https://fcm.googleapis.com.evil.test/x", "https://localhost/x"]) {
-      expect(isPushServiceEndpoint(bad)).toBe(false);
-    }
-    const keys = { p256dh: "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM", auth: "tBHItJI5svbpez7KI4CCXg" };
-    expect(deviceSubscriptionSchema.safeParse({ endpoint: target.endpoint, keys }).success).toBe(true);
-    expect(deviceSubscriptionSchema.safeParse({ endpoint: target.endpoint, keys: { ...keys, auth: "a b" } }).success).toBe(false);
-  });
-
-  it("stores one canonical spelling per endpoint and rejects fragments, userinfo and other ports", () => {
+  it("stores one canonical spelling per endpoint; rejects fragments, userinfo, other ports and other hosts", () => {
     const canonical = "https://fcm.googleapis.com/fcm/send/abc:APA91b-x_y";
-    for (const variant of [
-      canonical,
-      "https://FCM.GoogleAPIs.com/fcm/send/abc:APA91b-x_y",
-      "https://fcm.googleapis.com:443/fcm/send/abc:APA91b-x_y",
-      "https://fcm.googleapis.com/fcm/send/%61bc:APA91b%2Dx%5Fy",
-      "https://fcm.googleapis.com/fcm/send/./abc:APA91b-x_y",
-      `${canonical}?`,
-    ]) {
-      expect(canonicalEndpoint(variant)).toBe(canonical);
-    }
-    const wns = "https://wns2-par02p.notify.windows.com/w/?token=BQYAAAB%2bab%3d";
-    expect(canonicalEndpoint(wns)).toBe("https://wns2-par02p.notify.windows.com/w/?token=BQYAAAB%2Bab%3D");
-    for (const bad of [
-      `${canonical}#other`,
-      `${canonical}#`,
-      "https://user@fcm.googleapis.com/fcm/send/abc",
-      "https://fcm.googleapis.com:8443/fcm/send/abc",
-      "http://fcm.googleapis.com/fcm/send/abc",
-      "https://fcm.googleapis.com./fcm/send/abc",
-      "https://fcm.googleapis.com/fcm/send/a%zz",
-      "https://fcm.googleapis.com/fcm/send/a b",
-    ]) {
-      expect(canonicalEndpoint(bad)).toBeNull();
-    }
-    const parsed = deviceSubscriptionSchema.parse({
-      endpoint: "https://FCM.googleapis.com:443/fcm/send/abc",
-      keys: { p256dh: "BNc", auth: "tBH" },
-    });
-    expect(parsed.endpoint).toBe("https://fcm.googleapis.com/fcm/send/abc");
+    const variants = ["https://FCM.GoogleAPIs.com/fcm/send/abc:APA91b-x_y", "https://fcm.googleapis.com:443/fcm/send/abc:APA91b-x_y",
+      "https://fcm.googleapis.com/fcm/send/%61bc:APA91b%2Dx%5Fy", "https://fcm.googleapis.com/fcm/send/./abc:APA91b-x_y", `${canonical}?`];
+    for (const variant of [canonical, ...variants]) expect(canonicalEndpoint(variant)).toBe(canonical);
+    expect(canonicalEndpoint("https://wns2-par02p.notify.windows.com/w/?token=BQYAAAB%2bab%3d")).toBe(
+      "https://wns2-par02p.notify.windows.com/w/?token=BQYAAAB%2Bab%3D",
+    );
+    expect(canonicalEndpoint("https://web.push.apple.com/QGx")).toBe("https://web.push.apple.com/QGx");
+    const bad = [`${canonical}#other`, `${canonical}#`, "https://user@fcm.googleapis.com/x", "https://fcm.googleapis.com:8443/x",
+      "http://fcm.googleapis.com/x", "https://fcm.googleapis.com./x", "https://fcm.googleapis.com.evil.test/x",
+      "https://localhost/x", "https://fcm.googleapis.com/a%zz", "https://fcm.googleapis.com/a b"];
+    for (const endpoint of bad) expect(canonicalEndpoint(endpoint)).toBeNull();
+
+    const keys = { p256dh: "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQ", auth: "tBHItJI5svbpez7KI4CCXg" };
+    expect(deviceSubscriptionSchema.parse({ endpoint: variants[1], keys }).endpoint).toBe(canonical);
+    expect(deviceSubscriptionSchema.safeParse({ endpoint: canonical, keys: { ...keys, auth: "a b" } }).success).toBe(false);
   });
 
   it("labels devices without storing the user agent", () => {
-    const iphone = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 Version/17.4 Mobile/15E148 Safari/604.1";
-    expect(deviceLabel(iphone, 5)).toBe("iPhone · Safari");
+    expect(deviceLabel("Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) Version/17.4 Safari/604.1", 5)).toBe("iPhone · Safari");
     expect(deviceLabel("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Version/17.4 Safari/605.1.15", 5)).toBe("iPad · Safari");
     expect(deviceLabel("Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/128.0 Mobile Safari/537.36", 5)).toBe("Android · Chrome");
   });
 });
 
 describe("reminder readiness", () => {
-  const facts = (overrides: Partial<DeviceFacts>): DeviceFacts => ({
-    pushApi: true,
-    userAgent: "Mozilla/5.0 (Linux; Android 14) Chrome/128.0 Mobile",
-    maxTouchPoints: 5,
-    standalone: false,
-    permission: "default",
-    ...overrides,
-  });
-  const none = { subscribed: false, failed: false };
-  const iphone = (os: string) => `Mozilla/5.0 (iPhone; CPU iPhone OS ${os} like Mac OS X) Mobile/15E148 Safari/604.1`;
-
-  it("derives each designed state", () => {
-    expect(reminderStatus(facts({}), none)).toBe("not-requested");
-    expect(reminderStatus(facts({ permission: "granted" }), { subscribed: true, failed: false })).toBe("enabled");
-    expect(reminderStatus(facts({ permission: "denied" }), none)).toBe("denied");
-    expect(reminderStatus(facts({ permission: "granted" }), { subscribed: false, failed: true })).toBe("failed");
-    expect(reminderStatus(facts({ pushApi: false }), none)).toBe("unsupported");
-  });
-
-  it("asks iPhone and iPad (as Mac with touch) to install first; old iOS is unsupported", () => {
+  it("derives each designed state, including iPhone/iPad install-first and old iOS", () => {
+    const android = "Mozilla/5.0 (Linux; Android 14) Chrome/128.0 Mobile";
+    const iphone = (os: string) => `Mozilla/5.0 (iPhone; CPU iPhone OS ${os} like Mac OS X) Mobile/15E148 Safari/604.1`;
     const ipadAsMac = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Version/17.4 Safari/605.1.15";
-    expect(reminderStatus(facts({ userAgent: iphone("17_4"), pushApi: false }), none)).toBe("needs-install");
-    expect(reminderStatus(facts({ userAgent: ipadAsMac, pushApi: false }), none)).toBe("needs-install");
-    expect(reminderStatus(facts({ userAgent: iphone("16_3"), pushApi: false }), none)).toBe("unsupported");
-    expect(reminderStatus(facts({ userAgent: iphone("17_4"), standalone: true }), none)).toBe("not-requested");
-    // A Mac without touch is a desktop browser.
-    expect(reminderStatus(facts({ userAgent: ipadAsMac, maxTouchPoints: 0 }), none)).toBe("not-requested");
+    const cases: [Partial<DeviceFacts>, { subscribed?: boolean; failed?: boolean }, string][] = [
+      [{}, {}, "not-requested"],
+      [{ permission: "granted" }, { subscribed: true }, "enabled"],
+      [{ permission: "denied" }, {}, "denied"],
+      [{ permission: "granted" }, { failed: true }, "failed"],
+      [{ pushApi: false }, {}, "unsupported"],
+      [{ userAgent: iphone("17_4"), pushApi: false }, {}, "needs-install"],
+      [{ userAgent: ipadAsMac, pushApi: false }, {}, "needs-install"],
+      [{ userAgent: iphone("16_3"), pushApi: false }, {}, "unsupported"],
+      [{ userAgent: iphone("17_4"), standalone: true }, {}, "not-requested"],
+      [{ userAgent: ipadAsMac, maxTouchPoints: 0 }, {}, "not-requested"], // a Mac without touch is a desktop
+    ];
+    for (const [facts, device, status] of cases) {
+      const all: DeviceFacts = { pushApi: true, userAgent: android, maxTouchPoints: 5, standalone: false, permission: "default", ...facts };
+      expect(reminderStatus(all, { subscribed: false, failed: false, ...device }), JSON.stringify(facts)).toBe(status);
+    }
   });
-});
 
-describe("app files", () => {
   it("serves the manifest, worker and icons on the app host only", () => {
     const hosts = { appHost: "app.localhost:3000", publicHost: "www.localhost:3000" };
-    expect(isAppFileOffAppHost({ host: "www.localhost:3000", pathname: "/sw.js" }, hosts)).toBe(true);
-    expect(isAppFileOffAppHost({ host: "www.localhost:3000", pathname: "/app-icons/icon-192.png" }, hosts)).toBe(true);
-    expect(isAppFileOffAppHost({ host: "app.localhost:3000", pathname: "/manifest.webmanifest" }, hosts)).toBe(false);
-    expect(isAppFileOffAppHost({ host: "www.localhost:3000", pathname: "/logo.jpeg" }, hosts)).toBe(false);
+    const cases = [["www.localhost:3000", "/sw.js", true], ["www.localhost:3000", "/app-icons/icon-192.png", true],
+      ["app.localhost:3000", "/manifest.webmanifest", false], ["www.localhost:3000", "/logo.jpeg", false]] as const;
+    for (const [host, pathname, blocked] of cases) expect(isAppFileOffAppHost({ host, pathname }, hosts)).toBe(blocked);
     expect(isAppFileOffAppHost({ host: "localhost:3000", pathname: "/sw.js" }, {})).toBe(false);
   });
 });

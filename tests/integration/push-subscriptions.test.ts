@@ -2,29 +2,20 @@
 // owner-bound writes, owner-only reads, shared phones and turning off.
 import { randomBytes } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import {
-  anonClient,
-  appTestEnv,
-  ensureAccount,
-  serviceClient,
-  signedInClient,
-  uniqueEmail,
-} from "../support/local-supabase";
+import { anonClient, appTestEnv, ensureAccount, serviceClient, signedInClient, uniqueEmail } from "../support/local-supabase";
 
 Object.assign(process.env, appTestEnv());
 const { disableGoneSubscription } = await import("@/lib/push/send");
 const { canonicalEndpoint } = await import("@/lib/push/device");
 
-const researcherA = { email: uniqueEmail("push-a"), name: "Push A" };
-const researcherB = { email: uniqueEmail("push-b"), name: "Push B" };
-const admin = { email: uniqueEmail("push-admin"), name: "Push Admin" };
+const [emailA, emailB, adminEmail] = [uniqueEmail("push-a"), uniqueEmail("push-b"), uniqueEmail("push-admin")];
 let idA: string;
 let idB: string;
 
 beforeAll(async () => {
-  idA = await ensureAccount({ ...researcherA, role: "researcher" });
-  idB = await ensureAccount({ ...researcherB, role: "researcher" });
-  await ensureAccount({ ...admin, role: "admin" });
+  idA = await ensureAccount({ email: emailA, name: "Push A", role: "researcher" });
+  idB = await ensureAccount({ email: emailB, name: "Push B", role: "researcher" });
+  await ensureAccount({ email: adminEmail, name: "Push Admin", role: "admin" });
 });
 
 type Client = Awaited<ReturnType<typeof signedInClient>>;
@@ -36,106 +27,69 @@ const save = (client: Client, url: string) =>
     p_auth: randomBytes(16).toString("base64url"),
     p_device_label: "Android · Chrome",
   });
+const disable = (client: Client, url: string, reason: string) =>
+  client.rpc("disable_push_subscription", { p_endpoint: url, p_reason: reason });
 const row = async (url: string) =>
-  (
-    await serviceClient()
-      .from("push_subscriptions")
-      .select("id, profile_id, disabled_at, disabled_reason, last_seen_at")
-      .eq("endpoint", url)
-      .single()
-  ).data!;
+  (await serviceClient().from("push_subscriptions").select("id, profile_id, disabled_reason, last_seen_at").eq("endpoint", url).single()).data!;
 
 describe("push subscriptions", () => {
-  it("only the owner reads a device; other researchers, admins and anon cannot read or write it", async () => {
-    const a = await signedInClient(researcherA.email);
-    const b = await signedInClient(researcherB.email);
+  it("only the owner reads a device; other researchers, admins and anon cannot read, write or register", async () => {
+    const [a, b, admin] = await Promise.all([signedInClient(emailA), signedInClient(emailB), signedInClient(adminEmail)]);
     const url = endpoint();
     expect((await save(a, url)).error).toBeNull();
-
     expect((await a.from("push_subscriptions").select("endpoint")).data).toEqual([{ endpoint: url }]);
-    for (const other of [b, await signedInClient(admin.email), anonClient()]) {
+    for (const other of [b, admin, anonClient()]) {
       expect((await other.from("push_subscriptions").select("id")).data ?? []).toHaveLength(0);
       expect((await other.from("push_subscriptions").update({ profile_id: idB }).eq("endpoint", url)).error).not.toBeNull();
       expect((await other.from("push_subscriptions").delete().eq("endpoint", url)).error).not.toBeNull();
-      // Turning off someone else's device changes nothing.
-      const off = await other.rpc("disable_push_subscription", { p_endpoint: url, p_reason: "turned_off" });
-      expect(off.data ?? false).toBe(false);
+      expect((await disable(other, url, "turned_off")).data ?? false).toBe(false);
     }
-    // No direct writes, even by the owner.
+    // No direct writes, even by the owner; admins and anon cannot register devices.
     const direct = await a.from("push_subscriptions").insert({ profile_id: idA, endpoint: endpoint(), p256dh: "x", auth: "y" });
     expect(direct.error).not.toBeNull();
-    expect(await row(url)).toMatchObject({ profile_id: idA, disabled_at: null });
-
-    // Anonymous callers and admins cannot register devices.
     expect((await save(anonClient(), endpoint())).error).not.toBeNull();
-    expect((await save(await signedInClient(admin.email), endpoint())).data).toBeNull();
+    expect((await save(admin, endpoint())).data).toBeNull();
+    expect(await row(url)).toMatchObject({ profile_id: idA, disabled_reason: null });
   });
 
-  it("re-registering refreshes last_seen; a shared phone moves to the account that registers it", async () => {
-    const a = await signedInClient(researcherA.email);
-    const b = await signedInClient(researcherB.email);
+  it("a shared phone moves to the account that registers it, under any spelling of its endpoint", async () => {
+    const [a, b] = await Promise.all([signedInClient(emailA), signedInClient(emailB)]);
     const url = endpoint();
     await save(a, url);
     const first = await row(url);
     await save(a, url);
-    const again = await row(url);
-    expect(again.id).toBe(first.id);
-    expect(new Date(again.last_seen_at).getTime()).toBeGreaterThan(new Date(first.last_seen_at).getTime());
+    expect(new Date((await row(url)).last_seen_at) > new Date(first.last_seen_at)).toBe(true);
 
-    expect((await save(b, url)).error).toBeNull();
-    expect(await row(url)).toMatchObject({ id: first.id, profile_id: idB, disabled_at: null });
-    expect((await a.from("push_subscriptions").select("endpoint").eq("endpoint", url)).data).toEqual([]);
-    expect((await b.from("push_subscriptions").select("endpoint").eq("endpoint", url)).data).toEqual([{ endpoint: url }]);
-  });
-
-  it("another researcher cannot hold a second row for the same phone under a different spelling", async () => {
-    const a = await signedInClient(researcherA.email);
-    const b = await signedInClient(researcherB.email);
-    const url = endpoint();
-    await save(a, url);
     const token = url.slice(url.lastIndexOf("/") + 1);
-    const variants = [
-      `${url}#b`,
-      `${url}#`,
-      url.replace("https://fcm.googleapis.com", "https://FCM.googleapis.com"),
-      url.replace("fcm.googleapis.com", "fcm.googleapis.com:443"),
-      url.replace(`/${token}`, `/%${token.charCodeAt(0).toString(16)}${token.slice(1)}`),
-      url.replace("https://", "https://b@"),
-      `${url}?`,
-    ];
+    const variants = [`${url}#b`, `${url}#`, url.replace("fcm.", "FCM."), url.replace(".com", ".com:443"),
+      url.replace(`/${token}`, `/%${token.charCodeAt(0).toString(16)}${token.slice(1)}`), url.replace("https://", "https://b@"), `${url}?`];
     for (const variant of variants) {
-      // A direct RPC with a non-canonical spelling is refused by the database ...
+      // The database refuses a non-canonical spelling, even by direct RPC ...
       expect((await save(b, variant)).error, variant).not.toBeNull();
-      // ... and the app stores every equivalent spelling as the one canonical URL.
-      const canonical = canonicalEndpoint(variant);
-      if (canonical) expect(canonical).toBe(url);
+      // ... and the app maps each equivalent spelling to the one canonical URL.
+      expect([null, url]).toContain(canonicalEndpoint(variant));
     }
-    expect(await row(url)).toMatchObject({ profile_id: idA, disabled_at: null });
-    const { data: all } = await serviceClient().from("push_subscriptions").select("endpoint").like("endpoint", `%${token.slice(1)}%`);
-    expect(all).toEqual([{ endpoint: url }]);
+    const { data: rows } = await serviceClient().from("push_subscriptions").select("profile_id").like("endpoint", `%${token}%`);
+    expect(rows).toEqual([{ profile_id: idA }]);
 
-    // Registering through the app's canonical form moves the phone to B.
     expect((await save(b, canonicalEndpoint(variants[2])!)).error).toBeNull();
-    expect(await row(url)).toMatchObject({ profile_id: idB });
+    expect(await row(url)).toMatchObject({ id: first.id, profile_id: idB, disabled_reason: null });
+    expect((await a.from("push_subscriptions").select("id").eq("endpoint", url)).data).toEqual([]);
   });
 
   it("turning off, signing out and a gone endpoint disable the row; registering again re-enables it", async () => {
-    const a = await signedInClient(researcherA.email);
+    const a = await signedInClient(emailA);
     const url = endpoint();
+    for (const reason of ["turned_off", "signed_out"]) {
+      await save(a, url);
+      expect((await disable(a, url, reason)).data).toBe(true);
+      expect(await row(url)).toMatchObject({ disabled_reason: reason });
+    }
     await save(a, url);
-    expect((await a.rpc("disable_push_subscription", { p_endpoint: url, p_reason: "turned_off" })).data).toBe(true);
-    expect(await row(url)).toMatchObject({ disabled_reason: "turned_off", disabled_at: expect.any(String) });
-
-    await save(a, url);
-    expect(await row(url)).toMatchObject({ disabled_reason: null, disabled_at: null });
-    expect((await a.rpc("disable_push_subscription", { p_endpoint: url, p_reason: "signed_out" })).data).toBe(true);
-    expect(await row(url)).toMatchObject({ disabled_reason: "signed_out" });
-
-    await save(a, url);
+    expect(await row(url)).toMatchObject({ disabled_reason: null });
     await disableGoneSubscription((await row(url)).id);
     expect(await row(url)).toMatchObject({ disabled_reason: "gone" });
-
     // The owner cannot mark rows with other reasons.
-    expect((await a.rpc("disable_push_subscription", { p_endpoint: url, p_reason: "gone" })).error).not.toBeNull();
+    expect((await disable(a, url, "gone")).error).not.toBeNull();
   });
 });

@@ -176,7 +176,24 @@ async function upload(subscription: PushSubscription): Promise<boolean> {
 
 export type DeviceState = { facts: DeviceFacts; subscribed: boolean; failed: boolean };
 
-let inFlight: { userId: string; result: Promise<DeviceState> } | null = null;
+let inFlight: { userId: string; result: Promise<DeviceState | null> } | null = null;
+// Turn off and sign out run exclusively: they wait for a running sync and
+// block new ones, and bumping the epoch stops an older sync from writing to
+// the server or to this device afterwards. So their disable is the last write
+// for this endpoint, and a turned-off or signed-out phone stays off.
+let exclusive = 0;
+let epoch = 0;
+
+async function exclusively<T>(action: () => Promise<T>): Promise<T> {
+  exclusive += 1;
+  epoch += 1;
+  try {
+    await inFlight?.result.catch(() => null);
+    return await action();
+  } finally {
+    exclusive -= 1;
+  }
+}
 
 /**
  * On every app open and every return to the foreground: when this account
@@ -184,8 +201,10 @@ let inFlight: { userId: string; result: Promise<DeviceState> } | null = null;
  * subscription exists (iOS can drop it) and upsert it, which also refreshes
  * last_seen. Silent; only repeated failures surface (the settings failure
  * state). Concurrent calls share one run; a finished result is never reused.
+ * Resolves null when skipped or overtaken by turn off / sign out.
  */
-export function syncThisDevice(userId: string, vapidPublicKey: string): Promise<DeviceState> {
+export function syncThisDevice(userId: string, vapidPublicKey: string): Promise<DeviceState | null> {
+  if (exclusive > 0) return Promise.resolve(null);
   if (inFlight?.userId === userId) return inFlight.result;
   const result = runSync(userId, vapidPublicKey).finally(() => {
     if (inFlight?.result === result) inFlight = null;
@@ -194,7 +213,9 @@ export function syncThisDevice(userId: string, vapidPublicKey: string): Promise<
   return result;
 }
 
-async function runSync(userId: string, vapidPublicKey: string): Promise<DeviceState> {
+async function runSync(userId: string, vapidPublicKey: string): Promise<DeviceState | null> {
+  const started = epoch;
+  const current = () => epoch === started;
   const facts = readFacts();
   const failures = Number(localFlag.get(FAILURES_KEY) ?? 0);
   if (!canUsePush(facts)) return { facts, subscribed: false, failed: false };
@@ -205,7 +226,10 @@ async function runSync(userId: string, vapidPublicKey: string): Promise<DeviceSt
   }
   try {
     const subscription = await ensureSubscription(vapidPublicKey);
-    if (await upload(subscription)) {
+    if (!current()) return null;
+    const saved = await upload(subscription);
+    if (!current()) return null;
+    if (saved) {
       rememberedDevice.set({ userId, endpoint: subscription.endpoint });
       localFlag.set(FAILURES_KEY, null);
       return { facts, subscribed: true, failed: false };
@@ -213,6 +237,7 @@ async function runSync(userId: string, vapidPublicKey: string): Promise<DeviceSt
   } catch {
     // fall through
   }
+  if (!current()) return null;
   localFlag.set(FAILURES_KEY, String(failures + 1));
   return { facts, subscribed: false, failed: failures + 1 >= FAILURES_BEFORE_NOTICE };
 }
@@ -229,7 +254,28 @@ async function currentSubscription(): Promise<PushSubscription | null> {
  * reminders were turned on); if the server can't, the browser subscription is
  * dropped instead; if neither works the session is kept and "failed" returned.
  */
-export async function signOutThisDevice(): Promise<"signed-out" | "failed"> {
+/** "Turn off reminders" (run exclusively): server first; if that fails the device stays registered and says so. */
+async function turnOffNow(): Promise<boolean> {
+  try {
+    const subscription = await currentSubscription();
+    const endpoint = subscription?.endpoint ?? rememberedDevice.get()?.endpoint;
+    if (endpoint) {
+      if (!(await turnOffDevice({ endpoint })).ok) return false;
+      await subscription?.unsubscribe().catch(() => undefined);
+    }
+    rememberedDevice.set(null);
+    localFlag.set(FAILURES_KEY, null);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function signOutThisDevice(): Promise<"signed-out" | "failed"> {
+  return exclusively(signOutDeviceNow);
+}
+
+async function signOutDeviceNow(): Promise<"signed-out" | "failed"> {
   const remembered = rememberedDevice.get();
   const live = await currentSubscription().catch(() => null);
   // Forget the device first so a later sign-in never re-enables it silently.
@@ -277,7 +323,7 @@ export function useReminders(userId: string, vapidPublicKey: string): Reminders 
     const check = () => {
       const started = generation.current;
       syncThisDevice(userId, vapidPublicKey).then((state) => {
-        if (live && generation.current === started) setDevice(state);
+        if (state && live && generation.current === started) setDevice(state);
       });
     };
     captureInstallPrompt();
@@ -324,20 +370,9 @@ export function useReminders(userId: string, vapidPublicKey: string): Reminders 
     setBusy("off");
     generation.current += 1;
     try {
-      const subscription = await currentSubscription();
-      const endpoint = subscription?.endpoint ?? rememberedDevice.get()?.endpoint;
-      if (endpoint) {
-        // Server first: if that fails, the device stays registered and says so.
-        const result = await turnOffDevice({ endpoint });
-        if (!result.ok) return false;
-        await subscription?.unsubscribe().catch(() => undefined);
-      }
-      rememberedDevice.set(null);
-      localFlag.set(FAILURES_KEY, null);
-      show({ facts: readFacts(), subscribed: false, failed: false });
-      return true;
-    } catch {
-      return false;
+      const off = await exclusively(turnOffNow);
+      if (off) show({ facts: readFacts(), subscribed: false, failed: false });
+      return off;
     } finally {
       setBusy(null);
     }

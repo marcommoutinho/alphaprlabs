@@ -4,8 +4,8 @@
 export type SignOutDeps = {
   /** This device's push endpoint: the live subscription's, else the one remembered here. */
   endpoint: string | null;
-  /** The sign-out server action: redirects on success, `{ ok: false }` if the device row could not be disabled. */
-  signOut: (input: { endpoint: string | null }) => Promise<{ ok: false } | undefined | void>;
+  /** The sign-out server action: `ok: false` if the device row could not be disabled (session kept). */
+  signOut: (input: { endpoint: string | null }) => Promise<{ ok: boolean }>;
   /** Unsubscribes this browser's push subscription; true if none remains. */
   unsubscribe: () => Promise<boolean>;
 };
@@ -17,11 +17,9 @@ export type SignOutDeps = {
  * leaving a signed-out phone that still receives reminders.
  */
 export async function signOutDevice(deps: SignOutDeps): Promise<"signed-out" | "failed"> {
-  const first = await deps.signOut({ endpoint: deps.endpoint });
-  if (first?.ok !== false) return "signed-out";
+  if ((await deps.signOut({ endpoint: deps.endpoint })).ok) return "signed-out";
   // The server kept the row active. Without a browser subscription the push
   // service rejects every send (and the row is disabled as gone).
   if (!(await deps.unsubscribe().catch(() => false))) return "failed";
-  const second = await deps.signOut({ endpoint: null });
-  return second?.ok === false ? "failed" : "signed-out";
+  return (await deps.signOut({ endpoint: null })).ok ? "signed-out" : "failed";
 }

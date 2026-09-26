@@ -6,6 +6,7 @@ import { Menu } from "@base-ui/react/menu";
 import { signOut } from "@/app/(private)/auth/actions";
 import { signOutThisDevice } from "@/components/push/use-reminders";
 import { initialsOf, type AppIdentity } from "@/lib/app/identity";
+import { SIGN_IN_PATH } from "@/lib/auth/paths";
 import { usePortalContainer } from "./app-root";
 import { RESEARCHER_ACCOUNT_LINKS, isUnder } from "./nav";
 import { useToast } from "./toast";
@@ -67,13 +68,18 @@ export function AccountMenu({ identity, pathname }: { identity: AppIdentity; pat
               disabled={signingOut}
               onClick={() =>
                 startSignOut(async () => {
-                  if (identity.role !== "researcher") {
-                    await signOut();
-                    return;
-                  }
                   // Researchers: this phone must stop receiving this account's
                   // reminders; if it can't, stay signed in and say so.
-                  if ((await signOutThisDevice()) === "failed") toast(SIGN_OUT_FAILED, "error");
+                  const done =
+                    identity.role === "researcher"
+                      ? (await signOutThisDevice()) === "signed-out"
+                      : (await signOut()).ok;
+                  if (!done) {
+                    toast(SIGN_OUT_FAILED, "error");
+                    return;
+                  }
+                  // A full load of the sign-in page drops every bit of client state.
+                  window.location.replace(SIGN_IN_PATH);
                 })
               }
             >

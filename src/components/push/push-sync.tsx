@@ -20,7 +20,9 @@ export function PushSync({ userId, vapidPublicKey }: { userId: string; vapidPubl
   useEffect(() => {
     let live = true;
     const check = () =>
-      syncThisDevice(userId, vapidPublicKey).then(({ facts, subscribed }) => {
+      syncThisDevice(userId, vapidPublicKey).then((state) => {
+        if (!state) return; // skipped: turning off or signing out
+        const { facts, subscribed } = state;
         const firstInstalledOpen =
           facts.standalone &&
           isAppleMobile(facts.userAgent, facts.maxTouchPoints) &&
