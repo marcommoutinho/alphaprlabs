@@ -1,0 +1,1 @@
+Slipstream S4 correction (+ Marco's unique-name rule): fresh Codex recheck VERDICT: CLEAR. Maker gate: lint, typecheck, vitest 73/73, build, e2e 24/24 first attempt.
