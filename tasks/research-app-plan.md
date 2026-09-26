@@ -718,8 +718,10 @@ Cleanup before G2 (accepted by Marco, 2026-09-26):
 - A sale drawing on more than 1,000 purchase lots shows a truncated allocation
   list (PostgREST caps embedded rows at 1,000); page the allocations.
 - The library paging test should prove more than 1,000 entries.
-- Local test reliability: integration tests fail intermittently under parallel
-  load; two e2e flakes (admin switch, invitation order). In progress.
+- Local test reliability: fixed 2026-09-26 (owner-level SQL tests run alone;
+  read-only gateway retry; exact refusal assertions; e2e workers capped at 4).
+- The admin invitation list is not paged; past 1,000 invitations the oldest
+  drop out.
 
 Next: S8, cycle templates (A3).
 
