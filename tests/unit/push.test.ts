@@ -96,13 +96,14 @@ describe("service worker (public/sw.js in a sandbox)", () => {
 
 describe("sign-out on a phone with reminders", () => {
   it("disables the device, else drops the browser subscription, else keeps the session", async () => {
-    const endpoint = "https://fcm.googleapis.com/fcm/send/abc";
+    const [endpoint, deviceId] = ["https://fcm.googleapis.com/fcm/send/abc", "0b8a4f3e-5d6c-4b7a-9e8f-1a2b3c4d5e6f"];
+    const device = { endpoint, deviceId };
     const cases = [
       // server disables the row | browser unsubscribe → outcome, server calls
-      [true, "unused", "signed-out", [{ endpoint }]],
-      [false, true, "signed-out", [{ endpoint }, { endpoint: null }]],
-      [false, false, "failed", [{ endpoint }]],
-      [false, "throws", "failed", [{ endpoint }]],
+      [true, "unused", "signed-out", [device]],
+      [false, true, "signed-out", [device, { endpoint: null, deviceId: null }]],
+      [false, false, "failed", [device]],
+      [false, "throws", "failed", [device]],
     ] as const;
     for (const [serverOk, unsubscribed, outcome, calls] of cases) {
       const signOut = vi.fn(async (input: { endpoint: string | null }) => ({ ok: serverOk || input.endpoint === null }));
@@ -110,7 +111,7 @@ describe("sign-out on a phone with reminders", () => {
         if (unsubscribed === "throws") throw new Error("no service worker");
         return unsubscribed === true;
       };
-      expect(await signOutDevice({ endpoint, signOut, unsubscribe })).toBe(outcome);
+      expect(await signOutDevice({ ...device, signOut, unsubscribe })).toBe(outcome);
       expect(signOut.mock.calls.map(([input]) => input)).toEqual(calls);
     }
   });
@@ -132,8 +133,12 @@ describe("device subscriptions", () => {
     for (const endpoint of bad) expect(canonicalEndpoint(endpoint)).toBeNull();
 
     const keys = { p256dh: "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQ", auth: "tBHItJI5svbpez7KI4CCXg" };
-    expect(deviceSubscriptionSchema.parse({ endpoint: variants[1], keys }).endpoint).toBe(canonical);
-    expect(deviceSubscriptionSchema.safeParse({ endpoint: canonical, keys: { ...keys, auth: "a b" } }).success).toBe(false);
+    const device = { keys, deviceId: "0b8a4f3e-5d6c-4b7a-9e8f-1a2b3c4d5e6f", mode: "sync" };
+    expect(deviceSubscriptionSchema.parse({ ...device, endpoint: variants[1] }).endpoint).toBe(canonical);
+    expect(deviceSubscriptionSchema.safeParse({ ...device, endpoint: canonical, keys: { ...keys, auth: "a b" } }).success).toBe(false);
+    for (const bad of [{ mode: "force" }, { mode: undefined }, { deviceId: "not-a-uuid" }]) {
+      expect(deviceSubscriptionSchema.safeParse({ ...device, endpoint: canonical, ...bad }).success).toBe(false);
+    }
   });
 
   it("labels devices without storing the user agent", () => {

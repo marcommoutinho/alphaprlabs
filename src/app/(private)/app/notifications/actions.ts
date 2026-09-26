@@ -1,7 +1,7 @@
 "use server";
 
 import { getSessionPerson } from "@/lib/auth/session";
-import { canonicalEndpoint, deviceSubscriptionSchema } from "@/lib/push/device";
+import { canonicalEndpoint, deviceIdOf, deviceSubscriptionSchema } from "@/lib/push/device";
 import { defaultPushDeps, pushTestEnabled, sendPushToAll } from "@/lib/push/send";
 import { createClient } from "@/lib/supabase/server";
 
@@ -14,11 +14,19 @@ const signedInResearcher = async () => {
   return person?.role === "researcher" && person.acknowledged ? person : null;
 };
 
-/** Registers (or refreshes) this device's push subscription for the signed-in researcher. */
-export async function saveDevice(input: unknown): Promise<{ ok: boolean }> {
-  if (!(await signedInResearcher())) return { ok: false };
+export type SaveDeviceResult = { status: "saved" | "refused_off" | "failed" };
+
+/**
+ * Registers ("turn_on", the explicit button only) or refreshes ("sync", the
+ * background re-registration) this device's push subscription for the
+ * signed-in researcher. "refused_off": the database kept the device off (it
+ * was turned off or signed out of, or the endpoint is disabled or another
+ * account's); only an explicit turn on can switch it back on.
+ */
+export async function saveDevice(input: unknown): Promise<SaveDeviceResult> {
+  if (!(await signedInResearcher())) return { status: "failed" };
   const parsed = deviceSubscriptionSchema.safeParse(input);
-  if (!parsed.success) return { ok: false };
+  if (!parsed.success) return { status: "failed" };
 
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("save_push_subscription", {
@@ -26,19 +34,30 @@ export async function saveDevice(input: unknown): Promise<{ ok: boolean }> {
     p_p256dh: parsed.data.keys.p256dh,
     p_auth: parsed.data.keys.auth,
     p_device_label: parsed.data.label,
+    p_device_id: parsed.data.deviceId,
+    p_mode: parsed.data.mode,
   });
-  return { ok: !error && data !== null };
+  if (error || (data !== "saved" && data !== "refused_off")) return { status: "failed" };
+  return { status: data };
 }
 
-/** "Turn off reminders": disables the signed-in researcher's row for this device. */
-export async function turnOffDevice(input: { endpoint: unknown }): Promise<{ ok: boolean }> {
+/**
+ * "Turn off reminders": disables the signed-in researcher's rows for this
+ * device (its endpoint and its device id) and marks the device off.
+ */
+export async function turnOffDevice(input: { endpoint: unknown; deviceId?: unknown }): Promise<{ ok: boolean }> {
   if (!(await signedInResearcher())) return { ok: false };
+  // A non-push-service endpoint has no row; the device id still marks it off.
   const endpoint = canonicalEndpoint(input.endpoint);
-  // Not a push-service endpoint: no row can exist for it.
-  if (endpoint === null) return { ok: true };
+  const deviceId = deviceIdOf(input.deviceId);
+  if (endpoint === null && deviceId === null) return { ok: true };
 
   const supabase = await createClient();
-  const { error } = await supabase.rpc("disable_push_subscription", { p_endpoint: endpoint, p_reason: "turned_off" });
+  const { error } = await supabase.rpc("disable_push_subscription", {
+    p_reason: "turned_off",
+    p_endpoint: endpoint ?? undefined,
+    p_device_id: deviceId ?? undefined,
+  });
   return { ok: !error };
 }
 

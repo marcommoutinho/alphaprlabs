@@ -92,10 +92,40 @@ export type Database = {
         }
         Relationships: []
       }
+      push_device_off: {
+        Row: {
+          device_id: string
+          off_at: string
+          profile_id: string
+          reason: string
+        }
+        Insert: {
+          device_id: string
+          off_at?: string
+          profile_id: string
+          reason: string
+        }
+        Update: {
+          device_id?: string
+          off_at?: string
+          profile_id?: string
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "push_device_off_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       push_subscriptions: {
         Row: {
           auth: string
           created_at: string
+          device_id: string | null
           device_label: string
           disabled_at: string | null
           disabled_reason: string | null
@@ -108,6 +138,7 @@ export type Database = {
         Insert: {
           auth: string
           created_at?: string
+          device_id?: string | null
           device_label?: string
           disabled_at?: string | null
           disabled_reason?: string | null
@@ -120,6 +151,7 @@ export type Database = {
         Update: {
           auth?: string
           created_at?: string
+          device_id?: string | null
           device_label?: string
           disabled_at?: string | null
           disabled_reason?: string | null
@@ -157,7 +189,7 @@ export type Database = {
         Returns: undefined
       }
       disable_push_subscription: {
-        Args: { p_endpoint: string; p_reason: string }
+        Args: { p_device_id?: string; p_endpoint?: string; p_reason: string }
         Returns: boolean
       }
       invite_researcher: {
@@ -188,8 +220,10 @@ export type Database = {
       save_push_subscription: {
         Args: {
           p_auth: string
+          p_device_id: string
           p_device_label: string
           p_endpoint: string
+          p_mode: string
           p_p256dh: string
         }
         Returns: string

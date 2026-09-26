@@ -1,6 +1,7 @@
 // Device subscriptions against the real local Supabase (npm run db:start):
-// owner-bound writes, owner-only reads, shared phones and turning off.
-import { randomBytes } from "node:crypto";
+// owner-bound writes, owner-only reads, shared phones, turning off, and
+// background syncs that can never switch a device back on.
+import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 import { anonClient, appTestEnv, ensureAccount, serviceClient, signedInClient, uniqueEmail } from "../support/local-supabase";
 
@@ -20,15 +21,17 @@ beforeAll(async () => {
 
 type Client = Awaited<ReturnType<typeof signedInClient>>;
 const endpoint = () => `https://fcm.googleapis.com/fcm/send/${randomBytes(12).toString("hex")}`;
-const save = (client: Client, url: string) =>
+const keys = () => ({ p_p256dh: randomBytes(65).toString("base64url"), p_auth: randomBytes(16).toString("base64url") });
+const save = (client: Client, url: string, mode = "turn_on", device = randomUUID()) =>
   client.rpc("save_push_subscription", {
     p_endpoint: url,
-    p_p256dh: randomBytes(65).toString("base64url"),
-    p_auth: randomBytes(16).toString("base64url"),
+    ...keys(),
     p_device_label: "Android · Chrome",
+    p_device_id: device,
+    p_mode: mode,
   });
-const disable = (client: Client, url: string, reason: string) =>
-  client.rpc("disable_push_subscription", { p_endpoint: url, p_reason: reason });
+const disable = (client: Client, url: string | undefined, reason: string, device?: string) =>
+  client.rpc("disable_push_subscription", { p_endpoint: url, p_reason: reason, p_device_id: device });
 const row = async (url: string) =>
   (await serviceClient().from("push_subscriptions").select("id, profile_id, disabled_reason, last_seen_at").eq("endpoint", url).single()).data!;
 
@@ -91,5 +94,54 @@ describe("push subscriptions", () => {
     expect(await row(url)).toMatchObject({ disabled_reason: "gone" });
     // The owner cannot mark rows with other reasons.
     expect((await disable(a, url, "gone")).error).not.toBeNull();
+  });
+
+  it("a background sync never switches a device back on; only an explicit turn on does", async () => {
+    const a = await signedInClient(emailA);
+    const [url, device] = [endpoint(), randomUUID()];
+    expect((await save(a, url, "turn_on", device)).data).toBe("saved");
+    expect((await save(a, url, "sync", device)).data).toBe("saved");
+
+    // Turned off in one tab: a sync still pending in another is refused, from any device id.
+    await disable(a, url, "turned_off", device);
+    for (const id of [device, randomUUID()]) expect((await save(a, url, "sync", id)).data).toBe("refused_off");
+    expect(await row(url)).toMatchObject({ disabled_reason: "turned_off" });
+    expect((await save(a, url, "turn_on", device)).data).toBe("saved");
+    expect(await row(url)).toMatchObject({ disabled_reason: null });
+
+    // Signed out with the endpoint unknown: the device id alone disables its
+    // rows and refuses a sync under a new endpoint (the browser resubscribed).
+    expect((await disable(a, undefined, "signed_out", device)).data).toBe(true);
+    expect(await row(url)).toMatchObject({ disabled_reason: "signed_out" });
+    const rotated = endpoint();
+    expect((await save(a, rotated, "sync", device)).data).toBe("refused_off");
+    expect((await serviceClient().from("push_subscriptions").select("id").eq("endpoint", rotated)).data).toEqual([]);
+    // Another browser of the same account still registers new endpoints by sync.
+    expect((await save(a, endpoint(), "sync", randomUUID())).data).toBe("saved");
+    expect((await save(a, rotated, "turn_on", device)).data).toBe("saved");
+    expect((await save(a, rotated, "sync", device)).data).toBe("saved");
+  });
+
+  it("a sync can't take another account's endpoint, and nothing bypasses the mode", async () => {
+    const [a, b] = await Promise.all([signedInClient(emailA), signedInClient(emailB)]);
+    const url = endpoint();
+    await save(a, url);
+    expect((await save(b, url, "sync")).data).toBe("refused_off");
+    expect(await row(url)).toMatchObject({ profile_id: idA, disabled_reason: null });
+
+    const device = randomUUID();
+    await disable(a, url, "turned_off", device);
+    const bypasses = [
+      { p_endpoint: url, ...keys(), p_device_label: "" }, // the old signature
+      { p_endpoint: url, ...keys(), p_device_label: "", p_device_id: device }, // no mode
+      { p_endpoint: url, ...keys(), p_device_label: "", p_device_id: device, p_mode: "force" },
+      { p_endpoint: url, ...keys(), p_device_label: "", p_mode: "sync" }, // no device id
+    ];
+    for (const args of bypasses) expect((await a.rpc("save_push_subscription", args as never)).error).not.toBeNull();
+    // The off mark is not reachable through the API.
+    expect((await a.from("push_device_off").delete().eq("device_id", device)).error).not.toBeNull();
+    expect((await a.from("push_device_off").select("device_id")).error).not.toBeNull();
+    expect(await row(url)).toMatchObject({ disabled_reason: "turned_off" });
+    expect((await serviceClient().from("push_device_off").select("reason").eq("device_id", device)).data).toEqual([{ reason: "turned_off" }]);
   });
 });

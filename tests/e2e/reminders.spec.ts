@@ -10,6 +10,7 @@ import { ensureAccount, serviceClient, signInAs, uniqueEmail } from "../support/
 const RESEARCHER = { email: uniqueEmail("c2-researcher"), name: "Casey Reminders" };
 // Signs out (which ends all its sessions), so it has its own account.
 const SIGN_OUT_RESEARCHER = { email: uniqueEmail("c2-signout"), name: "Sam Signout" };
+const TABS_RESEARCHER = { email: uniqueEmail("c2-tabs"), name: "Tess Tabs" };
 const PHONE = { width: 390, height: 844 };
 const IPHONE_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1";
@@ -17,6 +18,7 @@ const IPHONE_UA =
 test.beforeAll(async () => {
   await ensureAccount({ ...RESEARCHER, role: "researcher" });
   await ensureAccount({ ...SIGN_OUT_RESEARCHER, role: "researcher" });
+  await ensureAccount({ ...TABS_RESEARCHER, role: "researcher" });
 });
 
 /** Node can't resolve *.localhost: request the server directly with the host's Host header. */
@@ -38,8 +40,8 @@ function emulatePermission(target: Page | BrowserContext, initial: NotificationP
 }
 
 /** Fake PushManager with one subscription at `endpoint`; window.dropSubscription() loses it (as iOS can). */
-function fakePushService(page: Page, endpoint: string) {
-  return page.addInitScript((url) => {
+function fakePushService(target: Page | BrowserContext, endpoint: string) {
+  return target.addInitScript((url) => {
     let current: object | null = null;
     let subscribeCalls = 0;
     const keys = { p256dh: "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQ", auth: "tBHItJI5svbpez7KI4CCXg" };
@@ -189,6 +191,45 @@ test("turn reminders on and off; turn off and sign out win over a pending re-syn
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth`);
   expect(await deviceRow(endpoint)).toMatchObject({ disabled_reason: "signed_out" });
   expect(await rememberedDevice(page)).toBeNull();
+});
+
+test("a re-sync pending in another tab can't switch the phone back on after turn off or sign out", async ({ browser }) => {
+  const endpoint = `https://fcm.googleapis.com/fcm/send/e2e-tabs-${Date.now().toString(36)}`;
+  const context = await browser.newContext({ viewport: PHONE });
+  await emulatePermission(context, "granted");
+  await fakePushService(context, endpoint);
+  const tabA = await context.newPage();
+  await signInAs(tabA, APP_ORIGIN, TABS_RESEARCHER.email);
+  await expect(tabA).toHaveURL(`${APP_ORIGIN}/app/today`);
+
+  for (const reason of ["turned_off", "signed_out"] as const) {
+    await tabA.goto(`${APP_ORIGIN}/app/notifications`);
+    await tabA.getByRole("button", { name: "Turn on reminders" }).click();
+    await expect(tabA.getByRole("button", { name: "Turn off reminders" })).toBeVisible();
+    // Tab B opens; its re-sync's save is held until tab A has acted.
+    const tabB = await context.newPage();
+    const save = await holdNextSave(tabB);
+    await tabB.goto(`${APP_ORIGIN}/app/notifications`);
+    await save.held;
+    if (reason === "turned_off") {
+      await tabA.getByRole("button", { name: "Turn off reminders" }).click();
+      await expect(tabA.locator(".app-toast")).toHaveText("Reminders off. Your schedule is unchanged.");
+    } else {
+      await tabA.locator('button[aria-haspopup="menu"]').click();
+      await tabA.getByRole("menuitem", { name: "Sign out" }).click();
+      await expect(tabA).toHaveURL(`${APP_ORIGIN}/auth`);
+    }
+    const answered = tabB.waitForResponse((response) => response.request().postData()?.includes("p256dh") ?? false);
+    save.release();
+    await answered;
+    // The database refused tab B's save; tab B forgets the device and shows reminders off.
+    if (reason === "turned_off") await expect(tabB.getByRole("button", { name: "Turn on reminders" })).toBeVisible();
+    await expect.poll(() => rememberedDevice(tabB)).toBeNull();
+    expect(await rememberedDevice(tabA)).toBeNull();
+    expect(await deviceRow(endpoint)).toMatchObject({ disabled_reason: reason });
+    await tabB.close();
+  }
+  await context.close();
 });
 
 test("returning to the foreground re-checks permission and re-registers a dropped subscription", async ({ page }) => {

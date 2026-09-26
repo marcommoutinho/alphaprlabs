@@ -65,7 +65,17 @@ const base64url = z
   .max(256)
   .regex(/^[A-Za-z0-9_-]+={0,2}$/);
 
-/** `PushSubscription.toJSON()` plus a short device label; the endpoint comes out canonical. */
+/** This browser's random device id (a uuid shared by all its tabs), or null. */
+export const deviceIdOf = (raw: unknown): string | null => {
+  const parsed = z.uuid().safeParse(raw);
+  return parsed.success ? parsed.data.toLowerCase() : null;
+};
+
+/**
+ * `PushSubscription.toJSON()` plus a short device label, this browser's device
+ * id and the save mode ("turn_on" only from the explicit button); the endpoint
+ * comes out canonical.
+ */
 export const deviceSubscriptionSchema = z.object({
   endpoint: z.string().transform((value, ctx) => {
     const canonical = canonicalEndpoint(value);
@@ -74,6 +84,8 @@ export const deviceSubscriptionSchema = z.object({
   }),
   keys: z.object({ p256dh: base64url, auth: base64url }),
   label: z.string().max(80).catch(""),
+  deviceId: z.uuid(),
+  mode: z.enum(["turn_on", "sync"]),
 });
 
 export type DeviceSubscription = z.infer<typeof deviceSubscriptionSchema>;

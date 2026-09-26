@@ -49,6 +49,21 @@ export function localSupabase(): LocalSupabase {
   return cached;
 }
 
+/**
+ * Vitest globalSetup: asks `supabase status` once, before any test file runs,
+ * and the workers inherit the keys through the environment (concurrent
+ * `supabase status` calls from several files could fail spuriously). Unit
+ * tests don't need the stack, so a stopped stack is reported by the tests
+ * that use it.
+ */
+export function setup() {
+  try {
+    localSupabase();
+  } catch {
+    // Not running: integration tests throw the "not running" message themselves.
+  }
+}
+
 // A throwaway VAPID key pair per test run (P-256, base64url), so no key is
 // ever committed. Local automated tests never send real pushes.
 const vapid = createECDH("prime256v1");

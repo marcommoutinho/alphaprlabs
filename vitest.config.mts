@@ -16,6 +16,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/unit/**/*.test.ts", "tests/integration/**/*.test.ts"],
+    globalSetup: ["tests/support/local-supabase.ts"],
     testTimeout: 20_000,
   },
 });

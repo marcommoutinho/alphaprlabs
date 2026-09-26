@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { saveDevice, turnOffDevice } from "@/app/(private)/app/notifications/actions";
+import { saveDevice, turnOffDevice, type SaveDeviceResult } from "@/app/(private)/app/notifications/actions";
 import { signOut } from "@/app/(private)/auth/actions";
 import { signOutDevice } from "@/lib/push/sign-out";
 import {
@@ -24,6 +24,9 @@ const SW_URL = "/sw.js";
 // {userId, endpoint}: the account that turned reminders on here, and this
 // device's endpoint (the sign-out fallback when the browser can't report it).
 const DEVICE_KEY = "apl.reminders.device";
+// A random id for this browser, shared by all its tabs: the database marks it
+// off on turn off / sign out and then refuses background re-registrations.
+const DEVICE_ID_KEY = "apl.reminders.device-id";
 const FAILURES_KEY = "apl.reminders.failures"; // consecutive failed re-registrations
 const SEEN_KEY = "apl.reminders.readiness-seen"; // step 3 shown once in the installed app
 /** Consecutive silent re-registration failures before settings shows the failure state. */
@@ -66,6 +69,15 @@ const rememberedDevice = {
   },
   set: (value: RememberedDevice | null) => localFlag.set(DEVICE_KEY, value ? JSON.stringify(value) : null),
 };
+
+/** This browser's device id, created on first use. */
+function thisDeviceId(): string {
+  const existing = localFlag.get(DEVICE_ID_KEY);
+  if (existing && /^[0-9a-f-]{36}$/i.test(existing)) return existing;
+  const id = crypto.randomUUID();
+  localFlag.set(DEVICE_ID_KEY, id);
+  return id;
+}
 
 /**
  * Runs `listener` whenever the app comes back to the foreground: a phone app
@@ -164,14 +176,31 @@ async function ensureSubscription(vapidPublicKey: string): Promise<PushSubscript
   return registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
 }
 
-async function upload(subscription: PushSubscription): Promise<boolean> {
+/** "turn_on" only from the explicit button; a background "sync" never switches a device back on. */
+async function upload(subscription: PushSubscription, mode: "turn_on" | "sync"): Promise<SaveDeviceResult["status"]> {
   const json = subscription.toJSON();
   const result = await saveDevice({
     endpoint: json.endpoint,
     keys: json.keys,
     label: deviceLabel(navigator.userAgent, navigator.maxTouchPoints ?? 0),
+    deviceId: thisDeviceId(),
+    mode,
   });
-  return result.ok;
+  return result.status;
+}
+
+/**
+ * The database refused a sync: reminders were turned off or signed out of on
+ * this device (maybe in another tab). Forget the device here (unless another
+ * account has since turned reminders on here) and drop the browser
+ * subscription, so nothing syncs until an explicit turn on.
+ */
+async function forgetRefusedDevice(userId: string) {
+  const remembered = rememberedDevice.get();
+  if (remembered && remembered.userId !== userId) return;
+  rememberedDevice.set(null);
+  localFlag.set(FAILURES_KEY, null);
+  await (await currentSubscription().catch(() => null))?.unsubscribe().catch(() => undefined);
 }
 
 export type DeviceState = { facts: DeviceFacts; subscribed: boolean; failed: boolean };
@@ -227,10 +256,15 @@ async function runSync(userId: string, vapidPublicKey: string): Promise<DeviceSt
   try {
     const subscription = await ensureSubscription(vapidPublicKey);
     if (!current()) return null;
-    const saved = await upload(subscription);
+    const status = await upload(subscription, "sync");
     if (!current()) return null;
-    if (saved) {
-      rememberedDevice.set({ userId, endpoint: subscription.endpoint });
+    if (status === "refused_off") {
+      await forgetRefusedDevice(userId);
+      return { facts, subscribed: false, failed: false };
+    }
+    if (status === "saved") {
+      // Another tab may have turned reminders off meanwhile: never remember the device again here.
+      if (rememberedDevice.get()?.userId === userId) rememberedDevice.set({ userId, endpoint: subscription.endpoint });
       localFlag.set(FAILURES_KEY, null);
       return { facts, subscribed: true, failed: false };
     }
@@ -258,11 +292,10 @@ async function currentSubscription(): Promise<PushSubscription | null> {
 async function turnOffNow(): Promise<boolean> {
   try {
     const subscription = await currentSubscription();
-    const endpoint = subscription?.endpoint ?? rememberedDevice.get()?.endpoint;
-    if (endpoint) {
-      if (!(await turnOffDevice({ endpoint })).ok) return false;
-      await subscription?.unsubscribe().catch(() => undefined);
-    }
+    const endpoint = subscription?.endpoint ?? rememberedDevice.get()?.endpoint ?? null;
+    // Always sent with the device id, so the device is marked off even when the endpoint is unknown.
+    if (!(await turnOffDevice({ endpoint, deviceId: thisDeviceId() })).ok) return false;
+    await subscription?.unsubscribe().catch(() => undefined);
     rememberedDevice.set(null);
     localFlag.set(FAILURES_KEY, null);
     return true;
@@ -284,6 +317,7 @@ async function signOutDeviceNow(): Promise<"signed-out" | "failed"> {
   try {
     outcome = await signOutDevice({
       endpoint: live?.endpoint ?? remembered?.endpoint ?? null,
+      deviceId: thisDeviceId(),
       signOut,
       unsubscribe: async () => {
         const subscription = await currentSubscription();
@@ -326,12 +360,18 @@ export function useReminders(userId: string, vapidPublicKey: string): Reminders 
         if (state && live && generation.current === started) setDevice(state);
       });
     };
+    // Another tab turned reminders on or off, or signed out: re-check here.
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === DEVICE_KEY || event.key === null) check();
+    };
     captureInstallPrompt();
     check();
     const stop = onForeground(check);
+    window.addEventListener("storage", onStorage);
     return () => {
       live = false;
       stop();
+      window.removeEventListener("storage", onStorage);
     };
   }, [userId, vapidPublicKey]);
 
@@ -353,7 +393,7 @@ export function useReminders(userId: string, vapidPublicKey: string): Reminders 
       let endpoint: string | null = null;
       try {
         const subscription = await ensureSubscription(vapidPublicKey);
-        if (await upload(subscription)) endpoint = subscription.endpoint;
+        if ((await upload(subscription, "turn_on")) === "saved") endpoint = subscription.endpoint;
       } catch {
         endpoint = null;
       }
