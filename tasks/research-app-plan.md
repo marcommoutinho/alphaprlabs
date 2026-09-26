@@ -706,7 +706,20 @@ approved and building started 2026-09-25.
   closes; if it fails, S3 reopens. The test-notification button stays
   on (`PUSH_TEST_ENABLED`) while the app is closed and is turned off before G3.
 
-Next: S4, the peptide library and support-grant foundation.
+- S4 (library and grant foundation), S5 (inventory and FIFO sales), S6
+  (inventory screens) and S7 (schedule engine and calculator) are built,
+  independently reviewed and integrated (S7 at `0fa0829`, S6 at `bce0aa9`).
+  S6 and S7 needed Marco-approved rounds beyond the standard one correction.
+  Not yet deployed to the closed production app.
+
+Cleanup before G2 (accepted by Marco, 2026-09-26):
+- A sale drawing on more than 1,000 purchase lots shows a truncated allocation
+  list (PostgREST caps embedded rows at 1,000); page the allocations.
+- The library paging test should prove more than 1,000 entries.
+- Local test reliability: integration tests fail intermittently under parallel
+  load; two e2e flakes (admin switch, invitation order). In progress.
+
+Next: S8, cycle templates (A3).
 
 ## Technical references
 
