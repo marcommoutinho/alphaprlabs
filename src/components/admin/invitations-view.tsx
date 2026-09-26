@@ -1,5 +1,6 @@
 "use client";
 
+import { unstable_rethrow } from "next/navigation";
 import { useState, useTransition } from "react";
 import { resendInvitationAction, sendInvitation } from "@/app/(private)/admin/invitations/actions";
 import { AppButton, EmptyState, Field, InlineError } from "@/components/app-shell/form";
@@ -84,7 +85,9 @@ function InvitationRow({ row }: { row: InvitationListRow }) {
       try {
         const result = await resendInvitationAction(row.id);
         if (result.toast) toast(result.toast, result.tone);
-      } catch {
+      } catch (error) {
+        // An expired admin session redirects to sign-in: not a failed save.
+        unstable_rethrow(error);
         toast(SAVE_FAILED_MESSAGE, "error");
       }
     });

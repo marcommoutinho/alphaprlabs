@@ -1,5 +1,6 @@
 "use client";
 
+import { unstable_rethrow } from "next/navigation";
 import { useState, useTransition } from "react";
 import { SAVE_FAILED_MESSAGE, useToast, type ToastTone } from "./toast";
 
@@ -9,8 +10,9 @@ export type SubmitResult = { error?: string; toast?: string; tone?: ToastTone } 
 /**
  * Calls a server action from a form without resetting the form (inputs stay
  * as typed). While pending the submit button shows "Saving…"/"Sending…". An
- * action that redirects simply navigates; a failed request shows the handoff's
- * save-failure toast.
+ * action that redirects simply navigates (Next.js rejects the call with its
+ * redirect error, which goes back to Next.js, not to the toast); a failed
+ * request shows the handoff's save-failure toast.
  */
 export function useSubmit<Input, Result extends SubmitResult>(action: (input: Input) => Promise<Result>) {
   const [pending, startTransition] = useTransition();
@@ -22,7 +24,8 @@ export function useSubmit<Input, Result extends SubmitResult>(action: (input: In
       let result: Result;
       try {
         result = await action(input);
-      } catch {
+      } catch (error) {
+        unstable_rethrow(error);
         toast(SAVE_FAILED_MESSAGE, "error");
         return;
       }

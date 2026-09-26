@@ -216,11 +216,32 @@ test("recovery shows the same confirmation for known and unknown emails and rese
   await expect(scanner.getByRole("button", { name: "Continue to reset password" })).toBeVisible();
   await scanner.close();
 
+  // Record any toast shown, even one a full page load wipes (locally the action's
+  // redirect is a full load; in production it keeps the page, and the toast).
+  await page.addInitScript(() =>
+    new MutationObserver(() => {
+      const shown = document.querySelector(".app-toast")?.textContent;
+      if (shown) sessionStorage.setItem("toast-seen", shown);
+    }).observe(document, { childList: true, subtree: true }),
+  );
   await page.goto(link!);
   await expect(page).toHaveURL(link!);
   await page.getByRole("button", { name: "Continue to reset password" }).click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth/reset`);
-  await page.getByLabel("New password · at least 8 characters").fill("a-brand-new-password");
+  const newPassword = page.getByLabel("New password · at least 8 characters");
+  await expect(newPassword).toBeVisible();
+  // A redirecting action is a success: no save-failure toast at any point.
+  expect(await page.evaluate(() => sessionStorage.getItem("toast-seen"))).toBeNull();
+  await expect(toast(page)).toHaveCount(0);
+  // A genuine failure (request dropped) still shows it and keeps the input.
+  await page.route("**/auth/reset", (route) =>
+    route.request().method() === "POST" ? route.abort() : route.continue(),
+  );
+  await newPassword.fill("a-brand-new-password");
+  await page.getByRole("button", { name: "Save password" }).click();
+  await expect(toast(page)).toContainText("Could not save. Nothing was lost");
+  await expect(newPassword).toHaveValue("a-brand-new-password");
+  await page.unroute("**/auth/reset");
   await page.getByRole("button", { name: "Save password" }).click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
 
