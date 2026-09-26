@@ -116,6 +116,21 @@ viewing another researcher's history still requires that researcher's grant.
 The app opens on the research side; an "Admin" item in the account menu
 switches to the back office and back.
 
+### Library and account-data decisions (Marco, 2026-09-26)
+
+- Researchers never see peptides the admin has marked "Not offered" when
+  browsing the library. A researcher whose own cycles already use such a
+  peptide still sees it in those cycles.
+- Library peptide names are unique (ignoring case and surrounding spaces).
+- The library's "referenced by N" count is admin-only and shows a number,
+  never whose cycles.
+- Accounts are never fully erased. Closing an account is a soft delete: the
+  account and its history are hidden, no admin can access them (existing
+  support grants stop working), and personally identifying details (name,
+  email and any other identifying fields or attachments) are removed or
+  replaced. How an account is closed is not yet designed; it is not part of
+  the approved MVP screens.
+
 ### Launch exclusions
 
 - Blended or multi-peptide vials. A cycle may still contain several separately
