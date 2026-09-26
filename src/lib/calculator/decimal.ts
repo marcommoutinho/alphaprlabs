@@ -23,22 +23,33 @@ export const DISPLAY_DECIMALS = 6;
 /** Prefix shown when a displayed value had to be rounded. */
 export const APPROX = "≈";
 
-// Plain decimal notation only: optional sign, digits, optional fraction.
-// No exponents, grouping separators, commas, Infinity or NaN.
-const DECIMAL = /^[+-]?(\d+\.?\d*|\.\d+)$/;
+// Plain decimal notation only: optional sign, digits, optional fraction, with
+// a dot or a single comma as the decimal point (Marco, 2026-09-26: "1,5" is
+// 1.5). No exponents, grouping separators, Infinity or NaN.
+const DECIMAL = /^[+-]?(\d+[.,]?\d*|[.,]\d+)$/;
+// A comma followed by exactly three digits after a non-zero whole part of up
+// to three digits reads as a thousands separator ("1,000", "12,500"), so it is
+// refused rather than guessed. "0,125" and "1,25" are unambiguous decimals.
+const LOOKS_GROUPED = /^[+-]?[1-9]\d{0,2},\d{3}$/;
 
 /**
- * Parses a decimal string (or finite number) exactly. Returns null for
- * anything that is not a plain finite decimal: empty, text, exponents,
- * commas, over-long input, NaN or Infinity.
+ * Canonical text of a decimal input: trimmed, with a decimal comma turned into
+ * a dot. Accepts strings only — a JS number has already been through binary
+ * floating point, so it is refused. Returns null for anything that is not a
+ * plain finite decimal: non-strings, empty, text, exponents, grouping
+ * separators ("1,000", "1,000.5", "1.000,5", "1,2,3"), over-long input.
  */
+export function normalizeDecimal(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  if (text.length === 0 || text.length > MAX_INPUT_LENGTH || !DECIMAL.test(text) || LOOKS_GROUPED.test(text)) return null;
+  return text.replace(",", ".");
+}
+
+/** Parses a decimal string exactly (see {@link normalizeDecimal} for what is accepted). */
 export function parseDecimal(value: unknown): Decimal | null {
-  let text: string;
-  if (typeof value === "string") text = value.trim();
-  else if (typeof value === "number" && Number.isFinite(value)) text = String(value);
-  else return null;
-  if (text.length === 0 || text.length > MAX_INPUT_LENGTH || !DECIMAL.test(text)) return null;
-  return new Exact(text);
+  const text = normalizeDecimal(value);
+  return text === null ? null : new Exact(text);
 }
 
 /** True when the value is a plain decimal strictly greater than zero. */

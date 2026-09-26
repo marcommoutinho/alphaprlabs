@@ -32,6 +32,10 @@ export const DEFAULT_LINE_SPACING: Record<SyringeCapacity, Exclude<LineSpacing, 
   30: "0.5",
 };
 
+/**
+ * Amounts are the text the researcher typed: decimal strings with a dot or a
+ * single comma as the decimal point ("1,5" = 1.5). Numbers are refused.
+ */
 export type CalculatorInput = {
   /** Vial strength in mg, as a decimal string. */
   vialMg: string;

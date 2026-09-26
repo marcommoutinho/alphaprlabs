@@ -20,7 +20,7 @@ import {
   VIAL_POSITIVE,
   VIAL_REQUIRED,
 } from "@/lib/calculator/calculator";
-import { formatAmount, parseDecimal } from "@/lib/calculator/decimal";
+import { formatAmount, normalizeDecimal, parseDecimal } from "@/lib/calculator/decimal";
 
 const base: CalculatorInput = { vialMg: "8", liquidMl: "2", doseMg: "0.4", syringe: 100, lineSpacing: "2" };
 const run = (overrides: Partial<CalculatorInput>) => calculate({ ...base, ...overrides });
@@ -210,12 +210,32 @@ describe("invalid input", () => {
   });
 
   it("treats anything but a plain finite decimal as missing", () => {
-    for (const bad of ["abc", "8mg", "1e3", "1,5", "1.2.3", "Infinity", "NaN", "-", ".", "   ", "1".repeat(31)]) {
+    for (const bad of ["abc", "8mg", "1e3", "1.2.3", "Infinity", "NaN", "-", ".", ",", "   ", "1".repeat(31)]) {
       expect(run({ vialMg: bad }), bad).toEqual({ ok: false, errors: [VIAL_REQUIRED] });
     }
     const untyped = { ...base, doseMg: undefined, liquidMl: null } as unknown as CalculatorInput;
     expect(calculate(untyped)).toEqual({ ok: false, errors: [LIQUID_REQUIRED, DOSE_REQUIRED] });
     expect(calculate(null as unknown as CalculatorInput)).toMatchObject({ ok: false });
+  });
+
+  it("refuses numbers: amounts arrive as the text the researcher typed", () => {
+    // 0.1 + 0.2 as a JS number is 0.30000000000000004; accepting it would
+    // report 3.0000000000000004 units as "between lines".
+    const numeric = { ...base, vialMg: 10, liquidMl: 1, doseMg: 0.1 + 0.2 } as unknown as CalculatorInput;
+    expect(calculate(numeric)).toEqual({ ok: false, errors: [VIAL_REQUIRED, LIQUID_REQUIRED, DOSE_REQUIRED] });
+  });
+
+  it("accepts a comma as the decimal point", () => {
+    const result = ok({ vialMg: "10", liquidMl: "1", doseMg: "0,3", lineSpacing: "1" });
+    expect(result).toMatchObject({ units: "3", onLine: true, volumeMl: "0.03" });
+    expect(ok({ vialMg: "8", liquidMl: "2,0", doseMg: " 0,4 " }).units).toBe("10");
+    expect(ok({ vialMg: "5", liquidMl: "2", doseMg: "1,25" }).units).toBe("50");
+  });
+
+  it("refuses thousands separators and mixed or repeated separators rather than guessing", () => {
+    for (const bad of ["1,000", "12,500", "100,000", "1,000.5", "1.000,5", "1,2,3", "1,,5", "1.5,", "1 000", "1'000"]) {
+      expect(run({ vialMg: bad }), bad).toEqual({ ok: false, errors: [VIAL_REQUIRED] });
+    }
   });
 
   it("refuses unsupported syringe sizes and line spacings", () => {
@@ -229,10 +249,28 @@ describe("invalid input", () => {
 describe("decimal parsing and display", () => {
   it("parses plain decimals exactly and rejects everything else", () => {
     expect(parseDecimal("0.1")?.plus("0.2").toFixed()).toBe("0.3");
-    expect(parseDecimal(2.5)?.toFixed()).toBe("2.5");
+    // Strings only: numbers (even exact ones) and other types are invalid input.
+    expect(parseDecimal(2.5)).toBeNull();
+    expect(parseDecimal(0.1 + 0.2)).toBeNull();
     expect(parseDecimal(Number.NaN)).toBeNull();
     expect(parseDecimal(Number.POSITIVE_INFINITY)).toBeNull();
     expect(parseDecimal({})).toBeNull();
+    expect(parseDecimal(null)).toBeNull();
+    expect(parseDecimal(BigInt(10))).toBeNull();
+  });
+
+  it("reads one comma as the decimal point, and only when there is no dot", () => {
+    const read = (text: string) => parseDecimal(text)?.toFixed() ?? null;
+    expect(read("1,5")).toBe("1.5");
+    expect(read("0,125")).toBe("0.125");
+    expect(read(",5")).toBe("0.5");
+    expect(read("1,0000")).toBe("1");
+    expect(read("1234,567")).toBe("1234.567");
+    expect(normalizeDecimal(" 2,75 ")).toBe("2.75");
+    // Grouping, mixed and repeated separators are refused, not guessed.
+    for (const bad of ["1,000", "999,999", "-1,000", "1,000,000", "1,000.5", "1.000,5", "1,2,3", "1,,5"]) {
+      expect(read(bad), bad).toBeNull();
+    }
   });
 
   it("shows up to 6 decimals exactly, otherwise rounds half-up with ≈", () => {

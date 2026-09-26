@@ -9,7 +9,9 @@
 // - No bursts: at any moment only the latest reminder whose time has passed
 //   is current, and only within a grace period after its time. Anything older
 //   was missed and is skipped (for example after dispatcher downtime, or when
-//   a backdated confirmation moves unconfirmed doses into the past).
+//   a backdated confirmation moves a not-yet-due dose into the past).
+// - A dose that has become due keeps its scheduled time (engine.ts), so its
+//   reminder keys never change after its due reminder could have been sent.
 import { Temporal } from "@js-temporal/polyfill";
 import type { Occurrence } from "./engine";
 import { type InstantInput, isoInstant, toInstant } from "./zone";
@@ -18,8 +20,10 @@ export type ReminderKind = "due" | "follow-up-30m" | "follow-up-2h";
 
 export type ReminderSlot = {
   /**
-   * Stable per occurrence, scheduled time and kind. A dose whose scheduled
-   * time moves gets new keys; the dispatcher adds device and plan version.
+   * `${planId}:${phaseId}:${index|date}@${scheduledAt}#${kind}`: stable per
+   * peptide plan, occurrence, scheduled time and kind. A not-yet-due dose
+   * whose scheduled time moves gets new keys; the dispatcher adds device and
+   * plan version.
    */
   key: string;
   occurrenceKey: string;

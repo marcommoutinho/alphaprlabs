@@ -17,8 +17,12 @@ const everyDay = (start: string, end: string, time: string, overrides: Partial<A
   schedule: { type: "weekdays", days: [0, 1, 2, 3, 4, 5, 6] },
   ...overrides,
 });
+// Confirmations are recorded when taken.
 const run = (timeZone: string, phase: ActivePhase, confirmations: { key: string; actualAt: string }[] = []) =>
-  scheduleOccurrences({ timeZone, phases: [phase] }, confirmations);
+  scheduleOccurrences(
+    { planId: "plan", timeZone, phases: [phase] },
+    confirmations.map((c) => ({ ...c, recordedAt: c.actualAt })),
+  );
 const rows = (occurrences: Occurrence[]) =>
   occurrences.map((o) => `${o.localDate} ${o.localTime} ${o.scheduledAt} ${o.dstAdjustment ?? "-"}`);
 
@@ -58,7 +62,7 @@ describe("America/New_York", () => {
   it("resolves an actual time + N days that lands in the repeated hour to the earlier instant", () => {
     // Taken Fri Oct 30 at 01:30 EDT; every 2 days → Sun Nov 1 01:30, which occurs twice.
     const phase = everyDay("2026-10-29", "2026-11-04", "09:00", { schedule: { type: "interval", everyDays: 2 } });
-    const occurrences = run("America/New_York", phase, [{ key: "p:0", actualAt: "2026-10-30T05:30:00Z" }]);
+    const occurrences = run("America/New_York", phase, [{ key: "plan:p:0", actualAt: "2026-10-30T05:30:00Z" }]);
     expect(rows(occurrences).slice(1, 3)).toEqual([
       "2026-11-01 01:30 2026-11-01T05:30:00Z repeat",
       "2026-11-03 01:30 2026-11-03T06:30:00Z -",
@@ -100,7 +104,7 @@ describe("Europe/Lisbon", () => {
   it("shifts an actual time + N days that lands in the gap", () => {
     // Planned 09:00, taken Fri Mar 27 at 01:30 WET; +2 days is 01:30 on the gap day.
     const phase = everyDay("2026-03-26", "2026-04-02", "09:00", { schedule: { type: "interval", everyDays: 2 } });
-    const occurrences = run("Europe/Lisbon", phase, [{ key: "p:0", actualAt: "2026-03-27T01:30:00Z" }]);
+    const occurrences = run("Europe/Lisbon", phase, [{ key: "plan:p:0", actualAt: "2026-03-27T01:30:00Z" }]);
     expect(rows(occurrences).slice(1)).toEqual([
       "2026-03-29 02:30 2026-03-29T01:30:00Z gap",
       "2026-03-31 01:30 2026-03-31T00:30:00Z -",
