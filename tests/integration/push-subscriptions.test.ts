@@ -22,10 +22,10 @@ beforeAll(async () => {
 type Client = Awaited<ReturnType<typeof signedInClient>>;
 const endpoint = () => `https://fcm.googleapis.com/fcm/send/${randomBytes(12).toString("hex")}`;
 const keys = () => ({ p_p256dh: randomBytes(65).toString("base64url"), p_auth: randomBytes(16).toString("base64url") });
-const save = (client: Client, url: string, mode = "turn_on", device = randomUUID()) =>
+const save = (client: Client, url: string, mode = "turn_on", device = randomUUID(), subscriptionKeys = keys()) =>
   client.rpc("save_push_subscription", {
     p_endpoint: url,
-    ...keys(),
+    ...subscriptionKeys,
     p_device_label: "Android · Chrome",
     p_device_id: device,
     p_mode: mode,
@@ -57,10 +57,11 @@ describe("push subscriptions", () => {
 
   it("a shared phone moves to the account that registers it, under any spelling of its endpoint", async () => {
     const [a, b] = await Promise.all([signedInClient(emailA), signedInClient(emailB)]);
-    const url = endpoint();
-    await save(a, url);
+    // One browser: the same subscription keys whichever account is signed in.
+    const [url, phone] = [endpoint(), keys()];
+    await save(a, url, "turn_on", randomUUID(), phone);
     const first = await row(url);
-    await save(a, url);
+    await save(a, url, "turn_on", randomUUID(), phone);
     expect(new Date((await row(url)).last_seen_at) > new Date(first.last_seen_at)).toBe(true);
 
     const token = url.slice(url.lastIndexOf("/") + 1);
@@ -68,14 +69,16 @@ describe("push subscriptions", () => {
       url.replace(`/${token}`, `/%${token.charCodeAt(0).toString(16)}${token.slice(1)}`), url.replace("https://", "https://b@"), `${url}?`];
     for (const variant of variants) {
       // The database refuses a non-canonical spelling, even by direct RPC ...
-      expect((await save(b, variant)).error, variant).not.toBeNull();
+      expect((await save(b, variant, "turn_on", randomUUID(), phone)).error, variant).not.toBeNull();
       // ... and the app maps each equivalent spelling to the one canonical URL.
       expect([null, url]).toContain(canonicalEndpoint(variant));
     }
     const { data: rows } = await serviceClient().from("push_subscriptions").select("profile_id").like("endpoint", `%${token}%`);
     expect(rows).toEqual([{ profile_id: idA }]);
 
-    expect((await save(b, canonicalEndpoint(variants[2])!)).error).toBeNull();
+    // Another browser's keys can't take it (tests/integration/admin-researcher.test.ts); the phone's can.
+    expect((await save(b, canonicalEndpoint(variants[2])!)).data).toBe("refused_off");
+    expect((await save(b, canonicalEndpoint(variants[2])!, "turn_on", randomUUID(), phone)).data).toBe("saved");
     expect(await row(url)).toMatchObject({ id: first.id, profile_id: idB, disabled_reason: null });
     expect((await a.from("push_subscriptions").select("id").eq("endpoint", url)).data).toEqual([]);
   });

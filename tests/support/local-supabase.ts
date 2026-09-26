@@ -3,7 +3,7 @@
 // emails per run (uniqueEmail), so runs never depend on or reset each other.
 import { execSync } from "node:child_process";
 import { createECDH, createHash, randomBytes } from "node:crypto";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../../src/lib/supabase/database.types";
 
@@ -192,10 +192,26 @@ export async function latestEmail(to: string, timeoutMs = 10_000): Promise<{ sub
   throw new Error(`No email to ${to} within ${timeoutMs} ms`);
 }
 
+/**
+ * Waits until React has hydrated the element (Playwright), so a click or typing
+ * reaches its handlers. The server-rendered form is usable before that: text
+ * typed into a controlled input then never reaches React state and is wiped
+ * by the next render, and a click submits the bare HTML form. React attaches
+ * its props to each element it hydrates.
+ */
+export async function hydrated(locator: Locator): Promise<Locator> {
+  const element = await locator.elementHandle();
+  await locator
+    .page()
+    .waitForFunction((node) => node !== null && Object.keys(node).some((key) => key.startsWith("__reactProps$")), element);
+  await element?.dispose();
+  return locator;
+}
+
 /** Signs in through the C1 form (Playwright). */
 export async function signInAs(page: Page, origin: string, email: string, password = TEST_PASSWORD) {
   await page.goto(`${origin}/auth`);
-  await page.getByLabel("Email").fill(email);
+  await (await hydrated(page.getByLabel("Email"))).fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
 }

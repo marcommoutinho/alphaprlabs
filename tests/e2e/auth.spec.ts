@@ -5,6 +5,7 @@ import { APP_ORIGIN } from "../../playwright.config";
 import {
   emailCount,
   ensureAccount,
+  hydrated,
   latestEmail,
   seedInvitation,
   signInAs,
@@ -35,7 +36,7 @@ async function invite(page: Page, name: string, email: string) {
 }
 
 async function signOut(page: Page) {
-  await page.locator('button[aria-haspopup="menu"]').click();
+  await (await hydrated(page.locator('button[aria-haspopup="menu"]'))).click();
   await page.getByRole("menuitem", { name: "Sign out" }).click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth`);
 }
@@ -197,7 +198,7 @@ test("recovery shows the same confirmation for known and unknown emails and rese
     await page.goto(`${APP_ORIGIN}/auth`);
     await page.getByRole("link", { name: "Forgot password?" }).click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Recover access");
-    await page.getByLabel("Email").fill(email);
+    await (await hydrated(page.getByLabel("Email"))).fill(email);
     await page.getByRole("button", { name: "Send recovery link" }).click();
     await expect(page.getByRole("status").filter({ hasText: "Sent to" })).toContainText(
       `Sent to ${email}. Check your inbox.`,
@@ -226,10 +227,10 @@ test("recovery shows the same confirmation for known and unknown emails and rese
   );
   await page.goto(link!);
   await expect(page).toHaveURL(link!);
-  await page.getByRole("button", { name: "Continue to reset password" }).click();
+  await (await hydrated(page.getByRole("button", { name: "Continue to reset password" }))).click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth/reset`);
-  const newPassword = page.getByLabel("New password · at least 8 characters");
-  await expect(newPassword).toBeVisible();
+  // Locally the redirect is a full page load: type only once the form is hydrated.
+  const newPassword = await hydrated(page.getByLabel("New password · at least 8 characters"));
   // A redirecting action is a success: no save-failure toast at any point.
   expect(await page.evaluate(() => sessionStorage.getItem("toast-seen"))).toBeNull();
   await expect(toast(page)).toHaveCount(0);
@@ -247,7 +248,7 @@ test("recovery shows the same confirmation for known and unknown emails and rese
 
   // The link works once; the new password signs in.
   await page.goto(link!);
-  await page.getByRole("button", { name: "Continue to reset password" }).click();
+  await (await hydrated(page.getByRole("button", { name: "Continue to reset password" }))).click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth/recover?link=invalid`);
   await page.goto(`${APP_ORIGIN}/app/today`);
   await signOut(page);

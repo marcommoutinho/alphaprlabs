@@ -8,13 +8,26 @@
 --   * save_push_subscription     register / refresh the caller's own device
 --   * disable_push_subscription  turn off / sign out the caller's own device
 --
--- Nothing else changes. Every rule stays owner-bound (auth.uid()), so the
--- admin role is never a way past ownership: an admin still cannot read or
--- change another account's profile, acknowledgement or push subscriptions.
--- Admin-only rules (is_admin(), invitations) are unchanged, and researchers
--- gain nothing. Bodies are otherwise identical to 20260925120000 and
--- 20260925160000; CREATE OR REPLACE keeps each function's owner and grants,
--- which are restated below anyway.
+-- Every rule stays owner-bound (auth.uid()), so the admin role is never a way
+-- past ownership: an admin still cannot read or change another account's
+-- profile, acknowledgement or push subscriptions. Admin-only rules
+-- (is_admin(), invitations) are unchanged, and researchers gain nothing.
+-- CREATE OR REPLACE keeps each function's owner and grants, which are
+-- restated below anyway.
+--
+-- Two rules are tightened for both roles, now that admins use them too:
+--
+--   * Research-feature writes need the disclaimer acknowledgement in the
+--     database, not only in the app: save_push_subscription (turn_on and
+--     sync) requires is_acknowledged_researcher(). record_acknowledgement
+--     cannot, and disable_push_subscription deliberately does not: turning a
+--     device off and signing out must always work for the caller's own rows.
+--   * A turn_on takes over an endpoint registered by ANOTHER account only when
+--     the submitted p256dh and auth keys equal the row's. A shared phone (the
+--     same browser, signed into another account) presents the same push
+--     subscription, so its keys match; someone who merely knows another
+--     person's endpoint URL cannot move that person's reminders to themselves.
+--     Re-registering the caller's own endpoint is unchanged.
 
 -- True when the caller has a profile that may use the research side
 -- (researchers and admins).
@@ -33,6 +46,27 @@ $$;
 
 revoke all on function public.has_research_access() from public, anon;
 grant execute on function public.has_research_access() to authenticated;
+
+-- True when the caller may write research records: a researcher or admin who
+-- has acknowledged the disclaimer (the app's gate, src/lib/auth/session.ts,
+-- checks the same: acknowledged_at is set).
+create function public.is_acknowledged_researcher()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = (select auth.uid())
+      and p.role in ('researcher', 'admin')
+      and p.acknowledged_at is not null
+  );
+$$;
+
+revoke all on function public.is_acknowledged_researcher() from public, anon;
+grant execute on function public.is_acknowledged_researcher() to authenticated;
 
 -- ── Researcher or admin: record the disclaimer acknowledgement ──────────────
 -- Only for the caller's own profile; the time is the server's.
@@ -55,9 +89,11 @@ revoke all on function public.record_acknowledgement(text) from public, anon;
 grant execute on function public.record_acknowledgement(text) to authenticated;
 
 -- ── Researcher or admin: register (turn_on) or refresh (sync) this device ────
--- Returns 'saved' or 'refused_off' (this device's reminders are off for the
--- caller, or the endpoint is disabled or belongs to another account), or null
--- when the caller has no research access.
+-- Returns 'saved' or 'refused_off', or null when the caller has no research
+-- access or has not acknowledged the disclaimer. 'refused_off': a sync for a
+-- device whose reminders are off for the caller, or for an endpoint that is
+-- disabled or another account's; or a turn_on of another account's endpoint
+-- with different keys (not the same browser's push subscription).
 create or replace function public.save_push_subscription(
   p_endpoint text, p_p256dh text, p_auth text, p_device_label text, p_device_id uuid, p_mode text
 )
@@ -80,15 +116,17 @@ begin
   if not public.is_canonical_push_endpoint(p_endpoint) then
     raise exception 'endpoint is not a canonical push-service URL' using errcode = '22023';
   end if;
-  if not public.has_research_access() then
+  if not public.is_acknowledged_researcher() then
     return null;
   end if;
 
   perform pg_advisory_xact_lock(hashtextextended('push_device:' || v_uid::text || ':' || p_device_id::text, 0));
 
   if p_mode = 'turn_on' then
-    delete from public.push_device_off o where o.profile_id = v_uid and o.device_id = p_device_id;
-
+    -- Upsert and re-enable. The conflicting row is locked and re-checked: the
+    -- caller's own row is always refreshed; another account's row moves to
+    -- the caller only when the keys match (the same browser's subscription:
+    -- a shared phone), otherwise it is left untouched and nothing is returned.
     insert into public.push_subscriptions as s (profile_id, endpoint, p256dh, auth, device_label, device_id)
     values (v_uid, p_endpoint, p_p256dh, p_auth, left(coalesce(p_device_label, ''), 80), p_device_id)
     on conflict (endpoint) do update
@@ -101,7 +139,15 @@ begin
           created_at = case when s.profile_id = excluded.profile_id then s.created_at else now() end,
           last_seen_at = now(),
           disabled_at = null,
-          disabled_reason = null;
+          disabled_reason = null
+      where s.profile_id = excluded.profile_id
+         or (s.p256dh = excluded.p256dh and s.auth = excluded.auth)
+    returning s.id into v_id;
+    if v_id is null then
+      -- Refused: the caller's off mark for this device stays as it was.
+      return 'refused_off';
+    end if;
+    delete from public.push_device_off o where o.profile_id = v_uid and o.device_id = p_device_id;
     return 'saved';
   end if;
 
@@ -133,7 +179,10 @@ $$;
 -- Marks this device off for the caller and disables the caller's own rows
 -- for this device id and for this endpoint (which may be null: unknown).
 -- Returns whether an active row was disabled; another account's rows are
--- never touched.
+-- never touched. Needs research access but NOT the acknowledgement: it only
+-- ever switches the caller's own devices off, and sign-out
+-- (src/app/(private)/auth/actions.ts) calls it for every researcher or admin,
+-- acknowledged or not, so turning off and signing out always work.
 create or replace function public.disable_push_subscription(
   p_reason text, p_device_id uuid, p_endpoint text default null
 )

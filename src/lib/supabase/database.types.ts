@@ -200,6 +200,7 @@ export type Database = {
           outcome: string
         }[]
       }
+      is_acknowledged_researcher: { Args: never; Returns: boolean }
       is_admin: { Args: never; Returns: boolean }
       is_canonical_push_endpoint: {
         Args: { p_endpoint: string }
