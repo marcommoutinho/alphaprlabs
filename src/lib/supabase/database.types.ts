@@ -210,6 +210,184 @@ export type Database = {
           },
         ]
       }
+      cycle_plans: {
+        Row: {
+          created_at: string
+          cycle_id: string
+          id: string
+          owner_id: string
+          peptide_id: string
+        }
+        Insert: {
+          created_at?: string
+          cycle_id: string
+          id?: string
+          owner_id: string
+          peptide_id: string
+        }
+        Update: {
+          created_at?: string
+          cycle_id?: string
+          id?: string
+          owner_id?: string
+          peptide_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cycle_plans_cycle"
+            columns: ["cycle_id", "owner_id"]
+            isOneToOne: false
+            referencedRelation: "cycles"
+            referencedColumns: ["id", "owner_id"]
+          },
+          {
+            foreignKeyName: "cycle_plans_peptide_id_fkey"
+            columns: ["peptide_id"]
+            isOneToOne: false
+            referencedRelation: "peptides"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cycle_revision_phases: {
+        Row: {
+          dose_change_from: string[]
+          dose_change_mg: number[]
+          dose_mg: number | null
+          end_date: string
+          every_days: number | null
+          kind: string
+          local_time: string | null
+          owner_id: string
+          phase_id: string
+          plan_id: string
+          revision_id: string
+          schedule_type: string | null
+          start_date: string
+          weekdays: number[] | null
+        }
+        Insert: {
+          dose_change_from?: string[]
+          dose_change_mg?: number[]
+          dose_mg?: number | null
+          end_date: string
+          every_days?: number | null
+          kind: string
+          local_time?: string | null
+          owner_id: string
+          phase_id: string
+          plan_id: string
+          revision_id: string
+          schedule_type?: string | null
+          start_date: string
+          weekdays?: number[] | null
+        }
+        Update: {
+          dose_change_from?: string[]
+          dose_change_mg?: number[]
+          dose_mg?: number | null
+          end_date?: string
+          every_days?: number | null
+          kind?: string
+          local_time?: string | null
+          owner_id?: string
+          phase_id?: string
+          plan_id?: string
+          revision_id?: string
+          schedule_type?: string | null
+          start_date?: string
+          weekdays?: number[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cycle_revision_phases_plan"
+            columns: ["revision_id", "plan_id", "owner_id"]
+            isOneToOne: false
+            referencedRelation: "cycle_revision_plans"
+            referencedColumns: ["revision_id", "plan_id", "owner_id"]
+          },
+        ]
+      }
+      cycle_revision_plans: {
+        Row: {
+          cycle_id: string
+          effective_from: string | null
+          owner_id: string
+          peptide_id: string
+          plan_id: string
+          position: number
+          revision_id: string
+        }
+        Insert: {
+          cycle_id: string
+          effective_from?: string | null
+          owner_id: string
+          peptide_id: string
+          plan_id: string
+          position: number
+          revision_id: string
+        }
+        Update: {
+          cycle_id?: string
+          effective_from?: string | null
+          owner_id?: string
+          peptide_id?: string
+          plan_id?: string
+          position?: number
+          revision_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cycle_revision_plans_plan"
+            columns: ["plan_id", "cycle_id", "peptide_id"]
+            isOneToOne: false
+            referencedRelation: "cycle_plans"
+            referencedColumns: ["id", "cycle_id", "peptide_id"]
+          },
+          {
+            foreignKeyName: "cycle_revision_plans_revision"
+            columns: ["revision_id", "cycle_id", "owner_id"]
+            isOneToOne: false
+            referencedRelation: "cycle_revisions"
+            referencedColumns: ["id", "cycle_id", "owner_id"]
+          },
+        ]
+      }
+      cycle_revisions: {
+        Row: {
+          created_at: string
+          cycle_id: string
+          id: string
+          number: number
+          owner_id: string
+          time_zone: string
+        }
+        Insert: {
+          created_at?: string
+          cycle_id: string
+          id?: string
+          number: number
+          owner_id: string
+          time_zone: string
+        }
+        Update: {
+          created_at?: string
+          cycle_id?: string
+          id?: string
+          number?: number
+          owner_id?: string
+          time_zone?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cycle_revisions_cycle"
+            columns: ["cycle_id", "owner_id"]
+            isOneToOne: false
+            referencedRelation: "cycles"
+            referencedColumns: ["id", "owner_id"]
+          },
+        ]
+      }
       cycle_template_phases: {
         Row: {
           dose_mg: number | null
@@ -316,6 +494,66 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      cycles: {
+        Row: {
+          baseline: string
+          created_at: string
+          current_revision: number
+          goal: string
+          id: string
+          name: string
+          owner_id: string
+          template_guidance: string
+          template_id: string | null
+          template_name: string
+          template_updated_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          baseline?: string
+          created_at?: string
+          current_revision?: number
+          goal: string
+          id?: string
+          name: string
+          owner_id: string
+          template_guidance?: string
+          template_id?: string | null
+          template_name?: string
+          template_updated_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          baseline?: string
+          created_at?: string
+          current_revision?: number
+          goal?: string
+          id?: string
+          name?: string
+          owner_id?: string
+          template_guidance?: string
+          template_id?: string | null
+          template_name?: string
+          template_updated_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cycles_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cycles_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "cycle_templates"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       invitations: {
         Row: {
@@ -645,6 +883,16 @@ export type Database = {
         Args: { p_id: string; p_name: string; p_user_id: string }
         Returns: undefined
       }
+      cycle_dose_changes_valid: {
+        Args: {
+          p_end: string
+          p_from: string[]
+          p_mg: number[]
+          p_start: string
+        }
+        Returns: boolean
+      }
+      cycle_revision_content: { Args: { p_revision_id: string }; Returns: Json }
       cycle_template_content: { Args: { p_template_id: string }; Returns: Json }
       disable_push_subscription: {
         Args: { p_device_id: string; p_endpoint?: string; p_reason: string }
@@ -665,6 +913,7 @@ export type Database = {
         Args: { p_endpoint: string }
         Returns: boolean
       }
+      is_time_zone: { Args: { p_name: string }; Returns: boolean }
       is_weekday_set: { Args: { p_days: number[] }; Returns: boolean }
       library_name_key: { Args: { p_name: string }; Returns: string }
       library_reference_counts: {
@@ -722,6 +971,19 @@ export type Database = {
         }[]
       }
       revoke_support_access: { Args: { p_admin_id: string }; Returns: boolean }
+      save_cycle: {
+        Args: {
+          p_baseline: string
+          p_cycle_id?: string
+          p_goal: string
+          p_name: string
+          p_plans: Json
+          p_revision?: number
+          p_template_id?: string
+          p_time_zone: string
+        }
+        Returns: string
+      }
       save_cycle_template: {
         Args: {
           p_guidance: string
