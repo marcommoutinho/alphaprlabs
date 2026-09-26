@@ -626,6 +626,15 @@ the public site; the manifest, service worker and cookies belong to the app
 host only, so installation and notifications never involve the public site.
 S1 sets up this host routing locally.
 
+Hosting plans (Marco, 2026-09-26): G1 runs on the free Supabase and Vercel
+plans. Before G2 and launch, upgrade Marco's personal Vercel account to Pro
+(US$20/month; the app records sales and profit, which Vercel's Hobby terms treat
+as commercial, and Pro runs the reminder cron every minute) and the Supabase
+project to Pro (US$25/month; no pausing, daily backups). The public reference
+site sells nothing and may stay alongside the app in the same account. Postmark
+is set up on `alphaprlabs.com` with DKIM, Return-Path and a monitor-only DMARC
+record.
+
 Before G1, Marco provides or approves: DNS for `app.alphaprlabs.com`,
 Vercel Pro and Supabase Pro projects, and a Postmark account with a verified
 sending domain (Postmark reviews new accounts before they can send to outside
