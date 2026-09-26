@@ -54,20 +54,22 @@ export async function signIn(input: { email: unknown; password: unknown; next?: 
  * `endpoint` is this device's push subscription, if it has one, and
  * `deviceId` this browser's device id: the rows for either are disabled for
  * the person signing out and the device is marked off, so a signed-out phone
- * gets no reminders and a pending re-registration can't switch it back on. If that fails the session is kept and `{ ok: false }` returned;
- * src/lib/push/sign-out.ts handles the device-side fallback and retry. No
+ * gets no reminders and a pending re-registration can't switch it back on.
+ * A researcher is signed out only once that is recorded: without a device id,
+ * or if it fails, the session is kept and `{ ok: false }` returned
+ * (src/lib/push/sign-out.ts retries once). No
  * redirect (it would reject the caller's promise): the account menu reloads
  * to the sign-in page, which also clears all client state.
  */
 export async function signOut(input?: { endpoint?: unknown; deviceId?: unknown }): Promise<{ ok: boolean }> {
   const supabase = await createClient();
-  const endpoint = canonicalEndpoint(input?.endpoint);
-  const deviceId = deviceIdOf(input?.deviceId);
-  if ((endpoint || deviceId) && (await getSessionPerson())) {
+  if ((await getSessionPerson())?.role === "researcher") {
+    const deviceId = deviceIdOf(input?.deviceId);
+    if (deviceId === null) return { ok: false };
     const { error } = await supabase.rpc("disable_push_subscription", {
       p_reason: "signed_out",
-      p_endpoint: endpoint ?? undefined,
-      p_device_id: deviceId ?? undefined,
+      p_endpoint: canonicalEndpoint(input?.endpoint) ?? undefined,
+      p_device_id: deviceId,
     });
     if (error) return { ok: false };
   }

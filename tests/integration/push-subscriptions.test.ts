@@ -30,7 +30,7 @@ const save = (client: Client, url: string, mode = "turn_on", device = randomUUID
     p_device_id: device,
     p_mode: mode,
   });
-const disable = (client: Client, url: string | undefined, reason: string, device?: string) =>
+const disable = (client: Client, url: string | undefined, reason: string, device = randomUUID()) =>
   client.rpc("disable_push_subscription", { p_endpoint: url, p_reason: reason, p_device_id: device });
 const row = async (url: string) =>
   (await serviceClient().from("push_subscriptions").select("id, profile_id, disabled_reason, last_seen_at").eq("endpoint", url).single()).data!;
@@ -138,6 +138,13 @@ describe("push subscriptions", () => {
       { p_endpoint: url, ...keys(), p_device_label: "", p_mode: "sync" }, // no device id
     ];
     for (const args of bypasses) expect((await a.rpc("save_push_subscription", args as never)).error).not.toBeNull();
+    // A disable must mark a device off: the old payload and a null device id are refused.
+    const other = endpoint();
+    await save(a, other);
+    for (const args of [{ p_endpoint: other, p_reason: "signed_out" }, { p_endpoint: other, p_reason: "signed_out", p_device_id: null }]) {
+      expect((await a.rpc("disable_push_subscription", args as never)).error).not.toBeNull();
+    }
+    expect(await row(other)).toMatchObject({ disabled_reason: null });
     // The off mark is not reachable through the API.
     expect((await a.from("push_device_off").delete().eq("device_id", device)).error).not.toBeNull();
     expect((await a.from("push_device_off").select("device_id")).error).not.toBeNull();

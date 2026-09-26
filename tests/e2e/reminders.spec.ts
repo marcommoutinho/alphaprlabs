@@ -11,6 +11,7 @@ const RESEARCHER = { email: uniqueEmail("c2-researcher"), name: "Casey Reminders
 // Signs out (which ends all its sessions), so it has its own account.
 const SIGN_OUT_RESEARCHER = { email: uniqueEmail("c2-signout"), name: "Sam Signout" };
 const TABS_RESEARCHER = { email: uniqueEmail("c2-tabs"), name: "Tess Tabs" };
+const LATE_RESEARCHER = { email: uniqueEmail("c2-late"), name: "Lee Late" };
 const PHONE = { width: 390, height: 844 };
 const IPHONE_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1";
@@ -19,6 +20,7 @@ test.beforeAll(async () => {
   await ensureAccount({ ...RESEARCHER, role: "researcher" });
   await ensureAccount({ ...SIGN_OUT_RESEARCHER, role: "researcher" });
   await ensureAccount({ ...TABS_RESEARCHER, role: "researcher" });
+  await ensureAccount({ ...LATE_RESEARCHER, role: "researcher" });
 });
 
 /** Node can't resolve *.localhost: request the server directly with the host's Host header. */
@@ -229,6 +231,57 @@ test("a re-sync pending in another tab can't switch the phone back on after turn
     expect(await deviceRow(endpoint)).toMatchObject({ disabled_reason: reason });
     await tabB.close();
   }
+  await context.close();
+});
+
+test("a refused re-sync answered after a new Turn on in another tab doesn't undo it", async ({ browser }) => {
+  const endpoint = `https://fcm.googleapis.com/fcm/send/e2e-late-${Date.now().toString(36)}`;
+  const context = await browser.newContext({ viewport: PHONE });
+  await emulatePermission(context, "granted");
+  await fakePushService(context, endpoint);
+  const tabA = await context.newPage();
+  await signInAs(tabA, APP_ORIGIN, LATE_RESEARCHER.email);
+  await expect(tabA).toHaveURL(`${APP_ORIGIN}/app/today`);
+  await tabA.goto(`${APP_ORIGIN}/app/notifications`);
+  await tabA.getByRole("button", { name: "Turn on reminders" }).click();
+  await expect(tabA.getByRole("button", { name: "Turn off reminders" })).toBeVisible();
+
+  // Tab B's re-sync reaches the server only after tab A turned off (so it is
+  // refused), and its answer only after tab A turned reminders on again.
+  const gate = () => {
+    let open = () => {};
+    return { wait: new Promise<void>((resolve) => (open = resolve)), open: () => open() };
+  };
+  const [arrived, send, fetched, answer] = [gate(), gate(), gate(), gate()];
+  let holding = true;
+  const tabB = await context.newPage();
+  await tabB.route(/\/app\/notifications$/, async (route) => {
+    if (!holding || !(route.request().postData() ?? "").includes("p256dh")) return route.fallback();
+    holding = false;
+    arrived.open();
+    await send.wait;
+    // Node can't resolve *.localhost: send it to the server with the app's Host header.
+    const headers = { ...route.request().headers(), host: new URL(APP_ORIGIN).host };
+    const response = await route.fetch({ url: `${SERVER_ORIGIN}/app/notifications`, headers });
+    fetched.open();
+    await answer.wait;
+    await route.fulfill({ response });
+  });
+  await tabB.goto(`${APP_ORIGIN}/app/notifications`);
+  await arrived.wait;
+  await tabA.getByRole("button", { name: "Turn off reminders" }).click();
+  await expect(tabA.locator(".app-toast")).toHaveText("Reminders off. Your schedule is unchanged.");
+  send.open();
+  await fetched.wait;
+  await tabA.getByRole("button", { name: "Turn on reminders" }).click();
+  await expect(tabA.getByRole("button", { name: "Turn off reminders" })).toBeVisible();
+  answer.open();
+
+  await expect(tabB.getByRole("button", { name: "Turn off reminders" })).toBeVisible();
+  expect(JSON.parse((await rememberedDevice(tabB)) ?? "null")).toMatchObject({ endpoint });
+  const subscribed = () => tabB.evaluate(async () => !!(await (await navigator.serviceWorker.getRegistration("/"))?.pushManager.getSubscription()));
+  expect(await subscribed()).toBe(true);
+  expect(await deviceRow(endpoint)).toMatchObject({ disabled_reason: null });
   await context.close();
 });
 

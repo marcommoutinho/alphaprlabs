@@ -189,7 +189,7 @@ export type Database = {
         Returns: undefined
       }
       disable_push_subscription: {
-        Args: { p_device_id?: string; p_endpoint?: string; p_reason: string }
+        Args: { p_device_id: string; p_endpoint?: string; p_reason: string }
         Returns: boolean
       }
       invite_researcher: {

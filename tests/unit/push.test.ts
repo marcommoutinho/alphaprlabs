@@ -95,24 +95,25 @@ describe("service worker (public/sw.js in a sandbox)", () => {
 });
 
 describe("sign-out on a phone with reminders", () => {
-  it("disables the device, else drops the browser subscription, else keeps the session", async () => {
-    const [endpoint, deviceId] = ["https://fcm.googleapis.com/fcm/send/abc", "0b8a4f3e-5d6c-4b7a-9e8f-1a2b3c4d5e6f"];
-    const device = { endpoint, deviceId };
+  it("signs out only once the server marked the device off; else drops the subscription, retries once, else keeps the session", async () => {
+    const device = { endpoint: "https://fcm.googleapis.com/fcm/send/abc", deviceId: "0b8a4f3e-5d6c-4b7a-9e8f-1a2b3c4d5e6f" };
     const cases = [
-      // server disables the row | browser unsubscribe → outcome, server calls
-      [true, "unused", "signed-out", [device]],
-      [false, true, "signed-out", [device, { endpoint: null, deviceId: null }]],
-      [false, false, "failed", [device]],
-      [false, "throws", "failed", [device]],
+      // server marks the device off (per call) | browser unsubscribe → outcome
+      [[true], "unused", "signed-out"],
+      [[false, true], true, "signed-out"],
+      [[false, true], "throws", "signed-out"],
+      [[false, false], true, "failed"], // never signed out without the off mark
     ] as const;
-    for (const [serverOk, unsubscribed, outcome, calls] of cases) {
-      const signOut = vi.fn(async (input: { endpoint: string | null }) => ({ ok: serverOk || input.endpoint === null }));
-      const unsubscribe = async () => {
+    for (const [server, unsubscribed, outcome] of cases) {
+      const signOut = vi.fn(async () => ({ ok: server[signOut.mock.calls.length - 1] }));
+      const unsubscribe = vi.fn(async () => {
         if (unsubscribed === "throws") throw new Error("no service worker");
         return unsubscribed === true;
-      };
+      });
       expect(await signOutDevice({ ...device, signOut, unsubscribe })).toBe(outcome);
-      expect(signOut.mock.calls.map(([input]) => input)).toEqual(calls);
+      // Every attempt, the retry included, carries the device id.
+      expect(signOut.mock.calls).toEqual(server.map(() => [device]));
+      expect(unsubscribe).toHaveBeenCalledTimes(server.length - 1);
     }
   });
 });

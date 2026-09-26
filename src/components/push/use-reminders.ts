@@ -27,6 +27,9 @@ const DEVICE_KEY = "apl.reminders.device";
 // A random id for this browser, shared by all its tabs: the database marks it
 // off on turn off / sign out and then refuses background re-registrations.
 const DEVICE_ID_KEY = "apl.reminders.device-id";
+// A fresh nonce on every explicit "Turn on", in any tab: a refused sync that
+// started before it must not undo it.
+const TURN_ON_KEY = "apl.reminders.turn-on";
 const FAILURES_KEY = "apl.reminders.failures"; // consecutive failed re-registrations
 const SEEN_KEY = "apl.reminders.readiness-seen"; // step 3 shown once in the installed app
 /** Consecutive silent re-registration failures before settings shows the failure state. */
@@ -191,16 +194,19 @@ async function upload(subscription: PushSubscription, mode: "turn_on" | "sync"):
 
 /**
  * The database refused a sync: reminders were turned off or signed out of on
- * this device (maybe in another tab). Forget the device here (unless another
- * account has since turned reminders on here) and drop the browser
- * subscription, so nothing syncs until an explicit turn on.
+ * this device (maybe in another tab). Forget the device here and drop the
+ * browser subscription, so nothing syncs until an explicit turn on — unless
+ * another account has since turned reminders on here, or an explicit turn on
+ * started since this sync did (`turnOnMark` changed).
  */
-async function forgetRefusedDevice(userId: string) {
+async function forgetRefusedDevice(userId: string, turnOnMark: string | null) {
+  const unchanged = () => localFlag.get(TURN_ON_KEY) === turnOnMark;
   const remembered = rememberedDevice.get();
-  if (remembered && remembered.userId !== userId) return;
+  if ((remembered && remembered.userId !== userId) || !unchanged()) return;
   rememberedDevice.set(null);
   localFlag.set(FAILURES_KEY, null);
-  await (await currentSubscription().catch(() => null))?.unsubscribe().catch(() => undefined);
+  const subscription = await currentSubscription().catch(() => null);
+  if (unchanged()) await subscription?.unsubscribe().catch(() => undefined);
 }
 
 export type DeviceState = { facts: DeviceFacts; subscribed: boolean; failed: boolean };
@@ -247,6 +253,7 @@ async function runSync(userId: string, vapidPublicKey: string): Promise<DeviceSt
   const current = () => epoch === started;
   const facts = readFacts();
   const failures = Number(localFlag.get(FAILURES_KEY) ?? 0);
+  const turnOnMark = localFlag.get(TURN_ON_KEY);
   if (!canUsePush(facts)) return { facts, subscribed: false, failed: false };
   if (facts.permission !== "granted" || rememberedDevice.get()?.userId !== userId) {
     // Keep the worker installed for notification clicks and badges.
@@ -259,8 +266,8 @@ async function runSync(userId: string, vapidPublicKey: string): Promise<DeviceSt
     const status = await upload(subscription, "sync");
     if (!current()) return null;
     if (status === "refused_off") {
-      await forgetRefusedDevice(userId);
-      return { facts, subscribed: false, failed: false };
+      await forgetRefusedDevice(userId, turnOnMark);
+      return { facts, subscribed: rememberedDevice.get()?.userId === userId, failed: false };
     }
     if (status === "saved") {
       // Another tab may have turned reminders off meanwhile: never remember the device again here.
@@ -383,6 +390,7 @@ export function useReminders(userId: string, vapidPublicKey: string): Reminders 
   const turnOn = useCallback<Reminders["turnOn"]>(async () => {
     setBusy("on");
     generation.current += 1;
+    localFlag.set(TURN_ON_KEY, crypto.randomUUID());
     try {
       let permission = readFacts().permission;
       if (permission !== "granted") permission = (await Notification.requestPermission()) as Permission;

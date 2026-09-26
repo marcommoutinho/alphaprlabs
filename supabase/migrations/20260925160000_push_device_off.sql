@@ -121,13 +121,14 @@ end;
 $$;
 
 -- ── Researcher: turn off reminders / sign out on this device ───────────────
--- Disables the caller's own rows for this endpoint and for this device id
--- (either may be null) and marks the device off for the caller, so a later
--- sync from this browser is refused even under a new endpoint. Returns
--- whether an active row was disabled; another account's rows are never
--- touched.
+-- Marks this device off for the caller and disables the caller's own rows
+-- for this device id and for this endpoint (which may be null: unknown), so a
+-- later sync from this browser is refused even under a new endpoint. The
+-- device id is required: a disable without an off mark would let a pending
+-- sync under a rotated endpoint switch the device back on. Returns whether an
+-- active row was disabled; another account's rows are never touched.
 create function public.disable_push_subscription(
-  p_reason text, p_device_id uuid default null, p_endpoint text default null
+  p_reason text, p_device_id uuid, p_endpoint text default null
 )
 returns boolean
 language plpgsql
@@ -141,18 +142,19 @@ begin
   if p_reason is null or p_reason not in ('turned_off', 'signed_out') then
     raise exception 'invalid reason' using errcode = '22023';
   end if;
+  if p_device_id is null then
+    raise exception 'device id required' using errcode = '22023';
+  end if;
   if not exists (
     select 1 from public.profiles p where p.id = v_uid and p.role = 'researcher'
   ) then
     return false;
   end if;
 
-  if p_device_id is not null then
-    perform pg_advisory_xact_lock(hashtextextended('push_device:' || v_uid::text || ':' || p_device_id::text, 0));
-    insert into public.push_device_off as o (profile_id, device_id, reason)
-    values (v_uid, p_device_id, p_reason)
-    on conflict (profile_id, device_id) do update set reason = excluded.reason, off_at = now();
-  end if;
+  perform pg_advisory_xact_lock(hashtextextended('push_device:' || v_uid::text || ':' || p_device_id::text, 0));
+  insert into public.push_device_off as o (profile_id, device_id, reason)
+  values (v_uid, p_device_id, p_reason)
+  on conflict (profile_id, device_id) do update set reason = excluded.reason, off_at = now();
 
   update public.push_subscriptions s
   set disabled_at = now(), disabled_reason = p_reason

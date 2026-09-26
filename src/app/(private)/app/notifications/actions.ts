@@ -47,16 +47,16 @@ export async function saveDevice(input: unknown): Promise<SaveDeviceResult> {
  */
 export async function turnOffDevice(input: { endpoint: unknown; deviceId?: unknown }): Promise<{ ok: boolean }> {
   if (!(await signedInResearcher())) return { ok: false };
-  // A non-push-service endpoint has no row; the device id still marks it off.
-  const endpoint = canonicalEndpoint(input.endpoint);
+  // The device id is required: it marks the device off. A non-push-service
+  // endpoint has no row, so it is left out.
   const deviceId = deviceIdOf(input.deviceId);
-  if (endpoint === null && deviceId === null) return { ok: true };
+  if (deviceId === null) return { ok: false };
 
   const supabase = await createClient();
   const { error } = await supabase.rpc("disable_push_subscription", {
     p_reason: "turned_off",
-    p_endpoint: endpoint ?? undefined,
-    p_device_id: deviceId ?? undefined,
+    p_endpoint: canonicalEndpoint(input.endpoint) ?? undefined,
+    p_device_id: deviceId,
   });
   return { ok: !error };
 }
