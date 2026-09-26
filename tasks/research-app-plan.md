@@ -729,7 +729,12 @@ Cleanup before G2 (accepted by Marco, 2026-09-26):
 - Marco, 2026-09-26: keep building straight through, deploying to the closed
   app at milestones (admin side done; cycles and Today; real reminders).
 
-Next: S9, cycles and the cycle builder.
+- S9 (cycles and builder), S10 (cycle views and library) and S11 (calculator
+  and mixtures) built, reviewed and integrated at `954f5ac` (331 tests pass on
+  the combined branch). Not yet deployed.
+
+Next: S12, Today and dose confirmation; then deploy the cycles-and-Today
+milestone to the closed app.
 
 ## Technical references
 
