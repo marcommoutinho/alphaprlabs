@@ -1027,6 +1027,65 @@ export type Database = {
         }
         Relationships: []
       }
+      progress_check_ins: {
+        Row: {
+          created_at: string
+          day: string
+          effects: string[]
+          feeling: number
+          id: string
+          measured_at: string | null
+          measurement_name: string | null
+          measurement_unit: string | null
+          measurement_value: number | null
+          note: string
+          owner_id: string
+          time_zone: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          day: string
+          effects?: string[]
+          feeling: number
+          id?: string
+          measured_at?: string | null
+          measurement_name?: string | null
+          measurement_unit?: string | null
+          measurement_value?: number | null
+          note?: string
+          owner_id: string
+          time_zone: string
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          created_at?: string
+          day?: string
+          effects?: string[]
+          feeling?: number
+          id?: string
+          measured_at?: string | null
+          measurement_name?: string | null
+          measurement_unit?: string | null
+          measurement_value?: number | null
+          note?: string
+          owner_id?: string
+          time_zone?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "progress_check_ins_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       push_device_off: {
         Row: {
           device_id: string
@@ -1227,6 +1286,11 @@ export type Database = {
       business_latest_date: { Args: never; Returns: string }
       can_read_researcher: { Args: { p_owner: string }; Returns: boolean }
       can_write_researcher: { Args: { p_owner: string }; Returns: boolean }
+      check_in_effect_list: { Args: never; Returns: string[] }
+      check_in_effects_valid: {
+        Args: { p_effects: string[] }
+        Returns: boolean
+      }
       claim_invitation: {
         Args: { p_token_hash: string }
         Returns: {
@@ -1382,6 +1446,7 @@ export type Database = {
         Returns: boolean
       }
       is_dose_site: { Args: { p_site: string }; Returns: boolean }
+      is_measurement_name: { Args: { p_name: string }; Returns: boolean }
       is_time_zone: { Args: { p_name: string }; Returns: boolean }
       is_weekday_set: { Args: { p_days: number[] }; Returns: boolean }
       library_name_key: { Args: { p_name: string }; Returns: string }
@@ -1454,6 +1519,20 @@ export type Database = {
         }[]
       }
       revoke_support_access: { Args: { p_admin_id: string }; Returns: boolean }
+      save_check_in: {
+        Args: {
+          p_cycle_id: string
+          p_day: string
+          p_effects: string[]
+          p_feeling: number
+          p_measurement_name?: string
+          p_measurement_unit?: string
+          p_measurement_value?: number
+          p_note: string
+          p_version: number
+        }
+        Returns: Json
+      }
       save_cycle: {
         Args: {
           p_baseline: string

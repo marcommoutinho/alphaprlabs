@@ -26,6 +26,8 @@ const EXCLUSIVE = [
   "tests/integration/supplies-keys.test.ts",
   // Owner-level psql transactions hold reopen_personal_vial's (and its rivals') locks.
   "tests/integration/supplies-locks.test.ts",
+  // Owner-level psql writes a month of S15 check-ins (committed, a unique account) and tries the table's checks (rolled back).
+  "tests/integration/progress-owner.test.ts",
 ];
 
 export default defineConfig({

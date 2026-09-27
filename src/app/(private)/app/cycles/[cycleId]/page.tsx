@@ -54,7 +54,7 @@ export default async function CyclePage({ params }: { params: Params }) {
           </div>
         </div>
         <div className="app-cv-actions">
-          <Link href="/app/progress" className="app-btn app-btn--secondary app-btn--sm">
+          <Link href={`/app/progress?cycle=${cycle.id}`} className="app-btn app-btn--secondary app-btn--sm">
             Results
           </Link>
           <Link href={`/app/cycles/${cycle.id}/edit`} className="app-btn app-btn--primary app-btn--sm">
