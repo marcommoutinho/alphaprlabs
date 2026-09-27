@@ -196,6 +196,18 @@ switches to the back office and back.
   guard; a mixture's vial strength cannot change while a tracked open vial uses
   it.
 
+### Today and confirmation decisions (Marco, 2026-09-26)
+
+- An actual time more than one day before the planned time is refused as a
+  likely typo; future times are refused.
+- Only today's and earlier doses can be confirmed; tomorrow's dose becomes
+  confirmable on its day (with the earlier actual time if taken early).
+- The app icon badge counts unconfirmed doses from cycles that are still
+  running; ended cycles keep their open doses in history with a Confirm link.
+- Today lists the next dose of every peptide in the researcher's cycles.
+- A confirmed dose deducts the full amount from the open personal vial of the
+  mixture in effect at the actual time, only while supply tracking is on.
+
 ### Launch exclusions
 
 - Blended or multi-peptide vials. A cycle may still contain several separately
