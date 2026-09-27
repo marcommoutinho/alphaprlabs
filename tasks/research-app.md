@@ -208,6 +208,17 @@ switches to the back office and back.
 - A confirmed dose deducts the full amount from the open personal vial of the
   mixture in effect at the actual time, only while supply tracking is on.
 
+### Personal supplies decisions (Marco, 2026-09-26)
+
+- Low stock compares the estimated remaining with the next planned dose from
+  today onward; unconfirmed doses from earlier days are not counted.
+- A finished vial whose mixture was deleted, changed strength or already has
+  another open vial reopens as "Not mixed yet" with a message, not refused.
+- Today shows the low-stock line on the main dose card, today's doses and each
+  peptide's next dose; not on older unconfirmed doses.
+- A vial added without a label is named "Vial N". Tracking off hides the vial
+  list; adding or reopening a vial needs tracking on.
+
 ### Launch exclusions
 
 - Blended or multi-peptide vials. A cycle may still contain several separately
