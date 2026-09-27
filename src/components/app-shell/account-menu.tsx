@@ -1,16 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { Menu } from "@base-ui/react/menu";
-import { signOutThisDevice } from "@/components/push/use-reminders";
 import { initialsOf, type AppIdentity, type AppSide } from "@/lib/app/identity";
-import { SIGN_IN_PATH } from "@/lib/auth/paths";
 import { usePortalContainer } from "./app-root";
 import { RESEARCHER_ACCOUNT_LINKS, isUnder, sideSwitchFor } from "./nav";
-import { useToast } from "./toast";
-
-const SIGN_OUT_FAILED = "Could not sign out: reminders are still on for this phone. Try again.";
+import { useSignOut } from "./use-sign-out";
 
 /**
  * Account button + menu. One instance serves both widths: on desktop it shows
@@ -30,8 +26,7 @@ export function AccountMenu({
 }) {
   const container = usePortalContainer();
   const [openAt, setOpenAt] = useState<string | null>(null);
-  const [signingOut, startSignOut] = useTransition();
-  const toast = useToast();
+  const { pending: signingOut, signOut } = useSignOut();
   const links = side === "research" ? RESEARCHER_ACCOUNT_LINKS : [];
   const switchTo = sideSwitchFor(identity.role, side);
   const onAccountPage = links.some((link) => isUnder(pathname, link.href));
@@ -83,18 +78,7 @@ export function AccountMenu({
             <Menu.Item
               className="app-menu-item"
               disabled={signingOut}
-              onClick={() =>
-                startSignOut(async () => {
-                  // Researchers and admins alike: this phone must stop receiving
-                  // this account's reminders; if it can't, stay signed in and say so.
-                  if ((await signOutThisDevice()) !== "signed-out") {
-                    toast(SIGN_OUT_FAILED, "error");
-                    return;
-                  }
-                  // A full load of the sign-in page drops every bit of client state.
-                  window.location.replace(SIGN_IN_PATH);
-                })
-              }
+              onClick={signOut}
             >
               Sign out
             </Menu.Item>

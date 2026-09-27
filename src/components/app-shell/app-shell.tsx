@@ -39,12 +39,3 @@ export function AppPage({ width = "list", children }: { width?: PageWidth; child
     </main>
   );
 }
-
-/** Title-only placeholder until the owning slice builds the screen. */
-export function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <AppPage>
-      <h1 className="app-h1">{title}</h1>
-    </AppPage>
-  );
-}

@@ -1,0 +1,439 @@
+/* R11 Me and A8 Researcher support / history (handoff docs/design/research-app,
+   the prototype's "R11 Profile", "A8 Support" and "A8 Researcher history").
+   Scoped under .app-root. */
+
+/* ── R11 Me ───────────────────────────────────────────── */
+.app-root .app-me-sub {
+  margin-top: 6px;
+  font-size: 14px;
+  color: var(--app-text-4);
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-me-links {
+  display: flex;
+  flex-direction: column;
+  margin-top: 32px;
+}
+
+.app-root .app-me-link {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 18px 0;
+  border-top: 1px solid var(--app-border);
+  color: var(--app-text);
+  font-size: 16px;
+}
+
+.app-root .app-me-link:last-child {
+  border-bottom: 1px solid var(--app-border);
+}
+
+.app-root .app-me-link:hover {
+  color: var(--app-text);
+}
+
+.app-root .app-me-optional {
+  font-size: 12px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-me-link-meta {
+  flex: none;
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-me-support {
+  margin-top: 40px;
+}
+
+.app-root .app-me-h2 {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.app-root .app-me-intro {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--app-text-4);
+}
+
+.app-root .app-me-active,
+.app-root .app-me-confirm {
+  margin-top: 18px;
+  padding: 20px 22px;
+  border-radius: var(--app-radius-card-sm);
+}
+
+.app-root .app-me-active {
+  background: var(--app-surface-accent);
+  border: 1px solid rgba(96, 165, 250, 0.35);
+}
+
+.app-root .app-me-confirm {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border-popup);
+}
+
+.app-root .app-me-active-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.app-root .app-me-active-name {
+  font-size: 16px;
+}
+
+.app-root .app-me-active-tag {
+  margin-left: 6px;
+  font-size: 13px;
+  color: var(--app-primary-text);
+}
+
+.app-root .app-me-active-since,
+.app-root .app-me-active-note {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-me-active-note {
+  color: var(--app-warning);
+}
+
+.app-root .app-me-revoke {
+  height: 44px;
+  padding: 0 18px;
+  border-radius: var(--app-radius-button-sm);
+  border: 1px solid rgba(248, 113, 113, 0.5);
+  background: transparent;
+  color: #fca5a5;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.app-root .app-me-revoke--confirm {
+  height: 40px;
+}
+
+.app-root .app-me-revoke-confirm {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(96, 165, 250, 0.2);
+}
+
+.app-root .app-me-confirm-title {
+  font-size: 16px;
+}
+
+.app-root .app-me-points {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  list-style: disc;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--app-text-2);
+}
+
+.app-root .app-me-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.app-root .app-me-confirm .app-btn {
+  height: 48px;
+  font-size: 15px;
+}
+
+.app-root .app-me-grant {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.app-root .app-me-admin-field {
+  flex: 1 1 220px;
+  max-width: 320px;
+}
+
+.app-root .app-me-grant .app-me-grant-btn {
+  height: 48px;
+  padding: 0 20px;
+  font-size: 15px;
+}
+
+.app-root .app-me-grant .app-inline-error {
+  flex-basis: 100%;
+}
+
+.app-root .app-me-note,
+.app-root .app-me-past {
+  margin-top: 18px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--app-text-4);
+}
+
+.app-root .app-me-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-top: 48px;
+}
+
+.app-root .app-me-signout {
+  height: 44px;
+  padding: 0 18px;
+  border-radius: var(--app-radius-button-sm);
+  border: 1px solid var(--app-border-strong);
+  background: transparent;
+  font-size: 14px;
+}
+
+.app-root .app-me-zone {
+  font-size: 12px;
+  color: var(--app-text-4);
+}
+
+/* ── A8 Researcher support ────────────────────────────── */
+.app-root .app-a8-none {
+  margin-top: 32px;
+  padding: 28px;
+  border-radius: 22px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  font-size: 14px;
+  color: var(--app-text-3);
+}
+
+.app-root .app-a8-list {
+  margin-top: 24px;
+}
+
+.app-root .app-a8-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--app-divider-row);
+  color: var(--app-text);
+  font-size: 15px;
+}
+
+.app-root .app-a8-row:hover {
+  color: var(--app-text);
+}
+
+.app-root .app-a8-who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-a8-email {
+  color: var(--app-text-4);
+}
+
+.app-root .app-a8-sub {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-a8-state {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--app-text-4);
+}
+
+.app-root .app-a8-state[data-access="granted"] {
+  color: var(--app-success);
+}
+
+.app-root .app-a8-state[data-access="revoked"] {
+  color: var(--app-warning);
+}
+
+/* ── A8 Researcher history ────────────────────────────── */
+.app-root .app-a8-back {
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-a8-denied {
+  max-width: 520px;
+  margin-top: 40px;
+}
+
+.app-root .app-a8-denied-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-error);
+}
+
+.app-root .app-a8-denied-title {
+  margin-top: 6px;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-a8-denied-text {
+  margin-top: 12px;
+  line-height: 1.6;
+  color: var(--app-text-3);
+}
+
+.app-root .app-a8-head {
+  margin-top: 14px;
+}
+
+.app-root .app-a8-granted {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-primary-text);
+}
+
+.app-root .app-a8-name {
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-a8-meta {
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--app-text-4);
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-a8-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 32px;
+}
+
+.app-root .app-a8-card {
+  min-width: 0;
+  padding: 20px 22px;
+  border-radius: var(--app-radius-card-sm);
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-a8-card h2 {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.app-root .app-a8-empty {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-a8-item {
+  padding: 10px 0;
+  border-top: 1px solid var(--app-divider-row);
+  font-size: 14px;
+}
+
+.app-root .app-a8-card h2 + .app-a8-item,
+.app-root .app-a8-card h2 + .app-a8-line {
+  margin-top: 8px;
+}
+
+.app-root .app-a8-dim,
+.app-root .app-a8-item-sub {
+  color: var(--app-text-4);
+}
+
+.app-root .app-a8-item-sub {
+  margin-top: 3px;
+  font-size: 12.5px;
+}
+
+.app-root .app-a8-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--app-divider-row);
+  font-size: 13px;
+}
+
+.app-root .app-a8-line--stack {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.app-root .app-a8-when {
+  color: var(--app-text-4);
+}
+
+.app-root .app-a8-line > .app-a8-when {
+  flex: none;
+  text-align: right;
+}
+
+.app-root .app-a8-effects {
+  color: var(--app-warning-soft);
+}
+
+.app-root .app-a8-note {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.app-root .app-a8-measures {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--app-primary-text);
+}
+
+.app-root .app-a8-para {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.app-root .app-a8-more {
+  margin-top: 20px;
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+@media (max-width: 759.98px) {
+  .app-root .app-a8-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .app-root .app-a8-line {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .app-root .app-a8-line > .app-a8-when {
+    text-align: left;
+  }
+}

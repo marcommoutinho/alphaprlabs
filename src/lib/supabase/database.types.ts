@@ -1409,6 +1409,16 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      admin_support_researchers: {
+        Args: { p_researcher_id?: string }
+        Returns: {
+          email: string
+          granted_at: string
+          name: string
+          profile_id: string
+          revoked_at: string
+        }[]
+      }
       business_buyer_accounts: {
         Args: never
         Returns: {
@@ -1782,6 +1792,24 @@ export type Database = {
         Returns: Json
       }
       supplement_tracking_of: { Args: { p_owner: string }; Returns: boolean }
+      support_admins: {
+        Args: never
+        Returns: {
+          admin_id: string
+          name: string
+        }[]
+      }
+      support_grant_history: {
+        Args: never
+        Returns: {
+          admin_id: string
+          admin_name: string
+          grant_id: string
+          granted_at: string
+          revoked_at: string
+          still_admin: boolean
+        }[]
+      }
       take_supplement: {
         Args: {
           p_actual_at?: string
