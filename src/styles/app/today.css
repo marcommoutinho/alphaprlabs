@@ -526,3 +526,20 @@
   line-height: 1.5;
   color: var(--app-warning);
 }
+
+/* ── Supplement rows (R10 on Today) ───────────────────── */
+.app-root .app-today-row-more {
+  min-height: 32px;
+  margin-top: 2px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--app-text-3);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.app-root .app-today-row-more:hover {
+  color: var(--app-text);
+}

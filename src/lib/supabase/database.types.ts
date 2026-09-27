@@ -1162,6 +1162,141 @@ export type Database = {
           },
         ]
       }
+      supplement_routines: {
+        Row: {
+          amount: number
+          created_at: string
+          end_date: string | null
+          id: string
+          name: string
+          owner_id: string
+          schedule_version: number
+          start_date: string
+          time_of_day: string
+          time_zone: string
+          unit: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          end_date?: string | null
+          id?: string
+          name: string
+          owner_id: string
+          schedule_version?: number
+          start_date: string
+          time_of_day: string
+          time_zone?: string
+          unit: string
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          end_date?: string | null
+          id?: string
+          name?: string
+          owner_id?: string
+          schedule_version?: number
+          start_date?: string
+          time_of_day?: string
+          time_zone?: string
+          unit?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplement_routines_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      supplement_settings: {
+        Row: {
+          owner_id: string
+          tracking_enabled: boolean
+          updated_at: string
+        }
+        Insert: {
+          owner_id: string
+          tracking_enabled?: boolean
+          updated_at?: string
+        }
+        Update: {
+          owner_id?: string
+          tracking_enabled?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplement_settings_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      supplement_taken: {
+        Row: {
+          actual_at: string
+          amount: number
+          id: string
+          local_date: string
+          name: string
+          occurrence_key: string
+          owner_id: string
+          recorded_at: string
+          request_key: string
+          routine_id: string
+          scheduled_at: string
+          unit: string
+        }
+        Insert: {
+          actual_at: string
+          amount: number
+          id?: string
+          local_date: string
+          name: string
+          occurrence_key: string
+          owner_id: string
+          recorded_at: string
+          request_key: string
+          routine_id: string
+          scheduled_at: string
+          unit: string
+        }
+        Update: {
+          actual_at?: string
+          amount?: number
+          id?: string
+          local_date?: string
+          name?: string
+          occurrence_key?: string
+          owner_id?: string
+          recorded_at?: string
+          request_key?: string
+          routine_id?: string
+          scheduled_at?: string
+          unit?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplement_taken_routine"
+            columns: ["routine_id", "owner_id"]
+            isOneToOne: false
+            referencedRelation: "supplement_routines"
+            referencedColumns: ["id", "owner_id"]
+          },
+        ]
+      }
       support_grants: {
         Row: {
           admin_id: string
@@ -1426,6 +1561,24 @@ export type Database = {
         Args: { p_dose_id: string; p_replayed: boolean }
         Returns: Json
       }
+      due_supplement_occurrences: {
+        Args: { p_from: string; p_to: string }
+        Returns: {
+          amount: string
+          local_date: string
+          name: string
+          occurrence_key: string
+          owner_id: string
+          routine_id: string
+          schedule_version: number
+          scheduled_at: string
+          unit: string
+        }[]
+      }
+      end_supplement_routine: {
+        Args: { p_id: string; p_version: number }
+        Returns: Json
+      }
       finish_personal_vial: { Args: { p_vial_id: string }; Returns: boolean }
       grant_support_access: { Args: { p_admin_id: string }; Returns: string }
       has_research_access: { Args: never; Returns: boolean }
@@ -1444,6 +1597,7 @@ export type Database = {
       }
       is_dose_site: { Args: { p_site: string }; Returns: boolean }
       is_measurement_name: { Args: { p_name: string }; Returns: boolean }
+      is_supplement_amount: { Args: { p_amount: number }; Returns: boolean }
       is_time_zone: { Args: { p_name: string }; Returns: boolean }
       is_weekday_set: { Args: { p_days: number[] }; Returns: boolean }
       library_name_key: { Args: { p_name: string }; Returns: string }
@@ -1597,7 +1751,39 @@ export type Database = {
         }
         Returns: string
       }
+      save_supplement_routine: {
+        Args: {
+          p_amount: string
+          p_id: string
+          p_name: string
+          p_time: string
+          p_unit: string
+          p_version: number
+        }
+        Returns: Json
+      }
+      set_supplement_tracking: {
+        Args: { p_enabled: boolean }
+        Returns: boolean
+      }
       set_supply_tracking: { Args: { p_enabled: boolean }; Returns: boolean }
+      supplement_decimal: { Args: { p_text: string }; Returns: number }
+      supplement_taken_result: {
+        Args: { p_id: string; p_replayed: boolean }
+        Returns: Json
+      }
+      supplement_tracking_of: { Args: { p_owner: string }; Returns: boolean }
+      take_supplement: {
+        Args: {
+          p_actual_at?: string
+          p_occurrence_key: string
+          p_request_key: string
+          p_seen_amount: string
+          p_seen_scheduled_at: string
+          p_seen_unit: string
+        }
+        Returns: Json
+      }
       template_peptides: {
         Args: { p_template_id: string }
         Returns: {

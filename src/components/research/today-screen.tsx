@@ -7,16 +7,19 @@ import { confirmDoseAction, type ConfirmActionResult } from "@/app/(private)/app
 import { SAVE_FAILED_MESSAGE, useToast } from "@/components/app-shell/toast";
 import { AppBadge } from "@/components/push/app-badge";
 import { discrepancyToast, ENDED_NOTE, NO_MIXTURE_NOTE, takenToast } from "@/lib/doses/rules";
-import type { DoseDetail, TodayHero, TodayView } from "@/lib/doses/today";
+import type { DoseDetail, TodayHero, TodayRow, TodayView } from "@/lib/doses/today";
+import { mergeTodayRows, type SupplementDetail, type SupplementRow, type SupplementToday } from "@/lib/supplements/view";
 import { ConfirmSheet, type SheetSubmission, takenWhen } from "./confirm-sheet";
+import { SupplementTimeSheet, useTakeSupplement } from "./supplement-taken";
 
 /**
  * R1 Today: the next due dose with its mg and syringe units and a one-tap
  * Taken, today's other doses, unconfirmed past doses (Confirm opens R5), and
- * the next dose of each plan. `?dose=<key>` (a reminder tap) opens that dose's
- * sheet with its current details.
+ * the next dose of each plan, with today's supplement routines after today's
+ * doses (R10; their own one-tap Taken, or "Other time"). `?dose=<key>` (a
+ * reminder tap) opens that dose's sheet with its current details.
  */
-export function TodayScreen({ view }: { view: TodayView }) {
+export function TodayScreen({ view, supplements }: { view: TodayView; supplements: SupplementToday }) {
   const router = useRouter();
   const pathname = usePathname();
   const toast = useToast();
@@ -107,6 +110,11 @@ export function TodayScreen({ view }: { view: TodayView }) {
   const sheetDetail = sheetKey ? (view.doses[sheetKey] ?? null) : null;
   const busy = (key: string) => pending && pendingKey === key;
 
+  const supplement = useTakeSupplement();
+  const [supplementSheet, setSupplementSheet] = useState<SupplementDetail | null>(null);
+  const saving = pending || supplement.pending;
+  const items = mergeTodayRows(view.rows, supplements.rows);
+
   return (
     <>
       <AppBadge count={view.badge} />
@@ -140,7 +148,7 @@ export function TodayScreen({ view }: { view: TodayView }) {
       ) : null}
 
       {view.hero ? (
-        <Hero hero={view.hero} busy={busy(view.hero.key)} disabled={pending} onTaken={() => quick(view.hero!.key)} onMore={() => openSheet(view.hero!.key)} />
+        <Hero hero={view.hero} busy={busy(view.hero.key)} disabled={saving} onTaken={() => quick(view.hero!.key)} onMore={() => openSheet(view.hero!.key)} />
       ) : null}
 
       {view.nothingDue ? (
@@ -150,38 +158,31 @@ export function TodayScreen({ view }: { view: TodayView }) {
         </section>
       ) : null}
 
-      {view.hasCycles ? (
+      {view.hasCycles || items.length > 0 ? (
         <div className="app-today-list">
-          {view.rows.map((row) => (
-            <div key={`${row.kind}/${row.key}`} className="app-today-row" data-kind={row.kind} data-testid="today-row">
-              <div className="app-today-row-text">
-                <div className="app-today-row-title">{row.title}</div>
-                <div className="app-today-row-sub">{row.sub}</div>
-                {row.stockNote ? (
-                  <div className="app-today-stock" data-testid="today-stock">
-                    {row.stockNote}
-                  </div>
-                ) : null}
-              </div>
-              {row.action === "Taken" ? (
-                <button type="button" className="app-today-row-action" disabled={pending} onClick={() => quick(row.key)}>
-                  {busy(row.key) ? "Saving…" : "Taken"}
-                </button>
-              ) : row.action === "Confirm" || row.action === "Details" ? (
-                <button type="button" className="app-today-row-action" disabled={pending} onClick={() => openSheet(row.key)}>
-                  {row.action}
-                </button>
-              ) : null}
-              {row.status ? (
-                <span className="app-today-row-status" data-status={row.status}>
-                  {row.status}
-                  {row.statusNote ? <span className="app-today-row-status-note"> {row.statusNote}</span> : null}
-                </span>
-              ) : null}
-            </div>
-          ))}
+          {items.map((item) =>
+            item.type === "dose" ? (
+              <DoseRowView
+                key={`${item.row.kind}/${item.row.key}`}
+                row={item.row}
+                disabled={saving}
+                busy={busy(item.row.key)}
+                onTaken={() => quick(item.row.key)}
+                onOpen={() => openSheet(item.row.key)}
+              />
+            ) : (
+              <SupplementRowView
+                key={`supplement/${item.row.key}`}
+                row={item.row}
+                disabled={saving}
+                busy={supplement.busy(item.row.key)}
+                onTaken={(detail) => supplement.take(detail, null)}
+                onOtherTime={setSupplementSheet}
+              />
+            ),
+          )}
           <div className="app-today-list-end" />
-          <p className="app-today-footnote">{ENDED_NOTE}</p>
+          {view.hasCycles ? <p className="app-today-footnote">{ENDED_NOTE}</p> : null}
         </div>
       ) : null}
 
@@ -194,7 +195,81 @@ export function TodayScreen({ view }: { view: TodayView }) {
         notice={sheetNotice}
         onSubmit={(submission) => sheetDetail && confirm(sheetDetail, submission, true)}
       />
+      <SupplementTimeSheet
+        detail={supplementSheet}
+        onClose={() => setSupplementSheet(null)}
+        pending={supplement.pending}
+        onSubmit={(detail, actual, onError) => supplement.take(detail, actual, { onDone: () => setSupplementSheet(null), onError })}
+      />
     </>
+  );
+}
+
+type DoseRowProps = { row: TodayRow; disabled: boolean; busy: boolean; onTaken: () => void; onOpen: () => void };
+
+function DoseRowView({ row, disabled, busy, onTaken, onOpen }: DoseRowProps) {
+  return (
+    <div className="app-today-row" data-kind={row.kind} data-testid="today-row">
+      <div className="app-today-row-text">
+        <div className="app-today-row-title">{row.title}</div>
+        <div className="app-today-row-sub">{row.sub}</div>
+        {row.stockNote ? (
+          <div className="app-today-stock" data-testid="today-stock">
+            {row.stockNote}
+          </div>
+        ) : null}
+      </div>
+      {row.action === "Taken" ? (
+        <button type="button" className="app-today-row-action" disabled={disabled} onClick={onTaken}>
+          {busy ? "Saving…" : "Taken"}
+        </button>
+      ) : row.action === "Confirm" || row.action === "Details" ? (
+        <button type="button" className="app-today-row-action" disabled={disabled} onClick={onOpen}>
+          {row.action}
+        </button>
+      ) : null}
+      {row.status ? (
+        <span className="app-today-row-status" data-status={row.status}>
+          {row.status}
+          {row.statusNote ? <span className="app-today-row-status-note"> {row.statusNote}</span> : null}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+type SupplementRowProps = {
+  row: SupplementRow;
+  disabled: boolean;
+  busy: boolean;
+  onTaken: (detail: SupplementDetail) => void;
+  onOtherTime: (detail: SupplementDetail) => void;
+};
+
+/** A supplement routine's line (the prototype's): one-tap Taken (now), or "Other time" for when it was actually taken. */
+function SupplementRowView({ row, disabled, busy, onTaken, onOtherTime }: SupplementRowProps) {
+  const { detail } = row;
+  return (
+    <div className="app-today-row" data-kind="supplement" data-testid="today-supplement">
+      <div className="app-today-row-text">
+        <div className="app-today-row-title">{row.title}</div>
+        <div className="app-today-row-sub">{row.sub}</div>
+        {detail ? (
+          <button type="button" className="app-today-row-more" disabled={disabled} onClick={() => onOtherTime(detail)}>
+            Other time
+          </button>
+        ) : null}
+      </div>
+      {detail ? (
+        <button type="button" className="app-today-row-action" disabled={disabled} onClick={() => onTaken(detail)}>
+          {busy ? "Saving…" : "Taken"}
+        </button>
+      ) : (
+        <span className="app-today-row-status" data-status={row.status} data-testid="supplement-status">
+          {row.status}
+        </span>
+      )}
+    </div>
   );
 }
 

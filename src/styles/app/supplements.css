@@ -1,0 +1,268 @@
+/* R10 Supplement routines (handoff docs/design/research-app, the prototype's
+   "R10 Supplements"). Scoped under .app-root. */
+
+.app-root .app-supp-back {
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+/* ── Header and "Track supplements" ───────────────────── */
+.app-root .app-supp-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  margin-top: 14px;
+}
+
+.app-root .app-supp-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* ── Supplied guidance ────────────────────────────────── */
+.app-root .app-supp-guidance {
+  margin-top: 28px;
+  padding: 20px 22px;
+  border-radius: var(--app-radius-card-sm);
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+}
+
+.app-root .app-supp-guidance-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--app-primary-text);
+}
+
+.app-root .app-supp-guidance-text {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--app-text-2);
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.app-root .app-supp-guidance-note {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-supp-note {
+  margin-top: 28px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--app-text-4);
+}
+
+/* ── Routine cards ────────────────────────────────────── */
+.app-root .app-supp-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.app-root .app-supp-card {
+  padding: 18px 22px;
+  border-radius: var(--app-radius-card-sm);
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  min-width: 0;
+}
+
+.app-root .app-supp-card[data-ended="true"] {
+  background: transparent;
+}
+
+.app-root .app-supp-card-top {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.app-root .app-supp-card-title {
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-supp-card-meta {
+  font-weight: 400;
+  color: var(--app-text-4);
+}
+
+.app-root .app-supp-state {
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-supp-state[data-tone="active"] {
+  color: var(--app-primary-text);
+}
+
+.app-root .app-supp-card-bottom {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-supp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+}
+
+.app-root .app-supp-take {
+  height: 36px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 10px;
+  background: var(--app-primary);
+  color: var(--app-on-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.app-root .app-supp-take:disabled {
+  opacity: 0.6;
+}
+
+.app-root .app-supp-link {
+  min-height: 36px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-primary-text);
+  cursor: pointer;
+}
+
+.app-root .app-supp-link--quiet {
+  color: var(--app-text-3);
+}
+
+/* ── A routine's Taken history ────────────────────────── */
+.app-root .app-supp-history {
+  margin-top: 8px;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--app-divider-row);
+}
+
+.app-root .app-supp-history-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--app-divider-row);
+  font-size: 13px;
+}
+
+.app-root .app-supp-history-amount {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.app-root .app-supp-history-planned {
+  color: var(--app-text-4);
+  font-weight: 400;
+}
+
+/* ── New routine and edit ─────────────────────────────── */
+.app-root .app-supp-add {
+  margin-top: 28px;
+  padding: 20px 22px;
+  border-radius: var(--app-radius-card-sm);
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+}
+
+.app-root .app-supp-add-title {
+  font-size: 15px;
+}
+
+.app-root .app-supp-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.app-root .app-supp-grid > * {
+  min-width: 0;
+}
+
+.app-root .app-supp-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.app-root .app-supp-pair > * {
+  min-width: 0;
+}
+
+.app-root .app-supp-grid input[type="time"] {
+  color-scheme: dark;
+}
+
+.app-root .app-supp-add-btn {
+  margin-top: 14px;
+}
+
+.app-root .app-supp-footnote {
+  margin-top: 18px;
+  font-size: 12px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-supp-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.app-root .app-supp-modal .app-supp-grid {
+  margin-top: 0;
+}
+
+.app-root .app-supp-modal-title {
+  font-size: 20px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-supp-modal-sub {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--app-text-3);
+}
+
+.app-root .app-supp-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+@media (max-width: 759.98px) {
+  .app-root .app-supp-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -30,6 +30,8 @@ const EXCLUSIVE = [
   "tests/integration/progress-owner.test.ts",
   // Owner-level psql writes 1,105 recorded doses (committed, a unique account) to prove keyset paging.
   "tests/integration/dose-paging.test.ts",
+  // Owner-level psql writes 1,100 S16 Taken records (committed, a unique account) and tries the tables' checks and occurrences (rolled back).
+  "tests/integration/supplements-owner.test.ts",
 ];
 
 export default defineConfig({
