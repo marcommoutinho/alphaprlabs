@@ -26,6 +26,9 @@ beforeAll(async () => {
   fixture.buyerId = await ensureAccount({ ...buyer, role: "researcher" });
   await ensureAccount({ ...newResearcher, role: "researcher", acknowledged: false });
   adminDb = await signedInClient(admin.email);
+  // The real Bank of Canada rate for Aug 26, stored as the daily sync would (a USD purchase must use a stored rate).
+  const stored = await serviceClient().rpc("store_fx_rates", { p_rates: [{ date: "2026-08-26", rate: "1.3876" }] });
+  if (stored.error) throw new Error(stored.error.message);
 
   const name = `Access ${randomBytes(4).toString("hex")}`;
   const { data: peptideId } = await adminDb.rpc("save_library_peptide", {
@@ -70,13 +73,13 @@ const calls = (db: Client) => ({
   record_business_purchase_fx: () =>
     db.rpc("record_business_purchase_fx", {
       p_idempotency_key: randomUUID(),
-      p_received_on: "2026-08-15",
+      p_received_on: "2026-08-26",
       p_quantity: 1,
       p_unit_cost: "1.39",
       p_original_currency: "USD",
       p_original_unit_cost: "1",
       p_fx_rate: "1.3876",
-      p_fx_rate_date: "2026-08-14",
+      p_fx_rate_date: "2026-08-26",
       p_stock_item_id: fixture.stockItemId,
     }),
   record_business_sale: () =>

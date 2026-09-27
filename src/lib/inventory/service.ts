@@ -2,7 +2,16 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Decimal from "decimal.js";
 import type { Database } from "@/lib/supabase/database.types";
-import { fifoOrder, stockItemLabel, sumAmounts, type FifoLot, type UsdConversion, type ValidPurchase, type ValidSale } from "./rules";
+import {
+  fifoOrder,
+  stockItemLabel,
+  sumAmounts,
+  type FifoLot,
+  type UsdConversion,
+  type UsdPurchaseEntry,
+  type ValidPurchase,
+  type ValidSale,
+} from "./rules";
 
 type Db = SupabaseClient<Database>;
 
@@ -427,11 +436,78 @@ export async function recordPurchase(db: Db, purchase: ValidPurchase): Promise<P
       })
     : db.rpc("record_business_purchase", common)
   ).single();
-  if (error) {
-    const kind = refusal(error.code);
+  return purchaseResult(data, error);
+}
+
+function purchaseResult(
+  data: { purchase_id: string; stock_item_id: string; replayed: boolean } | null,
+  error: { code?: string } | null,
+): PurchaseResult {
+  if (error || !data) {
+    const kind = refusal(error?.code);
     return { kind: kind === "insufficient" || kind === "unknown_buyer" ? "error" : kind };
   }
   return { kind: "recorded", purchaseId: data.purchase_id, stockItemId: data.stock_item_id, replayed: data.replayed };
+}
+
+/** A purchase as recorded: its CAD cost and, for USD, the conversion it was recorded with. */
+export type RecordedPurchase = { id: string; stockItemId: string; quantity: number; unitCost: string; usd: UsdConversion | null };
+
+/** The purchase recorded with this idempotency key, or null (admins only, under RLS). */
+export async function purchaseByKey(db: Db, idempotencyKey: string): Promise<RecordedPurchase | null> {
+  if (!UUID.test(idempotencyKey)) return null;
+  const { data, error } = await db
+    .from("business_purchases")
+    .select("id, stock_item_id, quantity, unit_cost::text, original_currency, original_unit_cost::text, fx_rate::text, fx_rate_date")
+    .eq("idempotency_key", idempotencyKey)
+    .overrideTypes<
+      {
+        id: string;
+        stock_item_id: string;
+        quantity: number;
+        unit_cost: string;
+        original_currency: string;
+        original_unit_cost: string | null;
+        fx_rate: string | null;
+        fx_rate_date: string | null;
+      }[],
+      { merge: false }
+    >();
+  if (error) throw new Error(`Could not load the purchase: ${error.message}`);
+  const row = data[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    stockItemId: row.stock_item_id,
+    quantity: row.quantity,
+    unitCost: row.unit_cost,
+    usd:
+      row.original_currency === "USD" && row.original_unit_cost !== null && row.fx_rate !== null && row.fx_rate_date !== null
+        ? { usdUnitCost: row.original_unit_cost, rate: row.fx_rate, rateDate: row.fx_rate_date }
+        : null,
+  };
+}
+
+/**
+ * A USD entry whose idempotency key is already recorded: the database
+ * compares the entered details and replays the recorded purchase (or refuses
+ * with `conflict`), without any rate. Used before fetching one, so a retry
+ * works while the Bank of Canada is unreachable.
+ */
+export async function replayUsdPurchase(db: Db, entry: UsdPurchaseEntry): Promise<PurchaseResult> {
+  const { data, error } = await db
+    .rpc("record_business_purchase_fx", {
+      p_idempotency_key: entry.idempotencyKey,
+      p_received_on: entry.receivedOn,
+      p_quantity: entry.quantity,
+      p_original_currency: "USD",
+      p_original_unit_cost: entry.usdUnitCost,
+      ...(entry.stockItemId
+        ? { p_stock_item_id: entry.stockItemId }
+        : { p_peptide_id: entry.peptideId ?? undefined, p_strength_mg: entry.strengthMg ?? undefined }),
+    })
+    .single();
+  return purchaseResult(data, error);
 }
 
 export type SaleResult =

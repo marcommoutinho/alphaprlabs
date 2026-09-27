@@ -1,9 +1,10 @@
 // USD purchases with Bank of Canada conversion (Marco, 2026-09-27) in the
-// browser. The Bank of Canada is the local stub (BOC_FX_TEST_RATES in
+// browser. Rates are read from public.fx_rates; when a date's window isn't
+// stored, the Bank of Canada is the local stub (BOC_FX_TEST_RATES in
 // playwright.config.ts; src/lib/inventory/fx.ts), never the real API: rates
-// for Wed Aug 26 (1.3876) and Fri Aug 28 (1.3888), none for the weekend, and
-// Aug 19 answers as if the Bank of Canada were down. Each test works on its
-// own library peptide.
+// for Aug 24-26 and Fri Aug 28 (1.3888), none for the weekend, and Aug 19
+// answers as if the Bank of Canada were down. Each test works on its own
+// library peptide.
 import { expect, test, type Page } from "@playwright/test";
 import { randomBytes } from "node:crypto";
 import { APP_ORIGIN } from "../../playwright.config";
@@ -82,6 +83,29 @@ test("a USD purchase: the rate preview, the CAD cost saved and the purchase line
     .select("unit_cost, original_currency, original_unit_cost, fx_rate, fx_rate_date")
     .eq("stock_item_id", itemId);
   expect(data).toEqual([{ unit_cost: 15.26, original_currency: "USD", original_unit_cost: 11, fx_rate: 1.3876, fx_rate_date: "2026-08-26" }]);
+});
+
+test("rates come from our stored table; a missing window is fetched once and stored", async ({ page }) => {
+  // Fri Sep 4 (real, 1.3840) is stored as the daily sync would; the stub doesn't know it.
+  const { error } = await serviceClient().rpc("store_fx_rates", { p_rates: [{ date: "2026-09-04", rate: "1.3840" }] });
+  expect(error).toBeNull();
+  const peptide = await newPeptide();
+  await openUsdPurchase(page, peptide);
+  const rate = page.getByTestId("fx-rate");
+  // Labour Day Monday: the stored Friday rate.
+  await page.getByLabel("Received").fill("2026-09-07");
+  await expect(rate).toHaveText("Bank of Canada rate for Sep 4: 1.3840");
+  await expect(page.getByTestId("usd-preview")).toContainText("No rate was published for Sep 7 (weekend or holiday)");
+  // Aug 25: from the table, or from the stub when not stored yet (then stored); the save uses the stored rate.
+  await page.getByLabel("Received").fill("2026-08-25");
+  await expect(rate).toHaveText("Bank of Canada rate for Aug 25: 1.3839");
+  await page.getByLabel("Vials", { exact: true }).fill("10");
+  await page.getByLabel("Cost per vial (USD)").fill("11");
+  await page.getByRole("button", { name: "Record purchase" }).click();
+  await expect(toast(page)).toHaveText("Purchase recorded · 10 vials at USD 11.00 = CAD 15.22"); // 15.2229
+  await expect(page.getByTestId("purchase-conversion")).toHaveText("USD 11.00 × 1.3839 (BoC Aug 25) = CAD 15.22");
+  const stored = await serviceClient().from("fx_rates").select("usd_cad").eq("rate_date", "2026-08-25");
+  expect(stored.data).toEqual([{ usd_cad: 1.3839 }]);
 });
 
 test("the Bank of Canada unreachable: the preview offers a retry and the save is refused, nothing recorded", async ({ page }) => {

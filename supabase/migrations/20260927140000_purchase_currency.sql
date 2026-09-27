@@ -14,17 +14,25 @@
 -- Recorded purchases stay append-only: nothing here edits one, and a purchase
 -- is never re-converted later (its rate is frozen with it, like its CAD cost).
 --
--- Where the rate comes from: the app's server fetches it from the Bank of
--- Canada Valet API (src/lib/inventory/fx.ts; never from the browser) for the
--- date received, or the latest published rate before it (weekends, holidays,
--- and today before the day's rate is published). The database cannot check a
--- rate against the Bank of Canada. It checks what it can: the rate's shape
--- (above 0, at most 6 decimals), that its date is on or at most 10 days before
--- the date received (the app's look-back window), and that the CAD cost is
--- exactly round(USD cost × rate, 2), half away from zero, i.e. half-up for
--- these non-negative amounts, as the app computes it. Only admins can call the
--- recording functions (is_admin(), as before), so only an admin's server
--- session can supply a rate.
+-- Where the rate comes from (Marco, 2026-09-27): our own copy of the Bank of
+-- Canada daily rates, public.fx_rates, so saving doesn't depend on the Bank of
+-- Canada being up. A daily cron (/api/cron/fx-rates, vercel.json) and a
+-- one-off backfill (scripts/fx-backfill.mjs) fill it from the Valet API
+-- through store_fx_rates(), callable by the secret key only. When a purchase
+-- is saved, the app's server (src/lib/inventory/fx.ts; never the browser)
+-- uses the stored rate for the date received, or the latest stored before it
+-- within 10 days (weekends, holidays, and today before the day's rate is
+-- published); only when that window has none does it ask the Valet API once,
+-- store what it got, and use the stored rate.
+--
+-- The database checks a new USD purchase: the rate is the one stored in
+-- fx_rates for its date (so it is a published Bank of Canada rate as fetched,
+-- never one typed or sent by a browser), that date is on or at most 10 days
+-- before the date received, and the CAD cost is exactly round(USD cost ×
+-- rate, 2), half away from zero, i.e. half-up for these non-negative amounts,
+-- as the app computes it. Which stored date is used (the latest on or before
+-- the date received) is the app's choice. Only admins can call the recording
+-- functions (is_admin(), as before).
 
 -- ── Columns and checks ─────────────────────────────────────────────────────
 alter table public.business_purchases
@@ -75,27 +83,133 @@ $$;
 
 revoke all on function public.parse_fx_rate(text) from public, anon, authenticated;
 
+-- ── Our copy of the Bank of Canada daily USD→CAD rates ─────────────────────
+-- One row per published business day, the rate exactly as published
+-- ('1.3760' keeps its scale). Deny by default: admins read it (display); no
+-- client writes at all; rows are added only by store_fx_rates() below, and a
+-- stored rate is never changed or removed (guard trigger, the owner's
+-- ordinary statements included): purchases refer to it.
+create table public.fx_rates (
+  rate_date date primary key check (rate_date between date '2000-01-01' and date '2100-12-31'),
+  usd_cad numeric not null check (usd_cad > 0 and usd_cad < 100 and scale(usd_cad) <= 6),
+  fetched_at timestamptz not null default now(),
+  source text not null default 'boc-valet' check (source = 'boc-valet')
+);
+
+alter table public.fx_rates enable row level security;
+revoke all on table public.fx_rates from public, anon, authenticated, service_role;
+grant select on table public.fx_rates to authenticated, service_role;
+create policy fx_rates_admin_select on public.fx_rates
+  for select to authenticated using ((select public.is_admin()));
+
+create function public.fx_rates_guard()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  raise exception 'a stored Bank of Canada rate cannot be changed or removed' using errcode = '42501';
+end;
+$$;
+
+revoke all on function public.fx_rates_guard() from public, anon, authenticated, service_role;
+
+create trigger fx_rates_guard before update or delete on public.fx_rates
+  for each row execute function public.fx_rates_guard();
+create trigger fx_rates_no_truncate before truncate on public.fx_rates
+  for each statement execute function public.fx_rates_guard();
+
+-- Stores Bank of Canada rates: p_rates is a JSON array of
+-- {"date": "YYYY-MM-DD", "rate": "1.3876"} as published. Secret key only.
+--   * Only valid rows are stored: a calendar date from 2000 to 2100 and a rate
+--     above 0 and below 100 with at most 6 decimals (parse_fx_rate). Invalid
+--     rows are skipped and counted (invalid).
+--   * A date already stored with the same rate is left as is (unchanged).
+--   * A date already stored with a DIFFERENT rate keeps the first one: a rate
+--     purchases may already use is never silently changed. The date is
+--     returned in conflicts, and the caller logs it for a person to look at.
+-- Idempotent: storing the same rates again changes nothing.
+create function public.store_fx_rates(p_rates jsonb)
+returns table (stored integer, unchanged integer, invalid integer, conflicts date[])
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $$
+declare
+  v_item jsonb;
+  v_date date;
+  v_rate numeric;
+  v_existing numeric;
+  v_stored integer := 0;
+  v_unchanged integer := 0;
+  v_invalid integer := 0;
+  v_conflicts date[] := '{}';
+begin
+  if p_rates is null or jsonb_typeof(p_rates) <> 'array' then
+    raise exception 'rates must be a JSON array' using errcode = '22023';
+  end if;
+  for v_item in select value from jsonb_array_elements(p_rates) loop
+    v_date := null;
+    v_rate := null;
+    if jsonb_typeof(v_item) = 'object' and jsonb_typeof(v_item -> 'date') = 'string' and jsonb_typeof(v_item -> 'rate') = 'string'
+       and (v_item ->> 'date') ~ '^\d{4}-\d{2}-\d{2}$' then
+      begin
+        v_date := (v_item ->> 'date')::date;
+      exception when others then
+        v_date := null;
+      end;
+      v_rate := public.parse_fx_rate(v_item ->> 'rate');
+    end if;
+    if v_date is null or v_rate is null or v_date not between date '2000-01-01' and date '2100-12-31' then
+      v_invalid := v_invalid + 1;
+      continue;
+    end if;
+    insert into public.fx_rates (rate_date, usd_cad) values (v_date, v_rate)
+    on conflict (rate_date) do nothing;
+    if found then
+      v_stored := v_stored + 1;
+    else
+      select r.usd_cad into v_existing from public.fx_rates r where r.rate_date = v_date;
+      if v_existing = v_rate then
+        v_unchanged := v_unchanged + 1;
+      else
+        v_conflicts := v_conflicts || v_date;
+      end if;
+    end if;
+  end loop;
+  return query select v_stored, v_unchanged, v_invalid, v_conflicts;
+end;
+$$;
+
+revoke all on function public.store_fx_rates(jsonb) from public, anon, authenticated;
+grant execute on function public.store_fx_rates(jsonb) to service_role;
+
 -- ── Admin: record a purchase in CAD or USD (A5) ────────────────────────────
 -- As record_business_purchase (20260926160100_business_inventory_writes.sql),
 -- plus the currency the cost was entered in:
 --   * 'CAD': p_unit_cost is the CAD cost per vial; no conversion arguments.
 --   * 'USD': p_original_unit_cost is the USD cost per vial, p_fx_rate and
---     p_fx_rate_date the Bank of Canada rate the app's server fetched, and
---     p_unit_cost the CAD cost per vial the app computed. It must equal
+--     p_fx_rate_date the stored Bank of Canada rate the app's server chose
+--     (it must be the fx_rates row for that date), and p_unit_cost the CAD
+--     cost per vial the app computed. For a new purchase it must equal
 --     round(USD × rate, 2) and be at most CAD 1,000,000.00, or nothing is
---     recorded (22023).
+--     recorded (22023). A replay needs none of the three.
 -- Idempotency: a repeated p_idempotency_key returns the purchase it already
 -- recorded (replayed true) when the details the admin entered match: stock
 -- item, date received, vials, currency and the cost as entered (CAD, or USD).
--- The rate is not compared: it is looked up by the server, not entered, and a
--- retry after the day's rate was published would otherwise be refused. Other
--- details refuse the key (AP005), as before.
+-- Other details refuse the key (AP005), as before. The replay lookup comes
+-- after the entered details are checked and BEFORE the conversion is: a USD
+-- replay needs no rate (the conversion arguments may be absent or differ),
+-- so a retry after a lost response reaches the recorded purchase even while
+-- the Bank of Canada is unreachable, or after the day's rate was published.
+-- The app looks the key up first and replays without fetching a rate.
 create function public.record_business_purchase_fx(
   p_idempotency_key uuid,
   p_received_on date,
   p_quantity integer,
-  p_unit_cost text,
   p_original_currency text,
+  p_unit_cost text default null,
   p_original_unit_cost text default null,
   p_fx_rate text default null,
   p_fx_rate_date date default null,
@@ -110,7 +224,7 @@ security definer
 set search_path = ''
 as $$
 declare
-  v_cost numeric := public.parse_cad_amount(p_unit_cost);
+  v_cost numeric;
   v_currency text := p_original_currency;
   v_original numeric;
   v_rate numeric;
@@ -137,30 +251,19 @@ begin
   if p_quantity is null or p_quantity not between 1 and 100000 then
     raise exception 'vials must be a whole number from 1 to 100000' using errcode = '22023';
   end if;
-  if v_cost is null then
-    raise exception 'cost per vial must be CAD 0 to 1000000 with at most 2 decimals' using errcode = '22023';
-  end if;
   if v_currency is null or v_currency not in ('CAD', 'USD') then
     raise exception 'currency must be CAD or USD' using errcode = '22023';
   end if;
+  -- The cost as entered: CAD per vial, or USD per vial.
   if v_currency = 'CAD' then
-    if p_original_unit_cost is not null or p_fx_rate is not null or p_fx_rate_date is not null then
-      raise exception 'a CAD purchase has no conversion' using errcode = '22023';
+    v_cost := public.parse_cad_amount(p_unit_cost);
+    if v_cost is null then
+      raise exception 'cost per vial must be CAD 0 to 1000000 with at most 2 decimals' using errcode = '22023';
     end if;
   else
     v_original := public.parse_cad_amount(p_original_unit_cost);
     if v_original is null then
       raise exception 'USD cost per vial must be 0 to 1000000 with at most 2 decimals' using errcode = '22023';
-    end if;
-    v_rate := public.parse_fx_rate(p_fx_rate);
-    if v_rate is null then
-      raise exception 'exchange rate must be above 0 with at most 6 decimals' using errcode = '22023';
-    end if;
-    if p_fx_rate_date is null or p_fx_rate_date > p_received_on or p_fx_rate_date < p_received_on - 10 then
-      raise exception 'the rate date must be the date received or up to 10 days before' using errcode = '22023';
-    end if;
-    if v_cost <> round(v_original * v_rate, 2) then
-      raise exception 'CAD cost per vial must be the USD cost times the rate, rounded to the cent' using errcode = '22023';
     end if;
   end if;
   if p_peptide_id is not null then
@@ -184,6 +287,7 @@ begin
     where i.peptide_id = p_peptide_id and i.strength_mg = v_strength;
   end if;
 
+  -- Replay: compared with the details as entered, before the conversion.
   select * into v_existing from public.business_purchases p where p.idempotency_key = p_idempotency_key;
   if found then
     if (v_existing.stock_item_id, v_existing.received_on, v_existing.quantity, v_existing.original_currency,
@@ -194,6 +298,31 @@ begin
     end if;
     return query select v_existing.id, v_existing.stock_item_id, true;
     return;
+  end if;
+
+  -- A new purchase: its conversion (USD) or none (CAD).
+  if v_currency = 'CAD' then
+    if p_original_unit_cost is not null or p_fx_rate is not null or p_fx_rate_date is not null then
+      raise exception 'a CAD purchase has no conversion' using errcode = '22023';
+    end if;
+  else
+    v_rate := public.parse_fx_rate(p_fx_rate);
+    if v_rate is null then
+      raise exception 'exchange rate must be above 0 with at most 6 decimals' using errcode = '22023';
+    end if;
+    if p_fx_rate_date is null or p_fx_rate_date > p_received_on or p_fx_rate_date < p_received_on - 10 then
+      raise exception 'the rate date must be the date received or up to 10 days before' using errcode = '22023';
+    end if;
+    if not exists (select 1 from public.fx_rates r where r.rate_date = p_fx_rate_date and r.usd_cad = v_rate) then
+      raise exception 'the rate must be the stored Bank of Canada rate for its date' using errcode = '22023';
+    end if;
+    v_cost := public.parse_cad_amount(p_unit_cost);
+    if v_cost is null then
+      raise exception 'cost per vial must be CAD 0 to 1000000 with at most 2 decimals' using errcode = '22023';
+    end if;
+    if v_cost <> round(v_original * v_rate, 2) then
+      raise exception 'CAD cost per vial must be the USD cost times the rate, rounded to the cent' using errcode = '22023';
+    end if;
   end if;
 
   -- Serializes with sales of this item (see 20260926160000_business_inventory.sql).
@@ -243,7 +372,7 @@ begin
   return query
     select r.purchase_id, r.stock_item_id, r.replayed
     from public.record_business_purchase_fx(
-      p_idempotency_key, p_received_on, p_quantity, p_unit_cost, 'CAD', null, null, null,
+      p_idempotency_key, p_received_on, p_quantity, 'CAD', p_unit_cost, null, null, null,
       p_stock_item_id, p_peptide_id, p_strength_mg
     ) r;
 end;

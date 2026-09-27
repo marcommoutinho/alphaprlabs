@@ -1,16 +1,30 @@
 // USD purchases (Marco, 2026-09-27): choosing the Bank of Canada rate, the
-// Valet answer's parsing, the fetch (mocked: tests never call the real API),
-// the local test stub's gate, exact conversion and parsing, and the copy.
+// lookup from our stored rates with the Valet fallback (an in-memory table
+// and a mocked fetch: tests never call the real API), the sync, the Valet
+// answer's parsing, the local test stub's gate, exact conversion and parsing,
+// and the copy.
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { StockItemView } from "@/components/admin/inventory-views";
-import { addDays, fxTestFetch, parseObservations, pickRate, usdCadRate, valetUrl } from "@/lib/inventory/fx";
+import {
+  addDays,
+  fxTestFetch,
+  parseObservations,
+  pickRate,
+  syncFxRates,
+  usdCadRate,
+  valetRangeUrl,
+  valetUrl,
+  type FxRate,
+  type FxStore,
+} from "@/lib/inventory/fx";
 import {
   AMOUNT_TOO_LARGE,
   convertUsdPurchase,
   COST_INVALID,
   CURRENCY_REQUIRED,
+  PURCHASE_ALREADY_RECORDED,
   USD_AMOUNT_CENTS,
   USD_AMOUNT_TOO_LARGE,
   USD_COST_INVALID,
@@ -19,7 +33,14 @@ import {
   validatePurchase,
   type UsdPurchaseEntry,
 } from "@/lib/inventory/rules";
-import { fxEarlierNote, fxRateLine, purchaseRecordedToast, usdConversionLine, usdPreview } from "@/lib/inventory/screens";
+import {
+  fxEarlierNote,
+  fxRateLine,
+  purchaseAlreadyRecordedToast,
+  purchaseRecordedToast,
+  usdConversionLine,
+  usdPreview,
+} from "@/lib/inventory/screens";
 import type { StockItemDetail } from "@/lib/inventory/service";
 
 const KEY = "0b5b3a3e-6f0e-4c8e-9a51-1f9d7f3b2c10";
@@ -39,6 +60,31 @@ const RATES: Record<string, string> = {
 };
 const observations = (rates: Record<string, string>) => Object.entries(rates).map(([d, v]) => ({ d, FXUSDCAD: { v } }));
 const published = parseObservations({ observations: observations(RATES) })!;
+
+/** public.fx_rates in memory: the latest in a range, and store_fx_rates' first-value-wins rule. */
+function memoryStore(initial: Record<string, string> = {}) {
+  const rows = new Map(Object.entries(initial));
+  const store: FxStore = {
+    latest: vi.fn(async (start: string, end: string) => {
+      const dates = [...rows.keys()].filter((date) => date >= start && date <= end).sort();
+      const date = dates.at(-1);
+      return date ? { rate: rows.get(date)!, rateDate: date } : null;
+    }),
+    save: vi.fn(async (rates: FxRate[]) => {
+      const summary = { stored: 0, unchanged: 0, invalid: 0, conflicts: [] as string[] };
+      for (const { rate, rateDate } of rates) {
+        const current = rows.get(rateDate);
+        if (current === undefined) {
+          rows.set(rateDate, rate);
+          summary.stored++;
+        } else if (current === rate) summary.unchanged++;
+        else summary.conflicts.push(rateDate);
+      }
+      return summary;
+    }),
+  };
+  return { store, rows };
+}
 
 describe("choosing the rate for a date received", () => {
   it("uses the date's own rate on a business day", () => {
@@ -92,80 +138,161 @@ describe("the Valet answer", () => {
   });
 });
 
-describe("fetching the rate (mocked)", () => {
-  const TODAY = "2026-09-27";
+describe("the rate lookup: our stored rates first, the Valet API only for a missing window", () => {
   const answer = (rates: Record<string, string>) => vi.fn(async () => Response.json({ observations: observations(rates) }));
-  const quiet = () => vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const quiet = () => [vi.spyOn(console, "warn").mockImplementation(() => undefined), vi.spyOn(console, "error").mockImplementation(() => undefined)];
 
-  it("asks the Valet API for the window and picks the rate; past windows are cached, recent ones are not", async () => {
-    const fetch = answer(RATES);
-    expect(await usdCadRate("2026-08-29", { fetch, today: TODAY })).toEqual({ ok: true, rate: "1.3888", rateDate: "2026-08-28" });
-    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit & { next?: { revalidate?: number } }];
-    expect(url).toBe(valetUrl("2026-08-29"));
-    expect(init.next?.revalidate).toBeGreaterThan(0);
-    expect(init.cache).toBeUndefined();
-    expect(init.signal).toBeInstanceOf(AbortSignal);
-
-    await usdCadRate("2026-09-26", { fetch, today: TODAY });
-    const recent = fetch.mock.calls[1] as unknown as [string, RequestInit & { next?: unknown }];
-    expect(recent[1].cache).toBe("no-store");
-    expect(recent[1].next).toBeUndefined();
+  it("selects from the table: the date's own rate, else the latest stored within 10 days; Valet isn't asked", async () => {
+    const { store } = memoryStore(RATES);
+    const fetch = answer({});
+    expect(await usdCadRate("2026-08-26", { store, fetch })).toEqual({ ok: true, rate: "1.3876", rateDate: "2026-08-26" });
+    expect(await usdCadRate("2026-08-29", { store, fetch })).toEqual({ ok: true, rate: "1.3888", rateDate: "2026-08-28" });
+    expect(await usdCadRate("2026-09-07", { store, fetch })).toEqual({ ok: true, rate: "1.3840", rateDate: "2026-09-04" });
+    expect(await usdCadRate("2026-08-27", { store, fetch })).toEqual({ ok: true, rate: "1.3876", rateDate: "2026-08-26" });
+    expect(store.latest).toHaveBeenCalledWith("2026-08-19", "2026-08-29");
+    expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("an error status, a network failure, a timeout or a malformed answer is 'unavailable' (never a fallback)", async () => {
-    const warn = quiet();
-    const status = vi.fn(async () => new Response("down", { status: 503 }));
-    expect(await usdCadRate("2026-08-26", { fetch: status, today: TODAY })).toEqual({ ok: false, reason: "unavailable" });
-    const offline = vi.fn(async () => {
-      throw new TypeError("fetch failed");
+  it("an empty window asks Valet once (no-store), stores what it validated, then uses the stored rate", async () => {
+    const { store, rows } = memoryStore();
+    const fetch = answer({ "2026-08-24": "1.3842", "2026-08-25": "1.3839" });
+    expect(await usdCadRate("2026-08-25", { store, fetch })).toEqual({ ok: true, rate: "1.3839", rateDate: "2026-08-25" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit & { next?: unknown }];
+    expect(url).toBe(valetUrl("2026-08-25"));
+    expect(init.cache).toBe("no-store");
+    expect(init.next).toBeUndefined();
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(Object.fromEntries(rows)).toEqual({ "2026-08-24": "1.3842", "2026-08-25": "1.3839" });
+    // Now stored: the next lookup doesn't ask again.
+    expect(await usdCadRate("2026-08-25", { store, fetch })).toMatchObject({ ok: true, rate: "1.3839" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("a Valet value that differs from a stored one never replaces it: the stored rate is used and the conflict logged", async () => {
+    const [warn, error] = quiet();
+    // The table had no rate when first read, and a rate for the date was stored
+    // meanwhile (e.g. by the daily sync); Valet now answers a different value.
+    const conflict = memoryStore({ "2026-06-10": "1.3000" });
+    vi.mocked(conflict.store.latest).mockResolvedValueOnce(null);
+    expect(await usdCadRate("2026-06-10", { store: conflict.store, fetch: answer({ "2026-06-10": "1.3111" }) })).toEqual({
+      ok: true,
+      rate: "1.3000",
+      rateDate: "2026-06-10",
     });
-    expect(await usdCadRate("2026-08-26", { fetch: offline, today: TODAY })).toEqual({ ok: false, reason: "unavailable" });
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("different rates for 2026-06-10"));
+    warn.mockRestore();
+    error.mockRestore();
+  });
+
+  it("an error status, a network failure, a timeout or a malformed answer is 'unavailable' and stores nothing", async () => {
+    const [warn, error] = quiet();
+    const { store, rows } = memoryStore();
     const hangs = vi.fn(
       (_url: string | URL | Request, init?: RequestInit) =>
         new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))),
     );
-    expect(await usdCadRate("2026-08-26", { fetch: hangs as typeof fetch, today: TODAY, timeoutMs: 20 })).toEqual({
-      ok: false,
-      reason: "unavailable",
-    });
-    const html = vi.fn(async () => new Response("<html>maintenance</html>", { status: 200 }));
-    expect(await usdCadRate("2026-08-26", { fetch: html, today: TODAY })).toEqual({ ok: false, reason: "unavailable" });
-    const odd = vi.fn(async () => Response.json({ observations: [{ d: "2026-08-26", FXUSDCAD: { v: "n/a" } }] }));
-    expect(await usdCadRate("2026-08-26", { fetch: odd, today: TODAY })).toEqual({ ok: false, reason: "unavailable" });
+    const failures = [
+      vi.fn(async () => new Response("down", { status: 503 })),
+      vi.fn(async () => {
+        throw new TypeError("fetch failed");
+      }),
+      hangs as typeof fetch,
+      vi.fn(async () => new Response("<html>maintenance</html>", { status: 200 })),
+      vi.fn(async () => Response.json({ observations: [{ d: "2026-08-26", FXUSDCAD: { v: "n/a" } }] })),
+    ];
+    for (const fetch of failures) {
+      expect(await usdCadRate("2026-08-26", { store, fetch, timeoutMs: 20 })).toEqual({ ok: false, reason: "unavailable" });
+    }
+    expect(rows.size).toBe(0);
+    expect(store.save).not.toHaveBeenCalled();
+    // After an invalid 200, a later valid answer is stored and used.
+    expect(await usdCadRate("2026-08-26", { store, fetch: answer({ "2026-08-26": "1.3876" }) })).toMatchObject({ ok: true, rate: "1.3876" });
     warn.mockRestore();
+    error.mockRestore();
   });
 
-  it("a window with no rate at all is 'no_rate'", async () => {
-    expect(await usdCadRate("2026-08-26", { fetch: answer({}), today: TODAY })).toEqual({ ok: false, reason: "no_rate" });
+  it("an unreadable table is 'unavailable' (Valet isn't asked); a window without any rate is 'no_rate'", async () => {
+    const [warn, error] = quiet();
+    const broken: FxStore = { latest: vi.fn(async () => Promise.reject(new Error("db down"))), save: vi.fn() };
+    const fetch = answer(RATES);
+    expect(await usdCadRate("2026-08-26", { store: broken, fetch })).toEqual({ ok: false, reason: "unavailable" });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(await usdCadRate("2026-08-26", { store: memoryStore().store, fetch: answer({}) })).toEqual({ ok: false, reason: "no_rate" });
+    await expect(usdCadRate("2026-02-30", { store: memoryStore().store })).rejects.toThrow(RangeError);
+    warn.mockRestore();
+    error.mockRestore();
+  });
+});
+
+describe("the sync (daily cron and backfill)", () => {
+  it("reads the last 14 days by default and stores them; again, nothing changes", async () => {
+    const { store, rows } = memoryStore();
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ observations: observations({ "2026-09-25": "1.4145", "2026-09-24": "1.4100" }) }));
+    expect(await syncFxRates({ today: "2026-09-27", store, fetch })).toEqual({
+      ok: true,
+      from: "2026-09-13",
+      to: "2026-09-27",
+      fetched: 2,
+      stored: 2,
+      unchanged: 0,
+      invalid: 0,
+      conflicts: [],
+    });
+    expect(fetch.mock.calls[0][0]).toBe(valetRangeUrl("2026-09-13", "2026-09-27"));
+    expect(await syncFxRates({ today: "2026-09-27", store, fetch })).toMatchObject({ ok: true, stored: 0, unchanged: 2 });
+    expect(rows.size).toBe(2);
   });
 
-  it("refuses an invalid date outright", async () => {
-    await expect(usdCadRate("2026-02-30", { fetch: answer(RATES), today: TODAY })).rejects.toThrow(RangeError);
+  it("backfills a long range a year at a time, and stores nothing unless every range was read", async () => {
+    const { store, rows } = memoryStore();
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ observations: observations({ "2025-01-02": "1.4400" }) }));
+    expect(await syncFxRates({ from: "2025-01-01", today: "2026-09-27", store, fetch })).toMatchObject({ ok: true, fetched: 1, stored: 1 });
+    expect(fetch.mock.calls.map((call) => call[0])).toEqual([
+      valetRangeUrl("2025-01-01", "2026-01-01"),
+      valetRangeUrl("2026-01-02", "2026-09-27"),
+    ]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const failing = vi.fn().mockResolvedValueOnce(Response.json({ observations: [] })).mockResolvedValueOnce(new Response("", { status: 500 }));
+    const empty = memoryStore();
+    expect(await syncFxRates({ from: "2025-01-01", today: "2026-09-27", store: empty.store, fetch: failing })).toMatchObject({ ok: false });
+    expect(empty.store.save).not.toHaveBeenCalled();
+    expect(await syncFxRates({ from: "1999-12-31", today: "2026-09-27", store, fetch })).toMatchObject({ ok: false, error: "invalid from date" });
+    expect(await syncFxRates({ from: "2026-09-28", today: "2026-09-27", store, fetch })).toMatchObject({ ok: false });
+    expect(rows.size).toBe(1);
+    warn.mockRestore();
   });
 });
 
 describe("the local test stub (BOC_FX_TEST_RATES)", () => {
-  const LOCAL = { NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54421", BOC_FX_TEST_RATES: JSON.stringify({ "2026-08-26": "1.3876", "2026-08-10": "unavailable" }) };
+  const LOCAL = {
+    NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54421",
+    BOC_FX_TEST_RATES: JSON.stringify({ run: "x", "2026-08-26": "1.3876", "2026-08-10": "unavailable", "2026-08-11": "invalid" }),
+  };
 
   it("is off unless set, and serves a Valet answer against the local stack", async () => {
     expect(fxTestFetch({ NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54421" })).toBeNull();
-    const stub = fxTestFetch(LOCAL);
+    const stub = fxTestFetch(LOCAL) as typeof fetch;
     expect(typeof stub).toBe("function");
-    const body = await (await (stub as typeof fetch)(valetUrl("2026-08-29"))).json();
-    expect(body).toEqual({ observations: [{ d: "2026-08-26", FXUSDCAD: { v: "1.3876" } }] });
-    expect((await (stub as typeof fetch)(valetUrl("2026-08-10"))).status).toBe(503);
-    expect(await usdCadRate("2026-08-28", { env: LOCAL, today: "2026-09-27" })).toEqual({ ok: true, rate: "1.3876", rateDate: "2026-08-26" });
+    expect(await (await stub(valetUrl("2026-08-29"))).json()).toEqual({ observations: [{ d: "2026-08-26", FXUSDCAD: { v: "1.3876" } }] });
+    expect((await stub(valetUrl("2026-08-10"))).status).toBe(503);
+    expect(await (await stub(valetUrl("2026-08-11"))).text()).toContain("maintenance");
+    const { store } = memoryStore();
+    expect(await usdCadRate("2026-08-28", { env: LOCAL, store })).toEqual({ ok: true, rate: "1.3876", rateDate: "2026-08-26" });
   });
 
-  it("is refused on Vercel or against any other database, and then no rate is given", async () => {
+  it("is refused on Vercel or against any other database, and then Valet is never asked", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
     expect(fxTestFetch({ ...LOCAL, VERCEL: "1" })).toBe("refused");
     expect(fxTestFetch({ ...LOCAL, NEXT_PUBLIC_SUPABASE_URL: "https://abcd.supabase.co" })).toBe("refused");
     expect(fxTestFetch({ ...LOCAL, NEXT_PUBLIC_SUPABASE_URL: "" })).toBe("refused");
     const real = vi.fn(async () => Response.json({ observations: observations(RATES) }));
     const env = { ...LOCAL, VERCEL: "1" };
-    expect(await usdCadRate("2026-08-26", { env, fetch: real, today: "2026-09-27" })).toEqual({ ok: false, reason: "unavailable" });
+    const { store, rows } = memoryStore();
+    expect(await usdCadRate("2026-08-26", { env, fetch: real, store })).toEqual({ ok: false, reason: "unavailable" });
+    expect(await syncFxRates({ env, fetch: real, store, today: "2026-09-27" })).toMatchObject({ ok: false });
     expect(real).not.toHaveBeenCalled();
+    expect(rows.size).toBe(0);
     error.mockRestore();
   });
 });
@@ -247,7 +374,7 @@ describe("USD copy", () => {
     );
   });
 
-  it("the preview amounts, the purchase line and the toast", () => {
+  it("the preview amounts, the purchase line and the toasts", () => {
     expect(usdPreview("10", "11", "1.3876")).toEqual({ unitCost: "15.26", total: "152.60" });
     expect(usdPreview("", "11,5", "1.3876")).toEqual({ unitCost: "15.96", total: null });
     expect(usdPreview("10", "1,000", "1.3876")).toEqual({ unitCost: null, total: null });
@@ -255,6 +382,11 @@ describe("USD copy", () => {
     expect(usdConversionLine({ unitCost: "15.26", usd })).toBe("USD 11.00 × 1.3876 (BoC Aug 26) = CAD 15.26");
     expect(purchaseRecordedToast(10, "15.26", "11.00")).toBe("Purchase recorded · 10 vials at USD 11.00 = CAD 15.26");
     expect(purchaseRecordedToast(10, "20.00")).toBe("Purchase recorded · 10 vials at CAD 20.00");
+    expect(purchaseAlreadyRecordedToast({ unitCost: "15.26", usd })).toBe(
+      `${PURCHASE_ALREADY_RECORDED} Recorded as USD 11.00 × 1.3876 (BoC Aug 26) = CAD 15.26.`,
+    );
+    expect(purchaseAlreadyRecordedToast({ unitCost: "20.00", usd: null })).toBe(PURCHASE_ALREADY_RECORDED);
+    expect(purchaseAlreadyRecordedToast(null)).toBe(PURCHASE_ALREADY_RECORDED);
   });
 
   it("A4 Stock item shows the conversion for a USD lot only", () => {

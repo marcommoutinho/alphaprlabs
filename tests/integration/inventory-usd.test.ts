@@ -1,9 +1,12 @@
 // USD purchases with Bank of Canada conversion (Marco, 2026-09-27), against
 // the real local Supabase: record_business_purchase_fx stores the USD cost,
 // rate and rate date beside the CAD cost; the database re-checks the
-// conversion; CAD purchases are unchanged; admin only; idempotency. The
-// actions run with the Bank of Canada replaced by the local test stub
+// conversion against the stored rates (public.fx_rates); CAD purchases are
+// unchanged; admin only; idempotency. The actions read the stored rates, with
+// the Bank of Canada behind them replaced by the local test stub
 // (BOC_FX_TEST_RATES, src/lib/inventory/fx.ts): tests never call the real API.
+// public.fx_rates itself, the lookup's fallback and the sync route are in
+// tests/integration/fx-rates.test.ts.
 import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { getStockItem, recordPurchase, recordSale } from "@/lib/inventory/service";
@@ -11,10 +14,18 @@ import { anonClient, ensureAccount, serviceClient, signedInClient, sqlState, uni
 
 const acting = vi.hoisted(() => ({ client: null as unknown, revalidated: [] as string[] }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => acting.client }));
-vi.mock("next/cache", () => ({ refresh: () => undefined, revalidatePath: (path: string) => void acting.revalidated.push(path) }));
+vi.mock("next/cache", () => ({
+  refresh: () => undefined,
+  revalidatePath: (path: string) => void acting.revalidated.push(path),
+}));
 
-// The stub's published rates: Fri Aug 28 then Mon Aug 31 (none for the weekend); Aug 20 is "down".
-process.env.BOC_FX_TEST_RATES = JSON.stringify({ "2026-08-26": "1.3876", "2026-08-28": "1.3888", "2026-08-20": "unavailable" });
+// Real published rates, stored before the tests (as the daily sync would) and
+// also served by the stub: Wed Aug 26, Fri Aug 28 and Fri Sep 4 (none for the
+// weekends or Labour Day). Nothing is stored for Aug 10-20, and the stub
+// answers "down" for Aug 20.
+const STORED = { "2026-08-26": "1.3876", "2026-08-28": "1.3888", "2026-09-04": "1.3840" };
+const RATES = { ...STORED, "2026-08-20": "unavailable" };
+process.env.BOC_FX_TEST_RATES = JSON.stringify(RATES);
 const { recordPurchaseAction, usdRatePreviewAction } = await import("@/app/(private)/admin/inventory/actions");
 
 type Client = Awaited<ReturnType<typeof signedInClient>>;
@@ -27,6 +38,10 @@ beforeAll(async () => {
   await ensureAccount({ ...admin, role: "admin" });
   await ensureAccount({ ...researcher, role: "researcher" });
   db = await signedInClient(admin.email);
+  const rates = Object.entries(STORED).map(([date, rate]) => ({ date, rate }));
+  const { data, error } = await serviceClient().rpc("store_fx_rates", { p_rates: rates }).single();
+  expect(error).toBeNull();
+  expect(data).toMatchObject({ invalid: 0, conflicts: [] });
 });
 
 beforeEach(async () => {
@@ -85,36 +100,40 @@ describe("record_business_purchase_fx", () => {
       stockItemId: itemId,
       peptideId: null,
       strengthMg: null,
-      receivedOn: "2026-08-29",
+      receivedOn: "2026-09-07",
       quantity: 10,
-      unitCost: "15.27",
-      usd: { usdUnitCost: "11.00", rate: "1.3880", rateDate: "2026-08-28" },
+      unitCost: "15.22",
+      usd: { usdUnitCost: "11.00", rate: "1.3840", rateDate: "2026-09-04" },
     });
     if (recorded.kind !== "recorded") throw new Error(recorded.kind);
     expect(await stored(recorded.purchaseId)).toEqual({
-      unit_cost: 15.27,
-      total_cost: 152.7,
+      unit_cost: 15.22,
+      total_cost: 152.2,
       currency: "CAD",
       original_currency: "USD",
       original_unit_cost: 11,
-      fx_rate: 1.388,
-      fx_rate_date: "2026-08-28",
+      fx_rate: 1.384,
+      fx_rate_date: "2026-09-04",
     });
     // Exactly as published (trailing zero kept), read as text by the service.
     const lots = (await getStockItem(db, itemId))!.lots;
     expect(lots.map((l) => [l.unitCost, l.totalCost, l.usd])).toEqual([
       ["20.00", "20.00", null],
-      ["15.27", "152.70", { usdUnitCost: "11.00", rate: "1.3880", rateDate: "2026-08-28" }],
+      ["15.22", "152.20", { usdUnitCost: "11.00", rate: "1.3840", rateDate: "2026-09-04" }],
     ]);
   });
 
-  it("refuses a CAD cost that isn't round(USD × rate, 2), and other inconsistent conversions (22023)", async () => {
+  it("refuses a CAD cost that isn't round(USD × rate, 2), a rate that isn't the stored one, and other inconsistent conversions (22023)", async () => {
     const itemId = await newItem();
     const refused = (overrides: Record<string, unknown>) => sqlState(db.rpc("record_business_purchase_fx", usdArgs(itemId, overrides)));
     expect(await refused({ p_unit_cost: "15.27" })).toBe("22023");
     expect(await refused({ p_unit_cost: "15.2636" })).toBe("22023");
     expect(await refused({ p_fx_rate: "1.3876543" })).toBe("22023");
     expect(await refused({ p_fx_rate: "0" })).toBe("22023");
+    // The equation holds (11 × 1.3877 = 15.2647), but the stored Aug 26 rate is 1.3876.
+    expect(await refused({ p_fx_rate: "1.3877" })).toBe("22023");
+    // No rate is stored for Saturday Aug 22.
+    expect(await refused({ p_fx_rate_date: "2026-08-22" })).toBe("22023");
     expect(await refused({ p_fx_rate: null })).toBe("22023");
     expect(await refused({ p_fx_rate_date: null })).toBe("22023");
     expect(await refused({ p_fx_rate_date: "2026-08-27" })).toBe("22023"); // after the date received
@@ -173,6 +192,32 @@ describe("record_business_purchase_fx", () => {
     expect(await purchasesOf(itemId)).toHaveLength(2);
   });
 
+  it("a replay needs no conversion: absent conversion arguments replay; a new key without them is refused", async () => {
+    const itemId = await newItem();
+    const args = usdArgs(itemId);
+    const first = await ensureRecorded(db.rpc("record_business_purchase_fx", args).single());
+    const entered = {
+      p_idempotency_key: args.p_idempotency_key,
+      p_stock_item_id: itemId,
+      p_received_on: "2026-08-26",
+      p_quantity: 10,
+      p_original_currency: "USD",
+      p_original_unit_cost: "11",
+    };
+    expect((await db.rpc("record_business_purchase_fx", entered).single()).data).toEqual({ purchase_id: first, stock_item_id: itemId, replayed: true });
+    // Invalid conversion arguments don't matter to a replay either.
+    expect(
+      (await db.rpc("record_business_purchase_fx", { ...entered, p_fx_rate: "abc", p_fx_rate_date: "2020-01-01", p_unit_cost: "x" }).single()).data,
+    ).toMatchObject({ purchase_id: first, replayed: true });
+    // The entered details still decide: a different USD cost, date or item is AP005.
+    expect(await sqlState(db.rpc("record_business_purchase_fx", { ...entered, p_original_unit_cost: "11.01" }))).toBe("AP005");
+    expect(await sqlState(db.rpc("record_business_purchase_fx", { ...entered, p_received_on: "2026-08-27" }))).toBe("AP005");
+    expect(await sqlState(db.rpc("record_business_purchase_fx", { ...entered, p_stock_item_id: await newItem() }))).toBe("AP005");
+    // A new key must bring its conversion.
+    expect(await sqlState(db.rpc("record_business_purchase_fx", { ...entered, p_idempotency_key: randomUUID() }))).toBe("22023");
+    expect(await purchasesOf(itemId)).toHaveLength(2);
+  });
+
   it("admins only: researchers and anonymous callers are refused", async () => {
     const itemId = await newItem();
     const researcherDb = await signedInClient(researcher.email);
@@ -221,6 +266,38 @@ describe("the actions, with the Bank of Canada stubbed", () => {
     const result = await recordPurchaseAction(entry(itemId, { receivedOn: "2026-08-20" }));
     expect(result.error).toMatch(/^Couldn't get the Bank of Canada rate, so nothing was recorded/);
     expect(await purchasesOf(itemId)).toHaveLength(1);
+  });
+
+  it("a retry after a lost response replays the recorded purchase while no rate can be looked up", async () => {
+    const itemId = await newItem();
+    const first = entry(itemId, { receivedOn: "2026-08-28" });
+    expect(await recordPurchaseAction(first)).toMatchObject({ toast: "Purchase recorded · 10 vials at USD 11.00 = CAD 15.28" });
+    // Neither the stored rates (a bad secret key) nor the Bank of Canada can be read now.
+    vi.stubEnv("SUPABASE_SECRET_KEY", "sb_secret_not-a-valid-key");
+    vi.stubEnv("BOC_FX_TEST_RATES", JSON.stringify({ ...RATES, "2026-08-28": "unavailable" }));
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      // The same entry again: no rate is needed, the recorded one is shown.
+      expect(await recordPurchaseAction(first)).toEqual({
+        stockItemId: itemId,
+        toast: "This purchase was already recorded a moment ago. No duplicate created. Recorded as USD 11.00 × 1.3888 (BoC Aug 28) = CAD 15.28.",
+        tone: "warn",
+      });
+      // Different entered details under the same key: refused, nothing new.
+      expect(await recordPurchaseAction({ ...first, unitCost: "12" })).toEqual({
+        toast: "This form was already saved with different details, so nothing new was recorded. Check the stock item, then reload to start a new entry.",
+      });
+      // A new entry can't be saved without a rate.
+      expect((await recordPurchaseAction(entry(itemId, { receivedOn: "2026-08-28" }))).error).toMatch(/nothing was recorded/);
+    } finally {
+      vi.unstubAllEnvs();
+      quiet.mockRestore();
+    }
+    const lots = (await getStockItem(db, itemId))!.lots;
+    expect(lots.map((lot) => [lot.unitCost, lot.usd?.rate ?? null])).toEqual([
+      ["20.00", null],
+      ["15.28", "1.3888"],
+    ]);
   });
 
   it("researchers are sent to sign in by both actions", async () => {

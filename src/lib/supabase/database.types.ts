@@ -696,6 +696,27 @@ export type Database = {
           },
         ]
       }
+      fx_rates: {
+        Row: {
+          fetched_at: string
+          rate_date: string
+          source: string
+          usd_cad: number
+        }
+        Insert: {
+          fetched_at?: string
+          rate_date: string
+          source?: string
+          usd_cad: number
+        }
+        Update: {
+          fetched_at?: string
+          rate_date?: string
+          source?: string
+          usd_cad?: number
+        }
+        Relationships: []
+      }
       invitations: {
         Row: {
           accepted_at: string | null
@@ -1722,7 +1743,7 @@ export type Database = {
           p_received_on: string
           p_stock_item_id?: string
           p_strength_mg?: string
-          p_unit_cost: string
+          p_unit_cost?: string
         }
         Returns: {
           purchase_id: string
@@ -1852,6 +1873,15 @@ export type Database = {
       set_supply_tracking: { Args: { p_enabled: boolean }; Returns: boolean }
       share_with_team: { Args: never; Returns: string }
       stop_sharing_with_team: { Args: never; Returns: boolean }
+      store_fx_rates: {
+        Args: { p_rates: Json }
+        Returns: {
+          conflicts: string[]
+          invalid: number
+          stored: number
+          unchanged: number
+        }[]
+      }
       supplement_decimal: { Args: { p_text: string }; Returns: number }
       supplement_taken_result: {
         Args: { p_id: string; p_replayed: boolean }

@@ -10,7 +10,6 @@ import {
   ACCOUNT_REQUIRED,
   calendarDate,
   convertUsdPurchase,
-  PURCHASE_ALREADY_RECORDED,
   PURCHASE_DATE_FUTURE,
   PURCHASE_DATE_REQUIRED,
   SALE_ALREADY_RECORDED,
@@ -25,12 +24,21 @@ import {
   FX_SAVE_UNAVAILABLE,
   FX_UNAVAILABLE,
   fxNoRateMessage,
+  purchaseAlreadyRecordedToast,
   purchaseRecordedToast,
   saleRecordedToast,
   SUBMISSION_CONFLICT,
   vials,
 } from "@/lib/inventory/screens";
-import { getSale, recordPurchase, recordSale } from "@/lib/inventory/service";
+import {
+  getSale,
+  purchaseByKey,
+  recordPurchase,
+  recordSale,
+  replayUsdPurchase,
+  type PurchaseResult,
+  type RecordedPurchase,
+} from "@/lib/inventory/service";
 import { createClient } from "@/lib/supabase/server";
 
 export type InventoryActionResult = {
@@ -74,30 +82,45 @@ export async function recordPurchaseAction(input: unknown): Promise<InventoryAct
   const valid = validatePurchase(input, today);
   if (!valid.ok) return { error: valid.error };
 
-  // A USD cost: converted here with the rate fetched now from the Bank of
-  // Canada (never the preview's, never the browser's). No rate, no save.
-  let purchase: ValidPurchase;
+  const db = await createClient();
+  let purchase: ValidPurchase | null = null;
+  let result: PurchaseResult;
+  let recorded: RecordedPurchase | null = null;
   if (valid.value.currency === "USD") {
-    const fx = await usdCadRate(valid.value.receivedOn, { today });
-    if (!fx.ok) return { error: fx.reason === "no_rate" ? fxNoRateMessage(valid.value.receivedOn) : FX_SAVE_UNAVAILABLE };
-    const converted = convertUsdPurchase(valid.value, fx);
-    if (!converted.ok) return { error: converted.error };
-    purchase = converted.value;
+    // A retry of an entry already recorded (a lost response) replays it
+    // without a rate, so it works even while the Bank of Canada is down.
+    recorded = await purchaseByKey(db, valid.value.idempotencyKey);
+    if (recorded) {
+      result = await replayUsdPurchase(db, valid.value);
+    } else {
+      // A new USD cost: converted here with the Bank of Canada rate looked up
+      // now (our stored rates, fx.ts; never the preview's, never the
+      // browser's). No rate, no save.
+      const fx = await usdCadRate(valid.value.receivedOn);
+      if (!fx.ok) return { error: fx.reason === "no_rate" ? fxNoRateMessage(valid.value.receivedOn) : FX_SAVE_UNAVAILABLE };
+      const converted = convertUsdPurchase(valid.value, fx);
+      if (!converted.ok) return { error: converted.error };
+      purchase = converted.value;
+      result = await recordPurchase(db, purchase);
+    }
   } else {
     purchase = valid.value;
+    result = await recordPurchase(db, purchase);
   }
 
-  const result = await recordPurchase(await createClient(), purchase);
   switch (result.kind) {
     case "recorded":
       revalidateStock(result.stockItemId);
-      return result.replayed
-        ? { stockItemId: result.stockItemId, toast: PURCHASE_ALREADY_RECORDED, tone: "warn" }
-        : {
-            stockItemId: result.stockItemId,
-            toast: purchaseRecordedToast(purchase.quantity, purchase.unitCost, purchase.usd?.usdUnitCost),
-            tone: "info",
-          };
+      if (result.replayed || !purchase) {
+        // The purchase as recorded (its CAD cost and rate), not this retry's.
+        recorded ??= valid.value.currency === "USD" ? await purchaseByKey(db, valid.value.idempotencyKey) : null;
+        return { stockItemId: result.stockItemId, toast: purchaseAlreadyRecordedToast(recorded), tone: "warn" };
+      }
+      return {
+        stockItemId: result.stockItemId,
+        toast: purchaseRecordedToast(purchase.quantity, purchase.unitCost, purchase.usd?.usdUnitCost),
+        tone: "info",
+      };
     case "future_date":
       return { error: PURCHASE_DATE_FUTURE };
     case "unknown_item":
@@ -128,7 +151,7 @@ export async function usdRatePreviewAction(receivedOn: unknown): Promise<UsdRate
   const date = calendarDate(receivedOn);
   if (!date) return { error: PURCHASE_DATE_REQUIRED };
   if (date > today) return { error: PURCHASE_DATE_FUTURE };
-  const fx = await usdCadRate(date, { today });
+  const fx = await usdCadRate(date);
   if (!fx.ok) return { error: fx.reason === "no_rate" ? fxNoRateMessage(date) : FX_UNAVAILABLE };
   return { rate: fx.rate, rateDate: fx.rateDate };
 }

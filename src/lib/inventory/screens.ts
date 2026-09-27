@@ -5,7 +5,17 @@
 // decimal text (decimal.js), never binary floating point.
 import Decimal from "decimal.js";
 import { formatCurrency, formatDate, formatMonthDay, formatUsd } from "@/lib/format";
-import { allocateFifo, saleAmounts, usdAmount, usdToCad, type FifoAllocation, type FifoLot, type SalesPeriod } from "./rules";
+import {
+  allocateFifo,
+  PURCHASE_ALREADY_RECORDED,
+  saleAmounts,
+  usdAmount,
+  usdToCad,
+  type FifoAllocation,
+  type FifoLot,
+  type SalesPeriod,
+  type UsdConversion,
+} from "./rules";
 
 // ── Designed copy (handoff README A4-A7 and the prototype) ──────────────────
 export const INVENTORY_SUBTITLE =
@@ -185,6 +195,17 @@ export function salesEmptyText(report: { totals: { sales: number }; hasSales: bo
  */
 export const purchaseRecordedToast = (quantity: number, unitCost: string, usdUnitCost?: string) =>
   `Purchase recorded · ${vials(quantity)} at ${usdUnitCost ? `${formatUsd(usdUnitCost)} = ` : ""}${formatCurrency(unitCost)}`;
+
+/**
+ * Toast when the entry was already recorded (a retry): for a USD purchase it
+ * adds the conversion it was recorded with, which a retry never changes:
+ * `… No duplicate created. Recorded as USD 11.00 × 1.3876 (BoC Aug 26) = CAD 15.26.`
+ */
+export function purchaseAlreadyRecordedToast(recorded: { unitCost: string; usd: UsdConversion | null } | null): string {
+  return recorded?.usd
+    ? `${PURCHASE_ALREADY_RECORDED} Recorded as ${usdConversionLine({ unitCost: recorded.unitCost, usd: recorded.usd })}.`
+    : PURCHASE_ALREADY_RECORDED;
+}
 
 // ── USD purchases (Marco, 2026-09-27) ──────────────────────────────────────
 export const CURRENCY_OPTIONS = ["CAD", "USD"] as const;

@@ -68,6 +68,9 @@ export function PurchaseForm({
   const key = useRef<string | null>(null);
   // Saved: the stock item is opening; keep the button disabled until it does.
   const [leaving, setLeaving] = useState(false);
+  // Bumped after every save attempt: the USD preview asks for its rate again,
+  // so a form left open across the day's publication shows the current rate.
+  const [previewRound, setPreviewRound] = useState(0);
 
   const update = <K extends keyof Form>(field: K, value: Form[K]) => setForm((current) => ({ ...current, [field]: value }));
   const isNew = form.stockItemId === "new";
@@ -82,6 +85,7 @@ export function PurchaseForm({
         if (pending || leaving) return;
         key.current ??= crypto.randomUUID();
         submit({ ...form, idempotencyKey: key.current }, (result) => {
+          setPreviewRound((round) => round + 1);
           if (!result.stockItemId) return;
           key.current = null;
           setLeaving(true);
@@ -166,7 +170,7 @@ export function PurchaseForm({
           </Field>
         </div>
         {usd ? (
-          <UsdPreview receivedOn={form.receivedOn} today={today} quantity={form.quantity} unitCost={form.unitCost} />
+          <UsdPreview key={previewRound} receivedOn={form.receivedOn} today={today} quantity={form.quantity} unitCost={form.unitCost} />
         ) : (
           <div className="app-inv-total" data-testid="purchase-total">
             <span>Total purchase cost</span>
