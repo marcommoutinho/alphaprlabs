@@ -784,8 +784,18 @@ and G2 still requires S13.
   see admin names (invite page and email included). Not yet deployed
   (migration 20260927120000).
 
-Next: import the peptides Alpha PR Labs carries into the library (Marco gives
-the source), then S13 last.
+- Peptide import (Marco-approved, 2026-09-27): 19 library peptides with
+  descriptions from the website data (`src/lib/peptides.ts`) plus a hidden
+  "Bacteriostatic Water (10 mL)" item; opening stock of 655 vials in 22
+  strength lines, 7,656.31 CAD, one purchase per strength dated 2026-09-27 at
+  the average landed CAD cost of the remaining vials (supplier orders' real CAD
+  totals; Aug 26 order at Bank of Canada 1.3876 plus 60 USD shipping). Source:
+  Dibbly Create "Peptide Orders" (Stock and Supplier Orders). No sales
+  imported. Written through the admin functions in one transaction after a
+  rolled-back dry run.
+
+Next: the USD purchase entry with Bank of Canada conversion (small slice),
+then S13 reminders last.
 
 ## Technical references
 
