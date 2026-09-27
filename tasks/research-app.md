@@ -241,6 +241,15 @@ switches to the back office and back.
   yet taken); past Taken records keep what was recorded. Routines are ended,
   never deleted. Supplement times use America/Toronto.
 
+### Support access decisions (Marco, 2026-09-27)
+
+- Simplified sharing: a researcher shares read-only history with the Alpha PR
+  Labs team (every current and future admin) in one step; there is no choosing
+  an individual admin. Stopping sharing applies to all admins.
+- Revoking (stop sharing) asks for confirmation first.
+- The admin Support screen lists only researchers who currently share.
+- The grant history on Me shows when sharing started and stopped.
+
 ### Launch exclusions
 
 - Blended or multi-peptide vials. A cycle may still contain several separately
