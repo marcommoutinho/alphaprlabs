@@ -752,8 +752,11 @@ and G2 still requires S13.
   setup refused, recorded amounts shown, one global lock order: cycle → plans
   by id → vial → mixtures by id). Recheck clear.
 
-Next: deploy the cycles-and-Today milestone (S9–S12) to the closed app; then
-S14.
+- Cycles-and-Today milestone (S9–S12) deployed to the closed production app on
+  2026-09-26 at Marco's instruction: migrations 20260926180000–200200 applied
+  (dry run first showed exactly those eight); branch pushed at `2065c14`.
+
+Next: S14 personal supplies, then S15, S16, S17, and S13 last.
 
 ## Technical references
 
