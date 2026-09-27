@@ -10,7 +10,13 @@
 // converted, so no binary float reaches an amount. The
 // database (supabase/migrations/20260926160000_business_inventory.sql and
 // 20260926160100_business_inventory_writes.sql) enforces the same limits; these checks give the designed messages first.
+//
+// USD purchases (Marco, 2026-09-27; 20260927140000_purchase_currency.sql): the
+// cost per vial may be entered in USD. The server converts it with the Bank of
+// Canada rate for the date received (fx.ts) into the CAD cost FIFO uses:
+// round-half-up(USD × rate, 2). Totals and gross profit stay in CAD.
 import Decimal from "decimal.js";
+import { Dec, normalizeDecimal } from "@/lib/calculator/decimal";
 
 export const INVENTORY_LIMITS = { vials: 100_000, amount: "1000000", buyerName: 120 } as const;
 
@@ -22,6 +28,8 @@ export const PURCHASE_DATE_REQUIRED = "Enter the date received.";
 export const PURCHASE_DATE_FUTURE = "The date received can't be in the future.";
 export const VIALS_INVALID = "Vials must be a whole number greater than 0.";
 export const COST_INVALID = "Enter the cost per vial in CAD (0 or more).";
+export const USD_COST_INVALID = "Enter the cost per vial in USD (0 or more).";
+export const CURRENCY_REQUIRED = "Choose CAD or USD for the cost.";
 // A6 Record sale.
 export const SALE_ITEM_REQUIRED = "Choose a stock item.";
 export const SALE_DATE_REQUIRED = "Enter the sale date.";
@@ -34,6 +42,8 @@ export const OUTSIDE_BUYER_REQUIRED = "Name or reference the outside buyer.";
 export const VIALS_TOO_MANY = "Vials can be at most 100,000 in one entry.";
 export const AMOUNT_CENTS = "Enter CAD amounts in dollars and cents (at most 2 decimal places).";
 export const AMOUNT_TOO_LARGE = "Amounts can be at most CAD 1,000,000.00 per vial.";
+export const USD_AMOUNT_CENTS = "Enter USD amounts in dollars and cents (at most 2 decimal places).";
+export const USD_AMOUNT_TOO_LARGE = "Amounts can be at most USD 1,000,000.00 per vial.";
 export const BUYER_NAME_TOO_LONG = "The buyer name or reference can be up to 120 characters.";
 /** The same submission was already recorded (idempotent replay): a warn toast. */
 export const SALE_ALREADY_RECORDED = "This sale was already recorded a moment ago. No duplicate created.";
@@ -98,6 +108,33 @@ export function vialStrength(value: unknown): string | null {
   return mg.toString();
 }
 
+/**
+ * A USD cost per vial as typed: 0 to 1,000,000.00 with at most 2 decimals,
+ * normalized to `11.00`, or the error. A comma works as the decimal point
+ * ("11,5" = 11.50) and "1,000"-style grouping is refused rather than guessed
+ * (Marco, 2026-09-26, the calculator's rules: normalizeDecimal).
+ */
+export function usdAmount(value: unknown): { ok: true; value: string } | { ok: false; error: string } {
+  const text = normalizeDecimal(value);
+  if (text === null || !AMOUNT.test(text)) return { ok: false, error: USD_COST_INVALID };
+  const decimal = new Decimal(text);
+  if (decimal.decimalPlaces() > 2) return { ok: false, error: USD_AMOUNT_CENTS };
+  if (decimal.gt(INVENTORY_LIMITS.amount)) return { ok: false, error: USD_AMOUNT_TOO_LARGE };
+  return { ok: true, value: decimal.toFixed(2) };
+}
+
+/**
+ * The CAD cost per vial of a USD cost: round-half-up(USD × rate, 2 decimals),
+ * exact (decimal.js at 40 significant digits, never binary floating point).
+ * The database checks the same equation (20260927140000_purchase_currency.sql).
+ */
+export function usdToCad(usdUnitCost: string, rate: string): string {
+  return new Dec(usdUnitCost).times(rate).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2);
+}
+
+/** A USD purchase's conversion: the USD cost per vial, the Bank of Canada rate and the rate's date. */
+export type UsdConversion = { usdUnitCost: string; rate: string; rateDate: string };
+
 export type ValidPurchase = {
   idempotencyKey: string;
   /** An existing item, or null for a new peptide/strength. */
@@ -106,8 +143,44 @@ export type ValidPurchase = {
   strengthMg: string | null;
   receivedOn: string;
   quantity: number;
+  /** CAD per vial (for a USD purchase, its conversion). */
   unitCost: string;
+  /** A purchase entered in USD: how `unitCost` was converted. */
+  usd?: UsdConversion;
+  currency?: undefined;
 };
+
+/** A validated USD purchase before its rate is known (the server fetches it: fx.ts). */
+export type UsdPurchaseEntry = Omit<ValidPurchase, "unitCost" | "usd" | "currency"> & { currency: "USD"; usdUnitCost: string };
+
+/** What validatePurchase accepts: a CAD purchase, or a USD one still to convert. */
+export type PurchaseEntry = ValidPurchase | UsdPurchaseEntry;
+
+/**
+ * A USD entry converted with the rate the server fetched: CAD per vial =
+ * usdToCad(USD, rate). Refused when that exceeds the CAD 1,000,000.00 limit.
+ */
+export function convertUsdPurchase(
+  entry: UsdPurchaseEntry,
+  fx: { rate: string; rateDate: string },
+): { ok: true; value: ValidPurchase } | { ok: false; error: string } {
+  const unitCost = usdToCad(entry.usdUnitCost, fx.rate);
+  if (new Decimal(unitCost).gt(INVENTORY_LIMITS.amount)) return { ok: false, error: AMOUNT_TOO_LARGE };
+  const { idempotencyKey, stockItemId, peptideId, strengthMg, receivedOn, quantity, usdUnitCost } = entry;
+  return {
+    ok: true,
+    value: {
+      idempotencyKey,
+      stockItemId,
+      peptideId,
+      strengthMg,
+      receivedOn,
+      quantity,
+      unitCost,
+      usd: { usdUnitCost, rate: fx.rate, rateDate: fx.rateDate },
+    },
+  };
+}
 
 /**
  * A date that is not after `today`: purchases and sales cannot be dated in the
@@ -128,8 +201,9 @@ function notFuture(date: string, today: string): boolean {
  * `stockItemId: "new"` means "New peptide / strength…". The idempotency key is
  * generated once per form (crypto.randomUUID) and resent on every retry.
  * `today` is the business date (America/Toronto); a later date received is refused.
+ * `currency: "USD"` makes `unitCost` a USD cost (usdAmount); CAD is the default.
  */
-export function validatePurchase(input: unknown, today: string): { ok: true; value: ValidPurchase } | { ok: false; error: string } {
+export function validatePurchase(input: unknown, today: string): { ok: true; value: PurchaseEntry } | { ok: false; error: string } {
   const raw = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
   const idempotencyKey = uuid(raw.idempotencyKey);
   if (!idempotencyKey) return { ok: false, error: "This form could not be identified. Reload the page and try again." };
@@ -143,13 +217,16 @@ export function validatePurchase(input: unknown, today: string): { ok: true; val
   if (!notFuture(receivedOn, today)) return { ok: false, error: PURCHASE_DATE_FUTURE };
   const quantity = vials(raw.quantity);
   if (!quantity.ok) return quantity;
-  const unitCost = amount(raw.unitCost, COST_INVALID);
+  const currency = raw.currency === undefined || raw.currency === "CAD" ? "CAD" : raw.currency === "USD" ? "USD" : null;
+  if (!currency) return { ok: false, error: CURRENCY_REQUIRED };
+  const unitCost = currency === "USD" ? usdAmount(raw.unitCost) : amount(raw.unitCost, COST_INVALID);
   if (!unitCost.ok) return unitCost;
   const strengthMg = isNew ? vialStrength(raw.strengthMg) : null;
   if (isNew && !strengthMg) return { ok: false, error: PURCHASE_STRENGTH_INVALID };
+  const purchase = { idempotencyKey, stockItemId, peptideId, strengthMg, receivedOn, quantity: quantity.value };
   return {
     ok: true,
-    value: { idempotencyKey, stockItemId, peptideId, strengthMg, receivedOn, quantity: quantity.value, unitCost: unitCost.value },
+    value: currency === "USD" ? { ...purchase, currency, usdUnitCost: unitCost.value } : { ...purchase, unitCost: unitCost.value },
   };
 }
 

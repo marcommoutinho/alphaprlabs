@@ -229,6 +229,51 @@
   color: var(--app-text-3);
 }
 
+/* A5 USD preview: the Bank of Canada rate and the CAD it gives */
+.app-root .app-inv-fx {
+  flex-direction: column;
+  gap: 10px;
+}
+
+.app-root .app-inv-fx-rate {
+  color: var(--app-text);
+}
+
+.app-root .app-inv-fx-error {
+  color: var(--app-error);
+}
+
+.app-root .app-inv-fx-retry {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--app-text);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.app-root .app-inv-fx-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  row-gap: 8px;
+}
+
+.app-root .app-inv-fx-grid dt {
+  color: var(--app-text-3);
+}
+
+.app-root .app-inv-fx-grid dd {
+  text-align: right;
+}
+
+.app-root .app-inv-fx-note {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--app-text-4);
+}
+
 .app-root .app-inv-submit {
   margin-top: 22px;
   font-size: 15px;

@@ -67,6 +67,18 @@ const calls = (db: Client) => ({
       p_unit_cost: "1",
       p_stock_item_id: fixture.stockItemId,
     }),
+  record_business_purchase_fx: () =>
+    db.rpc("record_business_purchase_fx", {
+      p_idempotency_key: randomUUID(),
+      p_received_on: "2026-08-15",
+      p_quantity: 1,
+      p_unit_cost: "1.39",
+      p_original_currency: "USD",
+      p_original_unit_cost: "1",
+      p_fx_rate: "1.3876",
+      p_fx_rate_date: "2026-08-14",
+      p_stock_item_id: fixture.stockItemId,
+    }),
   record_business_sale: () =>
     db.rpc("record_business_sale", {
       p_idempotency_key: randomUUID(),

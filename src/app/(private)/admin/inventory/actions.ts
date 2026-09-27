@@ -5,17 +5,31 @@ import { redirect } from "next/navigation";
 import type { ToastTone } from "@/components/app-shell/toast";
 import { signInUrl } from "@/lib/auth/paths";
 import { currentAdmin } from "@/lib/auth/session";
+import { usdCadRate } from "@/lib/inventory/fx";
 import {
   ACCOUNT_REQUIRED,
+  calendarDate,
+  convertUsdPurchase,
   PURCHASE_ALREADY_RECORDED,
   PURCHASE_DATE_FUTURE,
+  PURCHASE_DATE_REQUIRED,
   SALE_ALREADY_RECORDED,
   SALE_DATE_FUTURE,
   stockChangedMessage,
   validatePurchase,
   validateSale,
+  type ValidPurchase,
 } from "@/lib/inventory/rules";
-import { businessToday, purchaseRecordedToast, saleRecordedToast, SUBMISSION_CONFLICT, vials } from "@/lib/inventory/screens";
+import {
+  businessToday,
+  FX_SAVE_UNAVAILABLE,
+  FX_UNAVAILABLE,
+  fxNoRateMessage,
+  purchaseRecordedToast,
+  saleRecordedToast,
+  SUBMISSION_CONFLICT,
+  vials,
+} from "@/lib/inventory/screens";
 import { getSale, recordPurchase, recordSale } from "@/lib/inventory/service";
 import { createClient } from "@/lib/supabase/server";
 
@@ -56,10 +70,24 @@ export async function recordPurchaseAction(input: unknown): Promise<InventoryAct
   const admin = await currentAdmin();
   if (!admin) redirect(signInUrl({ next: "/admin/inventory/purchase" }));
 
-  const valid = validatePurchase(input, businessToday());
+  const today = businessToday();
+  const valid = validatePurchase(input, today);
   if (!valid.ok) return { error: valid.error };
 
-  const result = await recordPurchase(await createClient(), valid.value);
+  // A USD cost: converted here with the rate fetched now from the Bank of
+  // Canada (never the preview's, never the browser's). No rate, no save.
+  let purchase: ValidPurchase;
+  if (valid.value.currency === "USD") {
+    const fx = await usdCadRate(valid.value.receivedOn, { today });
+    if (!fx.ok) return { error: fx.reason === "no_rate" ? fxNoRateMessage(valid.value.receivedOn) : FX_SAVE_UNAVAILABLE };
+    const converted = convertUsdPurchase(valid.value, fx);
+    if (!converted.ok) return { error: converted.error };
+    purchase = converted.value;
+  } else {
+    purchase = valid.value;
+  }
+
+  const result = await recordPurchase(await createClient(), purchase);
   switch (result.kind) {
     case "recorded":
       revalidateStock(result.stockItemId);
@@ -67,7 +95,7 @@ export async function recordPurchaseAction(input: unknown): Promise<InventoryAct
         ? { stockItemId: result.stockItemId, toast: PURCHASE_ALREADY_RECORDED, tone: "warn" }
         : {
             stockItemId: result.stockItemId,
-            toast: purchaseRecordedToast(valid.value.quantity, valid.value.unitCost),
+            toast: purchaseRecordedToast(purchase.quantity, purchase.unitCost, purchase.usd?.usdUnitCost),
             tone: "info",
           };
     case "future_date":
@@ -83,6 +111,26 @@ export async function recordPurchaseAction(input: unknown): Promise<InventoryAct
     default:
       return { toast: SAVE_FAILED };
   }
+}
+
+export type UsdRatePreview = { rate?: string; rateDate?: string; error?: string };
+
+/**
+ * A5 USD preview: the Bank of Canada rate for a date received, fetched on the
+ * server through the same module the save uses (fx.ts). Display only: saving
+ * fetches the rate again and converts on the server.
+ */
+export async function usdRatePreviewAction(receivedOn: unknown): Promise<UsdRatePreview> {
+  const admin = await currentAdmin();
+  if (!admin) redirect(signInUrl({ next: "/admin/inventory/purchase" }));
+
+  const today = businessToday();
+  const date = calendarDate(receivedOn);
+  if (!date) return { error: PURCHASE_DATE_REQUIRED };
+  if (date > today) return { error: PURCHASE_DATE_FUTURE };
+  const fx = await usdCadRate(date, { today });
+  if (!fx.ok) return { error: fx.reason === "no_rate" ? fxNoRateMessage(date) : FX_UNAVAILABLE };
+  return { rate: fx.rate, rateDate: fx.rateDate };
 }
 
 /**

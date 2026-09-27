@@ -4,8 +4,8 @@
 // so the browser, the server and the tests share them. Money stays exact
 // decimal text (decimal.js), never binary floating point.
 import Decimal from "decimal.js";
-import { formatCurrency, formatDate } from "@/lib/format";
-import { allocateFifo, saleAmounts, type FifoAllocation, type FifoLot, type SalesPeriod } from "./rules";
+import { formatCurrency, formatDate, formatMonthDay, formatUsd } from "@/lib/format";
+import { allocateFifo, saleAmounts, usdAmount, usdToCad, type FifoAllocation, type FifoLot, type SalesPeriod } from "./rules";
 
 // ── Designed copy (handoff README A4-A7 and the prototype) ──────────────────
 export const INVENTORY_SUBTITLE =
@@ -16,7 +16,7 @@ export const SALES_CAPTION = "Each sale keeps the cost it was allocated at the t
 export const NO_PURCHASES = "No purchases yet.";
 export const NO_SALES = "No sales yet.";
 export const PURCHASE_SUBTITLE =
-  "Adds whole vials to stock and sets the cost FIFO will use for later sales. All amounts in CAD.";
+  "Adds whole vials to stock and sets the cost FIFO will use for later sales. A USD cost is converted to CAD; all totals are in CAD.";
 export const PURCHASE_FOOTNOTE =
   "Purchases already allocated to sales can't be edited here — historical gross profit must not change. Corrections are out of scope for this MVP.";
 export const NEW_ITEM_OPTION = "New peptide / strength…";
@@ -179,9 +179,57 @@ export function salesEmptyText(report: { totals: { sales: number }; hasSales: bo
   return SALES_EMPTY_FILTERED;
 }
 
-/** Toast after a purchase: `Purchase recorded · 10 vials at CAD 20.00` */
-export const purchaseRecordedToast = (quantity: number, unitCost: string) =>
-  `Purchase recorded · ${vials(quantity)} at ${formatCurrency(unitCost)}`;
+/**
+ * Toast after a purchase: `Purchase recorded · 10 vials at CAD 20.00`, or for
+ * a USD purchase `Purchase recorded · 10 vials at USD 11.00 = CAD 15.26`.
+ */
+export const purchaseRecordedToast = (quantity: number, unitCost: string, usdUnitCost?: string) =>
+  `Purchase recorded · ${vials(quantity)} at ${usdUnitCost ? `${formatUsd(usdUnitCost)} = ` : ""}${formatCurrency(unitCost)}`;
+
+// ── USD purchases (Marco, 2026-09-27) ──────────────────────────────────────
+export const CURRENCY_OPTIONS = ["CAD", "USD"] as const;
+export type PurchaseCurrency = (typeof CURRENCY_OPTIONS)[number];
+export const USD_NOTE = "Converted to CAD with the Bank of Canada daily rate for the date received. Stock costs and gross profit stay in CAD.";
+export const FX_LOADING = "Getting the Bank of Canada rate…";
+/** The preview could not get a rate (the server could not reach the Bank of Canada). */
+export const FX_UNAVAILABLE = "Couldn't get the Bank of Canada rate. Try again in a moment.";
+/** Saving refused because the rate could not be fetched: nothing recorded, retry. */
+export const FX_SAVE_UNAVAILABLE =
+  "Couldn't get the Bank of Canada rate, so nothing was recorded. Your entry is still here — try again in a moment.";
+/** No rate in the look-back window (fx.ts FX_LOOKBACK_DAYS). */
+export const fxNoRateMessage = (receivedOn: string) =>
+  `The Bank of Canada has no USD→CAD rate for the 10 days up to ${formatDate(receivedOn)}. Enter this cost in CAD instead.`;
+
+/** `Bank of Canada rate for Aug 26: 1.3876` */
+export const fxRateLine = (fx: { rate: string; rateDate: string }) => `Bank of Canada rate for ${formatMonthDay(fx.rateDate)}: ${fx.rate}`;
+
+/**
+ * Why an earlier day's rate is used, or null when the date received has its
+ * own: today before the day's rate is published (around 4:30 PM ET), or a
+ * weekend or holiday.
+ */
+export function fxEarlierNote(fx: { rateDate: string }, receivedOn: string, today: string): string | null {
+  if (fx.rateDate >= receivedOn) return null;
+  return receivedOn === today
+    ? "Today's rate isn't published yet (around 4:30 PM ET on business days), so the latest earlier rate is used."
+    : `No rate was published for ${formatMonthDay(receivedOn)} (weekend or holiday), so the latest earlier rate is used.`;
+}
+
+/** A4 purchase line for a USD purchase: `USD 11.00 × 1.3876 (BoC Aug 26) = CAD 15.26` */
+export const usdConversionLine = (lot: { unitCost: string; usd: { usdUnitCost: string; rate: string; rateDate: string } }) =>
+  `${formatUsd(lot.usd.usdUnitCost)} × ${lot.usd.rate} (BoC ${formatMonthDay(lot.usd.rateDate)}) = ${formatCurrency(lot.unitCost)}`;
+
+/**
+ * A5 USD preview with the rate the server fetched: the CAD cost per vial
+ * (usdToCad, as the save computes it) and in total, each null (`—`) while the
+ * entry can't give one.
+ */
+export function usdPreview(quantity: string, usdUnitCost: string, rate: string): { unitCost: string | null; total: string | null } {
+  const usd = usdAmount(usdUnitCost);
+  const unitCost = usd.ok ? usdToCad(usd.value, rate) : null;
+  const count = wholeVials(quantity);
+  return { unitCost, total: unitCost !== null && count !== null ? new Decimal(unitCost).times(count).toFixed(2) : null };
+}
 
 /** Toast after a sale: `Sale recorded · 12 vials · revenue CAD 480.00 · gross profit CAD 230.00` */
 export const saleRecordedToast = (sale: { quantity: number; revenue: string; grossProfit: string }) =>

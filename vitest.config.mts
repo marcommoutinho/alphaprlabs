@@ -35,6 +35,9 @@ const EXCLUSIVE = [
   // Owner-level psql writes 1,050 cycles, mixtures and vials (committed, a unique account) to prove A8's keyset reads,
   // re-runs S17's data migration in a rolled-back transaction, and reads the function catalog.
   "tests/integration/support-owner.test.ts",
+  // Owner-level psql re-applies the purchase currency migration on recorded CAD purchases (dropping and re-adding
+  // business_purchases columns) and tries the table's conversion checks, always rolled back.
+  "tests/integration/purchase-currency-owner.test.ts",
 ];
 
 export default defineConfig({

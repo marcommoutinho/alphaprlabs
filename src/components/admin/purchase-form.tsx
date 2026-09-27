@@ -1,11 +1,24 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
-import { recordPurchaseAction } from "@/app/(private)/admin/inventory/actions";
+import { unstable_rethrow, useRouter } from "next/navigation";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { recordPurchaseAction, usdRatePreviewAction } from "@/app/(private)/admin/inventory/actions";
 import { AppButton, Field, InlineError } from "@/components/app-shell/form";
 import { useSubmit } from "@/components/app-shell/use-submit";
-import { NEW_ITEM_OPTION, PURCHASE_FOOTNOTE, purchaseTotal } from "@/lib/inventory/screens";
+import { formatCurrency } from "@/lib/format";
+import {
+  CURRENCY_OPTIONS,
+  FX_LOADING,
+  FX_UNAVAILABLE,
+  fxEarlierNote,
+  fxRateLine,
+  NEW_ITEM_OPTION,
+  PURCHASE_FOOTNOTE,
+  purchaseTotal,
+  USD_NOTE,
+  usdPreview,
+  type PurchaseCurrency,
+} from "@/lib/inventory/screens";
 import "@/styles/app/inventory.css";
 
 type Form = {
@@ -15,6 +28,8 @@ type Form = {
   strengthMg: string;
   receivedOn: string;
   quantity: string;
+  /** CAD (the default) or USD: the currency `unitCost` is typed in. */
+  currency: PurchaseCurrency;
   unitCost: string;
 };
 
@@ -23,6 +38,8 @@ type Form = {
  * validates them (first failure wins) against today in the business time
  * zone. One idempotency key per entry: reused if the same entry is retried,
  * so a double submit records once, and replaced after a successful save.
+ * A USD cost is converted on the server with the Bank of Canada rate it
+ * fetches when saving; the preview here only shows that rate.
  */
 export function PurchaseForm({
   items,
@@ -44,6 +61,7 @@ export function PurchaseForm({
     strengthMg: "",
     receivedOn: today,
     quantity: "",
+    currency: "CAD",
     unitCost: "",
   });
   const { pending, error, submit } = useSubmit(recordPurchaseAction);
@@ -53,6 +71,7 @@ export function PurchaseForm({
 
   const update = <K extends keyof Form>(field: K, value: Form[K]) => setForm((current) => ({ ...current, [field]: value }));
   const isNew = form.stockItemId === "new";
+  const usd = form.currency === "USD";
 
   return (
     <form
@@ -112,6 +131,18 @@ export function PurchaseForm({
             onChange={(e) => update("receivedOn", e.target.value)}
           />
         </Field>
+        <div role="group" aria-labelledby="currency-label">
+          <span id="currency-label" className="app-field-label">
+            Cost currency
+          </span>
+          <div className="app-inv-toggle">
+            {CURRENCY_OPTIONS.map((currency) => (
+              <button key={currency} type="button" aria-pressed={form.currency === currency} onClick={() => update("currency", currency)}>
+                {currency}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="app-inv-pair">
           <Field label="Vials">
             <input
@@ -123,21 +154,25 @@ export function PurchaseForm({
               onChange={(e) => update("quantity", e.target.value)}
             />
           </Field>
-          <Field label="Cost per vial (CAD)">
+          <Field label={`Cost per vial (${form.currency})`}>
             <input
               name="unitCost"
               inputMode="decimal"
               autoComplete="off"
-              placeholder="20.00"
+              placeholder={usd ? "11.00" : "20.00"}
               value={form.unitCost}
               onChange={(e) => update("unitCost", e.target.value)}
             />
           </Field>
         </div>
-        <div className="app-inv-total" data-testid="purchase-total">
-          <span>Total purchase cost</span>
-          <b>{purchaseTotal(form.quantity, form.unitCost)}</b>
-        </div>
+        {usd ? (
+          <UsdPreview receivedOn={form.receivedOn} today={today} quantity={form.quantity} unitCost={form.unitCost} />
+        ) : (
+          <div className="app-inv-total" data-testid="purchase-total">
+            <span>Total purchase cost</span>
+            <b>{purchaseTotal(form.quantity, form.unitCost)}</b>
+          </div>
+        )}
         <InlineError>{error}</InlineError>
       </div>
       <AppButton type="submit" block className="app-inv-submit" saving={pending || leaving}>
@@ -145,5 +180,81 @@ export function PurchaseForm({
       </AppButton>
       <p className="app-inv-note">{PURCHASE_FOOTNOTE}</p>
     </form>
+  );
+}
+
+type RateResult = { rate: string; rateDate: string } | { error: string };
+
+/**
+ * The USD summary card: the Bank of Canada rate for the date received (asked
+ * of the server once per date) and the CAD cost per vial and in total it
+ * gives. Display only; the save converts again on the server.
+ */
+function UsdPreview({ receivedOn, today, quantity, unitCost }: { receivedOn: string; today: string; quantity: string; unitCost: string }) {
+  const [rates, setRates] = useState<Record<string, RateResult>>({});
+  const [, startTransition] = useTransition();
+  // A complete date that isn't in the future (the date input gives YYYY-MM-DD or "").
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(receivedOn) && receivedOn <= today ? receivedOn : null;
+  const result = date ? rates[date] : undefined;
+  const known = result !== undefined;
+
+  useEffect(() => {
+    if (!date || known) return;
+    startTransition(async () => {
+      let answer: RateResult;
+      try {
+        const preview = await usdRatePreviewAction(date);
+        answer = preview.rate && preview.rateDate ? { rate: preview.rate, rateDate: preview.rateDate } : { error: preview.error ?? FX_UNAVAILABLE };
+      } catch (error) {
+        unstable_rethrow(error);
+        answer = { error: FX_UNAVAILABLE };
+      }
+      setRates((current) => ({ ...current, [date]: answer }));
+    });
+  }, [date, known]);
+
+  const fx = result && "rate" in result ? result : null;
+  const amounts = fx ? usdPreview(quantity, unitCost, fx.rate) : null;
+  const earlier = fx && date ? fxEarlierNote(fx, date, today) : null;
+
+  return (
+    <section className="app-inv-total app-inv-fx" aria-live="polite" data-testid="usd-preview">
+      <div className="app-inv-fx-rate" data-testid="fx-rate">
+        {!date ? (
+          "Enter the date received to get the Bank of Canada rate."
+        ) : !result ? (
+          FX_LOADING
+        ) : fx ? (
+          fxRateLine(fx)
+        ) : (
+          <>
+            <span className="app-inv-fx-error">{"error" in result ? result.error : FX_UNAVAILABLE}</span>{" "}
+            <button
+              type="button"
+              className="app-inv-fx-retry"
+              onClick={() =>
+                setRates((current) => {
+                  const next = { ...current };
+                  delete next[date];
+                  return next;
+                })
+              }
+            >
+              Try again
+            </button>
+          </>
+        )}
+      </div>
+      {earlier ? <p className="app-inv-fx-note">{earlier}</p> : null}
+      <dl className="app-inv-fx-grid">
+        <dt>Cost per vial (CAD)</dt>
+        <dd data-testid="usd-preview-unit">{formatCurrency(amounts?.unitCost)}</dd>
+        <dt>Total purchase cost</dt>
+        <dd data-testid="purchase-total">
+          <b>{formatCurrency(amounts?.total)}</b>
+        </dd>
+      </dl>
+      <p className="app-inv-fx-note">{USD_NOTE}</p>
+    </section>
   );
 }

@@ -12,8 +12,12 @@ export type Database = {
       business_purchases: {
         Row: {
           currency: string
+          fx_rate: number | null
+          fx_rate_date: string | null
           id: string
           idempotency_key: string
+          original_currency: string
+          original_unit_cost: number | null
           quantity: number
           received_on: string
           recorded_at: string
@@ -25,8 +29,12 @@ export type Database = {
         }
         Insert: {
           currency?: string
+          fx_rate?: number | null
+          fx_rate_date?: string | null
           id?: string
           idempotency_key: string
+          original_currency?: string
+          original_unit_cost?: number | null
           quantity: number
           received_on: string
           recorded_at?: string
@@ -38,8 +46,12 @@ export type Database = {
         }
         Update: {
           currency?: string
+          fx_rate?: number | null
+          fx_rate_date?: string | null
           id?: string
           idempotency_key?: string
+          original_currency?: string
+          original_unit_cost?: number | null
           quantity?: number
           received_on?: string
           recorded_at?: string
@@ -1377,6 +1389,10 @@ export type Database = {
         Args: { p_stock_item_id: string }
         Returns: {
           allocated: number
+          fx_rate: string
+          fx_rate_date: string
+          original_currency: string
+          original_unit_cost: string
           purchase_id: string
           quantity: number
           received_on: string
@@ -1670,6 +1686,7 @@ export type Database = {
         Returns: string
       }
       parse_cad_amount: { Args: { p_text: string }; Returns: number }
+      parse_fx_rate: { Args: { p_text: string }; Returns: number }
       parse_strength_mg: { Args: { p_text: string }; Returns: number }
       plan_mixture_version_at: {
         Args: { p_at: string; p_plan_id: string }
@@ -1680,6 +1697,26 @@ export type Database = {
       record_business_purchase: {
         Args: {
           p_idempotency_key: string
+          p_peptide_id?: string
+          p_quantity: number
+          p_received_on: string
+          p_stock_item_id?: string
+          p_strength_mg?: string
+          p_unit_cost: string
+        }
+        Returns: {
+          purchase_id: string
+          replayed: boolean
+          stock_item_id: string
+        }[]
+      }
+      record_business_purchase_fx: {
+        Args: {
+          p_fx_rate?: string
+          p_fx_rate_date?: string
+          p_idempotency_key: string
+          p_original_currency: string
+          p_original_unit_cost?: string
           p_peptide_id?: string
           p_quantity: number
           p_received_on: string

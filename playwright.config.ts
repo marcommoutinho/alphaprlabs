@@ -41,6 +41,9 @@ export default defineConfig({
       ...appTestEnv(),
       APP_HOST: `app.localhost:${port}`,
       PUBLIC_HOST: `www.localhost:${port}`,
+      // Bank of Canada USD→CAD rates served by the local stub (src/lib/inventory/fx.ts),
+      // never the real API: Wed Aug 26 and Fri Aug 28 (none for the weekend); Aug 19 is "down".
+      BOC_FX_TEST_RATES: JSON.stringify({ "2026-08-26": "1.3876", "2026-08-28": "1.3888", "2026-08-19": "unavailable" }),
     },
   },
 });

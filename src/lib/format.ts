@@ -17,12 +17,21 @@ const cadNumber = new Intl.NumberFormat("en-CA", {
  * through binary floating point. Missing or non-finite input renders `—`.
  */
 export function formatCurrency(amount: number | string | null | undefined): string {
+  return formatMoney("CAD", amount);
+}
+
+/** `USD 11.00`: a USD amount as entered for a purchase (formatted like {@link formatCurrency}). */
+export function formatUsd(amount: number | string | null | undefined): string {
+  return formatMoney("USD", amount);
+}
+
+function formatMoney(currency: "CAD" | "USD", amount: number | string | null | undefined): string {
   if (amount === null || amount === undefined) return EMPTY;
   if (typeof amount === "number" && !Number.isFinite(amount)) return EMPTY;
   if (typeof amount === "string" && !/^-?\d+(\.\d+)?$/.test(amount.trim())) return EMPTY;
   // Intl.NumberFormat accepts decimal strings (ES2023), but the DOM typings
   // only declare number | bigint.
-  return `CAD ${cadNumber.format(amount as number)}`;
+  return `${currency} ${cadNumber.format(amount as number)}`;
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

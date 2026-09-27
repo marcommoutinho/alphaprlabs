@@ -18,6 +18,7 @@ import {
   salesEmptyText,
   salesTruncatedNote,
   stockSalesTruncatedNote,
+  usdConversionLine,
   vials,
 } from "@/lib/inventory/screens";
 import type { SaleRecord, SalesReport, StockItemDetail, StockItemSummary } from "@/lib/inventory/service";
@@ -151,6 +152,11 @@ export function StockItemView({ detail }: { detail: StockItemDetail }) {
               <div className="app-inv-entry-line">
                 <div>
                   {formatDate(lot.receivedOn)} · <b>{vials(lot.quantity)}</b> at {formatCurrency(lot.unitCost)}
+                  {lot.usd ? (
+                    <div className="app-inv-sub" data-testid="purchase-conversion">
+                      {usdConversionLine({ unitCost: lot.unitCost, usd: lot.usd })}
+                    </div>
+                  ) : null}
                   <div className="app-inv-sub">{lotNote(lot)}</div>
                 </div>
                 <span className="app-inv-entry-amount" data-muted>

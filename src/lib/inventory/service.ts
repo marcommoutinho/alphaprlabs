@@ -2,7 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Decimal from "decimal.js";
 import type { Database } from "@/lib/supabase/database.types";
-import { fifoOrder, stockItemLabel, sumAmounts, type FifoLot, type ValidPurchase, type ValidSale } from "./rules";
+import { fifoOrder, stockItemLabel, sumAmounts, type FifoLot, type UsdConversion, type ValidPurchase, type ValidSale } from "./rules";
 
 type Db = SupabaseClient<Database>;
 
@@ -66,6 +66,8 @@ export type PurchaseLot = {
   recordedAt: string;
   /** FIFO tie-break between lots received the same day: the order they were recorded in. */
   recordedOrder: number;
+  /** Entered in USD: the USD cost per vial and the Bank of Canada rate `unitCost` was converted with. Null for CAD. */
+  usd: UsdConversion | null;
 };
 
 export type SaleAllocation = { purchaseId: string; quantity: number; unitCost: string; receivedOn: string };
@@ -194,6 +196,10 @@ const toLot = (lot: LotRow): PurchaseLot => ({
   remaining: Number(lot.remaining),
   recordedAt: lot.recorded_at,
   recordedOrder: lot.recorded_order,
+  usd:
+    lot.original_currency === "USD" && lot.original_unit_cost !== null && lot.fx_rate !== null && lot.fx_rate_date !== null
+      ? { usdUnitCost: lot.original_unit_cost, rate: lot.fx_rate, rateDate: lot.fx_rate_date }
+      : null,
 });
 
 /**
@@ -397,20 +403,30 @@ export type PurchaseResult =
 /**
  * A5: records a purchase, creating the stock item for a new peptide/strength.
  * `replayed` is true when this idempotency key was already recorded: nothing
- * new was written (the form was submitted twice).
+ * new was written (the form was submitted twice). A USD purchase (`usd`, with
+ * the rate fetched by the server: fx.ts) is recorded with its USD cost, rate
+ * and rate date; the database re-checks unitCost = round(USD × rate, 2).
  */
 export async function recordPurchase(db: Db, purchase: ValidPurchase): Promise<PurchaseResult> {
-  const { data, error } = await db
-    .rpc("record_business_purchase", {
-      p_idempotency_key: purchase.idempotencyKey,
-      p_received_on: purchase.receivedOn,
-      p_quantity: purchase.quantity,
-      p_unit_cost: purchase.unitCost,
-      ...(purchase.stockItemId
-        ? { p_stock_item_id: purchase.stockItemId }
-        : { p_peptide_id: purchase.peptideId ?? undefined, p_strength_mg: purchase.strengthMg ?? undefined }),
-    })
-    .single();
+  const common = {
+    p_idempotency_key: purchase.idempotencyKey,
+    p_received_on: purchase.receivedOn,
+    p_quantity: purchase.quantity,
+    p_unit_cost: purchase.unitCost,
+    ...(purchase.stockItemId
+      ? { p_stock_item_id: purchase.stockItemId }
+      : { p_peptide_id: purchase.peptideId ?? undefined, p_strength_mg: purchase.strengthMg ?? undefined }),
+  };
+  const { data, error } = await (purchase.usd
+    ? db.rpc("record_business_purchase_fx", {
+        ...common,
+        p_original_currency: "USD",
+        p_original_unit_cost: purchase.usd.usdUnitCost,
+        p_fx_rate: purchase.usd.rate,
+        p_fx_rate_date: purchase.usd.rateDate,
+      })
+    : db.rpc("record_business_purchase", common)
+  ).single();
   if (error) {
     const kind = refusal(error.code);
     return { kind: kind === "insufficient" || kind === "unknown_buyer" ? "error" : kind };
