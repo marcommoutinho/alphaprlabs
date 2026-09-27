@@ -756,7 +756,12 @@ and G2 still requires S13.
   2026-09-26 at Marco's instruction: migrations 20260926180000–200200 applied
   (dry run first showed exactly those eight); branch pushed at `2065c14`.
 
-Next: S14 personal supplies, then S15, S16, S17, and S13 last.
+- S14 (personal supplies) built, reviewed (one correction: history times per
+  occurrence zone, redirect rethrow on Today, delete_mixture now unlinks the
+  open vial) and integrated at `78653ed`. Not yet deployed (migration
+  20260926210000).
+
+Next: S15 Progress, then S16, S17, and S13 last.
 
 ## Technical references
 
