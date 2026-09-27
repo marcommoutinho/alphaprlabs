@@ -103,6 +103,8 @@ export type TodayHero = {
   mixtureLabel: string;
   syringeLabel: string;
   calculatorHref: string;
+  /** "Vial A-02 is low · 0.2 mg left (estimate)" when its tracked vial is low, empty or over (R8). */
+  stockNote: string | null;
 };
 
 export type TodayRow = {
@@ -116,6 +118,8 @@ export type TodayRow = {
   statusNote: string;
   /** "Taken" confirms in one tap; "Confirm" opens the sheet; "Details" shows what was recorded. */
   action: "Taken" | "Confirm" | "Details" | null;
+  /** As the hero's, for a dose still to take today or a plan's next dose. */
+  stockNote: string | null;
 };
 
 export type TodayView = {
@@ -145,6 +149,8 @@ export type TodayInput = {
   setups: ReadonlyMap<string, SetupSegment[]>;
   /** Open tracked vial labels by mixture id (empty while tracking is off). */
   vials: ReadonlyMap<string, string>;
+  /** R8 low-stock notes by plan id (src/lib/supplies/view todayStockNotes); none while tracking is off. */
+  stock?: ReadonlyMap<string, string>;
   now: InstantInput;
   /** The requested occurrence key (`?dose=`), if any. */
   requestedKey?: string | null;
@@ -223,6 +229,8 @@ export function todayView(input: TodayInput): TodayView {
   const setupOf = (entry: Entry): DrawSetup | null => mixtureOf(entry)?.setup ?? null;
   const drawOf = (entry: Entry) => drawDisplay(setupOf(entry), entry.o.doseMg);
 
+  const stockOf = (entry: Entry) => input.stock?.get(entry.o.planId) ?? null;
+
   const recordedByKey = new Map([...input.confirmations.values()].flat().map((c) => [c.key, c]));
   /** What was recorded for a taken dose (the engine's actualAt is the recorded one). */
   const recordOf = (o: Occurrence) => (o.actualAt ? recordedByKey.get(o.key) : undefined);
@@ -291,6 +299,7 @@ export function todayView(input: TodayInput): TodayView {
       mixtureLabel: d.mixtureLabel,
       syringeLabel: d.syringeLabel,
       calculatorHref: d.calculatorHref,
+      stockNote: stockOf(heroEntry),
     };
   }
 
@@ -309,6 +318,7 @@ export function todayView(input: TodayInput): TodayView {
         status: `Taken ${wallOf(e.o.actualAt, e.o.timeZone).slice(11)} · ${amount.mg}`,
         statusNote: amount.planned,
         action: "Details",
+        stockNote: null,
       });
       continue;
     }
@@ -320,6 +330,7 @@ export function todayView(input: TodayInput): TodayView {
       status: at(e.o) <= nowMs ? "Due" : "Later today",
       statusNote: "",
       action: "Taken",
+      stockNote: stockOf(e),
     });
   }
   for (const e of open) {
@@ -332,6 +343,7 @@ export function todayView(input: TodayInput): TodayView {
       status: "",
       statusNote: "",
       action: "Confirm",
+      stockNote: null,
     });
   }
   for (const e of upcoming) {
@@ -344,6 +356,7 @@ export function todayView(input: TodayInput): TodayView {
       status: "Next",
       statusNote: "",
       action: null,
+      stockNote: stockOf(e),
     });
   }
 

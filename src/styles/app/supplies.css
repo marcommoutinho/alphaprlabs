@@ -1,0 +1,317 @@
+/* R8 Personal supplies (handoff docs/design/research-app, the prototype's
+   "R8 Personal supplies"). Scoped under .app-root. */
+
+.app-root .app-sup-back {
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+/* ── Header and "Track supplies" ──────────────────────── */
+.app-root .app-sup-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  margin-top: 14px;
+}
+
+.app-root .app-sup-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.app-root .app-sup-note {
+  margin-top: 32px;
+  padding: 28px;
+  border-radius: 22px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--app-text-3);
+}
+
+/* ── Groups and vial cards ────────────────────────────── */
+.app-root .app-sup-group {
+  margin-top: 28px;
+}
+
+.app-root .app-sup-group-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--app-primary-text);
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-sup-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.app-root .app-sup-card {
+  padding: 20px 22px;
+  border-radius: var(--app-radius-card-sm);
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  min-width: 0;
+}
+
+.app-root .app-sup-card[data-tone="alert"] {
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
+.app-root .app-sup-card[data-open="false"] {
+  background: transparent;
+}
+
+.app-root .app-sup-card-top {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.app-root .app-sup-card-title {
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-sup-card-meta {
+  font-weight: 400;
+  color: var(--app-text-4);
+}
+
+.app-root .app-sup-state {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text-4);
+}
+
+.app-root .app-sup-state[data-tone="warn"] {
+  color: var(--app-warning);
+}
+
+.app-root .app-sup-state[data-tone="alert"] {
+  color: var(--app-error);
+}
+
+.app-root .app-sup-bar {
+  margin-top: 14px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.app-root .app-sup-bar-fill {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--app-primary);
+}
+
+.app-root .app-sup-bar-fill:is([data-tone="warn"], [data-tone="alert"]) {
+  background: var(--app-warning);
+}
+
+.app-root .app-sup-card[data-open="false"] .app-sup-bar-fill {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.app-root .app-sup-numbers {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-sup-remaining {
+  color: var(--app-text);
+}
+
+.app-root .app-sup-line {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--app-text-4);
+}
+
+.app-root .app-sup-outlook {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--app-text-3);
+}
+
+.app-root .app-sup-outlook[data-tone="warn"] {
+  color: var(--app-warning-soft);
+}
+
+.app-root .app-sup-outlook[data-tone="alert"] {
+  color: var(--app-error-soft);
+}
+
+.app-root .app-sup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin-top: 10px;
+}
+
+.app-root .app-sup-link {
+  min-height: 36px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-primary-text);
+  cursor: pointer;
+}
+
+.app-root .app-sup-link--quiet {
+  color: var(--app-text-3);
+}
+
+.app-root .app-sup-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── A vial's history ─────────────────────────────────── */
+.app-root .app-sup-history {
+  margin-top: 8px;
+  border-top: 1px solid var(--app-divider-row);
+  list-style: none;
+  padding: 0;
+}
+
+.app-root .app-sup-history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) auto minmax(0, 1.4fr) auto;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--app-divider-row);
+  font-size: 13px;
+}
+
+.app-root .app-sup-history-cycle,
+.app-root .app-sup-history-after {
+  color: var(--app-text-4);
+}
+
+.app-root .app-sup-history-amount {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.app-root .app-sup-history-row[data-discrepancy="true"] .app-sup-history-after {
+  color: var(--app-error);
+}
+
+.app-root .app-sup-history-link {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+@media (max-width: 759.98px) {
+  .app-root .app-sup-history-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
+/* ── Add a vial ───────────────────────────────────────── */
+.app-root .app-sup-add {
+  margin-top: 28px;
+  padding: 20px 22px;
+  border-radius: var(--app-radius-card-sm);
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+}
+
+.app-root .app-sup-add-title {
+  font-size: 15px;
+}
+
+.app-root .app-sup-add-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.app-root .app-sup-add-grid > * {
+  min-width: 0;
+}
+
+.app-root .app-sup-add-strength {
+  display: flex;
+  flex-direction: column;
+}
+
+.app-root .app-sup-add-fixed {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  font-size: 14px;
+  color: var(--app-text-3);
+}
+
+.app-root .app-sup-hint {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--app-text-4);
+}
+
+.app-root .app-sup-add-btn {
+  margin-top: 14px;
+}
+
+.app-root .app-sup-footnote {
+  margin-top: 18px;
+  font-size: 12px;
+  color: var(--app-text-4);
+}
+
+@media (max-width: 759.98px) {
+  .app-root .app-sup-add-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── Edit and finish ──────────────────────────────────── */
+.app-root .app-sup-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.app-root .app-sup-modal-title {
+  font-size: 20px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.app-root .app-sup-modal-sub {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--app-text-3);
+}
+
+.app-root .app-sup-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}

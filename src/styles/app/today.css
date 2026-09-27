@@ -518,3 +518,11 @@
     min-height: 44px;
   }
 }
+
+/* ── A low tracked vial beside its dose (R8) ────────── */
+.app-root .app-today-stock {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--app-warning);
+}

@@ -5,6 +5,8 @@ import { listCycles, listCyclePeptides } from "@/lib/cycles/service";
 import { confirmationsByCycle, listDoseRecords, planSetups } from "@/lib/doses/service";
 import { todayView } from "@/lib/doses/today";
 import { getSupplyTracking, listPersonalVials, planMixtures } from "@/lib/mixtures/service";
+import { deductionsOfVials } from "@/lib/supplies/service";
+import { todayStockNotes } from "@/lib/supplies/view";
 import { createClient } from "@/lib/supabase/server";
 import "@/styles/app/today.css";
 
@@ -35,15 +37,29 @@ export default async function TodayPage({ searchParams }: { searchParams: Search
   ]);
   const openVials = new Map<string, string>();
   if (tracking) for (const vial of vials) if (vial.mixtureId && !vial.finishedAt) openVials.set(vial.mixtureId, vial.label);
+  const confirmations = confirmationsByCycle(records);
+  const now = new Date();
+  // R8: a low, empty or over tracked vial beside the doses it serves.
+  const tracked = vials.filter((vial) => tracking && vial.mixtureId && !vial.finishedAt);
+  const stock = todayStockNotes({
+    tracking,
+    vials: tracked,
+    mixtures,
+    deductions: tracked.length ? await deductionsOfVials(db, tracked.map((vial) => vial.id)) : [],
+    cycles,
+    confirmations,
+    now,
+  });
 
   const view = todayView({
     cycles,
-    confirmations: confirmationsByCycle(records),
+    confirmations,
     peptides: new Map(library.map((peptide) => [peptide.id, peptide])),
     mixtures,
     setups,
     vials: openVials,
-    now: new Date(),
+    stock,
+    now,
     requestedKey: dose,
   });
 

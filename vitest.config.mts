@@ -22,6 +22,8 @@ const EXCLUSIVE = [
   "tests/integration/dose-parity.test.ts",
   // An owner-level psql transaction holds save_mixture's locks while a confirmation waits.
   "tests/integration/dose-locks.test.ts",
+  // Owner-level psql tries S14's composite keys (always rolled back).
+  "tests/integration/supplies-keys.test.ts",
 ];
 
 export default defineConfig({

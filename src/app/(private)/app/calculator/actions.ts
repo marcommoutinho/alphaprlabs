@@ -53,6 +53,7 @@ export async function saveMixtureAction(input: unknown): Promise<MixtureActionRe
     case "saved": {
       revalidatePath(CALCULATOR);
       revalidatePath("/app/cycles", "layout");
+      revalidatePath("/app/supplies");
       const name = await listCyclePeptides(db)
         .then((peptides) => peptides.find((peptide) => peptide.id === mixture.peptideId)?.name ?? "")
         .catch(() => "");
@@ -88,6 +89,7 @@ export async function deleteMixtureAction(input: unknown): Promise<MixtureAction
   switch (result.kind) {
     case "deleted":
       revalidatePath(CALCULATOR);
+      revalidatePath("/app/supplies");
       return { toast: MIXTURE_DELETED, tone: "info" };
     case "linked":
       return { toast: MIXTURE_LINKED, tone: "warn" };

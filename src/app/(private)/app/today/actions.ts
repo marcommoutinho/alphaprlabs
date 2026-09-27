@@ -79,6 +79,8 @@ export async function confirmDoseAction(input: unknown): Promise<ConfirmActionRe
   switch (result.kind) {
     case "recorded":
       revalidatePath("/app/cycles", "layout");
+      // R8: a deduction changes a vial's estimate, and every dose moves the next planned one.
+      revalidatePath("/app/supplies");
       refresh();
       return {
         outcome: "recorded",

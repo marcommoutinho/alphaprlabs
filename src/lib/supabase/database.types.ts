@@ -1445,6 +1445,7 @@ export type Database = {
         }[]
       }
       release_invitation: { Args: { p_id: string }; Returns: undefined }
+      reopen_personal_vial: { Args: { p_vial_id: string }; Returns: string }
       resend_invitation: {
         Args: { p_id: string; p_token_hash: string }
         Returns: {

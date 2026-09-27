@@ -155,6 +155,11 @@ export function TodayScreen({ view }: { view: TodayView }) {
               <div className="app-today-row-text">
                 <div className="app-today-row-title">{row.title}</div>
                 <div className="app-today-row-sub">{row.sub}</div>
+                {row.stockNote ? (
+                  <div className="app-today-stock" data-testid="today-stock">
+                    {row.stockNote}
+                  </div>
+                ) : null}
               </div>
               {row.action === "Taken" ? (
                 <button type="button" className="app-today-row-action" disabled={pending} onClick={() => quick(row.key)}>
@@ -233,6 +238,11 @@ function Hero({ hero, busy, disabled, onTaken, onMore }: { hero: TodayHero; busy
           </p>
         </>
       )}
+      {hero.stockNote ? (
+        <p className="app-today-stock" data-testid="today-stock">
+          {hero.stockNote} · <Link href="/app/supplies">Personal supplies</Link>
+        </p>
+      ) : null}
       <button type="button" className="app-dose-taken" disabled={disabled} onClick={onTaken}>
         {busy ? "Saving…" : "Taken"}
       </button>
