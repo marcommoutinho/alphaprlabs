@@ -265,6 +265,20 @@ switches to the back office and back.
   (shipping and fees included) and the Bank of Canada rate for that date
   otherwise.
 
+### Sellers, admin invitations and buyer linking (Marco, 2026-09-27)
+
+- Every new sale records its seller, which is required and must be an admin
+  account. The sales screen shows revenue, cost and gross profit per seller
+  for the chosen period.
+- Admins can invite a new admin from the Invitations screen (a Researcher /
+  Admin choice with a confirm step); the invitee sets their own password.
+- Outside-buyer sales can later be linked by an admin to that person's account
+  once they join; the link never grants access to history and adds nothing to
+  personal supplies.
+- The Sep 15–24, 2026 sales (sellers Brian and Natasha) are imported after
+  these exist: the vials they used are added back as opening stock dated
+  Sep 14 at the same cost, so the final count stays at today's.
+
 ### Launch exclusions
 
 - Blended or multi-peptide vials. A cycle may still contain several separately
