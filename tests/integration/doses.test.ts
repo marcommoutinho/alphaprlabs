@@ -23,7 +23,7 @@ const people = {
   blair: { email: uniqueEmail("s12-blair"), name: "Blair Other", role: "researcher" },
   una: { email: uniqueEmail("s12-una"), name: "Una Unacknowledged", role: "researcher", acknowledged: false },
   grace: { email: uniqueEmail("s12-grace"), name: "Grace Granted", role: "admin" },
-  noah: { email: uniqueEmail("s12-noah"), name: "Noah Not Granted", role: "admin" },
+  noah: { email: uniqueEmail("s12-noah"), name: "Noah Admin", role: "admin" },
 } as const;
 type Name = keyof typeof people;
 const id = {} as Record<Name, string>;
@@ -55,7 +55,7 @@ beforeAll(async () => {
   const t = tag();
   peptideA = await createPeptide(db.grace, `Dose A ${t}`);
   peptideB = await createPeptide(db.grace, `Dose B ${t}`);
-  await ok(db.alex.rpc("grant_support_access", { p_admin_id: id.grace }), "grant grace");
+  await ok(db.alex.rpc("share_with_team"), "share with the team");
 });
 
 describe("one confirmation request records one dose", () => {
@@ -220,7 +220,8 @@ describe("refusals", () => {
     expect(await read(db.alex)).toHaveLength(1);
     expect(await read(db.grace)).toHaveLength(1);
     expect(await read(db.blair)).toEqual([]);
-    expect(await read(db.noah)).toEqual([]);
+    // Every admin reads while Alex shares with the team.
+    expect(await read(db.noah)).toHaveLength(1);
   });
 });
 

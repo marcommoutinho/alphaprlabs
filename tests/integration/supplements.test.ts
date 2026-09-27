@@ -27,7 +27,7 @@ const people = {
   eve: { email: uniqueEmail("s16-eve"), name: "Eve Stock", role: "researcher" },
   una: { email: uniqueEmail("s16-una"), name: "Una Unacknowledged", role: "researcher", acknowledged: false },
   grace: { email: uniqueEmail("s16-grace"), name: "Grace Granted", role: "admin" },
-  noah: { email: uniqueEmail("s16-noah"), name: "Noah Not Granted", role: "admin" },
+  noah: { email: uniqueEmail("s16-noah"), name: "Noah Admin", role: "admin" },
 } as const;
 type Name = keyof typeof people;
 const id = {} as Record<Name, string>;
@@ -105,7 +105,7 @@ describe("routines are the owner's; a grant reads, never writes", () => {
     const routineId = await create("alex");
     const taken = await ok(db.alex.rpc("take_supplement", takeArgs(routineId, today)), "alex takes");
     expect(taken).toMatchObject({ occurrence_key: `${routineId}:${today}`, replayed: false });
-    await ok(db.alex.rpc("grant_support_access", { p_admin_id: id.grace }), "grant grace");
+    await ok(db.alex.rpc("share_with_team"), "share with the team");
 
     const [routine] = await listRoutines(db.alex, id.alex);
     expect(routine).toMatchObject({ id: routineId, name: "Vitamin D3", amount: "2000", unit: "IU", time: "00:00", timeZone: TORONTO, startDate: today, endDate: null, version: 1 });
@@ -130,11 +130,12 @@ describe("routines are the owner's; a grant reads, never writes", () => {
     expect(await ok(db.grace.rpc("end_supplement_routine", { p_id: routineId, p_version: 1 }), "grace ends")).toBeNull();
     expect(await ok(db.grace.rpc("take_supplement", takeArgs(routineId, addDays(today, -1))), "grace takes")).toBeNull();
 
-    // Another researcher and a non-granted admin: nothing, and no writes.
+    // Another researcher reads nothing; every admin reads while Alex shares; neither writes.
+    expect(await listRoutines(db.blair, id.alex)).toEqual([]);
+    expect(await listTaken(db.blair, id.alex)).toEqual([]);
+    expect(await getSupplementTracking(db.blair, id.alex)).toBe(false);
+    expect(await listRoutines(db.noah, id.alex)).toEqual([routine]);
     for (const who of ["blair", "noah"] as const) {
-      expect(await listRoutines(db[who], id.alex), who).toEqual([]);
-      expect(await listTaken(db[who], id.alex), who).toEqual([]);
-      expect(await getSupplementTracking(db[who], id.alex), who).toBe(false);
       expect(await ok(db[who].rpc("end_supplement_routine", { p_id: routineId, p_version: 1 }), `${who} ends`)).toBeNull();
     }
 
@@ -163,7 +164,7 @@ describe("routines are the owner's; a grant reads, never writes", () => {
     expect(await listTaken(db.alex, id.alex)).toEqual(records);
 
     // Revoked: denied on the next read.
-    await ok(db.alex.rpc("revoke_support_access", { p_admin_id: id.grace }), "revoke grace");
+    await ok(db.alex.rpc("stop_sharing_with_team"), "stop sharing");
     expect(await listRoutines(db.grace, id.alex)).toEqual([]);
     expect(await listTaken(db.grace, id.alex)).toEqual([]);
   });

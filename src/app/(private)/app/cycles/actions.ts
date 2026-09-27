@@ -76,7 +76,7 @@ export async function saveCycleAction(input: unknown): Promise<CycleActionResult
     } catch {
       return failed();
     }
-    // Only the owner edits; a support grant reads but never writes.
+    // Only the owner edits; a support share reads but never writes.
     if (!current || current.ownerId !== person.id) return { toast: CYCLE_GONE, tone: "error" };
     if (current.version !== cycle.version) return { errors: [CYCLE_CHANGED] };
     // Recorded doses: none is ever replaced (save_cycle re-checks with them too).

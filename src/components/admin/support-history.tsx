@@ -1,23 +1,23 @@
 import Link from "next/link";
-import { type AccountState, deniedText, grantedLabel, type HistoryView } from "@/lib/support/view";
+import { type AccountState, deniedText, type HistoryView, sharedLabel } from "@/lib/support/view";
 
-/** A8's denied state: no active grant from this researcher (never granted, or revoked). */
+/** A8's denied state: this researcher isn't sharing with the team (stopped, or never shared). */
 export function ResearcherDenied({ account }: { account: AccountState }) {
   return (
     <div className="app-a8-denied" data-testid="support-denied">
       <div className="app-a8-denied-label">Access denied</div>
-      <h1 className="app-a8-denied-title">{account.name} hasn&apos;t granted you access</h1>
+      <h1 className="app-a8-denied-title">{account.name} isn&apos;t sharing their history</h1>
       <p className="app-a8-denied-text">{deniedText(account)}</p>
     </div>
   );
 }
 
-/** A8's granted state: the four read-only cards (the prototype's 2×2). Nothing here writes. */
-export function ResearcherHistory({ account, grantedAt, view, full }: { account: AccountState; grantedAt: string; view: HistoryView; full: boolean }) {
+/** A8's shared state: the four read-only cards (the prototype's 2×2). Nothing here writes. */
+export function ResearcherHistory({ account, sharedSince, view, full }: { account: AccountState; sharedSince: string; view: HistoryView; full: boolean }) {
   return (
     <>
       <div className="app-a8-head">
-        <div className="app-a8-granted">{grantedLabel(grantedAt)}</div>
+        <div className="app-a8-granted">{sharedLabel(sharedSince)}</div>
         <h1 className="app-h1 app-a8-name">{account.name}</h1>
         <div className="app-a8-meta">{account.email} · full profile history · nothing here can be edited</div>
       </div>
@@ -72,7 +72,21 @@ export function ResearcherHistory({ account, grantedAt, view, full }: { account:
         <section className="app-a8-card" aria-labelledby="a8-supplies" data-testid="history-supplies">
           <h2 id="a8-supplies">Personal supplies &amp; supplements</h2>
           <p className="app-a8-para">{view.supplies}</p>
-          {view.mixtures ? <p className="app-a8-para">{view.mixtures}</p> : null}
+          {view.mixtures.length ? (
+            <div data-testid="history-mixtures">
+              <div className="app-a8-subhead">Saved mixtures</div>
+              {view.mixtures.map((mixture) => (
+                <div key={mixture.id} className="app-a8-mixture" data-testid="history-mixture" data-deleted={mixture.deleted || undefined}>
+                  <b>{mixture.title}</b> <span className="app-a8-dim">· {mixture.state}</span>
+                  <ul className="app-a8-mixture-versions">
+                    {mixture.versions.map((version) => (
+                      <li key={version.id}>{version.line}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <p className="app-a8-para">{view.supplements}</p>
           {view.taken.map((taken) => (
             <div key={taken.id} className="app-a8-line">

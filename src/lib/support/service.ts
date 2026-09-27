@@ -3,8 +3,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CycleRecord } from "@/lib/cycles/rules";
 import { listCycles } from "@/lib/cycles/service";
 import { type DoseRecord, listDoseRecords } from "@/lib/doses/service";
-import type { Mixture } from "@/lib/mixtures/rules";
-import { getSupplyTracking, listMixtures, listPersonalVials, type PersonalVial } from "@/lib/mixtures/service";
+import { keysetRows, type PageOptions } from "@/lib/keyset";
+import { getSupplyTracking, listMixtureRecords, listPersonalVials, type MixtureRecord, type PersonalVial } from "@/lib/mixtures/service";
 import { type CheckIn, listCheckIns } from "@/lib/progress/service";
 import { getSupplementTracking, listRoutines, listTaken, type Routine, type TakenRecord } from "@/lib/supplements/service";
 import { listDeductions, type VialDeduction } from "@/lib/supplies/service";
@@ -12,150 +12,101 @@ import type { Database } from "@/lib/supabase/database.types";
 
 type Db = SupabaseClient<Database>;
 
-// Support access (S4's grants; S17's R11 Me and A8 screens). `db` is always
-// the caller's own session client: the grant functions act for the caller,
-// the listing functions check the caller themselves
-// (20260927120000_support_history.sql), and A8's history reads the
+// Support access (S17's team share; R11 Me and A8 screens). A researcher
+// shares their history, read-only, with the Alpha PR Labs team: every
+// current admin (20260927120000_support_history.sql). `db` is always the
+// caller's own session client: the share functions act for the caller, the
+// listing function checks the caller is an admin, and A8's history reads the
 // researcher's records as the admin, under RLS (can_read_researcher), never
-// with the secret key. Revoking therefore denies the admin's next read.
-
-/** Rows per request; the API caps a response at 1,000 rows. */
-const PAGE = 1000;
-
-type Page<Row> = PromiseLike<{ data: Row[] | null; error: { message: string } | null }>;
-
-/** Every row of a function ordered by `id`, a page at a time by keyset (never cut at the row cap). */
-async function keyset<Row>(page: (after: string | null, limit: number) => Page<Row>, idOf: (row: Row) => string, what: string, requested = PAGE): Promise<Row[]> {
-  // Never more than the API returns: a short page must mean the last one.
-  const pageSize = Math.min(requested, PAGE);
-  const rows: Row[] = [];
-  for (let after: string | null = null; ; ) {
-    const { data, error } = await page(after, pageSize);
-    if (error) throw new Error(`Could not load ${what}: ${error.message}`);
-    const got = data ?? [];
-    rows.push(...got);
-    if (got.length < pageSize) return rows;
-    after = idOf(got[got.length - 1]);
-  }
-}
+// with the secret key. Stopping therefore denies every admin's next read.
+//
+// The researcher's side never learns which admin reads: a share names no
+// admin, and nothing here returns an admin's name or email to a researcher.
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isUuid = (value: unknown): value is string => typeof value === "string" && UUID.test(value);
 
 // ── R11: the researcher's side ──────────────────────────────────────────────
 
-/** An admin a researcher may grant read-only access to (names only). */
-export type SupportAdmin = { id: string; name: string };
+/** One period the caller shared with the team: active (stoppedAt null) or past. */
+export type SupportShare = { id: string; startedAt: string; stoppedAt: string | null };
 
-/** One grant the caller made, active (revokedAt null) or past. */
-export type SupportGrant = {
-  id: string;
-  adminId: string;
-  adminName: string;
-  /** False once the grantee is no longer an admin (the grant then reads nothing). */
-  stillAdmin: boolean;
-  grantedAt: string;
-  revokedAt: string | null;
-};
-
-/** Every admin other than the caller, by name. `pageSize` is for tests that prove paging. */
-export async function listSupportAdmins(db: Db, pageSize = PAGE): Promise<SupportAdmin[]> {
-  const rows = await keyset(
+/** The caller's shares, newest first (their own rows; RLS). `pageSize` is for tests. */
+export async function listShareHistory(db: Db, ownerId: string, options: PageOptions = {}): Promise<SupportShare[]> {
+  const rows = await keysetRows<{ id: string; started_at: string; stopped_at: string | null }>(
     (after, limit) => {
-      const query = db.rpc("support_admins").select("admin_id, name");
-      return (after ? query.gt("admin_id", after) : query).order("admin_id").limit(limit);
+      const query = db.from("support_shares").select("id, started_at, stopped_at").eq("researcher_id", ownerId);
+      return (after ? query.gt("id", after.id) : query).order("id").limit(limit);
     },
-    (row) => row.admin_id,
-    "the admins",
-    pageSize,
-  );
-  return rows.map((row) => ({ id: row.admin_id, name: row.name })).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
-}
-
-/** The caller's grants, newest first. */
-export async function listGrantHistory(db: Db, pageSize = PAGE): Promise<SupportGrant[]> {
-  const rows = await keyset(
-    (after, limit) => {
-      const query = db.rpc("support_grant_history").select("grant_id, admin_id, admin_name, still_admin, granted_at, revoked_at");
-      return (after ? query.gt("grant_id", after) : query).order("grant_id").limit(limit);
-    },
-    (row) => row.grant_id,
-    "your support access",
-    pageSize,
+    "your sharing history",
+    options,
   );
   return rows
-    .map((row) => ({
-      id: row.grant_id,
-      adminId: row.admin_id,
-      adminName: row.admin_name,
-      stillAdmin: row.still_admin,
-      grantedAt: row.granted_at,
-      revokedAt: row.revoked_at,
-    }))
-    .sort((a, b) => Date.parse(b.grantedAt) - Date.parse(a.grantedAt) || b.id.localeCompare(a.id));
+    .map((row) => ({ id: row.id, startedAt: row.started_at, stoppedAt: row.stopped_at }))
+    .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt) || b.id.localeCompare(a.id));
 }
 
-export type GrantResult = { kind: "granted" | "refused" | "error" };
+export type ShareResult = { kind: "shared" | "error" };
 
-/** grant_support_access: an active grant to `adminId` (an existing one counts); refused when not an admin, or the caller. */
-export async function grantSupport(db: Db, adminId: string): Promise<GrantResult> {
-  const { data, error } = await db.rpc("grant_support_access", { p_admin_id: adminId });
-  if (error) return { kind: "error" };
-  return { kind: data ? "granted" : "refused" };
+/** share_with_team: an active share for the caller (an existing one counts). Refused (error) until acknowledged. */
+export async function shareWithTeam(db: Db): Promise<ShareResult> {
+  const { data, error } = await db.rpc("share_with_team");
+  return { kind: !error && data ? "shared" : "error" };
 }
 
-export type RevokeResult = { kind: "revoked" | "not_active" | "error" };
+export type StopResult = { kind: "stopped" | "not_sharing" | "error" };
 
-/** revoke_support_access: ends the caller's active grant to `adminId` at once. */
-export async function revokeSupport(db: Db, adminId: string): Promise<RevokeResult> {
-  const { data, error } = await db.rpc("revoke_support_access", { p_admin_id: adminId });
+/** stop_sharing_with_team: ends the caller's active share at once, for every admin. */
+export async function stopSharing(db: Db): Promise<StopResult> {
+  const { data, error } = await db.rpc("stop_sharing_with_team");
   if (error) return { kind: "error" };
-  return { kind: data ? "revoked" : "not_active" };
+  return { kind: data ? "stopped" : "not_sharing" };
 }
 
 // ── A8: the admin's side ────────────────────────────────────────────────────
 
-/** An account and its grant state towards the calling admin. */
+/** An account and its team share, as an admin sees it. */
 export type SupportAccount = {
   id: string;
   name: string;
   email: string;
-  /** Their active grant to the caller, or null. */
-  grantedAt: string | null;
-  /** Their latest revoked grant to the caller, or null. */
-  revokedAt: string | null;
+  /** When their active share started, or null when they are not sharing. */
+  sharedSince: string | null;
+  /** When their latest past share stopped, or null when none ever did. */
+  stoppedAt: string | null;
 };
 
-type AccountRow = { profile_id: string; name: string; email: string; granted_at: string | null; revoked_at: string | null };
+type AccountRow = { profile_id: string; name: string; email: string; shared_since: string | null; stopped_at: string | null };
+
+const ACCOUNT_COLUMNS = "profile_id, name, email, shared_since, stopped_at";
 
 const accountOf = (row: AccountRow): SupportAccount => ({
   id: row.profile_id,
   name: row.name,
   email: row.email,
-  grantedAt: row.granted_at,
-  revokedAt: row.revoked_at,
+  sharedSince: row.shared_since,
+  stoppedAt: row.stopped_at,
 });
 
-/** Every other account with its grant state towards the caller (an admin). `pageSize` is for tests. */
-export async function listSupportAccounts(db: Db, pageSize = PAGE): Promise<SupportAccount[]> {
-  const rows = await keyset<AccountRow>(
+/** The accounts (other than the caller, an admin) sharing with the team now. `pageSize` is for tests. */
+export async function listSupportAccounts(db: Db, options: PageOptions = {}): Promise<SupportAccount[]> {
+  const rows = await keysetRows<AccountRow>(
     (after, limit) => {
-      const query = db.rpc("admin_support_researchers").select("profile_id, name, email, granted_at, revoked_at");
-      return (after ? query.gt("profile_id", after) : query).order("profile_id").limit(limit);
+      const query = db.rpc("admin_support_researchers").select(ACCOUNT_COLUMNS);
+      return (after ? query.gt("profile_id", after.profile_id) : query).order("profile_id").limit(limit);
     },
-    (row) => row.profile_id,
     "researchers",
-    pageSize,
+    options,
   );
   return rows.map(accountOf);
 }
 
-/** One account's name, email and grant state towards the caller (an admin), or null when there is none. */
+/** One account's name, email and share state (for the calling admin), or null when there is none. */
 export async function getSupportAccount(db: Db, profileId: string): Promise<SupportAccount | null> {
   if (!isUuid(profileId)) return null;
   const { data, error } = await db
     .rpc("admin_support_researchers", { p_researcher_id: profileId.toLowerCase() })
-    .select("profile_id, name, email, granted_at, revoked_at")
+    .select(ACCOUNT_COLUMNS)
     .maybeSingle();
   if (error) throw new Error(`Could not load the researcher: ${error.message}`);
   return data ? accountOf(data) : null;
@@ -169,12 +120,11 @@ export async function getSupportAccount(db: Db, profileId: string): Promise<Supp
  * whose own records use them.
  */
 export async function adminPeptideNames(db: Db): Promise<Map<string, { name: string; available: boolean }>> {
-  const rows = await keyset(
+  const rows = await keysetRows<{ id: string; name: string; available: boolean }>(
     (after, limit) => {
       const query = db.rpc("admin_library_peptides").select("id, name, available");
-      return (after ? query.gt("id", after) : query).order("id").limit(limit);
+      return (after ? query.gt("id", after.id) : query).order("id").limit(limit);
     },
-    (row) => row.id,
     "the library",
   );
   return new Map(rows.map((row) => [row.id, { name: row.name, available: row.available }]));
@@ -187,7 +137,8 @@ export type ResearcherRecords = {
   checkIns: CheckIn[];
   supplyTracking: boolean;
   vials: PersonalVial[];
-  mixtures: Mixture[];
+  /** Every mixture, deleted ones included, with every setup version. */
+  mixtures: MixtureRecord[];
   deductions: VialDeduction[];
   supplementTracking: boolean;
   routines: Routine[];
@@ -195,24 +146,25 @@ export type ResearcherRecords = {
 };
 
 /**
- * A researcher's full history for A8, with the existing owner-scoped reads
- * run as the calling admin: RLS returns rows only while the researcher's
- * grant is active, so a read after a revoke comes back empty (callers check
- * the grant before and after). Business stock, sales and push subscriptions
- * are never read here.
+ * A researcher's full history for A8, with owner-scoped reads run as the
+ * calling admin: RLS returns rows only while the researcher shares, so a
+ * read after they stop comes back empty (callers check before and after).
+ * Every collection is read a page at a time by key (keyset), never cut at
+ * the API's row cap. Business stock, sales and push subscriptions are never
+ * read here. `options` is for tests that prove paging.
  */
-export async function readResearcherRecords(db: Db, ownerId: string): Promise<ResearcherRecords> {
+export async function readResearcherRecords(db: Db, ownerId: string, options: PageOptions = {}): Promise<ResearcherRecords> {
   const [cycles, doses, checkIns, supplyTracking, vials, mixtures, deductions, supplementTracking, routines, taken] = await Promise.all([
-    listCycles(db, ownerId),
-    listDoseRecords(db, ownerId),
-    listCheckIns(db, ownerId),
+    listCycles(db, ownerId, options),
+    listDoseRecords(db, ownerId, { pageSize: options.pageSize, afterPage: (page) => options.afterPage?.("recorded doses", page) }),
+    listCheckIns(db, ownerId, {}, options.pageSize),
     getSupplyTracking(db, ownerId),
-    listPersonalVials(db, ownerId),
-    listMixtures(db, ownerId),
-    listDeductions(db, ownerId),
+    listPersonalVials(db, ownerId, options),
+    listMixtureRecords(db, ownerId, options),
+    listDeductions(db, ownerId, { pageSize: options.pageSize }),
     getSupplementTracking(db, ownerId),
-    listRoutines(db, ownerId),
-    listTaken(db, ownerId),
+    listRoutines(db, ownerId, options.pageSize),
+    listTaken(db, ownerId, {}, options.pageSize),
   ]);
   return { cycles, doses, checkIns, supplyTracking, vials, mixtures, deductions, supplementTracking, routines, taken };
 }

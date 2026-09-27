@@ -98,15 +98,10 @@
   color: var(--app-primary-text);
 }
 
-.app-root .app-me-active-since,
-.app-root .app-me-active-note {
+.app-root .app-me-active-since {
   margin-top: 4px;
   font-size: 13px;
   color: var(--app-text-4);
-}
-
-.app-root .app-me-active-note {
-  color: var(--app-warning);
 }
 
 .app-root .app-me-revoke {
@@ -162,11 +157,6 @@
   align-items: flex-end;
   gap: 12px;
   margin-top: 18px;
-}
-
-.app-root .app-me-admin-field {
-  flex: 1 1 220px;
-  max-width: 320px;
 }
 
 .app-root .app-me-grant .app-me-grant-btn {
@@ -261,15 +251,7 @@
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
-  color: var(--app-text-4);
-}
-
-.app-root .app-a8-state[data-access="granted"] {
   color: var(--app-success);
-}
-
-.app-root .app-a8-state[data-access="revoked"] {
-  color: var(--app-warning);
 }
 
 /* ── A8 Researcher history ────────────────────────────── */
@@ -415,6 +397,28 @@
   font-size: 13px;
   line-height: 1.6;
   color: rgba(255, 255, 255, 0.7);
+}
+
+.app-root .app-a8-subhead {
+  margin-top: 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--app-text-4);
+}
+
+.app-root .app-a8-mixture {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--app-divider-row);
+  font-size: 13px;
+}
+
+.app-root .app-a8-mixture-versions {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  list-style: disc;
+  font-size: 12.5px;
+  color: var(--app-text-4);
 }
 
 .app-root .app-a8-more {

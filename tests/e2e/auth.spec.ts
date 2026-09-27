@@ -69,7 +69,9 @@ test("admin invites; the researcher accepts, sets a password, acknowledges and r
   await researcher.goto(link!);
   await expect(researcher.getByText("You're invited")).toBeVisible();
   await expect(researcher.getByRole("heading", { level: 1 })).toHaveText("Join Alpha PR Labs Research");
-  await expect(researcher.getByText(`Marco Moutinho invited ${email}.`)).toBeVisible();
+  await expect(researcher.getByText(`An Alpha PR Labs admin invited ${email}.`)).toBeVisible();
+  // The invitee never learns which admin it is (the email, sent by that admin, may name them).
+  await expect(researcher.getByText("Marco")).toHaveCount(0);
   await researcher.getByRole("link", { name: "Accept invitation" }).click();
 
   await expect(researcher.getByText("Step 1 of 3")).toBeVisible();
@@ -135,7 +137,7 @@ test("expired, unknown and failed invitations; resend", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("This invitation has expired");
   await expect(
     page.getByText(
-      `Invitations are valid for 30 days. Ask Marco to send a new one to ${expiredEmail}. Nothing else is needed from you.`,
+      `Invitations are valid for 30 days. Ask an Alpha PR Labs admin to send a new one to ${expiredEmail}. Nothing else is needed from you.`,
     ),
   ).toBeVisible();
   await page.goto(`${APP_ORIGIN}/auth/invite/${"x".repeat(43)}`);

@@ -7,8 +7,8 @@ type Db = SupabaseClient<Database>;
 /**
  * Server-side check before reading another person's records (A8 researcher
  * history checks it on every request): true when the signed-in caller owns
- * them, or holds an active support grant from their owner and is still an
- * admin. The admin role alone never qualifies. `db` must be the caller's own
+ * them, or is a current admin (not the owner) while the owner shares their
+ * history with the team. The admin role alone never qualifies. `db` must be the caller's own
  * session client, never the secret-key client: the answer comes from the
  * database's can_read_researcher(), the same rule RLS applies to every
  * researcher-owned table. Any failure denies.

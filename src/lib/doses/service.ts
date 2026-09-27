@@ -11,7 +11,7 @@ type Db = SupabaseClient<Database>;
 
 // Recorded doses (S12), read and written with the caller's own session
 // client, so RLS decides what is readable: a person's own records, or those
-// of a researcher whose active support grant they hold. Callers that mean
+// of a researcher sharing with the team, for an admin. Callers that mean
 // "mine" pass their own id as owner. Amounts are read as text so no decimal
 // passes through a float.
 //
@@ -111,8 +111,8 @@ async function recordRows(db: Db, scope: { ownerId: string } | { cycleId: string
 }
 
 /**
- * Every dose `ownerId` recorded (readable to them, or to an admin they
- * granted), in recording order.
+ * Every dose `ownerId` recorded (readable to them, or to admins while they
+ * share with the team), in recording order.
  */
 export async function listDoseRecords(db: Db, ownerId: string, options: DoseReadOptions = {}): Promise<DoseRecord[]> {
   return (await recordRows(db, { ownerId }, options)).map(recordOf);

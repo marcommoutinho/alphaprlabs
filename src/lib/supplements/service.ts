@@ -8,8 +8,8 @@ type Db = SupabaseClient<Database>;
 
 // Supplement routines and their Taken records (20260927100000_supplements.sql),
 // read and written with the caller's own session client, so RLS decides
-// what is readable: a person's own records, or those of a researcher whose
-// active support grant they hold (S17's A8 history reads these with that
+// what is readable: a person's own records, or, for an admin, those of a
+// researcher sharing with the team (S17's A8 history reads these with that
 // researcher's id). Callers that mean "mine" pass their own id as owner.
 // Amounts are read as text (no floats). Reads are complete: a page at a time
 // by id (keyset), never cut at the API's 1,000-row cap.

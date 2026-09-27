@@ -30,7 +30,7 @@ const at = (date: string, time: string) => occurrenceOn({ id: "x", time, timeZon
 const people = {
   alex: { email: uniqueEmail("s16o-alex"), name: "Alex Years", role: "researcher" },
   grace: { email: uniqueEmail("s16o-grace"), name: "Grace Granted", role: "admin" },
-  noah: { email: uniqueEmail("s16o-noah"), name: "Noah Not Granted", role: "admin" },
+  noah: { email: uniqueEmail("s16o-noah"), name: "Noah Admin", role: "admin" },
   mia: { email: uniqueEmail("s16o-mia"), name: "Mia Missed Monday", role: "researcher" },
   pat: { email: uniqueEmail("s16o-pat"), name: "Pat Many", role: "researcher" },
 } as const;
@@ -50,7 +50,7 @@ beforeAll(async () => {
     db[key] = await signedInClient(spec.email);
   }
   await ok(db.alex.rpc("set_supplement_tracking", { p_enabled: true }), "tracking on");
-  await ok(db.alex.rpc("grant_support_access", { p_admin_id: id.grace }), "grant grace");
+  await ok(db.alex.rpc("share_with_team"), "share with the team");
   const start = addDays(today, -TAKEN);
   routineId = psql(`insert into public.supplement_routines (owner_id, name, amount, unit, time_of_day, start_date, definition_from)
     values (${quote(id.alex)}, 'Vitamin D3', 2000, 'IU', '08:00', ${quote(start)}, ${quote(start)}) returning 'id', id;`).id;
@@ -79,7 +79,8 @@ describe("reads are complete past the API's row cap", () => {
     }
     expect((await listTaken(db.grace, id.alex, {}, 250)).map((t) => t.id)).toEqual(mine.map((t) => t.id));
     expect((await listTaken(db.alex, id.alex, { from: addDays(today, -3) }, 2)).map((t) => t.localDate)).toEqual([-3, -2, -1].map((n) => addDays(today, n)));
-    expect(await listTaken(db.noah, id.alex, {}, 250)).toEqual([]);
+    // Every admin reads while Alex shares with the team.
+    expect((await listTaken(db.noah, id.alex, {}, 250)).map((t) => t.id)).toEqual(mine.map((t) => t.id));
 
     // R10 counts the last two weeks and lists the whole history.
     const [card] = supplementsView({ tracking: true, routines: await listRoutines(db.alex, id.alex, 1), taken: mine, guidance: [], now: new Date() }).routines;

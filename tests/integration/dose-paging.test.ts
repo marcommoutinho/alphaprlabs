@@ -18,7 +18,7 @@ import { psql, quote } from "../support/psql";
 const people = {
   alex: { email: uniqueEmail("dpage-alex"), name: "Alex Paging", role: "researcher" },
   grace: { email: uniqueEmail("dpage-grace"), name: "Grace Granted", role: "admin" },
-  noah: { email: uniqueEmail("dpage-noah"), name: "Noah Not Granted", role: "admin" },
+  noah: { email: uniqueEmail("dpage-noah"), name: "Noah Admin", role: "admin" },
 } as const;
 type Name = keyof typeof people;
 const id = {} as Record<Name, string>;
@@ -35,7 +35,7 @@ beforeAll(async () => {
   }
   const peptide = await createPeptide(db.grace, `Paging A ${tag()}`);
   cycleId = await createCycle(db.alex, { plans: [plan(peptide, [interval(day(-2000), day(10), "0.4", 1, "08:00")])] });
-  await ok(db.alex.rpc("grant_support_access", { p_admin_id: id.grace }), "grant grace");
+  await ok(db.alex.rpc("share_with_team"), "share with the team");
   // Recorded times fall as i rises, three doses share each, and some differ only in microseconds.
   const out = psql(`
     insert into public.dose_records
@@ -70,7 +70,8 @@ describe("recorded doses past 1,000 rows", () => {
     }
     const [first] = await listDoseRecords(db.alex, id.alex);
     expect(first).toMatchObject({ cycleId, plannedMg: "0.4", amountMg: "0.4" });
-    expect(await listDoseRecords(db.noah, id.alex)).toEqual([]);
+    // Every admin reads while Alex shares with the team.
+    expect((await listDoseRecords(db.noah, id.alex, { pageSize: 400 })).map((r) => r.id)).toEqual(expected);
   });
 
   it("reads a cycle's confirmations completely too", async () => {

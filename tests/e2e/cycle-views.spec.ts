@@ -13,7 +13,6 @@ import { ensureAccount, hydrated, ok, serviceClient, signedInClient, signInAs, u
 const RESEARCHER = { email: uniqueEmail("s10-views"), name: "Views Researcher" };
 const OTHER = { email: uniqueEmail("s10-views-other"), name: "Other Researcher" };
 const ADMIN = { email: uniqueEmail("s10-views-admin"), name: "Views Admin" };
-let adminId = "";
 
 /** An IANA fixed-offset zone where the local time now is 12:xx (Etc/GMT signs are inverted). */
 const NOON = (() => {
@@ -27,7 +26,7 @@ const when = (days: number, time: string) => `${formatDay(d(days))} · ${time}`;
 test.beforeAll(async () => {
   await ensureAccount({ ...RESEARCHER, role: "researcher" });
   await ensureAccount({ ...OTHER, role: "researcher" });
-  adminId = await ensureAccount({ ...ADMIN, role: "admin" });
+  await ensureAccount({ ...ADMIN, role: "admin" });
 });
 
 async function seedPeptide(name: string, available = true, cyclingOff = "") {
@@ -260,17 +259,17 @@ test("R6 hides withdrawn peptides; a template names one and is still a starting 
   await expect(page.getByTestId("cycle-plan").filter({ hasText: A })).toBeVisible();
 });
 
-test("a granted admin's own Cycles show only their own cycles", async ({ page }) => {
+test("an admin's own Cycles show only their own cycles while a researcher shares", async ({ page }) => {
   const t = tag();
   const aId = await seedPeptide(`Granted A ${t}`);
   const grantor = { email: uniqueEmail("s10-views-grantor"), name: "Granting Researcher" };
   await ensureAccount({ ...grantor, role: "researcher" });
   const grantorDb = await signedInClient(grantor.email);
   const theirs = await createCycle(grantorDb, { name: `Grantor's ${t}`, timeZone: NOON, plans: [plan(aId, [interval(d(-2), d(10))])] });
-  await ok(grantorDb.rpc("grant_support_access", { p_admin_id: adminId }), "grant");
+  await ok(grantorDb.rpc("share_with_team"), "share");
   const adminDb = await signedInClient(ADMIN.email);
-  // The grant is real: the admin's session can read the grantor's cycle.
-  expect(await ok(adminDb.from("cycles").select("id").eq("id", theirs), "granted read")).toHaveLength(1);
+  // The share is real: the admin's session can read the researcher's cycle.
+  expect(await ok(adminDb.from("cycles").select("id").eq("id", theirs), "shared read")).toHaveLength(1);
   await createCycle(adminDb, { name: `Admin's own ${t}`, timeZone: NOON, plans: [plan(aId, [interval(d(-2), d(10))])] });
 
   await signIn(page, ADMIN.email);

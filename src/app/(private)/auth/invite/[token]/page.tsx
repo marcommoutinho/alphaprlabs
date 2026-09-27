@@ -11,8 +11,8 @@ export const metadata: Metadata = { referrer: "no-referrer" };
 
 type Params = Promise<{ token: string }>;
 
-const firstName = (name: string) => name.trim().split(/\s+/)[0] || name;
-const FALLBACK_INVITER = "Alpha PR Labs";
+/** Who invited, as the invitee sees it: never an admin's name (Marco, 2026-09-27). */
+const INVITER = "An Alpha PR Labs admin";
 
 /** C1 Invitation: valid, expired, or already used (also any unknown link). */
 export default async function InvitationPage({ params }: { params: Params }) {
@@ -27,7 +27,7 @@ export default async function InvitationPage({ params }: { params: Params }) {
           <div className="app-auth-kicker">You&apos;re invited</div>
           <h1 className="app-auth-title">Join Alpha PR Labs Research</h1>
           <p className="app-auth-lead">
-            {invitation.inviterName ?? FALLBACK_INVITER} invited <b>{invitation.email}</b>. Access is by invitation only; there is no
+            {INVITER} invited <b>{invitation.email}</b>. Access is by invitation only; there is no
             public signup.
           </p>
           <Link
@@ -42,7 +42,7 @@ export default async function InvitationPage({ params }: { params: Params }) {
         <>
           <h1 className="app-auth-title">This invitation has expired</h1>
           <p className="app-auth-lead">
-            Invitations are valid for 30 days. Ask {invitation.inviterName ? firstName(invitation.inviterName) : FALLBACK_INVITER} to send a new one to{" "}
+            Invitations are valid for 30 days. Ask an Alpha PR Labs admin to send a new one to{" "}
             {invitation.email}. Nothing else is needed from you.
           </p>
         </>

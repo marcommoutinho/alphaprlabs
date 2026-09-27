@@ -1,6 +1,8 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LineSpacing, SyringeCapacity } from "@/lib/calculator/calculator";
+import { Temporal } from "@js-temporal/polyfill";
+import { keysetRows, type PageOptions } from "@/lib/keyset";
 import { allRows } from "@/lib/library/service";
 import type { Database } from "@/lib/supabase/database.types";
 import { drawFor, type Mixture, type MixtureSetup, type MixtureVersion, type PlanDraw, type ValidMixture } from "./rules";
@@ -9,8 +11,8 @@ type Db = SupabaseClient<Database>;
 
 // Saved mixtures (R7) and personal vials (R8 data), read and written with the
 // caller's own session client, so RLS decides what is readable: a person's
-// own records, or those of a researcher whose active support grant they hold
-// (can_read_researcher). Callers that mean "mine" pass their own id as owner.
+// own records, or, for an admin, those of a researcher who shares with the
+// team (can_read_researcher). Callers that mean "mine" pass their own id as owner.
 // Amounts are read as text so no decimal passes through a float.
 //
 // For other slices:
@@ -35,6 +37,9 @@ type VersionRow = {
   line_spacing: string | null;
   created_at: string;
 };
+
+/** A timestamptz order, to the microsecond, as the database compares them. */
+const byInstant = (a: string, b: string) => Temporal.Instant.compare(Temporal.Instant.from(a), Temporal.Instant.from(b));
 
 const setupOf = (row: VersionRow): MixtureSetup => ({
   vialMg: row.vial_mg,
@@ -125,6 +130,64 @@ export async function listMixtures(db: Db, ownerId: string): Promise<Mixture[]> 
     "saved mixtures",
   );
   return withSetups(db, rows);
+}
+
+/** A saved mixture's whole record (A8): deleted or not, with every setup it ever had. */
+export type MixtureRecord = {
+  id: string;
+  peptideId: string;
+  createdAt: string;
+  /** Set once deleted; deleted mixtures stay for history. */
+  deletedAt: string | null;
+  currentVersion: number;
+  /** Every setup saved, oldest first. */
+  versions: MixtureVersion[];
+};
+
+/**
+ * Every mixture `ownerId` ever saved, deleted ones included, each with every
+ * setup version, oldest first. Both tables are read a page at a time by id
+ * (keyset), so a long history is never cut or shifted.
+ */
+export async function listMixtureRecords(db: Db, ownerId: string, options: PageOptions = {}): Promise<MixtureRecord[]> {
+  const [mixtures, versions] = await Promise.all([
+    keysetRows<{ id: string; peptide_id: string; current_version: number; created_at: string; deleted_at: string | null }>(
+      (after, limit) => {
+        const query = db.from("mixtures").select("id, peptide_id, current_version, created_at, deleted_at").eq("owner_id", ownerId);
+        return (after ? query.gt("id", after.id) : query).order("id").limit(limit);
+      },
+      "saved mixtures",
+      options,
+    ),
+    keysetRows<VersionRow>(
+      (after, limit) => {
+        const query = db.from("mixture_versions").select(VERSION_COLUMNS).eq("owner_id", ownerId);
+        return (after ? query.gt("id", after.id) : query).order("id").limit(limit) as unknown as PromiseLike<{
+          data: VersionRow[] | null;
+          error: { message: string } | null;
+        }>;
+      },
+      "mixture setups",
+      options,
+    ),
+  ]);
+  const versionsOf = new Map<string, MixtureVersion[]>();
+  for (const row of versions) {
+    versionsOf.set(row.mixture_id, [
+      ...(versionsOf.get(row.mixture_id) ?? []),
+      { id: row.id, number: row.number, setup: setupOf(row), createdAt: row.created_at },
+    ]);
+  }
+  return mixtures
+    .map((row) => ({
+      id: row.id,
+      peptideId: row.peptide_id,
+      createdAt: row.created_at,
+      deletedAt: row.deleted_at,
+      currentVersion: row.current_version,
+      versions: (versionsOf.get(row.id) ?? []).sort((a, b) => a.number - b.number),
+    }))
+    .sort((a, b) => byInstant(a.createdAt, b.createdAt) || a.id.localeCompare(b.id));
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -258,19 +321,20 @@ type VialRow = {
   finished_at: string | null;
 };
 
-/** `ownerId`'s vials, open and finished, oldest first. */
-export async function listPersonalVials(db: Db, ownerId: string): Promise<PersonalVial[]> {
-  const rows = await allRows<VialRow>(
-    (from, to) =>
-      db
-        .from("personal_vials")
-        .select("id, peptide_id, label, strength_mg::text, mixture_id, created_at, finished_at")
-        .eq("owner_id", ownerId)
-        .order("created_at")
-        .order("id")
-        .range(from, to) as unknown as PromiseLike<{ data: VialRow[] | null; error: { message: string } | null }>,
+/** `ownerId`'s vials, open and finished, oldest first (read by id, keyset). */
+export async function listPersonalVials(db: Db, ownerId: string, options: PageOptions = {}): Promise<PersonalVial[]> {
+  const rows = await keysetRows<VialRow>(
+    (after, limit) => {
+      const query = db.from("personal_vials").select("id, peptide_id, label, strength_mg::text, mixture_id, created_at, finished_at").eq("owner_id", ownerId);
+      return (after ? query.gt("id", after.id) : query).order("id").limit(limit) as unknown as PromiseLike<{
+        data: VialRow[] | null;
+        error: { message: string } | null;
+      }>;
+    },
     "personal vials",
+    options,
   );
+  rows.sort((a, b) => byInstant(a.created_at, b.created_at) || a.id.localeCompare(b.id));
   return rows.map((row) => ({
     id: row.id,
     peptideId: row.peptide_id,

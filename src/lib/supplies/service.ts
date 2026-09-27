@@ -7,7 +7,7 @@ type Db = SupabaseClient<Database>;
 // R8 personal supplies: the deductions behind each vial's estimate, and the
 // reopen writer (20260926210000_personal_supplies.sql). Read with the
 // caller's own session client, so RLS decides what is readable: a person's
-// own records, or those of a researcher whose active support grant they hold
+// own records, or, for an admin, those of a researcher sharing with the team
 // (can_read_researcher). Callers that mean "mine" pass their own id as owner.
 // The vials, the tracking setting and the other writers live in
 // src/lib/mixtures/service.ts (S11).

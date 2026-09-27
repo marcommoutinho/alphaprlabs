@@ -7,8 +7,8 @@ type Db = SupabaseClient<Database>;
 
 // R9 check-ins (20260926220000_progress.sql), read and written with the
 // caller's own session client, so RLS decides what is readable: a person's
-// own check-ins, or those of a researcher whose active support grant they
-// hold (S17's A8 history uses listCheckIns with that researcher's id).
+// own check-ins, or, for an admin, those of a researcher sharing with the
+// team (S17's A8 history uses listCheckIns with that researcher's id).
 // Callers that mean "mine" pass their own id as owner. Measurement values are
 // read as text (no floats). Reads are complete: a page at a time by day
 // (unique per owner, so a keyset), never cut at the API's 1,000-row cap.

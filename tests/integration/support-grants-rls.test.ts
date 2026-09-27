@@ -7,8 +7,9 @@
 //
 // Each step runs as the `authenticated` role with that person's JWT claims,
 // exactly as PostgREST does. The transaction always ends in ROLLBACK (and a
-// dropped connection rolls back too), so the fixture table, its rows and the
-// grant made here never persist: nothing is added to the migrations.
+// dropped connection rolls back too), so the fixture table, its rows, the
+// team share and the demotion made here never persist: nothing is added to
+// the migrations. (S4's per-admin grant became S17's team share.)
 import { execFileSync } from "node:child_process";
 import { beforeAll, describe, expect, it } from "vitest";
 import { ensureAccount, localSupabase, uniqueEmail } from "../support/local-supabase";
@@ -17,8 +18,8 @@ const people = {
   alex: { email: uniqueEmail("s4-rls-alex"), name: "Alex Owner", role: "researcher" },
   blair: { email: uniqueEmail("s4-rls-blair"), name: "Blair Other", role: "researcher" },
   una: { email: uniqueEmail("s4-rls-una"), name: "Una Unacknowledged", role: "researcher", acknowledged: false },
-  grace: { email: uniqueEmail("s4-rls-grace"), name: "Grace Granted", role: "admin" },
-  noah: { email: uniqueEmail("s4-rls-noah"), name: "Noah Not Granted", role: "admin" },
+  grace: { email: uniqueEmail("s4-rls-grace"), name: "Grace Admin", role: "admin" },
+  noah: { email: uniqueEmail("s4-rls-noah"), name: "Noah Admin", role: "admin" },
 } as const;
 type Name = keyof typeof people;
 const id = {} as Record<Name, string>;
@@ -77,7 +78,7 @@ const updateOf = (owner: Name) => `update ${T} set body = 'changed' where owner_
 const deleteOf = (owner: Name) => `delete from ${T} where owner_id = '${id[owner]}'`;
 
 describe("can_read_researcher / can_write_researcher inside RLS policies", () => {
-  it("owners read and write their own rows; a grant reads only the granting researcher's rows and never writes; revoke denies at once", () => {
+  it("owners read and write their own rows; a team share lets current admins read only the sharing researcher's rows, never write; stopping denies at once", () => {
     const script =
       `begin;
 create table ${T} (
@@ -97,12 +98,12 @@ insert into ${T} (owner_id, note) values
   ('${id.alex}', 'alex-1'), ('${id.alex}', 'alex-2'), ('${id.blair}', 'blair-1'),
   ('${id.una}', 'una-1'), ('${id.grace}', 'grace-1');
 ` +
-      // Before any grant: everyone sees only their own rows.
+      // Before any share: everyone sees only their own rows.
       as("alex") + read("alex before") +
       as("grace") + read("grace before") +
       as("noah") + read("noah before") +
-      // Alex grants Grace read access.
-      as("alex") + `select 'grant', public.grant_support_access('${id.grace}') is not null;\n` +
+      // Alex shares with the team.
+      as("alex") + `select 'share', public.share_with_team() is not null;\n` +
       read("alex reads") +
       write("alex inserts own", insertFor("alex", "alex-3")) +
       write("alex inserts for blair", insertFor("blair", "forged")) +
@@ -110,16 +111,16 @@ insert into ${T} (owner_id, note) values
       write("alex updates blair", updateOf("blair")) +
       write("alex deletes own", `delete from ${T} where note = 'alex-3'`) +
       write("alex deletes blair", deleteOf("blair")) +
-      // The granted admin reads Alex's rows (and her own), nobody else's, and writes none of Alex's.
-      as("grace") + read("grace granted") +
+      // Every admin reads Alex's rows (and their own), nobody else's, and writes none of Alex's.
+      as("grace") + read("grace reads shared") +
       write("grace inserts for alex", insertFor("alex", "forged")) +
       write("grace updates alex", updateOf("alex")) +
       write("grace deletes alex", deleteOf("alex")) +
       write("grace updates own", updateOf("grace")) +
-      // A non-granted admin and another researcher see and change nothing of Alex's.
-      as("noah") + read("noah granted elsewhere") +
+      as("noah") + read("noah reads shared") +
       write("noah updates alex", updateOf("alex")) +
       write("noah deletes alex", deleteOf("alex")) +
+      // Another researcher sees and changes nothing of Alex's.
       as("blair") + read("blair reads") +
       write("blair updates alex", updateOf("alex")) +
       write("blair deletes alex", deleteOf("alex")) +
@@ -130,10 +131,13 @@ insert into ${T} (owner_id, note) values
       write("una updates own", updateOf("una")) +
       // Anonymous callers have no access at all.
       as("anon") + write("anon reads", `perform count(*) from ${T}`) +
-      // Alex revokes: Grace is denied on her very next query.
-      as("alex") + `select 'revoke', public.revoke_support_access('${id.grace}');\n` +
-      as("grace") + read("grace after revoke") +
-      write("grace updates alex after revoke", updateOf("alex")) +
+      // Noah stops being an admin: he reads nothing of Alex's on his very next query.
+      `reset role;\nupdate public.profiles set role = 'researcher' where id = '${id.noah}';\n` +
+      as("noah") + read("noah after demotion") +
+      // Alex stops sharing: Grace is denied on her very next query.
+      as("alex") + `select 'stop', public.stop_sharing_with_team();\n` +
+      as("grace") + read("grace after stop") +
+      write("grace updates alex after stop", updateOf("alex")) +
       // Alex's rows are intact, with only Alex's own change.
       as("alex") + `select 'alex rows', string_agg(note || ':' || body, ',' order by note) from ${T};\n` +
       `rollback;\n`;
@@ -142,7 +146,7 @@ insert into ${T} (owner_id, note) values
       "alex before": "alex-1,alex-2",
       "grace before": "grace-1",
       "noah before": "",
-      grant: "t",
+      share: "t",
       "alex reads": "alex-1,alex-2",
       "alex inserts own": "1",
       "alex inserts for blair": "42501",
@@ -150,12 +154,12 @@ insert into ${T} (owner_id, note) values
       "alex updates blair": "0",
       "alex deletes own": "1",
       "alex deletes blair": "0",
-      "grace granted": "alex-1,alex-2,grace-1",
+      "grace reads shared": "alex-1,alex-2,grace-1",
       "grace inserts for alex": "42501",
       "grace updates alex": "0",
       "grace deletes alex": "0",
       "grace updates own": "1",
-      "noah granted elsewhere": "",
+      "noah reads shared": "alex-1,alex-2",
       "noah updates alex": "0",
       "noah deletes alex": "0",
       "blair reads": "blair-1",
@@ -166,18 +170,20 @@ insert into ${T} (owner_id, note) values
       "una inserts own": "42501",
       "una updates own": "0",
       "anon reads": "42501",
-      revoke: "t",
-      "grace after revoke": "grace-1",
-      "grace updates alex after revoke": "0",
+      "noah after demotion": "",
+      stop: "t",
+      "grace after stop": "grace-1",
+      "grace updates alex after stop": "0",
       "alex rows": "alex-1:changed,alex-2:changed",
     });
   });
 
-  it("leaves nothing behind: the fixture table and the grant were rolled back", () => {
+  it("leaves nothing behind: the fixture table, the share and the demotion were rolled back", () => {
     const after = psql(
       `select 'table', coalesce(to_regclass('${T}')::text, 'none');\n` +
-        `select 'grants', count(*) from public.support_grants where researcher_id = '${id.alex}';\n`,
+        `select 'shares', count(*) from public.support_shares where researcher_id = '${id.alex}';\n` +
+        `select 'noah', role from public.profiles where id = '${id.noah}';\n`,
     );
-    expect(Object.fromEntries(after)).toEqual({ table: "none", grants: "0" });
+    expect(Object.fromEntries(after)).toEqual({ table: "none", shares: "0", noah: "admin" });
   });
 });

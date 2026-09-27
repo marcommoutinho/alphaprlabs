@@ -15,10 +15,10 @@ type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 
 /**
  * A8 Researcher history, read-only. Access is checked on every request, on
- * the server and in the database: the account's grant to this admin must be
- * active, and every record is read as the admin under RLS
- * (can_read_researcher), never with the secret key. The grant is checked
- * again after reading, so a revoke that lands mid-request shows the denied
+ * the server and in the database: the account must be sharing with the team
+ * now, and every record is read as the admin under RLS
+ * (can_read_researcher), never with the secret key. The share is checked
+ * again after reading, so a stop that lands mid-request shows the denied
  * state rather than a history emptied by RLS. No write controls; business
  * stock, sales and push subscriptions are never read. `?full=1` shows every
  * record instead of the most recent ones.
@@ -39,7 +39,7 @@ export default async function ResearcherHistoryPage({ params, searchParams }: { 
       <ResearcherDenied account={state} />
     </AppPage>
   );
-  if (!account.grantedAt || !(await canReadResearcher(db, account.id))) return denied(account);
+  if (!account.sharedSince || !(await canReadResearcher(db, account.id))) return denied(account);
 
   const [records, peptides] = await Promise.all([readResearcherRecords(db, account.id), adminPeptideNames(db)]);
   if (!(await canReadResearcher(db, account.id))) return denied((await getSupportAccount(db, account.id)) ?? account);
@@ -50,7 +50,7 @@ export default async function ResearcherHistoryPage({ params, searchParams }: { 
       <Link href="/admin/support" className="app-a8-back">
         ‹ Support
       </Link>
-      <ResearcherHistory account={account} grantedAt={account.grantedAt} view={view} full={full} />
+      <ResearcherHistory account={account} sharedSince={account.sharedSince} view={view} full={full} />
     </AppPage>
   );
 }

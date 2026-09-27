@@ -110,10 +110,13 @@ export async function resendInvitation(db: Db, id: unknown, ctx: SendContext): P
 
 // ── Invitee side (no session yet): secret-key client, token lookups only. ────
 
-/** `inviterName` is null when the inviting admin no longer exists. */
+/**
+ * What the invitee's screens show. Never the inviting admin's name: a
+ * researcher never learns which admin it is (Marco, 2026-09-27).
+ */
 export type InvitationView =
-  | { state: "valid"; name: string; email: string; inviterName: string | null; expiresAt: string }
-  | { state: "expired"; email: string; inviterName: string | null }
+  | { state: "valid"; name: string; email: string; expiresAt: string }
+  | { state: "expired"; email: string }
   /** Accepted, an account already exists, or an unknown token (email null). */
   | { state: "used"; email: string | null };
 
@@ -122,7 +125,7 @@ export async function viewInvitation(token: string, now = new Date()): Promise<I
   const admin = createAdminClient();
   const { data: row } = await admin
     .from("invitations")
-    .select("name, email, state, expires_at, inviter:profiles!invitations_invited_by_fkey(name)")
+    .select("name, email, state, expires_at")
     .eq("token_hash", hashToken(token))
     .maybeSingle();
   if (!row) return { state: "used", email: null };
@@ -131,11 +134,10 @@ export async function viewInvitation(token: string, now = new Date()): Promise<I
   const { count } = await admin.from("profiles").select("id", { count: "exact", head: true }).eq("email", row.email);
   if (count) return { state: "used", email: row.email };
 
-  const inviterName = row.inviter?.name || null;
   if (displayState({ state: "pending", expires_at: row.expires_at }, now) === "expired") {
-    return { state: "expired", email: row.email, inviterName };
+    return { state: "expired", email: row.email };
   }
-  return { state: "valid", name: row.name, email: row.email, inviterName, expiresAt: row.expires_at };
+  return { state: "valid", name: row.name, email: row.email, expiresAt: row.expires_at };
 }
 
 export type AcceptResult =

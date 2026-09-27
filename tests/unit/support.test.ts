@@ -1,54 +1,56 @@
 // S17 R11 Me (support access) and A8 Researcher support / history: what the
-// screens show, from grant rows and the records an admin read. Pure, no
+// screens show, from share rows and the records an admin read. Pure, no
 // database. Times are America/Toronto (EDT, UTC-4 in September) except a
 // dose's, which is in its own occurrence's zone. Sep 21, 2026 is a Monday.
 import { describe, expect, it } from "vitest";
 import type { CycleRecord, CycleRevision } from "@/lib/cycles/rules";
 import { cycleOccurrences } from "@/lib/cycles/schedule";
-import type { Mixture } from "@/lib/mixtures/rules";
 import {
-  accessOf,
+  A8_NONE,
   deniedText,
-  grantedLabel,
   historyView,
   type HistoryInput,
   meSupport,
-  NOT_ADMIN_NOTE,
   RECENT,
+  SHARE_POINTS,
+  sharedLabel,
+  STOP_POINTS,
+  SUPPORT_INTRO,
   supplementsSummary,
   suppliesSummary,
   supportRows,
 } from "@/lib/support/view";
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
-const [MARCO, DANA, EVE] = [uuid(1), uuid(2), uuid(3)];
 const [PA, PW] = [uuid(901), uuid(902)];
 const NOW = "2026-09-21T16:00:00Z";
 
 describe("R11 support access", () => {
-  const grants = [
-    { id: uuid(11), adminId: MARCO, adminName: "Marco", stillAdmin: true, grantedAt: "2026-09-01T12:00:00Z", revokedAt: "2026-09-10T13:30:00Z" },
-    { id: uuid(12), adminId: MARCO, adminName: "Marco", stillAdmin: true, grantedAt: "2026-09-15T11:05:00Z", revokedAt: null },
-    { id: uuid(13), adminId: DANA, adminName: "Dana", stillAdmin: false, grantedAt: "2026-08-20T12:00:00Z", revokedAt: null },
-    { id: uuid(14), adminId: EVE, adminName: "Eve", stillAdmin: true, grantedAt: "2026-09-12T12:00:00Z", revokedAt: "2026-09-13T12:00:00Z" },
-  ];
-  const admins = [
-    { id: MARCO, name: "Marco" },
-    { id: EVE, name: "Eve" },
+  const shares = [
+    { id: uuid(11), startedAt: "2026-09-01T12:00:00Z", stoppedAt: "2026-09-10T13:30:00Z" },
+    { id: uuid(12), startedAt: "2026-09-15T11:05:00Z", stoppedAt: null },
+    { id: uuid(14), startedAt: "2026-09-12T12:00:00Z", stoppedAt: "2026-09-13T12:00:00Z" },
   ];
 
-  it("shows each active grant, offers only admins without one, and lists past grants newest first", () => {
-    const view = meSupport(admins, grants);
-    expect(view.active).toEqual([
-      { adminId: DANA, adminName: "Dana", since: "Granted Thu Aug 20 · 08:00 · full profile history · until you revoke", note: NOT_ADMIN_NOTE },
-      { adminId: MARCO, adminName: "Marco", since: "Granted Tue Sep 15 · 07:05 · full profile history · until you revoke", note: "" },
-    ]);
-    expect(view.grantable).toEqual([{ id: EVE, name: "Eve" }]);
-    expect(view.past).toBe("Previously: Eve Sep 12, 2026 – Sep 13, 2026; Marco Sep 1, 2026 – Sep 10, 2026");
+  it("shows since when the history is shared, and when it was shared before, newest first", () => {
+    expect(meSupport(shares)).toEqual({
+      sharedSince: "Shared since Tue Sep 15 · 07:05 · full profile history · until you stop",
+      past: "Previously: shared Sep 12, 2026 – Sep 13, 2026; shared Sep 1, 2026 – Sep 10, 2026",
+    });
   });
 
-  it("offers every admin before any grant, and says nothing of the past", () => {
-    expect(meSupport(admins, [])).toEqual({ active: [], grantable: admins, past: "" });
+  it("is private before any share, and after the last one stopped", () => {
+    expect(meSupport([])).toEqual({ sharedSince: null, past: "" });
+    expect(meSupport(shares.filter((s) => s.stoppedAt))).toEqual({
+      sharedSince: null,
+      past: "Previously: shared Sep 12, 2026 – Sep 13, 2026; shared Sep 1, 2026 – Sep 10, 2026",
+    });
+  });
+
+  it("shares with the team, never a named admin, and says who can read before sharing", () => {
+    expect(SHARE_POINTS[0]).toBe("Every Alpha PR Labs admin can read it, including admins added later.");
+    expect(STOP_POINTS[0]).toBe("The team loses access to your history from their next page or request.");
+    expect(SUPPORT_INTRO).toContain("with the Alpha PR Labs team");
   });
 
   it("summarises the optional features: open vials, and routines still running today in Toronto", () => {
@@ -65,29 +67,28 @@ describe("R11 support access", () => {
 
 describe("A8 Researcher support", () => {
   const accounts = [
-    { id: uuid(21), name: "Zoe None", email: "zoe@example.test", grantedAt: null, revokedAt: null },
-    { id: uuid(22), name: "Riley Revoked", email: "riley@example.test", grantedAt: null, revokedAt: "2026-09-18T14:00:00Z" },
-    { id: uuid(23), name: "Jordan Reyes", email: "jordan@example.test", grantedAt: "2026-09-19T12:15:00Z", revokedAt: "2026-09-10T12:00:00Z" },
-    { id: uuid(24), name: "Avery None", email: "avery@example.test", grantedAt: null, revokedAt: null },
+    { id: uuid(21), name: "Zoe Never", email: "zoe@example.test", sharedSince: null, stoppedAt: null },
+    { id: uuid(22), name: "Riley Stopped", email: "riley@example.test", sharedSince: null, stoppedAt: "2026-09-18T14:00:00Z" },
+    { id: uuid(23), name: "Jordan Reyes", email: "jordan@example.test", sharedSince: "2026-09-19T12:15:00Z", stoppedAt: "2026-09-10T12:00:00Z" },
+    { id: uuid(24), name: "Avery Sharing", email: "avery@example.test", sharedSince: "2026-09-20T12:00:00Z", stoppedAt: null },
   ];
 
-  it("lists granted, then revoked, then the rest, each with the designed state and line", () => {
-    expect(supportRows(accounts).map((row) => [row.name, row.state, row.sub])).toEqual([
-      ["Jordan Reyes", "Access granted", "Read-only since Sat Sep 19 · 08:15"],
-      ["Riley Revoked", "Revoked", "Revoked Fri Sep 18 · 10:00 — opening will be denied"],
-      ["Avery None", "No access", "They haven't granted access"],
-      ["Zoe None", "No access", "They haven't granted access"],
+  it("lists only the researchers sharing now, by name, since when", () => {
+    expect(supportRows(accounts).map((row) => [row.name, row.sub])).toEqual([
+      ["Avery Sharing", "Read-only since Sun Sep 20 · 08:00"],
+      // Sharing again after stopping is sharing.
+      ["Jordan Reyes", "Read-only since Sat Sep 19 · 08:15"],
     ]);
-    // A newer grant after a revoke is access granted.
-    expect(accessOf(accounts[2])).toBe("granted");
+    expect(supportRows(accounts.slice(0, 2))).toEqual([]);
+    expect(A8_NONE).toBe("No researcher has shared their history with the team. They can share it under Me → Support access.");
   });
 
-  it("explains a denial: revoked, or never granted", () => {
+  it("explains a denial: stopped, or never shared", () => {
     expect(deniedText(accounts[1])).toBe(
-      "Riley Revoked revoked your access on Fri Sep 18 · 10:00. Their history is private again; you'd need a new grant from them.",
+      "Riley Stopped stopped sharing their history on Fri Sep 18 · 10:00. It's private again; only they can share it again, from their own profile.",
     );
-    expect(deniedText(accounts[0])).toBe("Zoe None hasn't shared their history with you. Only they can grant access, from their own profile.");
-    expect(grantedLabel("2026-09-19T12:15:00Z")).toBe("Read-only · granted Sat Sep 19 · 08:15");
+    expect(deniedText(accounts[0])).toBe("Zoe Never hasn't shared their history with the team. Only they can share it, from their own profile.");
+    expect(sharedLabel("2026-09-19T12:15:00Z")).toBe("Read-only · shared Sat Sep 19 · 08:15");
   });
 });
 
@@ -133,17 +134,25 @@ describe("A8 Researcher history", () => {
     return { id: uuid(100 + i), cycleId: toronto.id, planId: PLAN_A, occurrenceKey: occurrenceKey(toronto, date), actualAt: `${date}T23:05:00Z`, amountMg: "0.400" };
   });
   const doseW = { id: uuid(200), cycleId: tokyo.id, planId: PLAN_W, occurrenceKey: occurrenceKey(tokyo, "2026-08-02"), actualAt: "2026-08-02T11:00:00Z", amountMg: "0.25" };
-  const mixture: Mixture = {
+  const mixture: HistoryInput["mixtures"][number] = {
     id: uuid(300),
-    ownerId: uuid(600),
     peptideId: PA,
-    version: 1,
-    setupNumber: 1,
-    setupId: uuid(301),
-    setup: { vialMg: "10", liquidMl: "2", syringe: 100, lineSpacing: "2" },
-    setupSince: "2026-09-01T12:00:00Z",
     createdAt: "2026-09-01T12:00:00Z",
-    planIds: [PLAN_A],
+    deletedAt: null,
+    currentVersion: 1,
+    versions: [{ id: uuid(301), number: 1, setup: { vialMg: "10", liquidMl: "2", syringe: 100, lineSpacing: "2" }, createdAt: "2026-09-01T12:00:00Z" }],
+  };
+  // Edited twice, then deleted: every setup stays, with the date each took effect.
+  const deleted: HistoryInput["mixtures"][number] = {
+    id: uuid(310),
+    peptideId: PW,
+    createdAt: "2026-08-01T12:00:00Z",
+    deletedAt: "2026-08-25T15:00:00Z",
+    currentVersion: 2,
+    versions: [
+      { id: uuid(312), number: 2, setup: { vialMg: "5", liquidMl: "2.5", syringe: 50, lineSpacing: "1" }, createdAt: "2026-08-05T13:00:00Z" },
+      { id: uuid(311), number: 1, setup: { vialMg: "5", liquidMl: "2", syringe: 100, lineSpacing: "unknown" }, createdAt: "2026-08-01T12:00:00Z" },
+    ],
   };
   const base: HistoryInput = {
     cycles: [toronto, tokyo],
@@ -163,7 +172,7 @@ describe("A8 Researcher history", () => {
       { id: uuid(501), peptideId: PW, label: "W-01", strengthMg: "5", finishedAt: "2026-08-21T12:00:00Z" },
       { id: uuid(502), peptideId: PA, label: "A-02", strengthMg: "0.5", finishedAt: null },
     ],
-    mixtures: [mixture],
+    mixtures: [deleted, mixture],
     deductions: [
       { vialId: uuid(500), amountMg: "0.4" },
       { vialId: uuid(500), amountMg: "0.4" },
@@ -221,7 +230,25 @@ describe("A8 Researcher history", () => {
     expect(view.supplies).toBe(
       "Supplies tracked: A-01 · Compound A 10 mg · est. 9.2 mg left; A-02 · Compound A 0.5 mg · est. 0 mg left (0.2 mg over); W-01 · Withdrawn W 5 mg · finished Aug 21, 2026",
     );
-    expect(view.mixtures).toBe("Saved mixtures: Compound A · 10 mg / 2 mL · 1 mL");
+    expect(view.mixtures).toEqual([
+      {
+        id: deleted.id,
+        title: "Withdrawn W · 5 mg / 2.5 mL · 0.5 mL",
+        deleted: true,
+        state: "saved Aug 1, 2026 · deleted Aug 25, 2026",
+        versions: [
+          { id: uuid(311), line: "Setup 1 · 5 mg / 2 mL · 1 mL syringe · from Sat Aug 1 · 08:00" },
+          { id: uuid(312), line: "Setup 2 · 5 mg / 2.5 mL · 0.5 mL syringe · from Wed Aug 5 · 09:00" },
+        ],
+      },
+      {
+        id: mixture.id,
+        title: "Compound A · 10 mg / 2 mL · 1 mL",
+        deleted: false,
+        state: "saved Sep 1, 2026",
+        versions: [{ id: uuid(301), line: "Setup 1 · 10 mg / 2 mL · 1 mL syringe · from Tue Sep 1 · 08:00" }],
+      },
+    ]);
     expect(view.supplements).toBe("Supplement routines: Vitamin D3 2000 IU daily 08:00; Magnesium 200 mg daily 21:00 (ended Sep 12, 2026)");
     expect(view.taken).toEqual([{ id: uuid(700), line: "Vitamin D3 · 2000 IU", time: "Sun Sep 20 · 08:10" }]);
   });
@@ -233,7 +260,7 @@ describe("A8 Researcher history", () => {
     const empty = historyView({ ...base, vials: [], routines: [], mixtures: [], taken: [], supplyTracking: false, supplementTracking: false });
     expect(empty.supplies).toBe("Personal supplies: optional feature not used.");
     expect(empty.supplements).toBe("Supplement routines: optional feature not used.");
-    expect(empty.mixtures).toBe("");
+    expect(empty.mixtures).toEqual([]);
     const on = historyView({ ...base, vials: [], routines: [] });
     expect(on.supplies).toBe("Supplies tracking is on but no vials are recorded.");
     expect(on.supplements).toBe("Supplement tracking is on but no routines exist.");

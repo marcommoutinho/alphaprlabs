@@ -29,7 +29,7 @@ const people = {
   blair: { email: uniqueEmail("s9-acc-blair"), name: "Blair Other", role: "researcher" },
   una: { email: uniqueEmail("s9-acc-una"), name: "Una Unacknowledged", role: "researcher", acknowledged: false },
   grace: { email: uniqueEmail("s9-acc-grace"), name: "Grace Granted", role: "admin" },
-  noah: { email: uniqueEmail("s9-acc-noah"), name: "Noah Not Granted", role: "admin" },
+  noah: { email: uniqueEmail("s9-acc-noah"), name: "Noah Admin", role: "admin" },
 } as const;
 type Name = keyof typeof people;
 const id = {} as Record<Name, string>;
@@ -79,17 +79,19 @@ describe("cycles are the owner's; grants read, never write", () => {
     expect(await ok(saveCycle(db.blair, edit), "blair edits")).toBeNull();
     expect(await ok(saveCycle(db.noah, edit), "noah edits")).toBeNull();
 
-    // A grant lets Grace read the whole history, and only read it.
-    await ok(db.alex.rpc("grant_support_access", { p_admin_id: id.grace }), "grant");
+    // Sharing with the team lets every admin read the whole history, and only read it.
+    await ok(db.alex.rpc("share_with_team"), "share");
     expect(await getCycle(db.grace, cycleId)).toEqual(before);
     expect((await listCycles(db.grace, id.alex)).map((c) => c.id)).toContain(cycleId);
-    expect(await getCycle(db.noah, cycleId)).toBeNull();
-    expect(await ok(saveCycle(db.grace, edit), "granted admin edits")).toBeNull();
+    expect(await getCycle(db.noah, cycleId)).toEqual(before);
+    expect(await getCycle(db.blair, cycleId)).toBeNull();
+    expect(await ok(saveCycle(db.grace, edit), "admin edits a shared cycle")).toBeNull();
     expect(await getCycle(db.alex, cycleId)).toEqual(before);
 
-    // Revoking denies the very next read.
-    await ok(db.alex.rpc("revoke_support_access", { p_admin_id: id.grace }), "revoke");
+    // Stopping denies every admin's very next read.
+    await ok(db.alex.rpc("stop_sharing_with_team"), "stop sharing");
     expect(await getCycle(db.grace, cycleId)).toBeNull();
+    expect(await getCycle(db.noah, cycleId)).toBeNull();
     for (const table of TABLES) expect(await rowsOf(db.grace, table, cycleId), `revoked ${table}`).toEqual([]);
   });
 

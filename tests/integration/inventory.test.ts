@@ -70,7 +70,7 @@ describe("the handoff FIFO scenario", () => {
     const itemId = await buy({ peptideId, strengthMg: "8" }, "2026-08-15", 10, "20");
     expect(await buy({ stockItemId: itemId }, "2026-08-20", 10, "25.00")).toBe(itemId);
 
-    const grantsBefore = (await serviceClient().from("support_grants").select("id").eq("researcher_id", jordanId)).data!;
+    const grantsBefore = (await serviceClient().from("support_shares").select("id").eq("researcher_id", jordanId)).data!;
     const sale = await recordSale(db, saleInput(itemId, 12, "40", { buyer: { type: "account", profileId: jordanId } }));
     expect(sale).toMatchObject({ kind: "recorded", replayed: false });
 
@@ -113,7 +113,7 @@ describe("the handoff FIFO scenario", () => {
     expect(report).toMatchObject({ hasPurchases: true, hasSales: true, salesTruncated: false });
 
     // Linking Jordan's account granted nothing.
-    expect((await serviceClient().from("support_grants").select("id").eq("researcher_id", jordanId)).data).toEqual(grantsBefore);
+    expect((await serviceClient().from("support_shares").select("id").eq("researcher_id", jordanId)).data).toEqual(grantsBefore);
   });
 
   it("the 8 left sell exactly, then the item shows 0 on hand and refuses even 1", async () => {

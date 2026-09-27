@@ -1,83 +1,78 @@
 // R11 Me's support access and A8 Researcher support / history: what the
 // screens show (handoff docs/design/research-app README.md "A8 Researcher
 // support", "A8 Researcher history (read-only)" and "R11 Me"; the
-// prototype's `me`, `asup` and `ar` views). Pure: built from the grant rows
-// and the records the admin read under RLS, and shared by the screens and the
-// tests. Times are America/Toronto (the business is local) except a dose's,
-// which is shown in its own occurrence's zone, as everywhere else.
+// prototype's `me`, `asup` and `ar` views), with Marco's simplification
+// (2026-09-27): a researcher shares with the whole Alpha PR Labs team, never
+// with a chosen admin, and a researcher never sees which admin reads. Pure:
+// built from the share rows and the records the admin read under RLS, and
+// shared by the screens and the tests. Times are America/Toronto (the
+// business is local) except a dose's, which is shown in its own occurrence's
+// zone, as everywhere else.
+import { SYRINGE_LABEL } from "@/lib/calculator/calculator";
 import type { CycleRecord } from "@/lib/cycles/rules";
 import { cycleOccurrences, cycleSpan, cycleStatus, type CycleStatus } from "@/lib/cycles/schedule";
 import { planPeptides } from "@/lib/cycles/views";
 import { formatDate, formatDateTime, formatDay, formatMonthDay } from "@/lib/format";
-import { type Mixture, mixtureLabel } from "@/lib/mixtures/rules";
+import { type MixtureSetup, mixtureLabel } from "@/lib/mixtures/rules";
 import { effectsLine } from "@/lib/progress/rules";
 import type { Confirmation } from "@/lib/schedule/engine";
 import type { InstantInput } from "@/lib/schedule/zone";
 import { mgLabel, vialEstimate } from "@/lib/supplies/estimate";
 import { todayIn } from "@/lib/supplements/schedule";
 
-/** Grant times are shown in the business's zone. */
+/** Share times are shown in the business's zone. */
 export const SUPPORT_TIME_ZONE = "America/Toronto";
 const when = (at: string) => formatDateTime(at, { timeZone: SUPPORT_TIME_ZONE });
+const dayOf = (at: string) => formatDate(at, { timeZone: SUPPORT_TIME_ZONE });
 
 // ── Copy ────────────────────────────────────────────────────────────────────
 
+export const TEAM = "the Alpha PR Labs team";
+
 export const SUPPORT_INTRO =
-  "Your history is private by default. You can let a named admin read your full profile history — cycles, doses, check-ins, measurements, supplies and supplement records — to help with support. Read-only: they cannot edit anything. It lasts until you revoke it.";
-export const GRANT_POINTS = [
+  "Your history is private by default. You can share your full profile history — cycles, doses, check-ins, measurements, supplies and supplement records — with the Alpha PR Labs team to help with support. Read-only: they cannot edit anything. It lasts until you stop sharing.";
+export const SHARE_BUTTON = "Share with the Alpha PR Labs team";
+export const SHARE_QUESTION = "Share your history with the Alpha PR Labs team?";
+export const SHARE_POINTS = [
+  "Every Alpha PR Labs admin can read it, including admins added later.",
   "Covers your full profile history, not a single cycle.",
   "Read-only — nothing can be edited, added or deleted.",
-  "Lasts until you revoke it here. No automatic expiry.",
+  "Lasts until you stop sharing here. No automatic expiry.",
 ] as const;
-export const REVOKE_POINTS = [
-  "They lose access to your history from their next page or request.",
+export const STOP_QUESTION = "Stop sharing your history?";
+export const STOP_POINTS = [
+  "The team loses access to your history from their next page or request.",
   "Nothing in your history changes.",
-  "You can grant access again later; it starts a new grant.",
+  "You can share again later; it starts a new share.",
 ] as const;
-export const NO_ADMINS = "There is no other admin to grant access to.";
-export const CHOOSE_ADMIN = "Choose an admin.";
-export const GRANT_REFUSED = "That admin can't be granted access. Reload the page and choose again.";
-export const ALREADY_REVOKED = "That access had already ended. Your history is private.";
-export const grantedToast = (name: string) => `${name} can now read your history. Revoke any time.`;
-export const revokedToast = (name: string) => `Access revoked. ${name} can no longer open your history.`;
-export const NOT_ADMIN_NOTE = "no longer an admin, so this grant reads nothing";
+export const SHARED_TOAST = "Your history is shared with the Alpha PR Labs team. Stop sharing any time.";
+export const STOPPED_TOAST = "Sharing stopped. The team can no longer open your history.";
+export const ALREADY_STOPPED = "Sharing had already stopped. Your history is private.";
 
 export const A8_INTRO =
-  "You can only open a researcher's history after they grant you access from their profile. Access is read-only and ends the moment they revoke it. No editing, messaging or shared workspace.";
-export const A8_NONE = "No researcher has granted you access. Ask them to grant it under Me → Support access.";
+  "Researchers who share their history with the Alpha PR Labs team appear here. Access is read-only and ends the moment they stop sharing. No editing, messaging or shared workspace.";
+export const A8_NONE = "No researcher has shared their history with the team. They can share it under Me → Support access.";
 
 // ── R11 Me ──────────────────────────────────────────────────────────────────
 
-export type GrantRow = { id: string; adminId: string; adminName: string; stillAdmin: boolean; grantedAt: string; revokedAt: string | null };
-
-export type ActiveGrant = { adminId: string; adminName: string; since: string; note: string };
+export type ShareRow = { id: string; startedAt: string; stoppedAt: string | null };
 
 export type MeSupport = {
-  /** One card per admin who can read the history now. */
-  active: ActiveGrant[];
-  /** Admins without an active grant, who may be granted one. */
-  grantable: { id: string; name: string }[];
-  /** "Previously: Marco Sep 1, 2026 – Sep 10, 2026; …", or "". */
+  /** "Shared since Fri Sep 11 · 07:30 · full profile history · until you stop", or null when private. */
+  sharedSince: string | null;
+  /** "Previously: shared Sep 1, 2026 – Sep 10, 2026; …", or "". */
   past: string;
 };
 
-/** R11's support section from the admins that may be chosen and the caller's grants. */
-export function meSupport(admins: readonly { id: string; name: string }[], grants: readonly GrantRow[]): MeSupport {
-  const active = grants.filter((g) => g.revokedAt === null).sort((a, b) => a.adminName.localeCompare(b.adminName));
-  const holding = new Set(active.map((g) => g.adminId));
-  const past = grants
-    .filter((g) => g.revokedAt !== null)
-    .sort((a, b) => Date.parse(b.grantedAt) - Date.parse(a.grantedAt) || b.id.localeCompare(a.id));
-  const day = (at: string) => formatDate(at, { timeZone: SUPPORT_TIME_ZONE });
+/** R11's support section from the caller's own shares. Names no admin: the team reads, not a person. */
+export function meSupport(shares: readonly ShareRow[]): MeSupport {
+  const active = shares.find((s) => s.stoppedAt === null) ?? null;
+  const past = shares
+    .filter((s) => s.stoppedAt !== null)
+    .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt) || b.id.localeCompare(a.id));
   return {
-    active: active.map((g) => ({
-      adminId: g.adminId,
-      adminName: g.adminName,
-      since: `Granted ${when(g.grantedAt)} · full profile history · until you revoke`,
-      note: g.stillAdmin ? "" : NOT_ADMIN_NOTE,
-    })),
-    grantable: admins.filter((a) => !holding.has(a.id)).map((a) => ({ id: a.id, name: a.name })),
-    past: past.length ? `Previously: ${past.map((g) => `${g.adminName} ${day(g.grantedAt)} – ${day(g.revokedAt!)}`).join("; ")}` : "",
+    sharedSince: active ? `Shared since ${when(active.startedAt)} · full profile history · until you stop` : null,
+    past: past.length ? `Previously: ${past.map((s) => `shared ${dayOf(s.startedAt)} – ${dayOf(s.stoppedAt!)}`).join("; ")}` : "",
   };
 }
 
@@ -95,48 +90,26 @@ export function supplementsSummary(tracking: boolean, routines: readonly { endDa
 
 // ── A8 Researcher support ───────────────────────────────────────────────────
 
-export type AccountState = { id: string; name: string; email: string; grantedAt: string | null; revokedAt: string | null };
+export type AccountState = { id: string; name: string; email: string; sharedSince: string | null; stoppedAt: string | null };
 
-export type Access = "granted" | "revoked" | "none";
+export type SupportRow = { id: string; name: string; email: string; sub: string };
 
-export const accessOf = (account: Pick<AccountState, "grantedAt" | "revokedAt">): Access =>
-  account.grantedAt ? "granted" : account.revokedAt ? "revoked" : "none";
-
-export type SupportRow = { id: string; name: string; email: string; access: Access; state: string; sub: string };
-
-const STATE: Record<Access, string> = { granted: "Access granted", revoked: "Revoked", none: "No access" };
-const ORDER: Record<Access, number> = { granted: 0, revoked: 1, none: 2 };
-
-/** A8's rows: granted first, then revoked, then the rest, each by name. */
+/** A8's rows: the accounts sharing now, by name. */
 export function supportRows(accounts: readonly AccountState[]): SupportRow[] {
   return accounts
-    .map((a) => {
-      const access = accessOf(a);
-      return {
-        id: a.id,
-        name: a.name,
-        email: a.email,
-        access,
-        state: STATE[access],
-        sub:
-          access === "granted"
-            ? `Read-only since ${when(a.grantedAt!)}`
-            : access === "revoked"
-              ? `Revoked ${when(a.revokedAt!)} — opening will be denied`
-              : "They haven't granted access",
-      };
-    })
-    .sort((a, b) => ORDER[a.access] - ORDER[b.access] || a.name.localeCompare(b.name) || a.email.localeCompare(b.email));
+    .filter((a) => a.sharedSince !== null)
+    .map((a) => ({ id: a.id, name: a.name, email: a.email, sub: `Read-only since ${when(a.sharedSince!)}` }))
+    .sort((a, b) => a.name.localeCompare(b.name) || a.email.localeCompare(b.email));
 }
 
-/** The denied state's body for an account without an active grant. */
+/** The denied state's body for an account not sharing now (stopped, or never shared). */
 export const deniedText = (account: AccountState) =>
-  account.revokedAt
-    ? `${account.name} revoked your access on ${when(account.revokedAt)}. Their history is private again; you'd need a new grant from them.`
-    : `${account.name} hasn't shared their history with you. Only they can grant access, from their own profile.`;
+  account.stoppedAt
+    ? `${account.name} stopped sharing their history on ${when(account.stoppedAt)}. It's private again; only they can share it again, from their own profile.`
+    : `${account.name} hasn't shared their history with the team. Only they can share it, from their own profile.`;
 
-/** The granted header: "Read-only · granted Fri Sep 11 · 07:30". */
-export const grantedLabel = (grantedAt: string) => `Read-only · granted ${when(grantedAt)}`;
+/** The shared header: "Read-only · shared Fri Sep 11 · 07:30". */
+export const sharedLabel = (sharedSince: string) => `Read-only · shared ${when(sharedSince)}`;
 
 // ── A8 Researcher history ───────────────────────────────────────────────────
 
@@ -158,7 +131,15 @@ export type HistoryInput = {
   }[];
   supplyTracking: boolean;
   vials: readonly { id: string; peptideId: string; label: string; strengthMg: string; finishedAt: string | null }[];
-  mixtures: readonly Mixture[];
+  /** Every mixture ever saved, deleted ones included, with every setup version. */
+  mixtures: readonly {
+    id: string;
+    peptideId: string;
+    createdAt: string;
+    deletedAt: string | null;
+    currentVersion: number;
+    versions: readonly { id: string; number: number; setup: MixtureSetup; createdAt: string }[];
+  }[];
   deductions: readonly { vialId: string; amountMg: string }[];
   supplementTracking: boolean;
   routines: readonly { id: string; name: string; amount: string; unit: string; time: string; endDate: string | null }[];
@@ -173,6 +154,8 @@ export type HistoryInput = {
 export type HistoryCycle = { id: string; name: string; status: CycleStatus; dates: string; peptides: string; goal: string };
 export type HistoryDose = { id: string; peptide: string; mg: string; time: string };
 export type HistoryCheckIn = { id: string; date: string; feeling: number; effects: string; note: string };
+/** A saved mixture: its setup now (or when deleted), its state, and every setup it had with its date. */
+export type HistoryMixture = { id: string; title: string; state: string; deleted: boolean; versions: { id: string; line: string }[] };
 
 export type HistoryView = {
   cycles: HistoryCycle[];
@@ -181,7 +164,8 @@ export type HistoryView = {
   /** "Measurements: Weight 82.4 kg (Sep 26) · …", or "". */
   measures: string;
   supplies: string;
-  mixtures: string;
+  /** Every mixture record, oldest first (never cut: a short list). */
+  mixtures: HistoryMixture[];
   supplements: string;
   taken: { id: string; line: string; time: string }[];
   /** Some list shows only its most recent records. */
@@ -191,6 +175,25 @@ export type HistoryView = {
 
 const newestFirst = <T>(rows: readonly T[], at: (row: T) => string, id: (row: T) => string) =>
   [...rows].sort((a, b) => Date.parse(at(b)) - Date.parse(at(a)) || id(b).localeCompare(id(a)));
+
+/** A8's mixture records: the current (or last) setup, saved or deleted, and each version with the date it took effect. */
+export function mixtureHistory(mixtures: HistoryInput["mixtures"], nameOf: (peptideId: string) => string): HistoryMixture[] {
+  return mixtures.map((m) => {
+    const versions = [...m.versions].sort((a, b) => a.number - b.number);
+    const current = versions.find((v) => v.number === m.currentVersion) ?? versions.at(-1);
+    const name = nameOf(m.peptideId);
+    return {
+      id: m.id,
+      title: current ? mixtureLabel(name, current.setup) : name,
+      deleted: m.deletedAt !== null,
+      state: m.deletedAt ? `saved ${dayOf(m.createdAt)} · deleted ${dayOf(m.deletedAt)}` : `saved ${dayOf(m.createdAt)}`,
+      versions: versions.map((v) => ({
+        id: v.id,
+        line: `Setup ${v.number} · ${v.setup.vialMg} mg / ${v.setup.liquidMl} mL · ${SYRINGE_LABEL[v.setup.syringe]} syringe · from ${when(v.createdAt)}`,
+      })),
+    };
+  });
+}
 
 /** Everything A8's four cards show (read-only; nothing here links to a write). */
 export function historyView(input: HistoryInput): HistoryView {
@@ -240,7 +243,7 @@ export function historyView(input: HistoryInput): HistoryView {
   for (const d of input.deductions) byVial.set(d.vialId, [...(byVial.get(d.vialId) ?? []), d]);
   const vialLine = (v: HistoryInput["vials"][number]) => {
     const head = `${v.label} · ${nameOf(v.peptideId)} ${mgLabel(v.strengthMg)}`;
-    if (v.finishedAt) return `${head} · finished ${formatDate(v.finishedAt, { timeZone: SUPPORT_TIME_ZONE })}`;
+    if (v.finishedAt) return `${head} · finished ${dayOf(v.finishedAt)}`;
     const estimate = vialEstimate(v.strengthMg, byVial.get(v.id) ?? []);
     return estimate.state === "over"
       ? `${head} · est. 0 mg left (${mgLabel(estimate.overMg!)} over)`
@@ -252,9 +255,6 @@ export function historyView(input: HistoryInput): HistoryView {
     : input.supplyTracking
       ? "Supplies tracking is on but no vials are recorded."
       : "Personal supplies: optional feature not used.";
-  const mixtures = input.mixtures.length
-    ? `Saved mixtures: ${input.mixtures.map((m) => mixtureLabel(nameOf(m.peptideId), m.setup)).join("; ")}`
-    : "";
 
   const routine = (r: HistoryInput["routines"][number]) =>
     `${r.name} ${r.amount} ${r.unit} daily ${r.time}${r.endDate ? ` (ended ${formatDate(r.endDate)})` : ""}`;
@@ -281,7 +281,7 @@ export function historyView(input: HistoryInput): HistoryView {
     })),
     measures: measures ? `Measurements: ${measures}` : "",
     supplies,
-    mixtures,
+    mixtures: mixtureHistory(input.mixtures, nameOf),
     supplements,
     taken: take(taken, RECENT.taken),
     cut:

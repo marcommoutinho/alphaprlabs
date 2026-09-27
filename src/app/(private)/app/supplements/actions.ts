@@ -52,7 +52,7 @@ export type TakenActionResult = {
   tone?: ToastTone;
 };
 
-/** The caller, re-checked on every action (a support grant never writes; the database re-checks too). */
+/** The caller, re-checked on every action (a support share never writes; the database re-checks too). */
 async function signedIn(next: string) {
   const person = await currentResearcher();
   if (!person) redirect(signInUrl({ next }));

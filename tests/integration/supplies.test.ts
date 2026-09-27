@@ -27,7 +27,7 @@ const people = {
   cara: { email: uniqueEmail("s14-cara"), name: "Cara Calculates", role: "researcher" },
   una: { email: uniqueEmail("s14-una"), name: "Una Unacknowledged", role: "researcher", acknowledged: false },
   grace: { email: uniqueEmail("s14-grace"), name: "Grace Granted", role: "admin" },
-  noah: { email: uniqueEmail("s14-noah"), name: "Noah Not Granted", role: "admin" },
+  noah: { email: uniqueEmail("s14-noah"), name: "Noah Admin", role: "admin" },
 } as const;
 type Name = keyof typeof people;
 const id = {} as Record<Name, string>;
@@ -82,7 +82,7 @@ describe("personal supplies are the owner's; a grant reads, never writes", () =>
   it("isolates everyone else, lets a granted admin read only, and denies again on revoke", async () => {
     const alex = await tracked("alex");
     await confirmOn("alex", alex.cycleId, d(0));
-    await ok(db.alex.rpc("grant_support_access", { p_admin_id: id.grace }), "grant grace");
+    await ok(db.alex.rpc("share_with_team"), "share with the team");
 
     // The owner reads everything, and writes only through the functions.
     expect((await listPersonalVials(db.alex, id.alex)).map((v) => v.id)).toEqual([alex.vialId]);
@@ -116,11 +116,12 @@ describe("personal supplies are the owner's; a grant reads, never writes", () =>
     expect(await vialRow(alex.vialId)).toEqual(before);
     expect(await getSupplyTracking(db.alex, id.alex)).toBe(true);
 
-    // Another researcher and a non-granted admin: nothing, and their writes don't reach Alex's vial.
+    // Another researcher reads nothing; every admin reads while Alex shares; neither's writes reach Alex's vial.
+    expect(await listPersonalVials(db.blair, id.alex)).toEqual([]);
+    expect(await listDeductions(db.blair, id.alex)).toEqual([]);
+    expect(await getSupplyTracking(db.blair, id.alex)).toBe(false);
+    expect((await listPersonalVials(db.noah, id.alex)).map((v) => v.id)).toEqual([alex.vialId]);
     for (const who of ["blair", "noah"] as const) {
-      expect(await listPersonalVials(db[who], id.alex), who).toEqual([]);
-      expect(await listDeductions(db[who], id.alex), who).toEqual([]);
-      expect(await getSupplyTracking(db[who], id.alex), who).toBe(false);
       expect(await ok(db[who].rpc("finish_personal_vial", { p_vial_id: alex.vialId }), `${who} finishes`)).toBeNull();
     }
     await ok(db.blair.rpc("set_supply_tracking", { p_enabled: true }), "blair's own tracking");
@@ -154,7 +155,7 @@ describe("personal supplies are the owner's; a grant reads, never writes", () =>
     expect(await vialRow(alex.vialId)).toEqual(before);
 
     // Revoked: denied on the next read.
-    await ok(db.alex.rpc("revoke_support_access", { p_admin_id: id.grace }), "revoke grace");
+    await ok(db.alex.rpc("stop_sharing_with_team"), "stop sharing");
     expect(await listPersonalVials(db.grace, id.alex)).toEqual([]);
     expect(await listDeductions(db.grace, id.alex)).toEqual([]);
     expect(await getSupplyTracking(db.grace, id.alex)).toBe(false);

@@ -17,7 +17,7 @@ const people = {
   blair: { email: uniqueEmail("s11-blair"), name: "Blair Other", role: "researcher" },
   una: { email: uniqueEmail("s11-una"), name: "Una Unacknowledged", role: "researcher", acknowledged: false },
   grace: { email: uniqueEmail("s11-grace"), name: "Grace Granted", role: "admin" },
-  noah: { email: uniqueEmail("s11-noah"), name: "Noah Not Granted", role: "admin" },
+  noah: { email: uniqueEmail("s11-noah"), name: "Noah Admin", role: "admin" },
 } as const;
 type Name = keyof typeof people;
 const id = {} as Record<Name, string>;
@@ -110,17 +110,18 @@ describe("mixtures are the owner's; grants read, never write", () => {
     expect(await sqlState(db.alex.rpc("plan_mixture_version_at" as never, { p_plan_id: planOf.alexA, p_at: new Date().toISOString() } as never), "internal")).toBe("42501");
 
     // A grant lets Grace read, and only read.
-    await ok(db.alex.rpc("grant_support_access", { p_admin_id: id.grace }), "grant");
+    await ok(db.alex.rpc("share_with_team"), "share");
     try {
       expect(await getMixture(db.grace, mixtureId)).toEqual(before);
       expect((await listMixtures(db.grace, id.alex)).map((m) => m.id)).toContain(mixtureId);
       expect((await listPersonalVials(db.grace, id.alex)).map((v) => v.label)).toContain("A-01");
-      expect(await getMixture(db.noah, mixtureId)).toBeNull();
+      // Every admin reads while Alex shares with the team.
+      expect(await getMixture(db.noah, mixtureId)).toEqual(before);
       expect(await ok(db.grace.rpc("save_mixture", update), "granted admin saves")).toBeNull();
       expect(await ok(db.grace.rpc("delete_mixture", { p_mixture_id: mixtureId, p_version: before!.version }), "granted admin deletes")).toBeNull();
       expect(await getMixture(db.alex, mixtureId)).toEqual(before);
     } finally {
-      await ok(db.alex.rpc("revoke_support_access", { p_admin_id: id.grace }), "revoke");
+      await ok(db.alex.rpc("stop_sharing_with_team"), "stop sharing");
     }
     expect(await getMixture(db.grace, mixtureId)).toBeNull();
     for (const table of TABLES) expect(await rows(db.grace, table), `revoked ${table}`).toEqual([]);

@@ -24,7 +24,7 @@ const people = {
   eve: { email: uniqueEmail("s15-eve"), name: "Eve No Cycle", role: "researcher" },
   una: { email: uniqueEmail("s15-una"), name: "Una Unacknowledged", role: "researcher", acknowledged: false },
   grace: { email: uniqueEmail("s15-grace"), name: "Grace Granted", role: "admin" },
-  noah: { email: uniqueEmail("s15-noah"), name: "Noah Not Granted", role: "admin" },
+  noah: { email: uniqueEmail("s15-noah"), name: "Noah Admin", role: "admin" },
 } as const;
 type Name = keyof typeof people;
 const id = {} as Record<Name, string>;
@@ -82,7 +82,7 @@ describe("check-ins are the owner's; a grant reads, never writes", () => {
     await cycleIn("alex");
     const saved = await saveCheckIn(db.alex, checkIn());
     expect(saved).toMatchObject({ kind: "saved", day: today, version: 1 });
-    await ok(db.alex.rpc("grant_support_access", { p_admin_id: id.grace }), "grant grace");
+    await ok(db.alex.rpc("share_with_team"), "share with the team");
 
     // The owner reads it, and writes only through save_check_in.
     const [mine] = await listCheckIns(db.alex, id.alex);
@@ -104,11 +104,10 @@ describe("check-ins are the owner's; a grant reads, never writes", () => {
     expect(await sqlState(db.grace.from(table).delete().eq("owner_id", id.alex), "grace deletes")).toBe("42501");
     expect((await rowsOf(id.grace)).map((r) => r.feeling)).toEqual([1]);
 
-    // Another researcher and a non-granted admin: nothing.
-    for (const who of ["blair", "noah"] as const) {
-      expect(await listCheckIns(db[who], id.alex), who).toEqual([]);
-      expect(await countCheckIns(db[who], id.alex), who).toBe(0);
-    }
+    // Another researcher: nothing. Every admin reads while Alex shares with the team.
+    expect(await listCheckIns(db.blair, id.alex)).toEqual([]);
+    expect(await countCheckIns(db.blair, id.alex)).toBe(0);
+    expect(await listCheckIns(db.noah, id.alex)).toEqual([mine]);
 
     // Unacknowledged: reads nothing of Alex's, writes nothing at all.
     expect(await listCheckIns(db.una, id.alex)).toEqual([]);
@@ -125,7 +124,7 @@ describe("check-ins are the owner's; a grant reads, never writes", () => {
     expect(await listCheckIns(db.alex, id.alex)).toEqual([mine]);
 
     // Revoked: denied on the next read.
-    await ok(db.alex.rpc("revoke_support_access", { p_admin_id: id.grace }), "revoke grace");
+    await ok(db.alex.rpc("stop_sharing_with_team"), "stop sharing");
     expect(await listCheckIns(db.grace, id.alex)).toEqual([]);
     expect(await countCheckIns(db.grace, id.alex)).toBe(0);
   });

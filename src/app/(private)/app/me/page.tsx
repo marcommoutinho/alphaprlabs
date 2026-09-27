@@ -4,7 +4,7 @@ import { MeSignOut, MeSupportSection } from "@/components/research/me-support";
 import { requireResearcher } from "@/lib/auth/session";
 import { getSupplyTracking, listPersonalVials } from "@/lib/mixtures/service";
 import { getSupplementTracking, listRoutines } from "@/lib/supplements/service";
-import { listGrantHistory, listSupportAdmins } from "@/lib/support/service";
+import { listShareHistory } from "@/lib/support/service";
 import { meSupport, SUPPORT_INTRO, suppliesSummary, supplementsSummary } from "@/lib/support/view";
 import { createClient } from "@/lib/supabase/server";
 import "@/styles/app/support.css";
@@ -12,22 +12,22 @@ import "@/styles/app/support.css";
 /**
  * R11 Me: the signed-in person's profile, links to their reminders,
  * personal supplies and supplement routines (with a summary of each optional
- * feature), support access (grant or revoke an admin's read-only access to
- * their full history, each behind a confirm step, and the past grants) and
- * sign out. Only ever the caller's own records.
+ * feature), support access (share the full history, read-only, with the
+ * Alpha PR Labs team, or stop sharing, each behind a confirm step, and when
+ * it was shared before) and sign out. Only ever the caller's own records,
+ * and never an admin's name.
  */
 export default async function MePage() {
   const person = await requireResearcher("/app/me");
   const db = await createClient();
-  const [admins, grants, supplyTracking, vials, supplementTracking, routines] = await Promise.all([
-    listSupportAdmins(db),
-    listGrantHistory(db),
+  const [shares, supplyTracking, vials, supplementTracking, routines] = await Promise.all([
+    listShareHistory(db, person.id),
     getSupplyTracking(db, person.id),
     listPersonalVials(db, person.id),
     getSupplementTracking(db, person.id),
     listRoutines(db, person.id),
   ]);
-  const support = meSupport(admins, grants);
+  const support = meSupport(shares);
 
   return (
     <AppPage width="narrow">

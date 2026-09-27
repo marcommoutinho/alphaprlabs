@@ -1,5 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { Temporal } from "@js-temporal/polyfill";
+import { afterPair, keysetRows, type PageOptions } from "@/lib/keyset";
 import { allRows } from "@/lib/library/service";
 import type { DoseChange, Phase, TimeChange, Weekday } from "@/lib/schedule/engine";
 import type { Database, Json } from "@/lib/supabase/database.types";
@@ -12,9 +14,9 @@ type Db = SupabaseClient<Database>;
 
 // Research side (R2, R3, R4; S10 and S12 read through here too). `db` is the
 // caller's own session client, so RLS decides what is readable: a person's
-// own cycles, or those of a researcher whose active support grant they hold
-// (can_read_researcher). Callers that mean "my cycles" filter by owner, since
-// a granted admin can also read the granting researcher's.
+// own cycles, or, for an admin, those of a researcher who shares with the
+// team (can_read_researcher). Callers that mean "my cycles" filter by owner,
+// since an admin can also read a sharing researcher's.
 
 // ── Reads ───────────────────────────────────────────────────────────────────
 
@@ -76,47 +78,78 @@ function phaseOf(row: PhaseRow): Phase {
 const PHASE_COLUMNS =
   "revision_id, phase_id, plan_id, kind, start_date, end_date, dose_mg::text, local_time, schedule_type, every_days, weekdays, dose_change_from, dose_change_mg::text, time_change_from, time_change_time";
 
-/** Cycles with every revision, oldest first, for one owner or one cycle id. */
-async function readCycles(db: Db, filter: { ownerId: string } | { cycleId: string }): Promise<CycleRecord[]> {
+type Tables = Database["public"]["Tables"];
+type CycleRow = Pick<
+  Tables["cycles"]["Row"],
+  | "id"
+  | "owner_id"
+  | "name"
+  | "goal"
+  | "baseline"
+  | "template_id"
+  | "template_name"
+  | "template_guidance"
+  | "template_updated_at"
+  | "current_revision"
+  | "version"
+  | "created_at"
+  | "updated_at"
+>;
+type RevisionRow = Pick<Tables["cycle_revisions"]["Row"], "id" | "cycle_id" | "number" | "time_zone" | "created_at">;
+type PlanRow = Pick<Tables["cycle_revision_plans"]["Row"], "revision_id" | "plan_id" | "peptide_id" | "position" | "effective_from">;
+
+/** A timestamptz order, to the microsecond, as the database compares them. */
+const byInstant = (a: string, b: string) => Temporal.Instant.compare(Temporal.Instant.from(a), Temporal.Instant.from(b));
+
+/**
+ * Cycles with every revision, oldest first, for one owner or one cycle id.
+ * Every table is read a page at a time by its key (keyset; A8 reads a whole
+ * history through here) and put in order here.
+ */
+async function readCycles(db: Db, filter: { ownerId: string } | { cycleId: string }, options: PageOptions = {}): Promise<CycleRecord[]> {
   const byOwner = "ownerId" in filter;
-  const cycles = await allRows(
-    (from, to) => {
+  const cycles = await keysetRows<CycleRow>(
+    (after, limit) => {
       const query = db
         .from("cycles")
         .select("id, owner_id, name, goal, baseline, template_id, template_name, template_guidance, template_updated_at, current_revision, version, created_at, updated_at");
-      return (byOwner ? query.eq("owner_id", filter.ownerId) : query.eq("id", filter.cycleId))
-        .order("created_at", { ascending: false })
-        .order("id")
-        .range(from, to);
+      const scoped = byOwner ? query.eq("owner_id", filter.ownerId) : query.eq("id", filter.cycleId);
+      return (after ? scoped.gt("id", after.id) : scoped).order("id").limit(limit);
     },
     "cycles",
+    options,
   );
   if (cycles.length === 0) return [];
+  // Newest first.
+  cycles.sort((a, b) => byInstant(b.created_at, a.created_at) || a.id.localeCompare(b.id));
 
   const [revisions, plans] = await Promise.all([
-    allRows(
-      (from, to) => {
+    keysetRows<RevisionRow>(
+      (after, limit) => {
         const query = db.from("cycle_revisions").select("id, cycle_id, number, time_zone, created_at");
-        return (byOwner ? query.eq("owner_id", filter.ownerId) : query.eq("cycle_id", filter.cycleId))
-          .order("cycle_id")
-          .order("number")
-          .range(from, to);
+        const scoped = byOwner ? query.eq("owner_id", filter.ownerId) : query.eq("cycle_id", filter.cycleId);
+        return (after ? scoped.gt("id", after.id) : scoped).order("id").limit(limit);
       },
       "cycle revisions",
+      options,
     ),
-    allRows(
-      (from, to) => {
+    keysetRows<PlanRow>(
+      (after, limit) => {
         const query = db.from("cycle_revision_plans").select("revision_id, plan_id, peptide_id, position, effective_from");
-        return (byOwner ? query.eq("owner_id", filter.ownerId) : query.eq("cycle_id", filter.cycleId))
+        const scoped = byOwner ? query.eq("owner_id", filter.ownerId) : query.eq("cycle_id", filter.cycleId);
+        return (after ? scoped.or(afterPair("revision_id", after.revision_id, "plan_id", after.plan_id)) : scoped)
           .order("revision_id")
-          .order("position")
-          .range(from, to);
+          .order("plan_id")
+          .limit(limit);
       },
       "cycle plans",
+      options,
     ),
   ]);
-  const phases = await allRows<PhaseRow>(
-    (from, to) => {
+  revisions.sort((a, b) => a.cycle_id.localeCompare(b.cycle_id) || a.number - b.number);
+  plans.sort((a, b) => a.revision_id.localeCompare(b.revision_id) || a.position - b.position);
+  const phases = await keysetRows<PhaseRow>(
+    (after, limit) => {
       const query = db.from("cycle_revision_phases").select(PHASE_COLUMNS);
       const scoped = byOwner
         ? query.eq("owner_id", filter.ownerId)
@@ -124,12 +157,16 @@ async function readCycles(db: Db, filter: { ownerId: string } | { cycleId: strin
             "revision_id",
             revisions.map((revision) => revision.id),
           );
-      return scoped.order("revision_id").order("phase_id").range(from, to) as unknown as PromiseLike<{
+      return (after ? scoped.or(afterPair("revision_id", after.revision_id, "phase_id", after.phase_id)) : scoped)
+        .order("revision_id")
+        .order("phase_id")
+        .limit(limit) as unknown as PromiseLike<{
         data: PhaseRow[] | null;
         error: { message: string } | null;
       }>;
     },
     "cycle phases",
+    options,
   );
 
   const phasesOf = new Map<string, Phase[]>();
@@ -174,16 +211,16 @@ async function readCycles(db: Db, filter: { ownerId: string } | { cycleId: strin
     }));
 }
 
-/** One cycle with every revision (the owner's, or a granting researcher's for a granted admin), or null. */
+/** One cycle with every revision (the owner's, or a sharing researcher's for an admin), or null. */
 export async function getCycle(db: Db, cycleId: string): Promise<CycleRecord | null> {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cycleId)) return null;
   const [cycle] = await readCycles(db, { cycleId: cycleId.toLowerCase() });
   return cycle ?? null;
 }
 
-/** Every cycle `ownerId` owns (readable to them, or to an admin they granted), newest first. */
-export function listCycles(db: Db, ownerId: string): Promise<CycleRecord[]> {
-  return readCycles(db, { ownerId });
+/** Every cycle `ownerId` owns (readable to them, or to admins while they share), newest first. */
+export function listCycles(db: Db, ownerId: string, options: PageOptions = {}): Promise<CycleRecord[]> {
+  return readCycles(db, { ownerId }, options);
 }
 
 /** R2's row data: name, status, dates, peptides and the current time zone. */

@@ -1339,6 +1339,35 @@ export type Database = {
           },
         ]
       }
+      support_shares: {
+        Row: {
+          id: string
+          researcher_id: string
+          started_at: string
+          stopped_at: string | null
+        }
+        Insert: {
+          id?: string
+          researcher_id: string
+          started_at?: string
+          stopped_at?: string | null
+        }
+        Update: {
+          id?: string
+          researcher_id?: string
+          started_at?: string
+          stopped_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_shares_researcher_id_fkey"
+            columns: ["researcher_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -1413,10 +1442,10 @@ export type Database = {
         Args: { p_researcher_id?: string }
         Returns: {
           email: string
-          granted_at: string
           name: string
           profile_id: string
-          revoked_at: string
+          shared_since: string
+          stopped_at: string
         }[]
       }
       business_buyer_accounts: {
@@ -1599,7 +1628,6 @@ export type Database = {
         Returns: Json
       }
       finish_personal_vial: { Args: { p_vial_id: string }; Returns: boolean }
-      grant_support_access: { Args: { p_admin_id: string }; Returns: string }
       has_research_access: { Args: never; Returns: boolean }
       invite_researcher: {
         Args: { p_email: string; p_name: string; p_token_hash: string }
@@ -1689,7 +1717,6 @@ export type Database = {
           name: string
         }[]
       }
-      revoke_support_access: { Args: { p_admin_id: string }; Returns: boolean }
       save_check_in: {
         Args: {
           p_day: string
@@ -1786,30 +1813,14 @@ export type Database = {
         Returns: boolean
       }
       set_supply_tracking: { Args: { p_enabled: boolean }; Returns: boolean }
+      share_with_team: { Args: never; Returns: string }
+      stop_sharing_with_team: { Args: never; Returns: boolean }
       supplement_decimal: { Args: { p_text: string }; Returns: number }
       supplement_taken_result: {
         Args: { p_id: string; p_replayed: boolean }
         Returns: Json
       }
       supplement_tracking_of: { Args: { p_owner: string }; Returns: boolean }
-      support_admins: {
-        Args: never
-        Returns: {
-          admin_id: string
-          name: string
-        }[]
-      }
-      support_grant_history: {
-        Args: never
-        Returns: {
-          admin_id: string
-          admin_name: string
-          grant_id: string
-          granted_at: string
-          revoked_at: string
-          still_admin: boolean
-        }[]
-      }
       take_supplement: {
         Args: {
           p_actual_at?: string

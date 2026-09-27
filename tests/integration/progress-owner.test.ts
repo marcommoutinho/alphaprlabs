@@ -19,7 +19,7 @@ import { psql, quote } from "../support/psql";
 const people = {
   alex: { email: uniqueEmail("s15o-alex"), name: "Alex Month", role: "researcher" },
   grace: { email: uniqueEmail("s15o-grace"), name: "Grace Granted", role: "admin" },
-  noah: { email: uniqueEmail("s15o-noah"), name: "Noah Not Granted", role: "admin" },
+  noah: { email: uniqueEmail("s15o-noah"), name: "Noah Admin", role: "admin" },
 } as const;
 type Name = keyof typeof people;
 const id = {} as Record<Name, string>;
@@ -44,7 +44,7 @@ beforeAll(async () => {
     timeZone: "America/Toronto",
     plans: [plan(peptide, [interval(addDays(today, -40), addDays(today, 10), "0.4", 2, "08:00")])],
   });
-  await ok(db.alex.rpc("grant_support_access", { p_admin_id: id.grace }), "grant grace");
+  await ok(db.alex.rpc("share_with_team"), "share with the team");
   const values = days
     .map((day, i) => {
       const measured = i % 3 === 0 ? `'Weight', ${80 + i / 10}, 'kg', now()` : "null, null, null, null";
@@ -71,7 +71,8 @@ describe("check-in reads are complete, a page at a time", () => {
     expect(all[1].measurement).toBeNull();
     expect(await countCheckIns(db.alex, id.alex)).toBe(DAYS);
     expect((await listCheckIns(db.grace, id.alex, { from: addDays(today, -13), to: today }, 4)).map((c) => c.day)).toEqual(days.slice(-13));
-    expect(await listCheckIns(db.noah, id.alex, {}, 4)).toEqual([]);
+    // Every admin reads while Alex shares with the team.
+    expect(await listCheckIns(db.noah, id.alex, {}, 4)).toHaveLength(DAYS);
   });
 
   it("builds the last 14 days from them, today still open", async () => {
