@@ -737,8 +737,15 @@ Cleanup before G2 (accepted by Marco, 2026-09-26):
   and mixtures) built, reviewed and integrated at `954f5ac` (331 tests pass on
   the combined branch). Not yet deployed.
 
-Next: S12, Today and dose confirmation; then deploy the cycles-and-Today
-milestone to the closed app.
+Order change (Marco, 2026-09-26: reminders last). After S12: S14, S15, S16
+(supplement schedule and Taken, without sending), S17, then S13 last. S13 then
+sends reminders for both peptide doses and supplements and adds the send on/off
+control, and it needs the Vercel Pro and Supabase Pro upgrades, which Marco
+approves when it is reached. S16's dependency on S13 therefore becomes S12,
+and G2 still requires S13.
+
+Next: S12, Today and dose confirmation (in recheck); then deploy the
+cycles-and-Today milestone to the closed app; then S14.
 
 ## Technical references
 
