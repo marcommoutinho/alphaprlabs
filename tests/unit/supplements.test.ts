@@ -22,24 +22,28 @@ import {
 } from "@/lib/supplements/rules";
 import { occurrenceOn, occurrencesBetween, parseSupplementKey, runsOn, supplementKey } from "@/lib/supplements/schedule";
 import type { Routine, TakenRecord } from "@/lib/supplements/service";
-import { mergeTodayRows, supplementsToday, supplementsView } from "@/lib/supplements/view";
+import { mergeTodayRows, NO_CYCLES_BODY, NO_CYCLES_BODY_SUPPLEMENTS, supplementsToday, supplementsView, todayNotes } from "@/lib/supplements/view";
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const TORONTO = "America/Toronto";
 
-const routine = (overrides: Partial<Routine> = {}): Routine => ({
-  id: uuid(1),
-  name: "Vitamin D3",
-  amount: "2000",
-  unit: "IU",
-  time: "08:00",
-  timeZone: TORONTO,
-  startDate: "2026-09-20",
-  endDate: null,
-  version: 1,
-  createdAt: "2026-09-20T12:00:00Z",
-  ...overrides,
-});
+/** A routine; its definition dates from its start unless given. */
+const routine = (overrides: Partial<Routine> = {}): Routine => {
+  const base = {
+    id: uuid(1),
+    name: "Vitamin D3",
+    amount: "2000",
+    unit: "IU",
+    time: "08:00",
+    timeZone: TORONTO,
+    startDate: "2026-09-20",
+    endDate: null,
+    version: 1,
+    createdAt: "2026-09-20T12:00:00Z",
+    ...overrides,
+  };
+  return { ...base, definitionFrom: overrides.definitionFrom ?? base.startDate };
+};
 
 const taken = (r: Routine, date: string, actualAt: string, overrides: Partial<TakenRecord> = {}): TakenRecord => ({
   id: uuid(Number(date.slice(8)) + 500),
@@ -101,12 +105,12 @@ describe("the routine form", () => {
 });
 
 describe("the Taken input", () => {
-  const input = { requestKey: uuid(9), key: `${uuid(1)}:2026-09-27`, seenScheduledAt: "2026-09-27T12:00:00Z", seenAmount: "2000", seenUnit: "IU", actual: null };
+  const input = { requestKey: uuid(9), key: `${uuid(1)}:2026-09-27`, seenScheduledAt: "2026-09-27T12:00:00Z", seenName: "Vitamin D3", seenAmount: "2000", seenUnit: "IU", actual: null };
 
   it("reads a Taken, or nothing that isn't one", () => {
     expect(readTakenForm(input)).toEqual(input);
     expect(readTakenForm({ ...input, actual: "2026-09-27T07:45" })?.actual).toBe("2026-09-27T07:45");
-    for (const bad of [{ key: `${uuid(1)}:0` }, { key: `${uuid(1)}:${uuid(2)}:2026-09-27` }, { requestKey: "x" }, { actual: 5 }, { seenAmount: "" }]) {
+    for (const bad of [{ key: `${uuid(1)}:0` }, { key: `${uuid(1)}:${uuid(2)}:2026-09-27` }, { requestKey: "x" }, { actual: 5 }, { seenAmount: "" }, { seenName: "" }, { seenName: undefined }]) {
       expect(readTakenForm({ ...input, ...bad }), JSON.stringify(bad)).toBeNull();
     }
   });
@@ -140,6 +144,15 @@ describe("a routine's occurrences", () => {
     expect(occurrencesBetween(r, "2026-09-29", "2026-09-30")).toEqual([]);
     expect(parseSupplementKey(`${uuid(1)}:2026-09-27`)).toEqual({ routineId: uuid(1), date: "2026-09-27" });
     expect(parseSupplementKey(`${uuid(1)}:2026-02-30`)).toBeNull();
+  });
+
+  it("start again from the day an edit took effect: earlier untaken days are no longer occurrences", () => {
+    // Created Sep 20, edited on Tuesday Sep 22 to 09:00: a missed Monday stays missed.
+    const edited = routine({ time: "09:00", amount: "2", unit: "capsules", definitionFrom: "2026-09-22" });
+    expect(runsOn(edited, "2026-09-21")).toBe(false);
+    expect(occurrenceOn(edited, "2026-09-21")).toBeNull();
+    expect(occurrenceOn(edited, "2026-09-22")).toMatchObject({ localTime: "09:00", scheduledAt: "2026-09-22T13:00:00Z" });
+    expect(occurrencesBetween(edited, "2026-09-20", "2026-09-23").map((o) => o.localDate)).toEqual(["2026-09-22", "2026-09-23"]);
   });
 
   it("keep the wall-clock time across daylight-saving changes", () => {
@@ -192,16 +205,44 @@ describe("Today's supplement lines", () => {
         d3,
         routine({ id: uuid(4), name: "Starts tomorrow", startDate: "2026-09-28" }),
         routine({ id: uuid(5), name: "Ended yesterday", endDate: "2026-09-26" }),
-        { ...zinc, endDate: "2026-09-27" },
       ],
       taken: [record, taken(d3, "2026-09-26", "2026-09-26T12:00:00Z")],
       now: NOW,
     });
-    // Zinc ended today untaken: not listed.
     expect(view.rows.map((r) => [r.title, r.sub, r.status, r.detail])).toEqual([["Vitamin D3", "Supplement · 07:30 · 1000 IU", "Taken 08:05", null]]);
-    // Ended today but taken: still shows what was taken.
+  });
+
+  it("keeps today's line, with its Taken, for a routine ended today (today is its last day)", () => {
+    const endedToday = { ...zinc, endDate: "2026-09-27" };
+    const view = supplementsToday({ tracking: true, routines: [endedToday], taken: [], now: NOW });
+    expect(view.rows.map((r) => [r.title, r.status, r.detail?.key])).toEqual([["Zinc", "Due", `${uuid(3)}:2026-09-27`]]);
+    // Taken: it shows what was taken.
     const zincTaken = supplementsToday({ tracking: true, routines: [{ ...zinc, endDate: "2026-09-27" }], taken: [taken(zinc, "2026-09-27", "2026-09-27T11:10:00Z")], now: NOW });
     expect(zincTaken.rows.map((r) => r.status)).toEqual(["Taken 07:10"]);
+    // On R10, too: its last day, with Taken today.
+    const [card] = supplementsView({ tracking: true, routines: [endedToday], taken: [], guidance: [], now: NOW }).routines;
+    expect(card).toMatchObject({ ended: true, state: "Due today · last day", tone: "active", today: { key: `${uuid(3)}:2026-09-27` } });
+    expect(supplementsView({ tracking: true, routines: [endedToday], taken: [], guidance: [], now: NOW }).empty).toBe(false);
+    const [done] = supplementsView({ tracking: true, routines: [endedToday], taken: [taken(zinc, "2026-09-27", "2026-09-27T11:10:00Z")], guidance: [], now: NOW }).routines;
+    expect(done).toMatchObject({ state: "Taken today 07:10 · last day", tone: "quiet", today: null });
+  });
+
+  it("words the dose notes so they never contradict a supplement still to take", () => {
+    const pending = supplementsToday({ tracking: true, routines: [d3], taken: [], now: NOW });
+    const done = supplementsToday({ tracking: true, routines: [d3], taken: [taken(d3, "2026-09-27", "2026-09-27T12:05:00Z")], now: NOW });
+    const none = { rows: [] };
+    // No cycles: the prototype's sentence, unless a supplement is still to take.
+    expect(todayNotes({ nothingDue: null }, none)).toEqual({ noCyclesBody: NO_CYCLES_BODY, nothingDue: null });
+    expect(todayNotes({ nothingDue: null }, done).noCyclesBody).toBe(NO_CYCLES_BODY);
+    expect(todayNotes({ nothingDue: null }, pending).noCyclesBody).toBe(NO_CYCLES_BODY_SUPPLEMENTS);
+    expect(NO_CYCLES_BODY_SUPPLEMENTS).not.toContain("Nothing is due");
+    // Cycles: "All done" and "Nothing due" name doses while a supplement is still to take.
+    const quiet = (title: string) => ({ nothingDue: { title, body: "Next: Compound A, Mon Sep 28 · 08:00" } });
+    expect(todayNotes(quiet("All done for today"), pending).nothingDue).toEqual({ title: "Doses done for today", body: "Next: Compound A, Mon Sep 28 · 08:00" });
+    expect(todayNotes(quiet("Nothing due today"), pending).nothingDue?.title).toBe("No doses due today");
+    expect(todayNotes(quiet("Planned break"), pending).nothingDue?.title).toBe("Planned break");
+    expect(todayNotes(quiet("All done for today"), done).nothingDue?.title).toBe("All done for today");
+    expect(todayNotes(quiet("All done for today"), none).nothingDue?.title).toBe("All done for today");
   });
 
   it("shows nothing while tracking is off", () => {

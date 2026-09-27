@@ -5,11 +5,13 @@
 //
 // Today lists each routine's occurrence today (in its zone): untaken ones
 // with a one-tap Taken, taken ones with the time they were taken. A routine
-// ended today keeps today's line only when it was taken (R10 shows no Taken
-// for an ended routine). Earlier days' untaken occurrences are not listed
-// (the prototype shows today's only). Nothing shows while tracking is off.
+// ended today still runs today (its end date is included), so today's
+// untaken occurrence keeps its Taken, on Today and on its R10 card. Earlier
+// days' untaken occurrences are not listed (Marco, 2026-09-27: today only).
+// Nothing shows while tracking is off. todayNotes words Today's dose-only
+// notes so they never contradict a supplement still to take.
 import { formatDateTime, formatMonthDay } from "@/lib/format";
-import type { TodayRow } from "@/lib/doses/today";
+import type { TodayRow, TodayView } from "@/lib/doses/today";
 import { addDaysToDate, type Wall, wallOf } from "@/lib/doses/rules";
 import { type InstantInput, toInstant } from "@/lib/schedule/zone";
 import { HISTORY_WINDOW_DAYS } from "./rules";
@@ -132,7 +134,6 @@ export function supplementsToday(input: SupplementsInput): SupplementToday {
       });
       continue;
     }
-    if (routine.endDate !== null) continue;
     rows.push({
       key: o.key,
       kind: "supplement",
@@ -172,15 +173,15 @@ export function supplementsView(input: SupplementsInput & { guidance: readonly G
     const o = occurrenceOn(routine, today);
     const takenToday = o ? records.find((t) => t.occurrenceKey === o.key) : undefined;
     const ended = routine.endDate !== null;
-    const state = ended
-      ? `Ended ${formatMonthDay(routine.endDate!)}`
-      : !o
-        ? "Active"
-        : takenToday
-          ? `Taken today ${clock(takenToday.actualAt, routine.timeZone)}`
-          : Date.parse(o.scheduledAt) <= nowMs
-            ? "Due today"
-            : "Later today";
+    const todayState = !o
+      ? null
+      : takenToday
+        ? `Taken today ${clock(takenToday.actualAt, routine.timeZone)}`
+        : Date.parse(o.scheduledAt) <= nowMs
+          ? "Due today"
+          : "Later today";
+    // Ended today: today is still its day (its last).
+    const state = ended ? (todayState ? `${todayState} · last day` : `Ended ${formatMonthDay(routine.endDate!)}`) : (todayState ?? "Active");
     const windowStart = addDaysToDate(today, 1 - HISTORY_WINDOW_DAYS);
     const recent = records.filter((t) => t.localDate >= windowStart && t.localDate <= today).length;
     return {
@@ -192,10 +193,10 @@ export function supplementsView(input: SupplementsInput & { guidance: readonly G
       time: routine.time,
       ended,
       state,
-      tone: ended || takenToday ? "quiet" : "active",
+      tone: !o || takenToday ? "quiet" : "active",
       since: `Since ${formatMonthDay(routine.startDate)}`,
       recent: `${recent} recorded in the last 2 weeks`,
-      today: !ended && o && !takenToday ? detailOf(routine, o) : null,
+      today: o && !takenToday ? detailOf(routine, o) : null,
       history: [...records].reverse().map((t) => ({
         id: t.id,
         when: formatDateTime(t.actualAt, { timeZone: routine.timeZone }),
@@ -209,10 +210,45 @@ export function supplementsView(input: SupplementsInput & { guidance: readonly G
   const ended = input.routines
     .filter((r) => r.endDate !== null)
     .sort((a, b) => b.endDate!.localeCompare(a.endDate!) || byTime(a, b));
+  const cards = input.tracking ? [...active, ...ended].map(card) : [];
   return {
     tracking: input.tracking,
     guidance: [...input.guidance].filter((g) => g.text.trim()).sort((a, b) => a.name.localeCompare(b.name)),
-    routines: input.tracking ? [...active, ...ended].map(card) : [],
-    empty: active.length === 0,
+    routines: cards,
+    // Nothing running, and nothing left to take today.
+    empty: active.length === 0 && !cards.some((c) => c.today),
+  };
+}
+
+// ── Today's notes beside supplements ────────────────────────────────────────
+
+/** The prototype's "No cycles yet" body. */
+export const NO_CYCLES_BODY = "Start from a supplied template or build a custom cycle. Nothing is due until a plan exists.";
+/** The same, above a supplement still to take today (only peptide doses wait for a plan). */
+export const NO_CYCLES_BODY_SUPPLEMENTS = "Start from a supplied template or build a custom cycle. Peptide doses appear once a plan exists.";
+/** The prototype's quiet titles, and what they say while a supplement is still to take today. */
+const QUIET_WITH_SUPPLEMENTS: Record<string, string> = {
+  "All done for today": "Doses done for today",
+  "Nothing due today": "No doses due today",
+};
+
+export type TodayNotes = {
+  /** The "No cycles yet" card's body (shown only without cycles). */
+  noCyclesBody: string;
+  /** The quiet card, or null. */
+  nothingDue: { title: string; body: string } | null;
+};
+
+/**
+ * Today's dose-only notes in the prototype's wording, except that none of
+ * them says nothing is due, or all is done, above a supplement still to take
+ * today: the dose wording then names doses.
+ */
+export function todayNotes(doses: Pick<TodayView, "nothingDue">, supplements: SupplementToday): TodayNotes {
+  const pending = supplements.rows.some((row) => row.detail !== null);
+  const quiet = doses.nothingDue;
+  return {
+    noCyclesBody: pending ? NO_CYCLES_BODY_SUPPLEMENTS : NO_CYCLES_BODY,
+    nothingDue: quiet && pending ? { ...quiet, title: QUIET_WITH_SUPPLEMENTS[quiet.title] ?? quiet.title } : quiet,
   };
 }

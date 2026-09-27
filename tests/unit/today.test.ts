@@ -121,6 +121,12 @@ const view = (confirmations: RecordedConfirmation[], requestedKey: string | null
   });
 
 describe("R1 Today", () => {
+  it("dates the header in America/Toronto when there are no cycles (the app is local)", () => {
+    // 01:30 on Sep 27 in UTC is still Saturday Sep 26 in Toronto.
+    const none = todayView({ cycles: [], confirmations: new Map(), peptides, mixtures: new Map(), setups: new Map(), vials: new Map(), now: "2026-09-27T01:30:00Z" });
+    expect(none).toMatchObject({ hasCycles: false, timeZone: TORONTO, dateLabel: "Saturday, September 26", hero: null, nothingDue: null, rows: [] });
+  });
+
   it("leads with today's dose in syringe units, then unconfirmed doses newest first, then each plan's next dose", () => {
     const today = view([taken24]);
     expect(today.dateLabel).toBe("Saturday, September 26");

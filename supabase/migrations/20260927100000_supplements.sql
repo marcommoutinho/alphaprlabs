@@ -7,49 +7,58 @@
 -- syringe calculator or deduct peptide stock").
 --
 -- Records:
---   supplement_settings   R10 "Track supplements": the opt-in, per
---                         researcher (off until turned on). Off hides the
---                         routines on R10 and Today, and nothing can be
---                         created, edited, ended or taken (AP026); every
---                         routine and Taken record is kept.
---   supplement_routines   the prototype's Routine { name, amount, unit,
---                         time, start, end? }: an exact amount (numeric,
---                         > 0 and < 1,000,000, at most 6 decimals, stored
---                         without trailing zeros) with a free-text unit (1-20
---                         characters: "IU", "mg", "capsules"), a daily
---                         wall-clock time "HH:MM" in its zone, and its dates.
---                         The zone is always America/Toronto (the app is
---                         strictly local; Marco, 2026-09-26). start_date is
---                         the Toronto day it was created; end_date is set by
---                         "End routine" (the Toronto day it was ended; that
---                         day's occurrence still counts). version is the
+--   supplement_settings   R10 "Track supplements", per researcher (off until
+--                         turned on). Off hides the routines on R10 and Today,
+--                         and nothing can be created, edited, ended or taken
+--                         (AP026); every routine and Taken record is kept.
+--   supplement_routines   the prototype's Routine { name, amount, unit, time,
+--                         start, end? }: an exact amount (numeric, > 0 and
+--                         < 1,000,000, at most 6 decimals, no trailing zeros),
+--                         a free-text unit (1-20 characters: "IU", "mg"), a
+--                         daily "HH:MM" in its zone, always America/Toronto
+--                         (the app is strictly local; Marco, 2026-09-26).
+--                         start_date: the Toronto day it was created; end_date:
+--                         the day "End routine" was used (that day still
+--                         counts); definition_from: the day the current name,
+--                         amount, unit and time took effect (the create day,
+--                         then the day of the latest edit). version is the
 --                         stale-edit token; schedule_version is S13's (below).
---                         A routine is never deleted: ending keeps it and its
---                         history (the prototype: "Its history is kept").
+--                         Never deleted: ending keeps it and its history.
 --   supplement_taken      the prototype's SuppTaken { key, time }: one per
 --                         occurrence, with the occurrence as the server
---                         scheduled it and the routine's name, amount and
---                         unit as they were when it was taken (snapshots: an
---                         edit of the routine never rewrites what was
---                         recorded), actual_at (when it was taken), recorded_at
---                         (the server's clock) and the client's request key.
---                         Append-only.
+--                         scheduled it, snapshots of the routine's name, amount
+--                         and unit (an edit never rewrites what was recorded),
+--                         actual_at, recorded_at (the server's clock) and the
+--                         client's request key. Append-only.
 --
 -- Occurrences (the same rule in src/lib/supplements/schedule.ts): one per
--- local date from start_date to end_date (open-ended when null), keyed
+-- local date from definition_from to end_date (open-ended when null), keyed
 -- "<routine id>:<YYYY-MM-DD>", at the routine's time on that date in its
 -- zone, resolved as cycles resolve theirs (cycle_local_instant: a time in a
 -- spring-forward gap moves forward by the gap; a repeated time uses the
--- earlier instant). The key carries the date only, so an edit of the time
--- moves the day's untaken occurrence and a day already taken stays taken.
--- Edits apply to every occurrence not yet taken; taken ones keep their
--- snapshot.
+-- earlier instant).
 --
--- For S13 (the reminder dispatcher, built last): supplement reminders come
--- from public.due_supplement_occurrences(p_from, p_to) (service role only):
--- every occurrence scheduled in [p_from, p_to) of a routine whose owner has
--- tracking on, not yet taken, with its schedule_version. Before sending a
--- reminder or follow-up, recheck:
+-- Edits (Marco, 2026-09-27: "edits apply from now on, including today's
+-- untaken occurrence") replace the definition in place and set
+-- definition_from to the day of the edit: today's untaken occurrence and every
+-- later one use the new name, amount, unit and time. Days before it are no
+-- longer occurrences: a day missed before the edit stays unmarked (AP017; the
+-- screens list today only, so no revision history is kept). Taken records
+-- keep their own snapshot; a day already taken stays taken.
+--
+-- For S13 (the reminder dispatcher, built last): reminders come from
+-- public.due_supplement_occurrences(p_from, p_to, p_after_at, p_after_routine,
+-- p_limit) (service role only): untaken occurrences under each routine's
+-- current definition scheduled in [p_from, p_to) (at most 8 days), owner's
+-- tracking on, with schedule_version, ordered by the unique (scheduled_at,
+-- routine_id), at most p_limit rows (1 to 1,000, the API's cap). S13 MUST
+-- page by cursor: pass the last row's (scheduled_at, routine_id) as
+-- (p_after_at, p_after_routine) until a page is shorter than p_limit
+-- (listDueSupplements in src/lib/supplements/service.ts does). A Taken
+-- recorded between pages only drops that occurrence. A reminder tap opens
+-- Today, which lists today only (Marco, 2026-09-27): a late tap across
+-- midnight needs S13's own deep link; take_supplement accepts any day from
+-- definition_from up to today. Before sending a reminder or follow-up, recheck:
 --   1. no supplement_taken row exists for (routine_id, occurrence_key);
 --   2. supplement_routines.schedule_version still equals the version the
 --      reminder was queued with (it moves on every saved edit and on End);
@@ -75,52 +84,48 @@
 --     today in its zone; tracking on, the version shown (AP025), not already
 --     ended (AP027). Returns { id, version, end_date }.
 --   take_supplement(p_request_key, p_occurrence_key, p_seen_scheduled_at,
---                   p_seen_amount, p_seen_unit, p_actual_at)
+--                   p_seen_name, p_seen_amount, p_seen_unit, p_actual_at)
 --     R1/R10 "Taken": the occurrence is re-derived here from the stored
 --     routine, never from times the client sends. The same request key
 --     again (a retry, a double tap) returns the recorded result with
 --     "replayed": true and records nothing more; a key already used for
 --     another occurrence or account is refused (22023). Then, as
---     confirm_dose: the date must be one of the routine's (AP017), not taken
---     yet (AP018), today or earlier in its zone (AP019); the scheduled time,
---     amount and unit shown must be the current ones (AP020); the actual
+--     confirm_dose: the date must be an occurrence under the current
+--     definition (definition_from to end_date; AP017), not taken yet
+--     (AP018), today or earlier in its zone (AP019); the scheduled time,
+--     name, amount and unit shown must be the current ones (AP020); the actual
 --     time (now when null) never after the server's clock (AP021) nor more
 --     than a day before the planned time (AP022). Tracking on (AP026).
 --     Returns { id, routine_id, occurrence_key, scheduled_at, actual_at,
 --     recorded_at, name, amount, unit, replayed }.
 --
 -- Refusal SQLSTATEs (AP017-AP022 as in 20260926200100_dose_confirmation.sql):
---   42501 not an acknowledged researcher     22023 invalid input, or a
---   request key reused
---   AP017 not an occurrence of the routine   AP018 already taken
+--   42501 not an acknowledged researcher     22023 invalid input, key reused
+--   AP017 not an occurrence of the routine's current definition
+--   AP018 already taken
 --   AP019 not due yet (a later day)          AP020 changed since it was shown
 --   AP021 actual time in the future          AP022 actual time over a day early
 --   AP025 the routine changed since it was shown (stale version)
---   AP026 supplement tracking is off
---   AP027 the routine has ended
+--   AP026 supplement tracking is off         AP027 the routine has ended
 --
--- Lock order: every supplement writer locks at most one routine row (for
--- update: its edits, End and Taken records are serialized, so a double tap
--- with two request keys records one and refuses the other with AP018) and,
--- set_supplement_tracking, only the caller's settings row (the others read
--- it plainly: a toggle racing a write counts as after it). None takes any
--- lock in the global order of 20260926200100_dose_confirmation.sql (cycle ->
--- plans -> vial -> mixtures), and no peptide writer locks these rows, so no
--- cycle can form. Implicit foreign-key locks (for key share) fall on the
--- caller's profile and on the routine a Taken row refers to, already held
--- for update.
+-- Lock order: every supplement writer locks at most one routine row for
+-- update (edits, End and Taken records are serialized: a double tap with two
+-- request keys records one and refuses the other with AP018) or, for
+-- set_supplement_tracking, the caller's settings row (others read it plainly:
+-- a toggle racing a write counts as after it). None takes a lock in the
+-- global order of 20260926200100_dose_confirmation.sql and no peptide writer
+-- locks these rows, so no cycle can form. Implicit foreign-key locks fall on
+-- the caller's profile and on a routine already held for update.
 --
 -- Access (deny by default), per the S4 grant rules
 -- (20260926150000_support_grants.sql):
 --   * Reads: public.can_read_researcher(owner_id): the owner, or an admin
 --     holding the owner's active support grant (S17's A8 history). The admin
 --     role alone reads nothing; revoking denies the next read.
---   * Writes: none through the API, for anyone (service_role included); the
---     functions above are the only write paths.
+--   * Writes: none through the API (service_role included); only the above.
 --
--- Account data: names, units are free text; any future account-closure
--- design must clear them here too. Until then rows go only with their
--- profile (on delete cascade).
+-- Account data: names and units are free text; any account-closure design
+-- must clear them too. Until then rows go with their profile (cascade).
 
 -- ── Tables ─────────────────────────────────────────────────────────────────
 
@@ -156,6 +161,8 @@ create table public.supplement_routines (
   -- The app is strictly local (see the header).
   time_zone text not null default 'America/Toronto' check (time_zone = 'America/Toronto'),
   start_date date not null,
+  -- When the current definition took effect (see the header).
+  definition_from date not null,
   end_date date,
   -- The concurrency token: + 1 on every successful edit and on End.
   version integer not null default 1 check (version >= 1),
@@ -163,7 +170,9 @@ create table public.supplement_routines (
   schedule_version integer not null default 1 check (schedule_version >= 1),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint supplement_routines_dates check (end_date is null or end_date >= start_date),
+  constraint supplement_routines_dates check (
+    definition_from >= start_date and (end_date is null or end_date >= definition_from)
+  ),
   constraint supplement_routines_saved check (updated_at >= created_at),
   constraint supplement_routines_owner unique (id, owner_id)
 );
@@ -307,8 +316,13 @@ begin
     if not public.supplement_tracking_of(v_uid) then
       raise exception 'supplement tracking is off' using errcode = 'AP026';
     end if;
-    insert into public.supplement_routines as r (owner_id, name, amount, unit, time_of_day, start_date, created_at, updated_at)
-    values (v_uid, v_name, v_amount, v_unit, p_time, (v_now at time zone 'America/Toronto')::date, v_now, v_now)
+    insert into public.supplement_routines as r (
+      owner_id, name, amount, unit, time_of_day, start_date, definition_from, created_at, updated_at
+    )
+    values (
+      v_uid, v_name, v_amount, v_unit, p_time, (v_now at time zone 'America/Toronto')::date,
+      (v_now at time zone 'America/Toronto')::date, v_now, v_now
+    )
     returning r.* into v_row;
     return jsonb_build_object('id', v_row.id, 'version', v_row.version);
   end if;
@@ -332,6 +346,8 @@ begin
       amount = v_amount,
       unit = v_unit,
       time_of_day = p_time,
+      -- From today on (never back: the database's clock can step back around midnight).
+      definition_from = greatest((v_now at time zone r.time_zone)::date, r.definition_from),
       version = r.version + 1,
       schedule_version = r.schedule_version + 1,
       updated_at = greatest(v_now, r.created_at)
@@ -378,7 +394,7 @@ begin
 
   update public.supplement_routines r
   -- Never before its start (the database's clock can step back around midnight).
-  set end_date = greatest((v_now at time zone r.time_zone)::date, r.start_date),
+  set end_date = greatest((v_now at time zone r.time_zone)::date, r.definition_from),
       version = r.version + 1,
       schedule_version = r.schedule_version + 1,
       updated_at = greatest(v_now, r.created_at)
@@ -412,6 +428,7 @@ create function public.take_supplement(
   p_request_key uuid,
   p_occurrence_key text,
   p_seen_scheduled_at timestamptz,
+  p_seen_name text,
   p_seen_amount text,
   p_seen_unit text,
   p_actual_at timestamptz default null
@@ -468,13 +485,13 @@ begin
   if not public.supplement_tracking_of(v_uid) then
     raise exception 'supplement tracking is off' using errcode = 'AP026';
   end if;
-  if v_date < v_routine.start_date or (v_routine.end_date is not null and v_date > v_routine.end_date) then
-    raise exception 'not an occurrence of the routine' using errcode = 'AP017';
+  if v_date < v_routine.definition_from or (v_routine.end_date is not null and v_date > v_routine.end_date) then
+    raise exception 'not an occurrence of the routine''s current definition' using errcode = 'AP017';
   end if;
   if exists (select 1 from public.supplement_taken t where t.routine_id = v_routine.id and t.occurrence_key = p_occurrence_key) then
     raise exception 'already taken' using errcode = 'AP018';
   end if;
-  if p_seen_scheduled_at is null or p_seen_amount is null or p_seen_unit is null then
+  if p_seen_scheduled_at is null or p_seen_name is null or p_seen_amount is null or p_seen_unit is null then
     raise exception 'invalid confirmation' using errcode = '22023';
   end if;
 
@@ -484,6 +501,7 @@ begin
   end if;
   v_scheduled := public.cycle_local_instant(v_date, v_routine.time_of_day, v_routine.time_zone);
   if v_scheduled <> p_seen_scheduled_at
+     or p_seen_name <> v_routine.name
      or public.supplement_decimal(p_seen_amount) is distinct from v_routine.amount
      or p_seen_unit <> v_routine.unit then
     raise exception 'the occurrence changed since it was shown' using errcode = 'AP020';
@@ -512,16 +530,25 @@ exception
 end;
 $$;
 
-revoke all on function public.take_supplement(uuid, text, timestamptz, text, text, timestamptz) from public, anon;
-grant execute on function public.take_supplement(uuid, text, timestamptz, text, text, timestamptz) to authenticated;
+revoke all on function public.take_supplement(uuid, text, timestamptz, text, text, text, timestamptz) from public, anon;
+grant execute on function public.take_supplement(uuid, text, timestamptz, text, text, text, timestamptz) to authenticated;
 
 -- ── S13's hook ─────────────────────────────────────────────────────────────
 
--- Every occurrence scheduled in [p_from, p_to) (at most 8 days) of a routine
--- whose owner has tracking on, not yet taken (see the header). Service role
--- only; it reads across owners (security definer for the internal
--- cycle_local_instant).
-create function public.due_supplement_occurrences(p_from timestamptz, p_to timestamptz)
+-- A page of the occurrences due in [p_from, p_to) (at most 8 days) of
+-- routines whose owner has tracking on, under each routine's current
+-- definition, not yet taken, after the cursor (p_after_at, p_after_routine;
+-- both null for the first page), at most p_limit (1-1,000), ordered by
+-- (scheduled_at, routine_id). See the header for the paging contract.
+-- Service role only; it reads across owners (security definer for the
+-- internal cycle_local_instant).
+create function public.due_supplement_occurrences(
+  p_from timestamptz,
+  p_to timestamptz,
+  p_after_at timestamptz default null,
+  p_after_routine uuid default null,
+  p_limit integer default 1000
+)
 returns table (
   owner_id uuid,
   routine_id uuid,
@@ -539,8 +566,10 @@ security definer
 set search_path = ''
 as $$
 begin
-  if p_from is null or p_to is null or p_to < p_from or p_to - p_from > interval '8 days' then
-    raise exception 'invalid window' using errcode = '22023';
+  if p_from is null or p_to is null or p_to < p_from or p_to - p_from > interval '8 days'
+     or (p_after_at is null) <> (p_after_routine is null)
+     or p_limit is null or p_limit not between 1 and 1000 then
+    raise exception 'invalid window or cursor' using errcode = '22023';
   end if;
   return query
   select r.owner_id, r.id, r.id::text || ':' || to_char(o.local_date, 'YYYY-MM-DD'), o.local_date, o.scheduled_at,
@@ -551,17 +580,19 @@ begin
     select g::date as local_date,
            public.cycle_local_instant(g::date, r.time_of_day, r.time_zone) as scheduled_at
     from generate_series(
-      greatest(r.start_date, (p_from at time zone r.time_zone)::date - 1),
+      greatest(r.definition_from, (p_from at time zone r.time_zone)::date - 1),
       least(coalesce(r.end_date, 'infinity'::date), (p_to at time zone r.time_zone)::date + 1),
       interval '1 day') g
   ) o
   where o.scheduled_at >= p_from and o.scheduled_at < p_to
+    and (p_after_at is null or (o.scheduled_at, r.id) > (p_after_at, p_after_routine))
     and not exists (
       select 1 from public.supplement_taken t
       where t.routine_id = r.id and t.occurrence_key = r.id::text || ':' || to_char(o.local_date, 'YYYY-MM-DD'))
-  order by o.scheduled_at, r.id;
+  order by o.scheduled_at, r.id
+  limit p_limit;
 end;
 $$;
 
-revoke all on function public.due_supplement_occurrences(timestamptz, timestamptz) from public, anon, authenticated;
-grant execute on function public.due_supplement_occurrences(timestamptz, timestamptz) to service_role;
+revoke all on function public.due_supplement_occurrences(timestamptz, timestamptz, timestamptz, uuid, integer) from public, anon, authenticated;
+grant execute on function public.due_supplement_occurrences(timestamptz, timestamptz, timestamptz, uuid, integer) to service_role;

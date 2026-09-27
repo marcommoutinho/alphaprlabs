@@ -1166,6 +1166,7 @@ export type Database = {
         Row: {
           amount: number
           created_at: string
+          definition_from: string
           end_date: string | null
           id: string
           name: string
@@ -1181,6 +1182,7 @@ export type Database = {
         Insert: {
           amount: number
           created_at?: string
+          definition_from: string
           end_date?: string | null
           id?: string
           name: string
@@ -1196,6 +1198,7 @@ export type Database = {
         Update: {
           amount?: number
           created_at?: string
+          definition_from?: string
           end_date?: string | null
           id?: string
           name?: string
@@ -1562,7 +1565,13 @@ export type Database = {
         Returns: Json
       }
       due_supplement_occurrences: {
-        Args: { p_from: string; p_to: string }
+        Args: {
+          p_after_at?: string
+          p_after_routine?: string
+          p_from: string
+          p_limit?: number
+          p_to: string
+        }
         Returns: {
           amount: string
           local_date: string
@@ -1779,6 +1788,7 @@ export type Database = {
           p_occurrence_key: string
           p_request_key: string
           p_seen_amount: string
+          p_seen_name: string
           p_seen_scheduled_at: string
           p_seen_unit: string
         }

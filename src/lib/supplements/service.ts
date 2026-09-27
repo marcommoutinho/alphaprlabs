@@ -14,8 +14,9 @@ type Db = SupabaseClient<Database>;
 // Amounts are read as text (no floats). Reads are complete: a page at a time
 // by id (keyset), never cut at the API's 1,000-row cap.
 //
-// For S13: supplement reminders come from due_supplement_occurrences (service
-// role); see the migration's header for the rechecks before sending.
+// For S13: supplement reminders come from listDueSupplements (the service
+// role, paged by cursor); see the migration's header for the rechecks before
+// sending.
 
 /** Rows per request; the API caps a response at 1,000 rows. */
 const PAGE = 1000;
@@ -29,6 +30,8 @@ export type Routine = {
   time: string;
   timeZone: string;
   startDate: string;
+  /** The day the current definition took effect (see ./schedule). */
+  definitionFrom: string;
   endDate: string | null;
   /** The stale-edit token. */
   version: number;
@@ -57,6 +60,7 @@ type RoutineRow = {
   time_of_day: string;
   time_zone: string;
   start_date: string;
+  definition_from: string;
   end_date: string | null;
   version: number;
   created_at: string;
@@ -75,7 +79,7 @@ type TakenRow = {
   recorded_at: string;
 };
 
-const ROUTINE_COLUMNS = "id, name, amount::text, unit, time_of_day, time_zone, start_date, end_date, version, created_at";
+const ROUTINE_COLUMNS = "id, name, amount::text, unit, time_of_day, time_zone, start_date, definition_from, end_date, version, created_at";
 const TAKEN_COLUMNS = "id, routine_id, occurrence_key, local_date, scheduled_at, name, amount::text, unit, actual_at, recorded_at";
 
 /** To the microsecond, as the database orders them. */
@@ -124,6 +128,7 @@ export async function listRoutines(db: Db, ownerId: string, pageSize = PAGE): Pr
       time: row.time_of_day,
       timeZone: row.time_zone,
       startDate: row.start_date,
+      definitionFrom: row.definition_from,
       endDate: row.end_date,
       version: row.version,
       createdAt: row.created_at,
@@ -212,6 +217,7 @@ export type TakeSupplementInput = {
   requestKey: string;
   occurrenceKey: string;
   seenScheduledAt: string;
+  seenName: string;
   seenAmount: string;
   seenUnit: string;
   /** ISO instant; null means now (the server's clock). */
@@ -241,6 +247,7 @@ export async function takeSupplement(db: Db, input: TakeSupplementInput): Promis
     p_request_key: input.requestKey,
     p_occurrence_key: input.occurrenceKey,
     p_seen_scheduled_at: input.seenScheduledAt,
+    p_seen_name: input.seenName,
     p_seen_amount: input.seenAmount,
     p_seen_unit: input.seenUnit,
     ...(input.actualAt ? { p_actual_at: input.actualAt } : {}),
@@ -249,4 +256,70 @@ export async function takeSupplement(db: Db, input: TakeSupplementInput): Promis
   if (!data) return { kind: "not_found" };
   const json = data as unknown as TakenJson;
   return { kind: "taken", actualAt: json.actual_at, recordedAt: json.recorded_at, name: json.name, replayed: json.replayed };
+}
+
+// ── S13's hook ──────────────────────────────────────────────────────────────
+
+/** An occurrence due for a reminder (due_supplement_occurrences). */
+export type DueSupplement = {
+  ownerId: string;
+  routineId: string;
+  occurrenceKey: string;
+  localDate: string;
+  scheduledAt: string;
+  scheduleVersion: number;
+  name: string;
+  amount: string;
+  unit: string;
+};
+
+type DueRow = {
+  owner_id: string;
+  routine_id: string;
+  occurrence_key: string;
+  local_date: string;
+  scheduled_at: string;
+  schedule_version: number;
+  name: string;
+  amount: string;
+  unit: string;
+};
+
+/** How the due list is paged; for tests. `afterPage` runs after each page and before the next is asked for. */
+export type DueReadOptions = { pageSize?: number; afterPage?: (page: number) => Promise<void> | void };
+
+/**
+ * Every supplement occurrence due in [from, to) (at most 8 days), for S13,
+ * with the SERVICE ROLE client: a page at a time by cursor on (scheduled_at,
+ * routine_id), each page at most 1,000 rows, so the API's cap never cuts the
+ * list short and a Taken recorded meanwhile only drops that occurrence.
+ */
+export async function listDueSupplements(service: Db, from: string, to: string, options: DueReadOptions = {}): Promise<DueSupplement[]> {
+  const pageSize = Math.min(options.pageSize ?? PAGE, PAGE);
+  const rows: DueRow[] = [];
+  for (let page = 1, after: DueRow | null = null; ; page += 1) {
+    const { data, error } = await service.rpc("due_supplement_occurrences", {
+      p_from: from,
+      p_to: to,
+      ...(after ? { p_after_at: after.scheduled_at, p_after_routine: after.routine_id } : {}),
+      p_limit: pageSize,
+    });
+    if (error) throw new Error(`Could not load due supplements: ${error.message}`);
+    const got = (data ?? []) as DueRow[];
+    rows.push(...got);
+    if (got.length < pageSize) break;
+    after = got[got.length - 1];
+    await options.afterPage?.(page);
+  }
+  return rows.map((row) => ({
+    ownerId: row.owner_id,
+    routineId: row.routine_id,
+    occurrenceKey: row.occurrence_key,
+    localDate: row.local_date,
+    scheduledAt: row.scheduled_at,
+    scheduleVersion: row.schedule_version,
+    name: row.name,
+    amount: row.amount,
+    unit: row.unit,
+  }));
 }

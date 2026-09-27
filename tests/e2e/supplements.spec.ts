@@ -10,6 +10,7 @@ import { APP_ORIGIN, SERVER_ORIGIN } from "../../playwright.config";
 import { SAVE_FAILED_MESSAGE } from "../../src/components/app-shell/toast";
 import { checkInDay } from "../../src/lib/progress/rules";
 import { AMOUNT_REQUIRED, GUIDANCE_NOTE, NAME_REQUIRED, NO_ROUTINES, TRACKING_OFF } from "../../src/lib/supplements/rules";
+import { NO_CYCLES_BODY, NO_CYCLES_BODY_SUPPLEMENTS } from "../../src/lib/supplements/view";
 import { tag } from "../support/cycles";
 import { ensureAccount, hydrated, ok, serviceClient, signInAs, uniqueEmail } from "../support/local-supabase";
 
@@ -30,6 +31,11 @@ test("create a routine, take it on Today once despite a retry, edit it and keep 
   await signInAs(page, APP_ORIGIN, email);
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
   await expect(page.getByTestId("today-supplement")).toHaveCount(0);
+  // No cycle: the header is today in Toronto (the app's zone), and the prototype's empty note.
+  const torontoToday = new Intl.DateTimeFormat("en-US", { timeZone: "America/Toronto", weekday: "long", month: "long", day: "numeric" }).format(new Date());
+  await expect(page.locator(".app-today-zone")).toHaveText("America/Toronto");
+  await expect(page.locator(".app-today-date")).toHaveText(torontoToday);
+  await expect(page.getByTestId("today-empty-body")).toHaveText(NO_CYCLES_BODY);
 
   // R10: the supplied guidance; nothing tracked until turned on and a routine exists.
   await page.goto(`${APP_ORIGIN}/app/supplements`);
@@ -67,6 +73,10 @@ test("create a routine, take it on Today once despite a retry, edit it and keep 
   await page.goto(`${APP_ORIGIN}/app/today`);
   const row = page.getByTestId("today-supplement").filter({ hasText: name });
   await expect(row).toContainText("Supplement · 00:00 · 2000 IU");
+  // Still no cycle: the same header, and the note no longer says nothing is due.
+  await expect(page.locator(".app-today-zone")).toHaveText("America/Toronto");
+  await expect(page.locator(".app-today-date")).toHaveText(torontoToday);
+  await expect(page.getByTestId("today-empty-body")).toHaveText(NO_CYCLES_BODY_SUPPLEMENTS);
   let lost = 0;
   await page.route(/\/app\/today$/, async (route) => {
     const request = route.request();
@@ -94,6 +104,7 @@ test("create a routine, take it on Today once despite a retry, edit it and keep 
   await expect(page.getByRole("status").filter({ hasText: `Taken · ${name} · ` })).toBeVisible();
   await expect(row.getByTestId("supplement-status")).toHaveText(/^Taken \d\d:\d\d$/);
   await expect(row.getByRole("button", { name: "Taken", exact: true })).toHaveCount(0);
+  await expect(page.getByTestId("today-empty-body")).toHaveText(NO_CYCLES_BODY);
   expect(await taken()).toEqual([first]);
   await page.unroute(/\/app\/today$/);
 
@@ -139,7 +150,8 @@ test("create a routine, take it on Today once despite a retry, edit it and keep 
   await (await hydrated(card.getByRole("button", { name: "End routine" }))).click();
   await page.getByRole("dialog", { name: "End routine" }).getByRole("button", { name: "End routine" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Routine ended. Its history is kept." })).toBeVisible();
-  await expect(card.getByTestId("routine-state")).toHaveText(/^Ended \w{3} \d{1,2}$/);
+  // Ended today: today is its last day, and what was taken today still shows.
+  await expect(card.getByTestId("routine-state")).toHaveText(/^Taken today \d\d:\d\d · last day$/);
   await expect(card.getByRole("button", { name: "Edit" })).toHaveCount(0);
   await expect(page.getByText(NO_ROUTINES)).toBeVisible();
   for (const table of ["dose_records", "personal_vials", "personal_vial_deductions", "mixtures"] as const) {

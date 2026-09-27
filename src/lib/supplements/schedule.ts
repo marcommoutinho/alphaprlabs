@@ -1,6 +1,7 @@
-// Supplement routines' occurrences: one per local date from the routine's
-// start date to its end date (open-ended when none), at its daily time in its
-// zone, keyed "<routine id>:<YYYY-MM-DD>". The database derives the same
+// Supplement routines' occurrences under their current definition: one per
+// local date from the day it took effect (definitionFrom: the create day,
+// then the day of the latest edit; Marco, 2026-09-27: edits apply from now
+// on) to its end date (open-ended when none), at its daily time in its zone, keyed "<routine id>:<YYYY-MM-DD>". The database derives the same
 // (take_supplement and due_supplement_occurrences in
 // 20260927100000_supplements.sql, through cycle_local_instant): a time in a
 // spring-forward gap moves forward by the gap; a time that occurs twice uses
@@ -18,7 +19,8 @@ export type RoutineSchedule = {
   /** "HH:MM" */
   time: LocalTime;
   timeZone: string;
-  startDate: LocalDate;
+  /** The day the current definition took effect: earlier days are not occurrences any more. */
+  definitionFrom: LocalDate;
   /** The last day it runs; null while it runs on. */
   endDate: LocalDate | null;
 };
@@ -42,9 +44,9 @@ export function parseSupplementKey(key: string): { routineId: string; date: Loca
   return match && isLocalDate(match[2]) ? { routineId: match[1], date: match[2] } : null;
 }
 
-/** True when the routine runs on `date` (start and end dates included). */
-export const runsOn = (routine: Pick<RoutineSchedule, "startDate" | "endDate">, date: LocalDate) =>
-  date >= routine.startDate && (routine.endDate === null || date <= routine.endDate);
+/** True when `date` is an occurrence under the current definition (definitionFrom and the end date included). */
+export const runsOn = (routine: Pick<RoutineSchedule, "definitionFrom" | "endDate">, date: LocalDate) =>
+  date >= routine.definitionFrom && (routine.endDate === null || date <= routine.endDate);
 
 /** The routine's occurrence on `date`, or null when it doesn't run that day. */
 export function occurrenceOn(routine: RoutineSchedule, date: LocalDate): SupplementOccurrence | null {
@@ -63,7 +65,7 @@ export function occurrenceOn(routine: RoutineSchedule, date: LocalDate): Supplem
 /** Its occurrences on the local dates `from` to `to` (both included), in order. */
 export function occurrencesBetween(routine: RoutineSchedule, from: LocalDate, to: LocalDate): SupplementOccurrence[] {
   const out: SupplementOccurrence[] = [];
-  const first = from > routine.startDate ? from : routine.startDate;
+  const first = from > routine.definitionFrom ? from : routine.definitionFrom;
   const last = routine.endDate !== null && routine.endDate < to ? routine.endDate : to;
   for (let date = Temporal.PlainDate.from(first); Temporal.PlainDate.compare(date, Temporal.PlainDate.from(last)) <= 0; date = date.add({ days: 1 })) {
     const occurrence = occurrenceOn(routine, date.toString());

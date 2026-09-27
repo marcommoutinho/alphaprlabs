@@ -158,6 +158,9 @@ export type TodayInput = {
 
 type Entry = { o: Occurrence; state: OccurrenceState; cycle: CycleRecord; ended: boolean; peptideId: string };
 
+/** The app's zone (strictly local; Marco, 2026-09-26): the header's day without cycles. */
+export const LOCAL_TIME_ZONE = "America/Toronto";
+
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEKDAYS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -381,12 +384,14 @@ export function todayView(input: TodayInput): TodayView {
     }
   }
 
-  // The day and zone shown in the header: the hero's, else the newest cycle not ended, else any.
+  // The day and zone shown in the header: the hero's, else the newest cycle
+  // not ended, else any, else the app's own zone (it is strictly local;
+  // supplement routines and check-ins follow it too).
   const zone =
     heroEntry?.o.timeZone ??
     current.find((c) => cycleStatus(c.revisions[c.revisions.length - 1], now.toString()) !== "Ended")?.revisions.at(-1)?.timeZone ??
     current[0]?.revisions.at(-1)?.timeZone ??
-    "UTC";
+    LOCAL_TIME_ZONE;
 
   return {
     dateLabel: longDate(wallOf(now.toString(), zone).slice(0, 10)),

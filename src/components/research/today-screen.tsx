@@ -8,7 +8,7 @@ import { SAVE_FAILED_MESSAGE, useToast } from "@/components/app-shell/toast";
 import { AppBadge } from "@/components/push/app-badge";
 import { discrepancyToast, ENDED_NOTE, NO_MIXTURE_NOTE, takenToast } from "@/lib/doses/rules";
 import type { DoseDetail, TodayHero, TodayRow, TodayView } from "@/lib/doses/today";
-import { mergeTodayRows, type SupplementDetail, type SupplementRow, type SupplementToday } from "@/lib/supplements/view";
+import { mergeTodayRows, type SupplementDetail, type SupplementRow, type SupplementToday, todayNotes } from "@/lib/supplements/view";
 import { ConfirmSheet, type SheetSubmission, takenWhen } from "./confirm-sheet";
 import { SupplementTimeSheet, useTakeSupplement } from "./supplement-taken";
 
@@ -114,6 +114,7 @@ export function TodayScreen({ view, supplements }: { view: TodayView; supplement
   const [supplementSheet, setSupplementSheet] = useState<SupplementDetail | null>(null);
   const saving = pending || supplement.pending;
   const items = mergeTodayRows(view.rows, supplements.rows);
+  const notes = todayNotes(view, supplements);
 
   return (
     <>
@@ -135,7 +136,7 @@ export function TodayScreen({ view, supplements }: { view: TodayView; supplement
       {!view.hasCycles ? (
         <div className="app-today-empty">
           <h2>No cycles yet</h2>
-          <p>Start from a supplied template or build a custom cycle. Nothing is due until a plan exists.</p>
+          <p data-testid="today-empty-body">{notes.noCyclesBody}</p>
           <div className="app-today-empty-actions">
             <Link href="/app/library" className="app-btn app-btn--primary app-today-empty-btn">
               Browse templates
@@ -151,10 +152,10 @@ export function TodayScreen({ view, supplements }: { view: TodayView; supplement
         <Hero hero={view.hero} busy={busy(view.hero.key)} disabled={saving} onTaken={() => quick(view.hero!.key)} onMore={() => openSheet(view.hero!.key)} />
       ) : null}
 
-      {view.nothingDue ? (
+      {notes.nothingDue ? (
         <section className="app-today-quiet" data-testid="today-quiet">
-          <div className="app-today-quiet-title">{view.nothingDue.title}</div>
-          <div className="app-today-quiet-body">{view.nothingDue.body}</div>
+          <div className="app-today-quiet-title">{notes.nothingDue.title}</div>
+          <div className="app-today-quiet-body">{notes.nothingDue.body}</div>
         </section>
       ) : null}
 

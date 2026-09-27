@@ -126,6 +126,7 @@ export type TakenForm = {
   key: string;
   /** What the screen showed, so a changed routine is never recorded blindly. */
   seenScheduledAt: string;
+  seenName: string;
   seenAmount: string;
   seenUnit: string;
   /** A wall-clock time in the routine's zone; null: now. */
@@ -141,10 +142,10 @@ export function readTakenForm(input: unknown): TakenForm | null {
   if (typeof input !== "object" || input === null) return null;
   const raw = input as Record<string, unknown>;
   const text = (key: string) => (typeof raw[key] === "string" ? (raw[key] as string) : null);
-  const [requestKey, key, seenScheduledAt, seenAmount, seenUnit] = ["requestKey", "key", "seenScheduledAt", "seenAmount", "seenUnit"].map(text);
+  const [requestKey, key, seenScheduledAt, seenName, seenAmount, seenUnit] = ["requestKey", "key", "seenScheduledAt", "seenName", "seenAmount", "seenUnit"].map(text);
   const actual = raw.actual === null ? null : typeof raw.actual === "string" ? raw.actual : undefined;
-  if (!uuidOf(requestKey) || !isSupplementKey(key) || !seenScheduledAt || !seenAmount || seenUnit === null || actual === undefined) return null;
-  return { requestKey: requestKey!.toLowerCase(), key: key.toLowerCase(), seenScheduledAt, seenAmount, seenUnit, actual };
+  if (!uuidOf(requestKey) || !isSupplementKey(key) || !seenScheduledAt || !seenName || !seenAmount || seenUnit === null || actual === undefined) return null;
+  return { requestKey: requestKey!.toLowerCase(), key: key.toLowerCase(), seenScheduledAt, seenName, seenAmount, seenUnit, actual };
 }
 
 /** The actual time's check (the server re-checks the clock and the planned time): a wall time, never after now. */

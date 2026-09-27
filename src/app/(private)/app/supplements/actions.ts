@@ -139,7 +139,7 @@ export async function endRoutineAction(input: unknown): Promise<SupplementAction
 
 /**
  * Today's and R10's "Taken" for a supplement: the occurrence key, the
- * scheduled time, amount and unit shown, the actual wall-clock time in the
+ * scheduled time, name, amount and unit shown, the actual wall-clock time in the
  * routine's zone (null: now) and a request key that stays the same for
  * retries. take_supplement() re-derives the occurrence from the stored
  * routine, records at most one per request and per occurrence, and refuses a
@@ -160,6 +160,7 @@ export async function takeSupplementAction(input: unknown): Promise<TakenActionR
       requestKey: form.requestKey,
       occurrenceKey: form.key,
       seenScheduledAt: form.seenScheduledAt,
+      seenName: form.seenName,
       seenAmount: form.seenAmount,
       seenUnit: form.seenUnit,
       actualAt,

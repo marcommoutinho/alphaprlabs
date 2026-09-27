@@ -40,6 +40,7 @@ export function useTakeSupplement() {
           requestKey: requestKeyFor(detail.key),
           key: detail.key,
           seenScheduledAt: detail.scheduledAt,
+          seenName: detail.name,
           seenAmount: detail.amount,
           seenUnit: detail.unit,
           actual,

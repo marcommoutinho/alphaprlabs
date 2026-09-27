@@ -14,7 +14,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { addDays } from "@/lib/cycles/rules";
 import { checkInDay } from "@/lib/progress/rules";
 import { occurrenceOn } from "@/lib/supplements/schedule";
-import { getSupplementTracking, listRoutines, listTaken, saveRoutine, takeSupplement } from "@/lib/supplements/service";
+import { getSupplementTracking, listDueSupplements, listRoutines, listTaken, saveRoutine, takeSupplement } from "@/lib/supplements/service";
 import { type Client, createCycle, createPeptide, interval, plan, tag } from "../support/cycles";
 import { confirmArgsSeen, d, NOON, occurrenceOn as doseOn } from "../support/doses";
 import { anonClient, ensureAccount, ok, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
@@ -57,12 +57,13 @@ async function create(who: Name, overrides: Record<string, unknown> = {}): Promi
 
 /** The occurrence the app computes for a routine at `time` on `date`. */
 const scheduled = (routineId: string, date: string, time = "00:00") =>
-  occurrenceOn({ id: routineId, time, timeZone: TORONTO, startDate: date, endDate: null }, date)!.scheduledAt;
+  occurrenceOn({ id: routineId, time, timeZone: TORONTO, definitionFrom: date, endDate: null }, date)!.scheduledAt;
 
 const takeArgs = (routineId: string, date: string, overrides: Record<string, unknown> = {}) => ({
   p_request_key: randomUUID(),
   p_occurrence_key: `${routineId}:${date}`,
   p_seen_scheduled_at: scheduled(routineId, date),
+  p_seen_name: "Vitamin D3",
   p_seen_amount: "2000",
   p_seen_unit: "IU",
   ...overrides,
@@ -82,7 +83,7 @@ const routineRow = (routineId: string) =>
   ok(
     serviceClient()
       .from("supplement_routines")
-      .select("name, amount::text, unit, time_of_day, time_zone, start_date, end_date, version, schedule_version, created_at, updated_at")
+      .select("name, amount::text, unit, time_of_day, time_zone, start_date, definition_from, end_date, version, schedule_version, created_at, updated_at")
       .eq("id", routineId)
       .single(),
     "routine row",
@@ -200,8 +201,8 @@ describe("Taken", () => {
   it("serializes two different requests for one occurrence: one records, the other is refused", async () => {
     const routineId = await create("cara", { p_name: "Zinc" });
     const [a, b] = await Promise.all([
-      sqlState(db.cara.rpc("take_supplement", takeArgs(routineId, today)), "a"),
-      sqlState(db.cara.rpc("take_supplement", takeArgs(routineId, today)), "b"),
+      sqlState(db.cara.rpc("take_supplement", takeArgs(routineId, today, { p_seen_name: "Zinc" })), "a"),
+      sqlState(db.cara.rpc("take_supplement", takeArgs(routineId, today, { p_seen_name: "Zinc" })), "b"),
     ]);
     expect([a, b].sort()).toEqual(["AP018", "ok"]);
     expect(await takenRows(routineId)).toHaveLength(1);
@@ -210,13 +211,14 @@ describe("Taken", () => {
   it("refuses what Today refuses, deriving the occurrence on the server", async () => {
     const routineId = await create("dev", { p_name: "Magnesium", p_amount: "1.5", p_unit: "capsules" });
     const at = (date: string, overrides: Record<string, unknown> = {}) =>
-      takeArgs(routineId, date, { p_seen_amount: "1.5", p_seen_unit: "capsules", ...overrides });
+      takeArgs(routineId, date, { p_seen_name: "Magnesium", p_seen_amount: "1.5", p_seen_unit: "capsules", ...overrides });
     const refused = async (args: Record<string, unknown>, what: string) => sqlState(db.dev.rpc("take_supplement", args as never), what);
 
     expect(await refused(at(addDays(today, -1)), "before its start")).toBe("AP017");
     expect(await refused(at(addDays(today, 1)), "tomorrow")).toBe("AP019");
     expect(await refused(at(today, { p_seen_scheduled_at: scheduled(routineId, today, "08:00") }), "other time")).toBe("AP020");
     expect(await refused(at(today, { p_seen_amount: "2" }), "other amount")).toBe("AP020");
+    expect(await refused(at(today, { p_seen_name: "Magnesium citrate" }), "other name")).toBe("AP020");
     expect(await refused(at(today, { p_seen_unit: "mg" }), "other unit")).toBe("AP020");
     expect(await refused(at(today, { p_actual_at: new Date(Date.now() + 120_000).toISOString() }), "future")).toBe("AP021");
     const midnight = Date.parse(scheduled(routineId, today));
@@ -233,6 +235,7 @@ describe("Taken", () => {
       requestKey: randomUUID(),
       occurrenceKey: `${routineId}:${today}`,
       seenScheduledAt: scheduled(routineId, today),
+      seenName: "Magnesium",
       seenAmount: "1.5",
       seenUnit: "capsules",
       actualAt: actual,
@@ -256,8 +259,8 @@ describe("edits and End", () => {
   it("refuse a stale version, never rewrite what was taken, and move S13's schedule_version", async () => {
     const routineId = await create("dev", { p_name: "Vitamin C", p_amount: "500", p_unit: "mg" });
     const created = await routineRow(routineId);
-    expect(created).toMatchObject({ start_date: today, end_date: null, version: 1, schedule_version: 1, time_zone: TORONTO });
-    await ok(db.dev.rpc("take_supplement", takeArgs(routineId, today, { p_seen_amount: "500", p_seen_unit: "mg" })), "take");
+    expect(created).toMatchObject({ start_date: today, definition_from: today, end_date: null, version: 1, schedule_version: 1, time_zone: TORONTO });
+    await ok(db.dev.rpc("take_supplement", takeArgs(routineId, today, { p_seen_name: "Vitamin C", p_seen_amount: "500", p_seen_unit: "mg" })), "take");
     const before = await takenRows(routineId);
 
     const edit = await saveRoutine(db.dev, { id: routineId, version: 1, name: "Vitamin C (buffered)", amount: "1000.50", unit: "mg", time: "07:15" });
@@ -278,9 +281,21 @@ describe("edits and End", () => {
     expect(await sqlState(db.dev.rpc("end_supplement_routine", { p_id: routineId, p_version: 3 }), "end twice")).toBe("AP027");
     expect(await takenRows(routineId)).toEqual(before);
     // Its dates end today: tomorrow is no longer one of its occurrences.
-    expect(await sqlState(db.dev.rpc("take_supplement", takeArgs(routineId, addDays(today, 1), { p_seen_amount: "1000.5" })), "after end")).toBe("AP017");
+    expect(await sqlState(db.dev.rpc("take_supplement", takeArgs(routineId, addDays(today, 1), { p_seen_name: "Vitamin C (buffered)", p_seen_amount: "1000.5" })), "after end")).toBe("AP017");
     const row = (await routineRow(routineId)) as unknown as { updated_at: string; created_at: string };
     expect(Date.parse(row.updated_at)).toBeGreaterThanOrEqual(Date.parse(row.created_at));
+  });
+
+  it("refuses a Taken from a screen showing the old name after a rename on another device", async () => {
+    const routineId = await create("dev", { p_name: "Fish oil" });
+    // The phone shows "Fish oil"; another device renames it (nothing else changes).
+    const shown = takeArgs(routineId, today, { p_seen_name: "Fish oil" });
+    expect(await saveRoutine(db.dev, { id: routineId, version: 1, name: "Omega-3 fish oil", amount: "2000", unit: "IU", time: "00:00" })).toMatchObject({ kind: "saved" });
+    expect(await sqlState(db.dev.rpc("take_supplement", shown), "old name")).toBe("AP020");
+    expect(await takenRows(routineId)).toEqual([]);
+    // The refreshed screen shows the new name, and records it.
+    await ok(db.dev.rpc("take_supplement", takeArgs(routineId, today, { p_seen_name: "Omega-3 fish oil" })), "new name");
+    expect((await takenRows(routineId)).map((t) => t.name)).toEqual(["Omega-3 fish oil"]);
   });
 
   it("checks the input as the app does: exact amounts, lengths in characters, a real time", async () => {
@@ -340,7 +355,7 @@ describe("supplements never touch peptide stock", () => {
 
     // A supplement in mg, taken, edited and ended.
     const routineId = await create("eve", { p_name: "Creatine", p_amount: "5", p_unit: "mg" });
-    await ok(db.eve.rpc("take_supplement", takeArgs(routineId, today, { p_seen_amount: "5", p_seen_unit: "mg" })), "take");
+    await ok(db.eve.rpc("take_supplement", takeArgs(routineId, today, { p_seen_name: "Creatine", p_seen_amount: "5", p_seen_unit: "mg" })), "take");
     await saveRoutine(db.eve, { id: routineId, version: 1, name: "Creatine", amount: "3", unit: "g", time: "09:00" });
     await ok(db.eve.rpc("end_supplement_routine", { p_id: routineId, p_version: 2 }), "end");
     await ok(db.eve.rpc("set_supplement_tracking", { p_enabled: false }), "off");
@@ -355,22 +370,22 @@ describe("S13's hook", () => {
     const service = serviceClient();
     const from = scheduled(routineId, today);
     const window = { p_from: new Date(Date.parse(from) - 60_000).toISOString(), p_to: new Date(Date.parse(from) + 60_000).toISOString() };
-    const due = async () => ((await ok(service.rpc("due_supplement_occurrences", window), "due")) ?? []).filter((o) => o.routine_id === routineId);
+    const due = async () => (await listDueSupplements(service, window.p_from, window.p_to)).filter((o) => o.routineId === routineId);
 
     expect(await due()).toEqual([
       {
-        owner_id: id.blair,
-        routine_id: routineId,
-        occurrence_key: `${routineId}:${today}`,
-        local_date: today,
-        scheduled_at: expect.any(String),
-        schedule_version: 1,
+        ownerId: id.blair,
+        routineId,
+        occurrenceKey: `${routineId}:${today}`,
+        localDate: today,
+        scheduledAt: expect.any(String),
+        scheduleVersion: 1,
         name: "Omega-3",
         amount: "1",
         unit: "capsule",
       },
     ]);
-    expect(Date.parse((await due())[0].scheduled_at)).toBe(Date.parse(from));
+    expect(Date.parse((await due())[0].scheduledAt)).toBe(Date.parse(from));
 
     // Tracking off: not due; on again: due.
     await ok(db.blair.rpc("set_supplement_tracking", { p_enabled: false }), "off");
@@ -378,12 +393,17 @@ describe("S13's hook", () => {
     await ok(db.blair.rpc("set_supplement_tracking", { p_enabled: true }), "on");
     expect(await due()).toHaveLength(1);
     // Taken: not due any more.
-    await ok(db.blair.rpc("take_supplement", takeArgs(routineId, today, { p_seen_amount: "1", p_seen_unit: "capsule" })), "take");
+    await ok(db.blair.rpc("take_supplement", takeArgs(routineId, today, { p_seen_name: "Omega-3", p_seen_amount: "1", p_seen_unit: "capsule" })), "take");
     expect(await due()).toEqual([]);
 
     // Windows are bounded.
     const now = Date.now();
     expect(await sqlState(service.rpc("due_supplement_occurrences", { p_from: new Date(now).toISOString(), p_to: new Date(now - 1).toISOString() }), "backwards")).toBe("22023");
     expect(await sqlState(service.rpc("due_supplement_occurrences", { p_from: new Date(now).toISOString(), p_to: new Date(now + 9 * 86_400_000).toISOString() }), "too long")).toBe("22023");
+    // Pages are 1 to 1,000 rows, and a cursor has both parts.
+    const day = { p_from: new Date(now).toISOString(), p_to: new Date(now + 86_400_000).toISOString() };
+    for (const bad of [{ p_limit: 1001 }, { p_limit: 0 }, { p_after_at: day.p_from }, { p_after_routine: routineId }]) {
+      expect(await sqlState(service.rpc("due_supplement_occurrences", { ...day, ...bad }), JSON.stringify(bad)), JSON.stringify(bad)).toBe("22023");
+    }
   });
 });
