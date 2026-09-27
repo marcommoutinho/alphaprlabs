@@ -410,7 +410,8 @@ grant execute on function public.business_sellers() to authenticated;
 -- or the nil UUID for sales recorded before sellers existed (seller_id null),
 -- so the rows can be paged by a key that is never null. seller_name is the
 -- seller's current name (their name when they last sold, if the profile has
--- none). Amounts as exact decimal text.
+-- none) and seller_email their email, so two admins who share a name can be
+-- told apart. Amounts as exact decimal text.
 create function public.admin_business_seller_totals(
   p_from date default null,
   p_to date default null,
@@ -420,6 +421,7 @@ returns table (
   seller_key uuid,
   seller_id uuid,
   seller_name text,
+  seller_email text,
   sales bigint,
   vials bigint,
   revenue text,
@@ -438,7 +440,7 @@ begin
 
   return query
     select coalesce(t.seller_id, '00000000-0000-0000-0000-000000000000'::uuid), t.seller_id,
-           coalesce(left(public.trim_whitespace(pr.name), 120), t.last_name),
+           coalesce(left(public.trim_whitespace(pr.name), 120), t.last_name), pr.email,
            t.sales, t.vials, t.revenue::text, t.cost::text, t.gross_profit::text
     from (
       select s.seller_id, count(*)::bigint as sales, sum(s.quantity)::bigint as vials,
@@ -456,6 +458,39 @@ $$;
 
 revoke all on function public.admin_business_seller_totals(date, date, uuid) from public, anon;
 grant execute on function public.admin_business_seller_totals(date, date, uuid) to authenticated;
+
+-- ── Admin: outside buyers not yet linked (A7 "Outside buyers") ─────────────
+-- Every outside-buyer sale can be found and linked however many newer sales
+-- a list shows first: one row per outside buyer name still recorded as an
+-- outside buyer, with its sales, vials, revenue and latest sale date, read in
+-- keyset pages by buyer_name (unique per row). p_search keeps the names that
+-- contain it, ignoring case (plain text: no wildcards). Amounts as exact
+-- decimal text.
+create function public.admin_business_outside_buyers(p_search text default null)
+returns table (buyer_name text, sales bigint, vials bigint, revenue text, last_sold date)
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_search text := lower(coalesce(public.trim_whitespace(p_search), ''));
+begin
+  if not public.is_admin() then
+    raise exception 'not authorized' using errcode = '42501';
+  end if;
+
+  return query
+    select s.buyer_name, count(*)::bigint, sum(s.quantity)::bigint, sum(s.revenue)::text, max(s.sold_on)
+    from public.business_sales s
+    where s.buyer_type = 'outside'
+      and (v_search = '' or strpos(lower(s.buyer_name), v_search) > 0)
+    group by s.buyer_name;
+end;
+$$;
+
+revoke all on function public.admin_business_outside_buyers(text) from public, anon;
+grant execute on function public.admin_business_outside_buyers(text) to authenticated;
 
 -- ── Invitations carry the role the account is created with ─────────────────
 alter table public.invitations

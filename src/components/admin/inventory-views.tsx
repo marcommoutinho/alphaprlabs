@@ -21,11 +21,12 @@ import {
   usdConversionLine,
   vials,
 } from "@/lib/inventory/screens";
-import { BY_SELLER_TITLE, sellerLine, sellerRowLabel } from "@/lib/inventory/seller-screens";
+import { BY_SELLER_TITLE, OUTSIDE_LINK_NOTE, OUTSIDE_TITLE, sellerLine, sellerRowEmail, sellerRowLabel } from "@/lib/inventory/seller-screens";
 import type { SellerTotals } from "@/lib/inventory/sellers";
 import type { BuyerAccount, SaleRecord, SalesReport, StockItemDetail, StockItemSummary } from "@/lib/inventory/service";
 import { LinkSale } from "./link-sale";
 import "@/styles/app/inventory.css";
+import "@/styles/app/sellers.css";
 
 export const PURCHASE_PATH = "/admin/inventory/purchase";
 export const SALE_PATH = "/admin/inventory/sale";
@@ -178,7 +179,11 @@ export function StockItemView({ detail, linkAccounts }: { detail: StockItemDetai
           {sales.map((sale) => (
             <SaleEntry key={sale.id} sale={sale} linkAccounts={linkAccounts} />
           ))}
-          {detail.salesTruncated ? <p className="app-inv-note">{stockSalesTruncatedNote(sales.length)}</p> : null}
+          {detail.salesTruncated ? (
+            <p className="app-inv-note">
+              {stockSalesTruncatedNote(sales.length)} <OutsideBuyersLink />
+            </p>
+          ) : null}
         </section>
       </div>
     </>
@@ -255,6 +260,9 @@ export function SalesReportView({
         <Kpi label="Gross profit" value={<Money amount={totals.grossProfit} />} tone={profitTone(totals.grossProfit)} accent />
       </div>
       <p className="app-inv-note">{SALES_NOTE}</p>
+      <p className="app-inv-note">
+        <OutsideBuyersLink />
+      </p>
       {empty ? (
         <div className="app-inv-empty">
           <EmptyState>{empty}</EmptyState>
@@ -282,7 +290,7 @@ export function SalesReportView({
           <div className="app-inv-breakdown" data-testid="by-seller">
             {sellers.map((row) => (
               <div key={row.sellerId ?? "none"} className="app-inv-item-row">
-                <b data-muted={row.sellerId === null || undefined}>{sellerRowLabel(row)}</b>
+                <SellerCell row={row} rows={sellers} />
                 <span className="app-inv-num app-inv-muted">{vials(row.vials)}</span>
                 <span className="app-inv-num">
                   <Money amount={row.revenue} />
@@ -306,6 +314,33 @@ export function SalesReportView({
         </>
       )}
     </>
+  );
+}
+
+/** `Find a past outside buyer's sales to link them to an account: Outside buyers` (every one, however old). */
+function OutsideBuyersLink() {
+  return (
+    <>
+      {OUTSIDE_LINK_NOTE}{" "}
+      <Link href="/admin/sales/outside" className="app-seller-outside-link">
+        {OUTSIDE_TITLE}
+      </Link>
+    </>
+  );
+}
+
+/** A7 "By seller" name, with the email under it when two sellers share the name (as A6's select does). */
+function SellerCell({ row, rows }: { row: SellerTotals; rows: SellerTotals[] }) {
+  const email = sellerRowEmail(row, rows);
+  return (
+    <span className="app-seller-cell">
+      <b data-muted={row.sellerId === null || undefined}>{sellerRowLabel(row)}</b>
+      {email ? (
+        <span className="app-seller-email" data-testid="seller-email">
+          {email}
+        </span>
+      ) : null}
+    </span>
   );
 }
 

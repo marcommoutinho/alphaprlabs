@@ -1456,6 +1456,16 @@ export type Database = {
           unit_cost: string
         }[]
       }
+      admin_business_outside_buyers: {
+        Args: { p_search?: string }
+        Returns: {
+          buyer_name: string
+          last_sold: string
+          revenue: string
+          sales: number
+          vials: number
+        }[]
+      }
       admin_business_sales_totals: {
         Args: { p_from?: string; p_stock_item_id?: string; p_to?: string }
         Returns: {
@@ -1474,6 +1484,7 @@ export type Database = {
           gross_profit: string
           revenue: string
           sales: number
+          seller_email: string
           seller_id: string
           seller_key: string
           seller_name: string

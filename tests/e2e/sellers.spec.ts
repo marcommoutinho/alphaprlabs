@@ -99,6 +99,54 @@ test("a sale records the seller chosen; A7 shows totals per seller for the perio
   await expect(page.getByTestId("by-seller")).toHaveCount(0);
 });
 
+test("Outside buyers: an outside buyer is found by name from A7 and their sales are linked from there", async ({ page }) => {
+  const item = await seedItem();
+  const marco = await signedInClient(MARCO.email);
+  const name = `Finder Osei ${randomBytes(2).toString("hex")}`;
+  for (const [soldOn, quantity] of [["2026-09-03", 1], ["2026-09-07", 2]] as const) {
+    const sold = await marco.rpc("record_business_sale", {
+      p_idempotency_key: randomUUID(),
+      p_stock_item_id: item.id,
+      p_sold_on: soldOn,
+      p_quantity: quantity,
+      p_unit_price: "30",
+      p_buyer_name: name,
+      p_seller_id: id.marco,
+    });
+    expect(sold.error).toBeNull();
+  }
+
+  await signInAs(page, APP_ORIGIN, MARCO.email);
+  await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
+  await page.goto(`${APP_ORIGIN}/admin/sales`);
+  await page.getByRole("link", { name: "Outside buyers" }).click();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/sales/outside`);
+  await expect(h1(page)).toHaveText("Outside buyers");
+  await (await hydrated(page.getByLabel("Find a buyer"))).fill(name.toLowerCase());
+  await page.getByRole("button", { name: "Find", exact: true }).click();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/sales/outside?${new URLSearchParams({ q: name.toLowerCase() })}`);
+  const found = page.getByTestId("outside-buyer");
+  await expect(found).toHaveCount(1);
+  await expect(found).toContainText(`${name}2 sales · 3 vials · last Sep 7, 2026`);
+  await expect(found).toContainText("CAD 90.00");
+
+  await found.click();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/sales/outside?${new URLSearchParams({ name })}`);
+  await expect(h1(page)).toHaveText(name);
+  const rows = page.getByTestId("sale-row");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText(`Sep 7, 2026 · ${item.label} · 2 vials · ${name} (outside)`);
+  await (await hydrated(rows.last().getByRole("button", { name: "Link to account…" }))).click();
+  const panel = rows.last().getByTestId("link-sale");
+  const account = panel.getByRole("combobox", { name: /^Account/ });
+  await account.fill(KWAME.email.split("@")[0]);
+  await page.getByRole("option", { name: `${KWAME.name} · ${KWAME.email}` }).click();
+  await panel.getByLabel(`Also link every other outside sale recorded as “${name}”`).check();
+  await panel.getByRole("button", { name: "Link sale" }).click();
+  await expect(toast(page)).toHaveText(`Linked 2 sales to ${KWAME.name}.`);
+  await expect(page.getByText(`No sales are recorded to “${name}” as an outside buyer any more.`)).toBeVisible();
+});
+
 test("an outside buyer's past sale is linked to their account; nothing else about it changes", async ({ page }) => {
   const item = await seedItem();
   const marco = await signedInClient(MARCO.email);
@@ -141,6 +189,10 @@ test("an outside buyer's past sale is linked to their account; nothing else abou
   await expect(page.getByRole("button", { name: "Link to account…" })).toHaveCount(0);
   const after = (await serviceClient().from("business_sales").select("id, revenue, cost, quantity, sold_on, seller_id").eq("stock_item_id", item.id).order("sold_on")).data;
   expect(after).toEqual(before);
+
+  // Outside buyers no longer lists the name.
+  await page.goto(`${APP_ORIGIN}/admin/sales/outside?${new URLSearchParams({ q: name })}`);
+  await expect(page.getByText(`No outside buyer matches “${name}”.`)).toBeVisible();
 
   // Kwame's own view gains nothing: no admin screen, and the researcher side shows no business record.
   const kwame = await (await page.context().browser()!.newContext()).newPage();

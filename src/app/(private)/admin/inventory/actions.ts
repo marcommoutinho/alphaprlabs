@@ -246,6 +246,7 @@ export async function linkSaleAction(input: unknown): Promise<LinkActionResult> 
       // Every stock item page (the pattern, with its route group: Next 16.2 docs, revalidatePath).
       revalidatePath("/(private)/admin/inventory/[itemId]", "page");
       revalidatePath("/admin/sales");
+      revalidatePath("/admin/sales/outside");
       refresh();
       const sale = await getSale(db, valid.value.saleId).catch(() => null);
       return { linked: true, toast: linkedToast(result.count, sale?.buyerName ?? "the account"), tone: "info" };

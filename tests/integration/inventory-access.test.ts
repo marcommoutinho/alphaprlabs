@@ -97,6 +97,7 @@ const calls = (db: Client) => ({
   admin_business_lots: () => db.rpc("admin_business_lots", { p_stock_item_id: fixture.stockItemId }),
   admin_business_sales_totals: () => db.rpc("admin_business_sales_totals", {}),
   admin_business_seller_totals: () => db.rpc("admin_business_seller_totals", {}),
+  admin_business_outside_buyers: () => db.rpc("admin_business_outside_buyers", {}),
   business_buyer_accounts: () => db.rpc("business_buyer_accounts"),
   business_sellers: () => db.rpc("business_sellers"),
 });

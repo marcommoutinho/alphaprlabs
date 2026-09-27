@@ -30,6 +30,38 @@ export const sellerLine = (sale: { sellerName: string | null }) => (sale.sellerN
 /** A7 "By seller" row label. */
 export const sellerRowLabel = (row: { sellerName: string | null }) => row.sellerName ?? NO_SELLER;
 
+const nameKey = (name: string) => name.trim().toLocaleLowerCase("en-CA");
+
+/**
+ * The email under an A7 "By seller" name, as in the A6 select: only when
+ * another row has the same name (two admins who share a name), else null.
+ */
+export function sellerRowEmail(
+  row: { sellerId: string | null; sellerName: string | null; sellerEmail: string | null },
+  rows: { sellerId: string | null; sellerName: string | null }[],
+): string | null {
+  if (row.sellerName === null || row.sellerEmail === null) return null;
+  const key = nameKey(row.sellerName);
+  return rows.some((other) => other.sellerId !== row.sellerId && other.sellerName !== null && nameKey(other.sellerName) === key)
+    ? row.sellerEmail
+    : null;
+}
+
+// ── Outside buyers (A7): every outside-buyer sale can be found and linked ──
+export const OUTSIDE_TITLE = "Outside buyers";
+export const OUTSIDE_SUBTITLE =
+  "Sales recorded to an outside buyer and not yet linked to an account, by name. When that person joins, open their name and link their sales.";
+export const OUTSIDE_SEARCH_LABEL = "Find a buyer";
+export const OUTSIDE_SEARCH_SUBMIT = "Find";
+export const OUTSIDE_EMPTY = "No outside-buyer sales are waiting to be linked.";
+export const OUTSIDE_LINK_NOTE = "Find a past outside buyer's sales to link them to an account:";
+export const outsideNoMatch = (search: string) => `No outside buyer matches “${search.trim()}”.`;
+export const outsideNameEmpty = (name: string) => `No sales are recorded to “${name}” as an outside buyer any more.`;
+
+/** `3 sales · 5 vials · last Sep 6, 2026` (the date already formatted). */
+export const outsideBuyerLine = (row: { sales: number; vials: number }, lastSold: string) =>
+  `${row.sales.toLocaleString("en-CA")} sale${row.sales === 1 ? "" : "s"} · ${row.vials.toLocaleString("en-CA")} vial${row.vials === 1 ? "" : "s"} · last ${lastSold}`;
+
 // ── Link to account… ────────────────────────────────────────────────────────
 export const LINK_BUTTON = "Link to account…";
 export const LINK_TITLE = "Link this sale to an account";

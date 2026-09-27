@@ -1,7 +1,20 @@
 import "server-only";
 import type { Database } from "@/lib/supabase/database.types";
 import type { ValidLink } from "./rules";
-import { allPages, API_PAGE, refusal, type Db, type PageOptions, type Refusal, type SalesFilter, type SalesTotals } from "./service";
+import {
+  allPages,
+  API_PAGE,
+  refusal,
+  SALE_COLUMNS,
+  toSale,
+  type Db,
+  type PageOptions,
+  type Refusal,
+  type SaleRecord,
+  type SaleRow,
+  type SalesFilter,
+  type SalesTotals,
+} from "./service";
 
 // Sellers and buyer linking (Marco, 2026-09-27;
 // supabase/migrations/20260927160000_sellers_admin_invites.sql), admin only.
@@ -33,6 +46,8 @@ export type SellerTotals = SalesTotals & {
   sellerId: string | null;
   /** The seller's current name (null: no seller recorded). */
   sellerName: string | null;
+  /** The seller's email, shown when two sellers share a name (null: no seller, or no profile). */
+  sellerEmail: string | null;
 };
 
 /**
@@ -58,6 +73,7 @@ export async function listSellerTotals(db: Db, filter: SalesFilter = {}, options
     .map((row) => ({
       sellerId: row.seller_key === NO_SELLER ? null : row.seller_id,
       sellerName: row.seller_key === NO_SELLER ? null : row.seller_name,
+      sellerEmail: row.seller_key === NO_SELLER ? null : row.seller_email,
       sales: Number(row.sales),
       vials: Number(row.vials),
       revenue: row.revenue,
@@ -95,4 +111,45 @@ export async function linkSale(db: Db, link: ValidLink): Promise<LinkResult> {
     return { kind: kind === "not_authorized" || kind === "invalid" || kind === "not_linkable" || kind === "unknown_buyer" ? kind : "error" };
   }
   return { kind: "linked", count: data };
+}
+
+export type OutsideBuyer = { name: string; sales: number; vials: number; revenue: string; lastSold: string };
+
+/**
+ * A7 "Outside buyers": every outside buyer name not yet linked, with its
+ * sales, vials, revenue and latest sale date, by name. `search` keeps the
+ * names that contain it (ignoring case). Read in full by keyset pages on the
+ * name, so every outside sale can be found however many newer sales exist.
+ */
+export async function listOutsideBuyers(db: Db, search = "", options: PageOptions = {}): Promise<OutsideBuyer[]> {
+  const rows = await allPages<Database["public"]["Functions"]["admin_business_outside_buyers"]["Returns"][number]>(
+    (after, limit) => {
+      const query = db.rpc("admin_business_outside_buyers", search.trim() ? { p_search: search } : {});
+      return (after ? query.gt("buyer_name", after.buyer_name) : query).order("buyer_name").limit(limit);
+    },
+    "outside buyers",
+    options.pageSize ?? API_PAGE,
+  );
+  return rows
+    .map((row) => ({ name: row.buyer_name, sales: Number(row.sales), vials: Number(row.vials), revenue: row.revenue, lastSold: row.last_sold }))
+    .sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
+/**
+ * Every sale still recorded to this outside buyer name (exactly), newest
+ * first: read in full by keyset pages on the id, each with its "Link to
+ * account…" on the Outside buyers screen.
+ */
+export async function listOutsideSales(db: Db, name: string, options: PageOptions = {}): Promise<SaleRecord[]> {
+  const rows = await allPages<SaleRow>(
+    (after, limit) => {
+      const query = db.from("business_sales").select(SALE_COLUMNS).eq("buyer_type", "outside").eq("buyer_name", name);
+      return (after ? query.gt("id", after.id) : query).order("id").limit(limit).overrideTypes<SaleRow[], { merge: false }>();
+    },
+    "outside sales",
+    options.pageSize ?? API_PAGE,
+  );
+  return rows
+    .map(toSale)
+    .sort((a, b) => (a.soldOn === b.soldOn ? b.recordedAt.localeCompare(a.recordedAt) : b.soldOn.localeCompare(a.soldOn)));
 }

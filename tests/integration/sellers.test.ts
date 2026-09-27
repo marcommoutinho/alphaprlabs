@@ -8,7 +8,7 @@
 // sellers-owner.test.ts.
 import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import { linkSale, listSellers, listSellerTotals } from "@/lib/inventory/sellers";
+import { linkSale, listOutsideBuyers, listOutsideSales, listSellers, listSellerTotals } from "@/lib/inventory/sellers";
 import { getSale, getStockItem, listSales, recordPurchase, recordSale } from "@/lib/inventory/service";
 import { anonClient, ensureAccount, ok, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
 
@@ -164,8 +164,8 @@ describe("A7 per-seller totals", () => {
     const totals = await listSellerTotals(db.marco, september);
     expect(totals).toEqual(
       [
-        { sellerId: id.brian, sellerName: people.brian.name, sales: 1, vials: 4, revenue: "0.00", cost: "40.00", grossProfit: "-40.00" },
-        { sellerId: id.marco, sellerName: people.marco.name, sales: 2, vials: 5, revenue: "191.00", cost: "50.00", grossProfit: "141.00" },
+        { sellerId: id.brian, sellerName: people.brian.name, sellerEmail: people.brian.email, sales: 1, vials: 4, revenue: "0.00", cost: "40.00", grossProfit: "-40.00" },
+        { sellerId: id.marco, sellerName: people.marco.name, sellerEmail: people.marco.email, sales: 2, vials: 5, revenue: "191.00", cost: "50.00", grossProfit: "141.00" },
       ].sort((a, b) => a.sellerName.localeCompare(b.sellerName, "en", { sensitivity: "base" })),
     );
     // Every page, one seller per page, gives the same rows.
@@ -190,6 +190,76 @@ describe("A7 per-seller totals", () => {
     } finally {
       await ok(serviceClient().from("profiles").update({ name: people.former.name }).eq("id", id.former), "restore");
     }
+  });
+});
+
+describe("A7 per-seller totals: two admins who share a name", () => {
+  it("are two rows, each with its own id and email (admins only)", async () => {
+    const twin = `Sam Twin ${randomBytes(2).toString("hex")}`;
+    const first = { email: uniqueEmail("sel-twin-a"), name: twin, role: "admin" as const };
+    const second = { email: uniqueEmail("sel-twin-b"), name: twin, role: "admin" as const };
+    const firstId = await ensureAccount(first);
+    const secondId = await ensureAccount(second);
+    const itemId = await newItem();
+    await sold(itemId, firstId, { quantity: 2 });
+    await sold(itemId, secondId, { quantity: 3 });
+    const totals = await listSellerTotals(db.marco, { stockItemId: itemId });
+    expect(totals).toHaveLength(2);
+    expect(new Set(totals.map((row) => row.sellerName))).toEqual(new Set([twin]));
+    const byId = new Map(totals.map((row) => [row.sellerId, row]));
+    expect(byId.get(firstId)).toMatchObject({ sellerEmail: first.email, vials: 2 });
+    expect(byId.get(secondId)).toMatchObject({ sellerEmail: second.email, vials: 3 });
+    // A6 lists both, told apart the same way.
+    const sellers = (await listSellers(db.marco)).filter((seller) => seller.name === twin);
+    expect(sellers.map((seller) => seller.email).sort()).toEqual([first.email, second.email].sort());
+  });
+});
+
+describe("A7 Outside buyers: every outside sale can be found and linked", () => {
+  it("lists each outside name still to link with its sales, vials, revenue and latest date; search; every page", async () => {
+    const itemId = await newItem(30, "10");
+    const tag = randomBytes(3).toString("hex");
+    const osei = `Finder Osei ${tag}`;
+    const lee = `Finder Lee ${tag}`;
+    await sold(itemId, id.marco, { soldOn: "2026-08-20", quantity: 2, unitPrice: "40", buyer: { type: "outside", name: osei } });
+    await sold(itemId, id.brian, { soldOn: "2026-09-05", quantity: 1, unitPrice: "12.50", buyer: { type: "outside", name: osei } });
+    await sold(itemId, id.marco, { soldOn: "2026-09-01", quantity: 4, unitPrice: "10", buyer: { type: "outside", name: lee } });
+    await sold(itemId, id.marco, { buyer: { type: "account", profileId: id.other } });
+
+    const found = await listOutsideBuyers(db.marco, tag);
+    expect(found).toEqual([
+      { name: lee, sales: 1, vials: 4, revenue: "40.00", lastSold: "2026-09-01" },
+      { name: osei, sales: 2, vials: 3, revenue: "92.50", lastSold: "2026-09-05" },
+    ]);
+    // Contains, ignoring case; % and _ are plain text, not wildcards.
+    expect((await listOutsideBuyers(db.marco, ` OSEI ${tag.toUpperCase()} `)).map((row) => row.name)).toEqual([osei]);
+    expect(await listOutsideBuyers(db.marco, `%${tag}`)).toEqual([]);
+    expect(await listOutsideBuyers(db.marco, `Finder_Lee`)).toEqual([]);
+    // One name per page gives the same rows; with no search, every name is listed.
+    expect(await listOutsideBuyers(db.marco, tag, { pageSize: 1 })).toEqual(found);
+    expect((await listOutsideBuyers(db.marco)).map((row) => row.name)).toEqual(expect.arrayContaining([osei, lee]));
+
+    // A name's sales: exactly that name, newest first, every page.
+    const sales = await listOutsideSales(db.marco, osei, { pageSize: 1 });
+    expect(sales.map((row) => [row.soldOn, row.buyerName, row.buyerType])).toEqual([
+      ["2026-09-05", osei, "outside"],
+      ["2026-08-20", osei, "outside"],
+    ]);
+    expect(await listOutsideSales(db.marco, osei.toUpperCase())).toEqual([]);
+
+    // Linked: the name leaves the list, and its sales are no longer outside sales.
+    expect(await linkSale(db.marco, { saleId: sales[1].id, profileId: id.kwame, sameName: true })).toEqual({ kind: "linked", count: 2 });
+    expect((await listOutsideBuyers(db.marco, tag)).map((row) => row.name)).toEqual([lee]);
+    expect(await listOutsideSales(db.marco, osei)).toEqual([]);
+  });
+
+  it("is admin-only", async () => {
+    for (const client of [db.kwame, anonClient()]) {
+      expect(await sqlState(client.rpc("admin_business_outside_buyers", {}))).toBe("42501");
+    }
+    await expect(listOutsideBuyers(db.kwame)).rejects.toThrow();
+    // RLS: a researcher reads no business sale.
+    expect(await listOutsideSales(db.kwame, "Walk-in")).toEqual([]);
   });
 });
 
@@ -263,6 +333,20 @@ describe("linking an outside buyer's sale to an account", () => {
       expect(await sqlState(client.from("business_sales").update({ buyer_name: "X" }).eq("id", saleId))).toBe("42501");
       expect(await sqlState(client.from("business_sales").update({ linked_by: null }).eq("id", saleId))).toBe("42501");
     }
+  });
+
+  it("two admins linking the same sale together: one links it, the other is refused; it is linked once", async () => {
+    const itemId = await newItem();
+    const saleId = await sold(itemId, id.marco, { buyer: { type: "outside", name: `Race ${randomBytes(2).toString("hex")}` } });
+    const results = await Promise.all([
+      linkSale(db.marco, { saleId, profileId: id.kwame, sameName: false }),
+      linkSale(db.brian, { saleId, profileId: id.other, sameName: false }),
+    ]);
+    const winner = results.findIndex((result) => result.kind === "linked");
+    expect(results[winner]).toEqual({ kind: "linked", count: 1 });
+    expect(results[1 - winner]).toEqual({ kind: "not_linkable" });
+    const row = await ok(serviceClient().from("business_sales").select("buyer_profile_id, linked_by").eq("id", saleId).single(), "row");
+    expect(row).toEqual(winner === 0 ? { buyer_profile_id: id.kwame, linked_by: id.marco } : { buyer_profile_id: id.other, linked_by: id.brian });
   });
 
   it("can link every outside sale with the same buyer name at once, and only those", async () => {

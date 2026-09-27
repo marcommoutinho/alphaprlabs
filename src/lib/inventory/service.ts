@@ -138,12 +138,12 @@ export async function listStock(db: Db, options: PageOptions = {}): Promise<Stoc
   );
 }
 
-const SALE_COLUMNS =
+export const SALE_COLUMNS =
   "id, stock_item_id, sold_on, quantity, unit_price::text, revenue::text, cost::text, gross_profit::text, " +
   "buyer_type, buyer_profile_id, buyer_name, original_buyer_name, seller_id, seller_name, recorded_at, " +
   "business_sale_allocations(purchase_id, quantity, unit_cost::text, received_on, business_purchases(recorded_order))";
 
-type SaleRow = {
+export type SaleRow = {
   id: string;
   stock_item_id: string;
   sold_on: string;
@@ -168,7 +168,7 @@ type SaleRow = {
   }[];
 };
 
-const toSale = (row: SaleRow): SaleRecord => ({
+export const toSale = (row: SaleRow): SaleRecord => ({
   id: row.id,
   stockItemId: row.stock_item_id,
   soldOn: row.sold_on,

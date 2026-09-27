@@ -3,15 +3,16 @@
 // back); the append-only guard allows exactly one change to a recorded sale,
 // link_business_sale's outside → account link, and nothing else even for the
 // owner (rolled back); every inserted sale names a current admin as seller;
-// and A7's per-seller totals are exact and complete over 1,050 sales
+// A7's per-seller totals are exact and complete over 1,050 sales, and an
+// outside sale older than the newest 500 is still found and linked
 // (committed, on this file's own stock item). Runs in the
 // integration-exclusive project (vitest.config.mts): the rehearsal drops and
 // re-adds business_sales and invitations columns inside its transaction.
 import { randomBytes, randomUUID } from "node:crypto";
 import Decimal from "decimal.js";
 import { beforeAll, describe, expect, it } from "vitest";
-import { listSellerTotals } from "@/lib/inventory/sellers";
-import { listSales, recordPurchase, recordSale } from "@/lib/inventory/service";
+import { linkSale, listOutsideBuyers, listOutsideSales, listSellerTotals } from "@/lib/inventory/sellers";
+import { getSale, getStockItem, listSales, recordPurchase, recordSale, SALES_PAGE_SIZE } from "@/lib/inventory/service";
 import { psql, quote } from "../support/psql";
 import { ensureAccount, seedInvitation, signedInClient, uniqueEmail } from "../support/local-supabase";
 
@@ -87,6 +88,7 @@ describe("the sellers migration", () => {
       drop function public.link_business_sale(uuid, uuid, boolean);
       drop function public.business_sellers();
       drop function public.admin_business_seller_totals(date, date, uuid);
+      drop function public.admin_business_outside_buyers(text);
       drop function public.record_business_sale(uuid, uuid, date, integer, text, uuid, text, uuid);
       drop function public.invite_researcher(text, text, text, public.app_role);
       drop trigger business_sales_seller on public.business_sales;
@@ -220,7 +222,7 @@ describe("a recorded sale is append-only except for its link", () => {
   });
 });
 
-describe("A7 per-seller totals past 1,000 sales", () => {
+describe("A7 past 1,000 sales: per-seller totals and outside buyers", () => {
   it("are exact and complete over 1,050 sales, one row per seller, whatever the page size", async () => {
     const item = quote(fixture.itemId);
     const COUNT = 1050;
@@ -269,5 +271,40 @@ describe("A7 per-seller totals past 1,000 sales", () => {
     expect(report.totals.revenue).toBe(totals.reduce((sum, row) => sum.plus(row.revenue), new Decimal(0)).toFixed(2));
     const owner = psql(`select 'sum', count(*) || '/' || sum(revenue) from public.business_sales where stock_item_id = ${item} and sold_on >= '2026-09-01';`);
     expect(owner.sum).toBe(`${COUNT}/${report.totals.revenue}`);
+  });
+
+  it("an outside sale older than the newest 500 on its item is still found and linked (Outside buyers)", async () => {
+    const db = await signedInClient(marco.email);
+    const name = `Early Buyer ${randomBytes(3).toString("hex")}`;
+    // Sold in August, before the 1,050 September sales above on the same item.
+    const early = await recordSale(db, {
+      idempotencyKey: randomUUID(),
+      stockItemId: fixture.itemId,
+      soldOn: "2026-08-05",
+      quantity: 1,
+      unitPrice: "20",
+      sellerId: fixture.marcoId,
+      buyer: { type: "outside", name },
+    });
+    if (early.kind !== "recorded") throw new Error(early.kind);
+    // The stock item and A7 show the newest 500 only: this sale is on neither.
+    const detail = (await getStockItem(db, fixture.itemId))!;
+    expect(detail.salesTruncated).toBe(true);
+    expect(detail.sales).toHaveLength(SALES_PAGE_SIZE);
+    expect(detail.sales.map((sale) => sale.id)).not.toContain(early.saleId);
+    const report = await listSales(db, { stockItemId: fixture.itemId });
+    expect(report.sales.map((sale) => sale.id)).not.toContain(early.saleId);
+    // Outside buyers finds it: by search, and in the full list past 1,000 names (the 1,050 "Bulk n" buyers).
+    expect(await listOutsideBuyers(db, name.toLowerCase())).toEqual([{ name, sales: 1, vials: 1, revenue: "20.00", lastSold: "2026-08-05" }]);
+    const everyone = await listOutsideBuyers(db);
+    expect(everyone.length).toBeGreaterThan(1050);
+    expect(everyone.map((buyer) => buyer.name)).toEqual(expect.arrayContaining([name, "Bulk 1", "Bulk 1050"]));
+    expect(await listOutsideBuyers(db, "", { pageSize: 400 })).toEqual(everyone);
+    // Its sales, and the link.
+    const sales = await listOutsideSales(db, name);
+    expect(sales.map((sale) => sale.id)).toEqual([early.saleId]);
+    expect(await linkSale(db, { saleId: early.saleId, profileId: fixture.kwameId, sameName: true })).toEqual({ kind: "linked", count: 1 });
+    expect(await getSale(db, early.saleId)).toMatchObject({ buyerType: "account", buyerProfileId: fixture.kwameId, originalBuyerName: name });
+    expect(await listOutsideBuyers(db, name)).toEqual([]);
   });
 });

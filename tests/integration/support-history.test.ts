@@ -473,6 +473,7 @@ describe("researchers never learn which admin it is", () => {
         "business_buyer_accounts",
         "business_sellers",
         "admin_business_seller_totals",
+        "admin_business_outside_buyers",
         "admin_business_stock",
         "admin_library_peptides",
       ] as const) {
