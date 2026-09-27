@@ -761,7 +761,15 @@ and G2 still requires S13.
   open vial) and integrated at `78653ed`. Not yet deployed (migration
   20260926210000).
 
-Next: S15 Progress, then S16, S17, and S13 last.
+- S15 (progress) built and integrated after the standard correction and one
+  extra Marco-approved round. Check-ins need no cycle and use the Toronto day;
+  phases resolve across revisions by instant; dose reads are keyset paged. The
+  final recheck's remaining finding (a cross-zone change whose fresh
+  occurrence lands before the seam can show the old phase label) was accepted
+  by Marco on 2026-09-27 as impossible for a local-only app. Not yet deployed
+  (migration 20260926220000).
+
+Next: S16 Supplements, then S17, and S13 last.
 
 ## Technical references
 
