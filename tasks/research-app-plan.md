@@ -744,8 +744,13 @@ control, and it needs the Vercel Pro and Supabase Pro upgrades, which Marco
 approves when it is reached. S16's dependency on S13 therefore becomes S12,
 and G2 still requires S13.
 
-Next: S12, Today and dose confirmation (in recheck); then deploy the
-cycles-and-Today milestone to the closed app; then S14.
+- S12 (Today and dose confirmation) built and integrated at `25a0f0d` after
+  the standard correction and one extra Marco-approved round (stale mixture
+  setup refused, recorded amounts shown, one global lock order: cycle → plans
+  by id → vial → mixtures by id). Recheck clear.
+
+Next: deploy the cycles-and-Today milestone (S9–S12) to the closed app; then
+S14.
 
 ## Technical references
 
