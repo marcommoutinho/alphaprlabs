@@ -777,7 +777,15 @@ and G2 still requires S13.
   `due_supplement_occurrences` paged by cursor for S13. Not yet deployed
   (migration 20260927100000).
 
-Next: S17 Me and support history, then S13 last.
+- S17 (Me and support) built and integrated after the standard correction and
+  one extra Marco-approved round. Per Marco, sharing is now with the whole
+  Alpha PR Labs team (support_shares; can_read_researcher replaced; production
+  per-admin grants data-migrated and support_grants frozen), researchers never
+  see admin names (invite page and email included). Not yet deployed
+  (migration 20260927120000).
+
+Next: import the peptides Alpha PR Labs carries into the library (Marco gives
+the source), then S13 last.
 
 ## Technical references
 
