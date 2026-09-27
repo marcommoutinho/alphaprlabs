@@ -260,7 +260,8 @@ switches to the back office and back.
 - Supplier purchases are often in USD. The Inventory purchase form accepts a
   USD cost and the purchase date, converts with the Bank of Canada daily
   USD→CAD rate for that date, and stores the USD amount, the rate and the CAD
-  cost. Gross profit stays in CAD.
+  cost. Gross profit stays in CAD. Sales are always in CAD (Marco,
+  2026-09-27); only purchases can be entered in USD.
 - The opening-stock import uses each order's real CAD total where known
   (shipping and fees included) and the Bank of Canada rate for that date
   otherwise.
