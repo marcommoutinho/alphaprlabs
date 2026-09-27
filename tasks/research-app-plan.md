@@ -729,6 +729,8 @@ Cleanup before G2 (accepted by Marco, 2026-09-26):
 - e2e: the FIFO sale test clicks Record sale while the account list is open;
   in a full parallel run on a fresh DB the list can cover the button (passes
   alone). Close the list or scope the search before clicking.
+- e2e: `today.spec.ts` "a Taken from a screen whose mixture changed
+  elsewhere…" was flaky once in a full run (passed on retry).
 
 - S8 (cycle templates) built, reviewed (clear first pass) and integrated at
   `5bb9806`; deployed to the closed production app with its migration on
