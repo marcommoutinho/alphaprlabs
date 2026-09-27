@@ -481,6 +481,14 @@
   color: var(--app-warning);
 }
 
+/* An unconfirmed row links to its R5 sheet (S12). */
+.app-root .app-cv-history-confirm {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 400;
+}
+
 .app-root .app-cv-history-more {
   margin-top: 12px;
   padding: 0;

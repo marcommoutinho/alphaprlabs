@@ -6,6 +6,7 @@ import { timeZoneOptions } from "@/lib/cycles/display";
 import { editWindow } from "@/lib/cycles/revise";
 import { formOfCycle } from "@/lib/cycles/rules";
 import { getCycle, listCyclePeptides } from "@/lib/cycles/service";
+import { cycleConfirmations } from "@/lib/doses/service";
 import { localDateOf } from "@/lib/schedule/zone";
 import { createClient } from "@/lib/supabase/server";
 
@@ -24,11 +25,12 @@ export default async function EditCyclePage({ params }: { params: Params }) {
   const db = await createClient();
   const [cycle, peptides] = await Promise.all([getCycle(db, cycleId), listCyclePeptides(db)]);
   if (!cycle || cycle.ownerId !== person.id) notFound();
+  const confirmations = await cycleConfirmations(db, cycle.id);
 
   const current = cycle.revisions[cycle.revisions.length - 1];
   const now = new Date();
-  // Recorded doses (S12) will be passed to editWindow too.
-  const { effective, locks, started } = editWindow(cycle.revisions, now);
+  // Recorded doses: a confirmed dose is never replaced, and it counts as started.
+  const { effective, locks, started } = editWindow(cycle.revisions, now, confirmations);
 
   return (
     <AppPage>

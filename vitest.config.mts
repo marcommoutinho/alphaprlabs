@@ -19,6 +19,7 @@ const EXCLUSIVE = [
   "tests/integration/inventory-access.test.ts",
   // Read-only owner SQL through psql (no fixture), kept apart all the same.
   "tests/integration/cycle-parity.test.ts",
+  "tests/integration/dose-parity.test.ts",
 ];
 
 export default defineConfig({

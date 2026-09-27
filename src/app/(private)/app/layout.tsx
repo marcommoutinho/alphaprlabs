@@ -1,4 +1,5 @@
 import { AppShell } from "@/components/app-shell/app-shell";
+import { BadgeSync } from "@/components/push/app-badge";
 import { PushSync } from "@/components/push/push-sync";
 import { requireResearcher } from "@/lib/auth/session";
 
@@ -12,6 +13,7 @@ export default async function ResearcherLayout({ children }: Readonly<{ children
     <AppShell identity={{ name: researcher.name, email: researcher.email, role: researcher.role }} side="research">
       {children}
       <PushSync userId={researcher.id} vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? ""} />
+      <BadgeSync />
     </AppShell>
   );
 }

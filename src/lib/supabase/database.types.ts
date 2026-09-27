@@ -262,6 +262,7 @@ export type Database = {
           id: string
           owner_id: string
           peptide_id: string
+          schedule_version: number
         }
         Insert: {
           created_at?: string
@@ -269,6 +270,7 @@ export type Database = {
           id?: string
           owner_id: string
           peptide_id: string
+          schedule_version?: number
         }
         Update: {
           created_at?: string
@@ -276,6 +278,7 @@ export type Database = {
           id?: string
           owner_id?: string
           peptide_id?: string
+          schedule_version?: number
         }
         Relationships: [
           {
@@ -609,6 +612,78 @@ export type Database = {
           },
         ]
       }
+      dose_records: {
+        Row: {
+          actual_at: string
+          amount_mg: number
+          cycle_id: string
+          id: string
+          mixture_version_id: string | null
+          notes: string
+          occurrence_key: string
+          owner_id: string
+          peptide_id: string
+          phase_id: string
+          plan_id: string
+          planned_mg: number
+          recorded_at: string
+          request_key: string
+          scheduled_at: string
+          site: string
+        }
+        Insert: {
+          actual_at: string
+          amount_mg: number
+          cycle_id: string
+          id?: string
+          mixture_version_id?: string | null
+          notes?: string
+          occurrence_key: string
+          owner_id: string
+          peptide_id: string
+          phase_id: string
+          plan_id: string
+          planned_mg: number
+          recorded_at: string
+          request_key: string
+          scheduled_at: string
+          site?: string
+        }
+        Update: {
+          actual_at?: string
+          amount_mg?: number
+          cycle_id?: string
+          id?: string
+          mixture_version_id?: string | null
+          notes?: string
+          occurrence_key?: string
+          owner_id?: string
+          peptide_id?: string
+          phase_id?: string
+          plan_id?: string
+          planned_mg?: number
+          recorded_at?: string
+          request_key?: string
+          scheduled_at?: string
+          site?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dose_records_mixture"
+            columns: ["mixture_version_id", "owner_id"]
+            isOneToOne: false
+            referencedRelation: "mixture_versions"
+            referencedColumns: ["id", "owner_id"]
+          },
+          {
+            foreignKeyName: "dose_records_plan"
+            columns: ["plan_id", "cycle_id", "owner_id", "peptide_id"]
+            isOneToOne: false
+            referencedRelation: "cycle_plans"
+            referencedColumns: ["id", "cycle_id", "owner_id", "peptide_id"]
+          },
+        ]
+      }
       invitations: {
         Row: {
           accepted_at: string | null
@@ -810,6 +885,57 @@ export type Database = {
             isOneToOne: true
             referencedRelation: "profiles"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      personal_vial_deductions: {
+        Row: {
+          amount_mg: number
+          dose_id: string
+          id: string
+          owner_id: string
+          recorded_at: string
+          remaining_after_mg: number
+          remaining_before_mg: number
+          stock_discrepancy: boolean | null
+          vial_id: string
+        }
+        Insert: {
+          amount_mg: number
+          dose_id: string
+          id?: string
+          owner_id: string
+          recorded_at: string
+          remaining_after_mg: number
+          remaining_before_mg: number
+          stock_discrepancy?: boolean | null
+          vial_id: string
+        }
+        Update: {
+          amount_mg?: number
+          dose_id?: string
+          id?: string
+          owner_id?: string
+          recorded_at?: string
+          remaining_after_mg?: number
+          remaining_before_mg?: number
+          stock_discrepancy?: boolean | null
+          vial_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "personal_vial_deductions_dose"
+            columns: ["dose_id", "owner_id"]
+            isOneToOne: false
+            referencedRelation: "dose_records"
+            referencedColumns: ["id", "owner_id"]
+          },
+          {
+            foreignKeyName: "personal_vial_deductions_vial"
+            columns: ["vial_id", "owner_id"]
+            isOneToOne: false
+            referencedRelation: "personal_vials"
+            referencedColumns: ["id", "owner_id"]
           },
         ]
       }
@@ -1113,6 +1239,19 @@ export type Database = {
         Args: { p_id: string; p_name: string; p_user_id: string }
         Returns: undefined
       }
+      confirm_dose: {
+        Args: {
+          p_actual_at?: string
+          p_amount_mg: string
+          p_notes?: string
+          p_occurrence_key: string
+          p_request_key: string
+          p_seen_dose_mg: string
+          p_seen_scheduled_at: string
+          p_site?: string
+        }
+        Returns: Json
+      }
       cycle_dose_changes_valid: {
         Args: {
           p_end: string
@@ -1121,6 +1260,26 @@ export type Database = {
           p_start: string
         }
         Returns: boolean
+      }
+      cycle_interval_next_wall: {
+        Args: {
+          p_anchor: string
+          p_phase: Database["public"]["Tables"]["cycle_revision_phases"]["Row"]
+        }
+        Returns: string
+      }
+      cycle_interval_slots: {
+        Args: {
+          p_confirmations: Json
+          p_phase: Database["public"]["Tables"]["cycle_revision_phases"]["Row"]
+          p_prefix: string
+          p_time_zone: string
+        }
+        Returns: {
+          actual_at: string
+          occurrence_key: string
+          scheduled_at: string
+        }[]
       }
       cycle_local_instant: {
         Args: { p_date: string; p_time: string; p_time_zone: string }
@@ -1138,7 +1297,46 @@ export type Database = {
           planned_at: string
         }[]
       }
+      cycle_phase_occurrences: {
+        Args: {
+          p_confirmations: Json
+          p_phase: Database["public"]["Tables"]["cycle_revision_phases"]["Row"]
+          p_plan_id: string
+          p_time_zone: string
+        }
+        Returns: Database["public"]["CompositeTypes"]["cycle_occurrence"][]
+        SetofOptions: {
+          from: "*"
+          to: "cycle_occurrence"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      cycle_plan_occurrences: {
+        Args: { p_confirmations?: Json; p_plan_id: string }
+        Returns: Database["public"]["CompositeTypes"]["cycle_occurrence"][]
+        SetofOptions: {
+          from: "*"
+          to: "cycle_occurrence"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       cycle_revision_content: { Args: { p_revision_id: string }; Returns: Json }
+      cycle_revision_plan_occurrences: {
+        Args: {
+          p_confirmations: Json
+          p_plan_id: string
+          p_revision_id: string
+        }
+        Returns: Database["public"]["CompositeTypes"]["cycle_occurrence"][]
+        SetofOptions: {
+          from: "*"
+          to: "cycle_occurrence"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       cycle_template_content: { Args: { p_template_id: string }; Returns: Json }
       cycle_time_changes_valid: {
         Args: {
@@ -1149,6 +1347,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      cycle_wall_instant: {
+        Args: { p_time_zone: string; p_wall: string }
+        Returns: string
+      }
       delete_mixture: {
         Args: { p_mixture_id: string; p_version: number }
         Returns: boolean
@@ -1156,6 +1358,11 @@ export type Database = {
       disable_push_subscription: {
         Args: { p_device_id: string; p_endpoint?: string; p_reason: string }
         Returns: boolean
+      }
+      dose_confirmations: { Args: { p_plan_id: string }; Returns: Json }
+      dose_result: {
+        Args: { p_dose_id: string; p_replayed: boolean }
+        Returns: Json
       }
       finish_personal_vial: { Args: { p_vial_id: string }; Returns: boolean }
       grant_support_access: { Args: { p_admin_id: string }; Returns: string }
@@ -1173,6 +1380,7 @@ export type Database = {
         Args: { p_endpoint: string }
         Returns: boolean
       }
+      is_dose_site: { Args: { p_site: string }; Returns: boolean }
       is_time_zone: { Args: { p_name: string }; Returns: boolean }
       is_weekday_set: { Args: { p_days: number[] }; Returns: boolean }
       library_name_key: { Args: { p_name: string }; Returns: string }
@@ -1324,7 +1532,15 @@ export type Database = {
       invitation_state: "pending" | "accepted" | "failed"
     }
     CompositeTypes: {
-      [_ in never]: never
+      cycle_occurrence: {
+        occurrence_key: string | null
+        phase_id: string | null
+        scheduled_at: string | null
+        time_zone: string | null
+        local_date: string | null
+        dose_mg: number | null
+        actual_at: string | null
+      }
     }
   }
 }

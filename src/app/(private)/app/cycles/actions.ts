@@ -17,6 +17,7 @@ import {
 import { type RevisedPlan, reviseCycle } from "@/lib/cycles/revise";
 import { type CyclePeptide, INVALID_CYCLE, readCycleForm, validateCycle } from "@/lib/cycles/rules";
 import { getCycle, getTemplateForCopy, listCyclePeptides, saveCycle } from "@/lib/cycles/service";
+import { cycleConfirmations } from "@/lib/doses/service";
 import { createClient } from "@/lib/supabase/server";
 
 export type CycleActionResult = {
@@ -69,17 +70,17 @@ export async function saveCycleAction(input: unknown): Promise<CycleActionResult
 
   let revised: RevisedPlan[] | undefined;
   if (cycle.cycleId) {
-    let current;
+    let current, confirmations;
     try {
-      current = await getCycle(db, cycle.cycleId);
+      [current, confirmations] = await Promise.all([getCycle(db, cycle.cycleId), cycleConfirmations(db, cycle.cycleId)]);
     } catch {
       return failed();
     }
     // Only the owner edits; a support grant reads but never writes.
     if (!current || current.ownerId !== person.id) return { toast: CYCLE_GONE, tone: "error" };
     if (current.version !== cycle.version) return { errors: [CYCLE_CHANGED] };
-    // Recorded doses (S12) will be passed here so none is ever replaced.
-    const revision = reviseCycle(current.revisions, cycle, new Date());
+    // Recorded doses: none is ever replaced (save_cycle re-checks with them too).
+    const revision = reviseCycle(current.revisions, cycle, new Date(), confirmations);
     if (!revision.ok) return { errors: revision.issues.map((issue) => editIssueMessage(issue, nameOf)) };
     revised = revision.plans;
   }

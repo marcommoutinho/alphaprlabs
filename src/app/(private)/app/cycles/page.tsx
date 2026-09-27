@@ -3,6 +3,7 @@ import { AppPage } from "@/components/app-shell/app-shell";
 import { requireResearcher } from "@/lib/auth/session";
 import { cycleOccurrences } from "@/lib/cycles/schedule";
 import { cycleSummary, listCycles, listCyclePeptides } from "@/lib/cycles/service";
+import { confirmationsByCycle, listDoseRecords } from "@/lib/doses/service";
 import { cycleRow, groupCycles } from "@/lib/cycles/views";
 import { createClient } from "@/lib/supabase/server";
 import "@/styles/app/cycles.css";
@@ -12,17 +13,17 @@ import "@/styles/app/cycle-views.css";
  * R2 Cycles: the caller's own cycles only (listCycles by owner; a granted
  * admin's support view of someone else's history is A8, S17), grouped
  * Current / Upcoming / Past by status, each with its next dose from the
- * engine across every revision. Recorded doses (S12) will be passed to
- * cycleOccurrences; until then there are none.
+ * engine across every revision, with the recorded doses (S12).
  */
 export default async function CyclesPage() {
   const person = await requireResearcher("/app/cycles");
   const db = await createClient();
-  const [cycles, library] = await Promise.all([listCycles(db, person.id), listCyclePeptides(db)]);
+  const [cycles, library, records] = await Promise.all([listCycles(db, person.id), listCyclePeptides(db), listDoseRecords(db, person.id)]);
+  const confirmations = confirmationsByCycle(records);
   const peptides = new Map(library.map((peptide) => [peptide.id, peptide]));
   const now = new Date();
   const groups = groupCycles(
-    cycles.map((cycle) => cycleRow(cycle, cycleSummary(cycle, now), cycleOccurrences(cycle.revisions, []), peptides, now)),
+    cycles.map((cycle) => cycleRow(cycle, cycleSummary(cycle, now), cycleOccurrences(cycle.revisions, confirmations.get(cycle.id) ?? []), peptides, now)),
   );
 
   return (

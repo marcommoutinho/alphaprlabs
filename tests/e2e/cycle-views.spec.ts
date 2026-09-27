@@ -169,8 +169,11 @@ test("R4 shows doses from every revision: a mid-cycle time change keeps the rhyt
   const rows = page.getByTestId("history-row");
   await expect(rows).toHaveCount(3);
   await expect(rows.nth(0)).toContainText(`Planned${when(0, "20:00")}`);
-  await expect(rows.nth(0).locator(".app-cv-history-state")).toHaveText("Due");
-  await expect(rows.nth(2).locator(".app-cv-history-state")).toHaveText("Unconfirmed");
+  // S12: an unconfirmed or due dose links to its sheet on Today.
+  await expect(rows.nth(0).locator(".app-cv-history-state")).toHaveText("DueConfirm");
+  await expect(rows.nth(2).locator(".app-cv-history-state")).toHaveText("UnconfirmedConfirm");
+  const confirmLink = rows.nth(2).getByRole("link", { name: "Confirm" });
+  await expect(confirmLink).toHaveAttribute("href", /^\/app\/today\?dose=[0-9a-f-]{36}%3A[0-9a-f-]{36}%3A\d+$/);
 
   await page.getByRole("link", { name: "Edit future plan" }).click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/cycles/${cycleId}/edit`);

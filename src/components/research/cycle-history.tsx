@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import type { HistoryRow } from "@/lib/cycles/views";
 
@@ -8,7 +9,8 @@ const FIRST = 8;
 
 /**
  * R4 "Scheduled vs actual": planned, actual and entered times kept apart,
- * newest first. Confirming from a row arrives with S12.
+ * newest first. An unconfirmed dose (due or open) links to its R5 sheet on
+ * Today, so old doses stay actionable, ended cycles' included.
  */
 export function CycleHistory({ rows }: { rows: HistoryRow[] }) {
   const [all, setAll] = useState(false);
@@ -35,6 +37,11 @@ export function CycleHistory({ rows }: { rows: HistoryRow[] }) {
           </span>
           <span className="app-cv-history-state" data-state={row.state}>
             {row.stateLabel}
+            {row.state === "open" || row.state === "due" ? (
+              <Link href={`/app/today?dose=${encodeURIComponent(row.key)}`} className="app-cv-history-confirm">
+                Confirm
+              </Link>
+            ) : null}
           </span>
         </div>
       ))}
