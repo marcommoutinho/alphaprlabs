@@ -219,6 +219,16 @@ switches to the back office and back.
 - A vial added without a label is named "Vial N". Tracking off hides the vial
   list; adding or reopening a vial needs tracking on.
 
+### Progress decisions (Marco, 2026-09-26)
+
+- Check-ins are for today only; past days cannot be added or edited ("gaps
+  stay gaps").
+- One optional measurement per daily check-in, edited with it.
+- Check-ins do not require a cycle: a researcher between cycles can still
+  check in, and Progress shows those check-ins without a cycle.
+- No delete; notes and measurement units are free text and must be cleared by
+  any future account-closure design.
+
 ### Launch exclusions
 
 - Blended or multi-peptide vials. A cycle may still contain several separately
