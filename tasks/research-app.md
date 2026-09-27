@@ -252,6 +252,8 @@ switches to the back office and back.
 - Researchers never see which admin it is: anywhere a researcher-facing screen
   would name an admin it shows "Admin", and researcher-callable reads never
   return admin names or emails.
+- The invitation email and invite page are anonymous too ("You've been invited
+  to Alpha PR Labs Research"; "An Alpha PR Labs admin invited you").
 
 ### Launch exclusions
 
