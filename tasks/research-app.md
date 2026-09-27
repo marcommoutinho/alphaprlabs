@@ -249,6 +249,9 @@ switches to the back office and back.
 - Revoking (stop sharing) asks for confirmation first.
 - The admin Support screen lists only researchers who currently share.
 - The grant history on Me shows when sharing started and stopped.
+- Researchers never see which admin it is: anywhere a researcher-facing screen
+  would name an admin it shows "Admin", and researcher-callable reads never
+  return admin names or emails.
 
 ### Launch exclusions
 
