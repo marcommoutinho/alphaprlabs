@@ -794,8 +794,13 @@ and G2 still requires S13.
   imported. Written through the admin functions in one transaction after a
   rolled-back dry run.
 
-Next: the USD purchase entry with Bank of Canada conversion (small slice),
-then S13 reminders last.
+- S14–S17 deployed to the closed production app on 2026-09-27 at Marco's
+  instruction: migrations 20260926210000, 220000, 20260927100000, 120000
+  applied (dry run showed exactly those four); branch pushed at `265b13f`.
+  Imported library and stock unaffected; no support grants existed to migrate.
+
+Next: the USD purchase entry with Bank of Canada conversion (building), then
+S13 reminders last.
 
 ## Technical references
 
