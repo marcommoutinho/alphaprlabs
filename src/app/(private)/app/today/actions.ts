@@ -39,7 +39,8 @@ const INVALID = "This dose could not be confirmed. Reload the page and try again
 /**
  * R1 "Taken" and R5 "Mark Taken" for the signed-in, acknowledged researcher
  * (or admin on the research side), for their own doses only. The sheet sends
- * the occurrence key, the scheduled time and planned dose it showed, the
+ * the occurrence key, the scheduled time, planned dose and saved-mixture
+ * version (for the actual time chosen) it showed, the
  * amount, the actual wall-clock time in the dose's zone (null: now), site and
  * notes, and a request key that stays the same for retries.
  * confirm_dose() re-derives the occurrence from the stored plan and recorded
@@ -65,6 +66,7 @@ export async function confirmDoseAction(input: unknown): Promise<ConfirmActionRe
       occurrenceKey: form.key,
       seenScheduledAt: form.seenScheduledAt,
       seenDoseMg: form.seenDoseMg,
+      seenMixtureVersionId: form.seenMixtureVersion,
       amountMg: plain(parseDecimal(form.amount)!),
       actualAt,
       site: form.site,

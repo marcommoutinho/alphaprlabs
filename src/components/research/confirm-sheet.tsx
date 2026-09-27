@@ -6,6 +6,7 @@ import {
   confirmFormError,
   daysBetween,
   effectText,
+  isWall,
   lateNote,
   SITES,
   sheetUnitsLabel,
@@ -16,7 +17,9 @@ import {
   wallOf,
   wallShort,
 } from "@/lib/doses/rules";
+import { setupAt } from "@/lib/doses/setups";
 import type { DoseDetail } from "@/lib/doses/today";
+import { resolveLocal } from "@/lib/schedule/zone";
 
 /** What the sheet submits (the server action adds nothing the screen didn't show). */
 export type SheetSubmission = {
@@ -25,7 +28,12 @@ export type SheetSubmission = {
   actual: Wall | null;
   site: string;
   notes: string;
+  /** The saved-mixture version whose units were shown for that time (null: none). */
+  seenMixtureVersion: string | null;
 };
+
+/** The instant of a wall-clock time in the dose's zone, as the server action resolves it. */
+const instantOf = (wall: Wall, timeZone: string) => resolveLocal(wall.slice(0, 10), wall.slice(11, 16), timeZone).instant.toString();
 
 type Props = {
   detail: DoseDetail | null;
@@ -58,7 +66,9 @@ export function ConfirmSheet(props: Props) {
   const { detail, open, onOpenChange } = props;
   return (
     <Modal open={open && detail !== null} onOpenChange={onOpenChange} label="Confirm administration">
-      {detail ? <SheetBody key={`${detail.key}/${detail.scheduledAt}/${detail.doseMg}`} {...props} detail={detail} /> : null}
+      {detail ? (
+        <SheetBody key={`${detail.key}/${detail.scheduledAt}/${detail.doseMg}/${detail.mixtureVersionId}/${detail.recorded !== null}`} {...props} detail={detail} />
+      ) : null}
     </Modal>
   );
 }
@@ -81,16 +91,28 @@ function SheetBody({ detail, pending, error: refused, notice, onSubmit }: Props 
   const [setAmount, setActual, setSite, setNotes] = [edited(setAmountValue), edited(setActualValue), edited(setSiteValue), edited(setNotesValue)];
 
   if (detail.recorded) {
+    const { recorded } = detail;
     return (
       <div className="app-dose-sheet">
         <div className="app-dose-sheet-state" data-state="taken">
-          Already confirmed
+          Recorded
         </div>
         <h2 className="app-dose-sheet-title">{detail.peptideName}</h2>
         <p className="app-dose-sheet-already">
-          This dose was recorded as taken at <b>{detail.recorded.actual}</b> (entered {detail.recorded.entered}). Nothing more to do; no
-          duplicate was created.
+          This dose was recorded as taken at <b>{recorded.actual}</b> (entered {recorded.entered}). Nothing more to do; confirming again
+          never creates a duplicate.
         </p>
+        <dl className="app-dose-recorded" data-testid="dose-recorded">
+          <dt>Amount taken</dt>
+          <dd>
+            {recorded.amount}
+            {recorded.planned ? <span className="app-dose-recorded-planned"> {recorded.planned}</span> : null}
+          </dd>
+          <dt>Injection site</dt>
+          <dd>{recorded.site || "—"}</dd>
+          <dt>Observations</dt>
+          <dd className="app-dose-recorded-notes">{recorded.notes || "—"}</dd>
+        </dl>
         <ModalClose className="app-btn app-btn--secondary app-btn--block app-dose-sheet-close">Close</ModalClose>
       </div>
     );
@@ -99,8 +121,13 @@ function SheetBody({ detail, pending, error: refused, notice, onSubmit }: Props 
   const time = actual ?? now;
   const late = daysBetween(time.slice(0, 10), now.slice(0, 10));
   const shown = error ?? refused;
+  // The setup in effect at the actual time chosen (now: the current one), whose
+  // units are shown and whose version is sent back (confirm_dose checks it).
+  const segment = actual !== null && isWall(actual) ? setupAt(detail.setups, instantOf(actual, detail.timeZone)) : null;
+  const setup = actual === null ? detail.setup : (segment?.setup ?? null);
+  const seenMixtureVersion = actual === null ? detail.mixtureVersionId : (segment?.versionId ?? null);
   const submit = () => {
-    const submission = { amount, actual, site, notes };
+    const submission = { amount, actual, site, notes, seenMixtureVersion };
     const problem = confirmFormError(submission, now);
     setError(problem);
     if (!problem) onSubmit(submission);
@@ -134,7 +161,7 @@ function SheetBody({ detail, pending, error: refused, notice, onSubmit }: Props 
               onChange={(event) => setAmount(event.target.value)}
             />
             <span className="app-dose-units" data-testid="sheet-units">
-              {sheetUnitsLabel(detail.setup, amount)}
+              {sheetUnitsLabel(setup, amount)}
             </span>
           </div>
         </div>

@@ -265,6 +265,12 @@
   color: var(--app-text-3);
 }
 
+/* "(planned 0.4 mg)" beside an amount taken that differs from the plan. */
+.app-root .app-today-row-status-note,
+.app-root .app-dose-recorded-planned {
+  color: var(--app-text-4);
+}
+
 .app-root .app-today-list-end {
   border-top: 1px solid var(--app-border);
 }
@@ -482,6 +488,23 @@
 
 .app-root .app-dose-sheet-already b {
   color: var(--app-text);
+}
+
+.app-root .app-dose-recorded {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  margin: 16px 0 0;
+}
+
+.app-root .app-dose-recorded dt {
+  color: var(--app-text-4);
+}
+
+.app-root .app-dose-recorded dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
 }
 
 .app-root .app-dose-sheet-close {

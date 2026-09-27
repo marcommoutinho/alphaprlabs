@@ -13,10 +13,14 @@
 --     client sends (else AP017); not yet confirmed (else AP018); and dated
 --     today or earlier in its zone (a later day's dose can't be confirmed
 --     yet: AP019).
---   * stale screens and notifications: the caller passes the scheduled time
---     and planned dose it showed; if either differs from the current
---     occurrence (the plan was edited, or an earlier dose moved it), nothing
---     is recorded (AP020) and the app shows the current details.
+--   * stale screens and notifications: the caller passes the scheduled time,
+--     planned dose and saved-mixture version (null: none) it showed, the
+--     version being the one in effect at the actual time it chose, as the
+--     page computed it (so its syringe units). If any differs from the
+--     current occurrence or from the version in effect at the actual time
+--     now (the plan was edited, an earlier dose moved it, the mixture was
+--     changed or unlinked), nothing is recorded (AP020) and the app shows
+--     the current details.
 --   * the actual time: now when not given; never after the server's clock
 --     (AP021); not more than a day before the planned time (AP022, a typo
 --     guard). recorded_at is the server's clock.
@@ -29,8 +33,26 @@
 --     is recorded with stock_discrepancy = true; it never blocks the dose.
 --   * idempotency: p_request_key is unique per confirmation request. The
 --     same key again (a retry, a double tap) returns the recorded result
---     with "replayed": true and records nothing more. Confirmations of one
---     cycle, and its edits (save_cycle), are serialized by the cycle row.
+--     with "replayed": true and records nothing more.
+--
+-- Lock order (every writer takes its locks in this order, so none deadlock):
+--   cycle row -> plan row(s) by id -> mixture row(s) by id -> the owner's
+--   personal_supply_settings row; a vial row, where taken, before its mixture.
+--   * save_cycle: the cycle (for update), then its plans (updated).
+--   * save_mixture: the plans (for no key update, by id), then the mixtures
+--     (for update, by id). delete_mixture: the mixture.
+--   * save_personal_vial: the vial, then the mixture. finish_personal_vial:
+--     the vial. set_supply_tracking: the settings row.
+--   * confirm_dose: the cycle (for update: one confirmation or edit of a
+--     cycle at a time), the plan (for no key update: a save_mixture linking
+--     it waits, or is waited for), then the mixture in effect at the actual
+--     time (for share: a save or delete of that mixture, which may end the
+--     plan's link without locking the plan, waits, or is waited for) and
+--     only then resolves the version; then, while tracking is on, the
+--     settings row (for update: one deduction per owner at a time). It never
+--     locks a vial, since save_personal_vial takes vial before mixture.
+--   With the plan locked no new link can begin, so the version resolved
+--   after the mixture lock is final for the transaction.
 --
 -- Returns the recorded dose as JSON (amounts as exact decimal strings):
 --   { id, cycle_id, plan_id, occurrence_key, scheduled_at, planned_mg,
@@ -78,6 +100,7 @@ create function public.confirm_dose(
   p_occurrence_key text,
   p_seen_scheduled_at timestamptz,
   p_seen_dose_mg text,
+  p_seen_mixture_version_id uuid,
   p_amount_mg text,
   p_actual_at timestamptz default null,
   p_site text default '',
@@ -101,6 +124,7 @@ declare
   v_now timestamptz;
   v_actual timestamptz;
   v_version uuid;
+  v_mixture uuid;
   v_vial public.personal_vials%rowtype;
   v_used numeric;
   v_dose_id uuid;
@@ -119,8 +143,10 @@ begin
   if not found or not public.can_write_researcher(v_plan.owner_id) then
     return null;
   end if;
-  -- One confirmation or edit of this cycle at a time (save_cycle locks it too).
+  -- Locks in the documented order: the cycle (save_cycle locks it too), then
+  -- the plan (save_mixture locks the plans it links).
   perform 1 from public.cycles c where c.id = v_plan.cycle_id for update;
+  perform 1 from public.cycle_plans cp where cp.id = v_plan.id for no key update;
 
   -- A retry of a recorded request returns what was recorded.
   select d.* into v_existing from public.dose_records d where d.request_key = p_request_key;
@@ -165,7 +191,19 @@ begin
     raise exception 'the actual time is more than a day before the planned time' using errcode = 'AP022';
   end if;
 
+  -- The mixture in effect at the actual time: lock it, then resolve again
+  -- (a save or delete in flight may have ended the link or added a version).
   v_version := public.plan_mixture_version_at(v_plan.id, v_actual);
+  if v_version is not null then
+    select mv.mixture_id into v_mixture from public.mixture_versions mv where mv.id = v_version;
+    perform 1 from public.mixtures m where m.id = v_mixture for share;
+    v_version := public.plan_mixture_version_at(v_plan.id, v_actual);
+  end if;
+  -- The syringe units shown must be the ones for this setup.
+  if v_version is distinct from p_seen_mixture_version_id then
+    raise exception 'the mixture changed since it was shown' using errcode = 'AP020';
+  end if;
+
   insert into public.dose_records (
     owner_id, cycle_id, plan_id, peptide_id, phase_id, occurrence_key, scheduled_at, planned_mg,
     actual_at, recorded_at, amount_mg, site, notes, mixture_version_id, request_key
@@ -176,14 +214,14 @@ begin
   )
   returning id into v_dose_id;
 
-  -- The estimated deduction from the open vial of that mixture, while tracking is on.
+  -- The estimated deduction from the open vial of that mixture, while
+  -- tracking is on. The settings row lock serializes the owner's deductions.
   if v_version is not null
-     and coalesce((select s.tracking_enabled from public.personal_supply_settings s where s.owner_id = v_uid), false) then
+     and coalesce((select s.tracking_enabled from public.personal_supply_settings s where s.owner_id = v_uid for update), false) then
     select pv.* into v_vial
     from public.personal_vials pv
     where pv.owner_id = v_uid and pv.finished_at is null
-      and pv.mixture_id = (select mv.mixture_id from public.mixture_versions mv where mv.id = v_version)
-    for update;
+      and pv.mixture_id = (select mv.mixture_id from public.mixture_versions mv where mv.id = v_version);
     if found then
       select coalesce(sum(x.amount_mg), 0) into v_used from public.personal_vial_deductions x where x.vial_id = v_vial.id;
       insert into public.personal_vial_deductions (
@@ -204,5 +242,5 @@ exception
 end;
 $$;
 
-revoke all on function public.confirm_dose(uuid, text, timestamptz, text, text, timestamptz, text, text) from public, anon;
-grant execute on function public.confirm_dose(uuid, text, timestamptz, text, text, timestamptz, text, text) to authenticated;
+revoke all on function public.confirm_dose(uuid, text, timestamptz, text, uuid, text, timestamptz, text, text) from public, anon;
+grant execute on function public.confirm_dose(uuid, text, timestamptz, text, uuid, text, timestamptz, text, text) to authenticated;

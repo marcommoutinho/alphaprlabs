@@ -1,8 +1,10 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { allRows } from "@/lib/library/service";
-import type { Confirmation } from "@/lib/schedule/engine";
+import type { LineSpacing, SyringeCapacity } from "@/lib/calculator/calculator";
+import type { RecordedConfirmation } from "@/lib/cycles/views";
 import type { Database } from "@/lib/supabase/database.types";
+import { type SetupLink, type SetupSegment, setupSegments, type SetupVersion } from "./setups";
 
 type Db = SupabaseClient<Database>;
 
@@ -14,7 +16,8 @@ type Db = SupabaseClient<Database>;
 //
 // For other slices:
 //   S10/R2/R4, R3 edits, R7   confirmationsByCycle(await listDoseRecords(db, id))
-//                             → the engine's confirmations, per cycle id.
+//                             → the engine's confirmations, per cycle id, with
+//                             the recorded amount, site and notes for display.
 //   S13 reminders             a recorded dose stops its reminders; see the
 //                             header of 20260926200000_doses.sql.
 //   S14 supplies              personal_vial_deductions (estimates per vial).
@@ -85,31 +88,103 @@ export async function listDoseRecords(db: Db, ownerId: string): Promise<DoseReco
   return rows.map(recordOf);
 }
 
+/** A recorded dose as the engine's confirmation, with what was recorded. */
+const confirmationOf = (record: DoseRecord): RecordedConfirmation => ({
+  key: record.occurrenceKey,
+  actualAt: record.actualAt,
+  recordedAt: record.recordedAt,
+  scheduledAt: record.scheduledAt,
+  amountMg: record.amountMg,
+  site: record.site,
+  notes: record.notes,
+});
+
 /** Recorded doses as the engine's confirmations, by cycle id. */
-export function confirmationsByCycle(records: readonly DoseRecord[]): Map<string, Confirmation[]> {
-  const byCycle = new Map<string, Confirmation[]>();
+export function confirmationsByCycle(records: readonly DoseRecord[]): Map<string, RecordedConfirmation[]> {
+  const byCycle = new Map<string, RecordedConfirmation[]>();
   for (const record of records) {
     const list = byCycle.get(record.cycleId) ?? [];
-    list.push({ key: record.occurrenceKey, actualAt: record.actualAt, recordedAt: record.recordedAt, scheduledAt: record.scheduledAt });
+    list.push(confirmationOf(record));
     byCycle.set(record.cycleId, list);
   }
   return byCycle;
 }
 
 /** One cycle's confirmations, for a page that shows one cycle. */
-export async function cycleConfirmations(db: Db, cycleId: string): Promise<Confirmation[]> {
-  const rows = await allRows<Pick<RecordRow, "occurrence_key" | "actual_at" | "recorded_at" | "scheduled_at">>(
+export async function cycleConfirmations(db: Db, cycleId: string): Promise<RecordedConfirmation[]> {
+  const rows = await allRows<RecordRow>(
     (from, to) =>
       db
         .from("dose_records")
-        .select("occurrence_key, actual_at, recorded_at, scheduled_at")
+        .select(RECORD_COLUMNS)
         .eq("cycle_id", cycleId)
         .order("recorded_at")
         .order("id")
-        .range(from, to),
+        .range(from, to) as unknown as PromiseLike<{ data: RecordRow[] | null; error: { message: string } | null }>,
     "recorded doses",
   );
-  return rows.map((row) => ({ key: row.occurrence_key, actualAt: row.actual_at, recordedAt: row.recorded_at, scheduledAt: row.scheduled_at }));
+  return rows.map((row) => confirmationOf(recordOf(row)));
+}
+
+// ── The setups a plan used over time (R5's units and seen version) ──────────
+
+type LinkRow = { plan_id: string; mixture_id: string; linked_at: string; unlinked_at: string | null };
+type VersionRow = {
+  id: string;
+  mixture_id: string;
+  number: number;
+  vial_mg: string;
+  liquid_ml: string;
+  syringe_units: number;
+  line_spacing: string | null;
+  created_at: string;
+};
+
+/** Each of `ownerId`'s plans' saved-mixture setups over time, by plan id (see setups.ts). */
+export async function planSetups(db: Db, ownerId: string): Promise<Map<string, SetupSegment[]>> {
+  const [links, versions] = await Promise.all([
+    allRows<LinkRow>(
+      (from, to) =>
+        db
+          .from("cycle_plan_mixtures")
+          .select("plan_id, mixture_id, linked_at, unlinked_at")
+          .eq("owner_id", ownerId)
+          .order("plan_id")
+          .order("linked_at")
+          .range(from, to),
+      "mixture links",
+    ),
+    allRows<VersionRow>(
+      (from, to) =>
+        db
+          .from("mixture_versions")
+          .select("id, mixture_id, number, vial_mg::text, liquid_ml::text, syringe_units, line_spacing::text, created_at")
+          .eq("owner_id", ownerId)
+          .order("mixture_id")
+          .order("number")
+          .range(from, to) as unknown as PromiseLike<{ data: VersionRow[] | null; error: { message: string } | null }>,
+      "mixture setups",
+    ),
+  ]);
+  const setups: SetupVersion[] = versions.map((row) => ({
+    id: row.id,
+    mixtureId: row.mixture_id,
+    number: row.number,
+    createdAt: row.created_at,
+    setup: {
+      vialMg: row.vial_mg,
+      liquidMl: row.liquid_ml,
+      syringe: row.syringe_units as SyringeCapacity,
+      lineSpacing: (row.line_spacing ?? "unknown") as LineSpacing,
+    },
+  }));
+  const byPlan = new Map<string, SetupLink[]>();
+  for (const link of links) {
+    const list = byPlan.get(link.plan_id) ?? [];
+    list.push({ mixtureId: link.mixture_id, linkedAt: link.linked_at, unlinkedAt: link.unlinked_at });
+    byPlan.set(link.plan_id, list);
+  }
+  return new Map([...byPlan].map(([planId, planLinks]) => [planId, setupSegments(planLinks, setups)]));
 }
 
 // ── Confirming ──────────────────────────────────────────────────────────────
@@ -120,6 +195,8 @@ export type ConfirmDoseInput = {
   /** What the screen showed, so a changed occurrence is never confirmed blindly. */
   seenScheduledAt: string;
   seenDoseMg: string;
+  /** The saved-mixture version whose units were shown, for the actual time (null: none). */
+  seenMixtureVersionId: string | null;
   amountMg: string;
   /** ISO instant; null means now (the server's clock). */
   actualAt: string | null;
@@ -169,6 +246,8 @@ export async function confirmDose(db: Db, input: ConfirmDoseInput): Promise<Conf
     p_occurrence_key: input.occurrenceKey,
     p_seen_scheduled_at: input.seenScheduledAt,
     p_seen_dose_mg: input.seenDoseMg,
+    // null is "no mixture shown" (the generated type has no null for uuid arguments).
+    p_seen_mixture_version_id: input.seenMixtureVersionId as string,
     p_amount_mg: input.amountMg,
     ...(input.actualAt ? { p_actual_at: input.actualAt } : {}),
     p_site: input.site,

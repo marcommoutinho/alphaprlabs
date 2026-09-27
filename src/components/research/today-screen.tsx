@@ -94,7 +94,8 @@ export function TodayScreen({ view }: { view: TodayView }) {
 
   const quick = (key: string) => {
     const detail = view.doses[key];
-    if (detail) confirm(detail, { amount: detail.doseMg, actual: null, site: "", notes: "" }, false);
+    // Now, the planned amount, and the setup whose units the screen shows.
+    if (detail) confirm(detail, { amount: detail.doseMg, actual: null, site: "", notes: "", seenMixtureVersion: detail.mixtureVersionId }, false);
   };
   const openSheet = (key: string) => {
     setSheetError(null);
@@ -159,14 +160,15 @@ export function TodayScreen({ view }: { view: TodayView }) {
                 <button type="button" className="app-today-row-action" disabled={pending} onClick={() => quick(row.key)}>
                   {busy(row.key) ? "Saving…" : "Taken"}
                 </button>
-              ) : row.action === "Confirm" ? (
+              ) : row.action === "Confirm" || row.action === "Details" ? (
                 <button type="button" className="app-today-row-action" disabled={pending} onClick={() => openSheet(row.key)}>
-                  Confirm
+                  {row.action}
                 </button>
               ) : null}
               {row.status ? (
                 <span className="app-today-row-status" data-status={row.status}>
                   {row.status}
+                  {row.statusNote ? <span className="app-today-row-status-note"> {row.statusNote}</span> : null}
                 </span>
               ) : null}
             </div>

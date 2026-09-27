@@ -25,6 +25,24 @@ import { doseAt, type CycleRecord, type CycleRevision, type StoredPlan } from ".
 import { type CycleStatus, cycleOccurrences, cycleSpan, cycleStatus, planOccurrences } from "./schedule";
 import type { CycleSummary } from "./service";
 
+/**
+ * A recorded dose (S12) as the engine's confirmation, plus what was recorded:
+ * the amount actually taken (shown instead of the planned dose), the site and
+ * the notes. The engine reads only the Confirmation fields.
+ */
+export type RecordedConfirmation = Confirmation & { amountMg?: string; site?: string; notes?: string };
+
+/** What a recorded dose shows: `0.3 mg`, and `(planned 0.4 mg)` only when it differs. */
+export function recordedAmount(plannedMg: string, amountMg: string | undefined): { mg: string; planned: string } {
+  if (!amountMg) return { mg: `${plannedMg} mg`, planned: "" };
+  const same = new Exact(amountMg).equals(new Exact(plannedMg));
+  return { mg: `${amountMg} mg`, planned: same ? "" : `(planned ${plannedMg} mg)` };
+}
+
+/** `Thigh L · Felt fine`: the recorded site and notes, or "". */
+export const recordedDetails = (c: Pick<RecordedConfirmation, "site" | "notes"> | undefined) =>
+  [c?.site, c?.notes].filter((part): part is string => Boolean(part)).join(" · ");
+
 /** Library peptides by id, as the caller may read them (own cycles keep withdrawn ones). */
 export type ViewPeptides = ReadonlyMap<string, { name: string; available: boolean; cyclingOff?: string }>;
 
@@ -144,7 +162,12 @@ export type HistoryRow = {
   key: string;
   planned: string;
   peptide: string;
+  /** The amount taken once recorded, else the planned dose. */
   mg: string;
+  /** `(planned 0.4 mg)` when the amount taken differs from the plan, else "". */
+  plannedMg: string;
+  /** The recorded site and notes, or "". */
+  details: string;
   actual: string;
   entered: string;
   state: OccurrenceState;
@@ -186,7 +209,15 @@ export function phaseSegments(phase: ActivePhase): { start: LocalDate; end: Loca
 
 const isAbove = (dose: string, base: string | null) => base !== null && new Exact(dose).greaterThan(new Exact(base));
 
-function lane(plan: StoredPlan, start: LocalDate, total: number, occurrences: readonly Occurrence[], peptides: ViewPeptides, now: InstantInput): TimelineLane {
+function lane(
+  plan: StoredPlan,
+  start: LocalDate,
+  total: number,
+  occurrences: readonly Occurrence[],
+  peptides: ViewPeptides,
+  now: InstantInput,
+  recorded: ReadonlyMap<string, RecordedConfirmation> = new Map(),
+): TimelineLane {
   const name = nameOf(peptides, plan.peptideId);
   const firstActive = plan.phases.find((phase): phase is ActivePhase => phase.kind === "active") ?? null;
   const base = firstActive ? doseAt(firstActive, firstActive.start) : null;
@@ -220,7 +251,9 @@ function lane(plan: StoredPlan, start: LocalDate, total: number, occurrences: re
   });
   const dots = occurrences.map((o): TimelineDot => {
     const state = occurrenceState(o, now);
-    const status = o.actualAt ? `Taken ${timeIn(o.actualAt, o.timeZone)}` : STATE_LABEL[state];
+    const status = o.actualAt
+      ? `Taken ${timeIn(o.actualAt, o.timeZone)} · ${recordedAmount(o.doseMg, recorded.get(o.key)?.amountMg).mg}`
+      : STATE_LABEL[state];
     return { day: clamp(o.localDate), key: o.key, state, label: `${name} · ${occurrenceWhen(o)} · ${status}` };
   });
   return { planId: plan.planId, name, sub: firstActive ? scheduleLabel(firstActive, firstActive.start) : "", bars, dots };
@@ -269,16 +302,14 @@ export function phaseRow(phase: Phase, today: LocalDate): PhaseRow {
   };
 }
 
-/** Recorded-time lookups for "Entered": each confirmation's recordedAt by key (S12). */
-const enteredByKey = (confirmations: readonly Confirmation[]) => new Map(confirmations.map((c) => [c.key, c.recordedAt]));
-
 /** Everything R4 shows for one cycle as of `now`. */
 export function cycleDetail(
   cycle: CycleRecord,
   peptides: ViewPeptides,
   now: InstantInput,
-  confirmations: readonly Confirmation[] = [],
+  confirmations: readonly RecordedConfirmation[] = [],
 ): CycleDetail {
+  const recorded = new Map(confirmations.map((c) => [c.key, c]));
   const revision = current(cycle);
   const { start, end } = cycleSpan(revision);
   const status = cycleStatus(revision, now);
@@ -292,7 +323,15 @@ export function cycleDetail(
     status === "Upcoming" ? `starts ${formatMonthDay(start)}` : status === "Ended" ? `${total} days` : `day ${index + 1} of ${total}`;
 
   const lanes = revision.plans.map((plan) =>
-    lane(plan, start, total, [...(byPlan.get(plan.planId) ?? [])].sort((a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt)), peptides, now),
+    lane(
+      plan,
+      start,
+      total,
+      [...(byPlan.get(plan.planId) ?? [])].sort((a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt)),
+      peptides,
+      now,
+      recorded,
+    ),
   );
 
   const plans = revision.plans.map((plan): PlanCard => {
@@ -306,20 +345,22 @@ export function cycleDetail(
     };
   });
 
-  const entered = enteredByKey(confirmations);
   const history = cycleOccurrences(cycle.revisions, confirmations)
     .map((o) => ({ o, state: occurrenceState(o, now) }))
     .filter(({ state }) => state !== "planned")
     .reverse()
     .map(({ o, state }): HistoryRow => {
-      const recorded = entered.get(o.key);
+      const record = o.actualAt ? recorded.get(o.key) : undefined;
+      const amount = recordedAmount(o.doseMg, record?.amountMg);
       return {
         key: o.key,
         planned: occurrenceWhen(o),
         peptide: nameOf(peptides, planOf.get(o.planId)),
-        mg: mg(o.doseMg),
+        mg: amount.mg,
+        plannedMg: amount.planned,
+        details: recordedDetails(record),
         actual: o.actualAt ? formatDateTime(o.actualAt, { timeZone: o.timeZone }) : "—",
-        entered: recorded ? formatDateTime(recorded, { timeZone: o.timeZone }) : "—",
+        entered: record ? formatDateTime(record.recordedAt, { timeZone: o.timeZone }) : "—",
         state,
         stateLabel: STATE_LABEL[state],
       };

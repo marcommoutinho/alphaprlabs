@@ -459,8 +459,18 @@
 }
 
 .app-root .app-cv-history-mg,
-.app-root .app-cv-history-entered {
+.app-root .app-cv-history-entered,
+.app-root .app-cv-history-planned-mg {
   color: var(--app-text-4);
+}
+
+/* The recorded site and notes under the peptide (S12). */
+.app-root .app-cv-history-details {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--app-text-3);
+  overflow-wrap: anywhere;
 }
 
 .app-root .app-cv-history-state {

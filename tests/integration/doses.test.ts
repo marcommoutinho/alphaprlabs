@@ -12,7 +12,10 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { getMixture } from "@/lib/mixtures/service";
 import { type Client, createCycle, createPeptide, interval, plan, tag, weekdays } from "../support/cycles";
-import { confirmArgs, d, NOON, noonZoneInstant, occurrenceOn, occurrencesOf } from "../support/doses";
+import { drawDisplay } from "@/lib/doses/rules";
+import { cycleConfirmations, planSetups } from "@/lib/doses/service";
+import { setupAt } from "@/lib/doses/setups";
+import { confirmArgs, confirmArgsSeen, d, NOON, noonZoneInstant, occurrenceOn, occurrencesOf } from "../support/doses";
 import { anonClient, ensureAccount, ok, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
 
 const people = {
@@ -40,6 +43,7 @@ async function planIds(who: Client, cycleId: string) {
 
 const doseRows = (cycleId: string) =>
   ok(serviceClient().from("dose_records").select("id, occurrence_key, request_key, mixture_version_id").eq("cycle_id", cycleId), "dose rows");
+const deductionsOfVial = (vialId: string) => ok(serviceClient().from("personal_vial_deductions").select("id").eq("vial_id", vialId), "vial deductions");
 const deductionRows = (doseIds: string[]) =>
   ok(serviceClient().from("personal_vial_deductions").select("dose_id, amount_mg::text, remaining_after_mg::text, stock_discrepancy").in("dose_id", doseIds), "deductions");
 
@@ -67,7 +71,7 @@ describe("one confirmation request records one dose", () => {
     await ok(db.alex.rpc("save_personal_vial", { p_label: `R-${tag()}`, p_peptide_id: peptideA, p_strength_mg: "10", p_mixture_id: mixtureId }), "vial");
 
     const today = await occurrenceOn(db.alex, cycleId, d(0));
-    const args = confirmArgs(today);
+    const args = await confirmArgsSeen(db.alex, today);
     const first = (await confirm(db.alex, args))!;
     expect(first.replayed).toBe(false);
     expect(first.deduction).toMatchObject({ amount_mg: "0.5", remaining_after_mg: "9.5", stock_discrepancy: false });
@@ -113,6 +117,10 @@ describe("the actual time", () => {
     expect(recorded.amount_mg).toBe("0.9");
     const row = await ok(serviceClient().from("dose_records").select("site, notes, planned_mg::text").eq("id", recorded.id).single(), "row");
     expect(row).toEqual({ site: "Thigh L", notes: "fine", planned_mg: "1" });
+    // The views read what was recorded, not only the times.
+    expect(await cycleConfirmations(db.alex, cycleId)).toEqual([
+      expect.objectContaining({ key: today.key, amountMg: "0.9", site: "Thigh L", notes: "fine" }),
+    ]);
 
     // Invalid inputs change nothing.
     const next = await occurrenceOn(db.alex, cycleId, d(-2));
@@ -230,7 +238,7 @@ describe("personal supplies", () => {
 
     // Taken now (after the mixture was linked): 1 mg vial, 0.4 mg each.
     const results = [];
-    for (const date of [d(-6), d(-4), d(-2)]) results.push((await confirm(who, confirmArgs(await occurrenceOn(who, cycleId, date))))!);
+    for (const date of [d(-6), d(-4), d(-2)]) results.push((await confirm(who, await confirmArgsSeen(who, await occurrenceOn(who, cycleId, date))))!);
     expect(results.map((r) => r.deduction)).toEqual([
       expect.objectContaining({ remaining_after_mg: "0.6", stock_discrepancy: false }),
       expect.objectContaining({ remaining_after_mg: "0.2", stock_discrepancy: false }),
@@ -238,7 +246,7 @@ describe("personal supplies", () => {
     ]);
 
     await ok(who.rpc("set_supply_tracking", { p_enabled: false }), "tracking off");
-    const off = (await confirm(who, confirmArgs(await occurrenceOn(who, cycleId, d(0)))))!;
+    const off = (await confirm(who, await confirmArgsSeen(who, await occurrenceOn(who, cycleId, d(0)))))!;
     expect(off.deduction).toBeNull();
     expect(off.mixture_version_id).not.toBeNull();
     expect(await deductionRows([off.id])).toEqual([]);
@@ -272,11 +280,56 @@ describe("personal supplies", () => {
     const versions = await ok(who.from("mixture_versions").select("id, number").eq("mixture_id", mixtureId).order("number"), "versions");
     expect(versions).toHaveLength(2);
 
-    const early = (await confirm(who, confirmArgs(await occurrenceOn(who, cycleId, d(0)), { p_actual_at: between })))!;
-    const late = (await confirm(who, confirmArgs(await occurrenceOn(who, cycleId, d(-2)))))!;
-    const before = (await confirm(who, confirmArgs(await occurrenceOn(who, cycleId, d(-4)), { p_actual_at: noonZoneInstant(d(-4), "08:00") })))!;
+    const early = (await confirm(who, await confirmArgsSeen(who, await occurrenceOn(who, cycleId, d(0)), { p_actual_at: between })))!;
+    const late = (await confirm(who, await confirmArgsSeen(who, await occurrenceOn(who, cycleId, d(-2)))))!;
+    const before = (await confirm(who, await confirmArgsSeen(who, await occurrenceOn(who, cycleId, d(-4)), { p_actual_at: noonZoneInstant(d(-4), "08:00") })))!;
     expect(early.mixture_version_id).toBe(versions[0].id);
     expect(late.mixture_version_id).toBe(versions[1].id);
     expect(before.mixture_version_id).toBeNull();
+  });
+});
+
+describe("the mixture shown", () => {
+  it("refuses a confirmation made from a setup that changed since the page showed it", async () => {
+    const who = await signedInClient(people.alex.email);
+    const cycleId = await createCycle(who, { timeZone: NOON, plans: [plan(peptideB, [interval(d(-2), d(6), "0.4", 2, "08:00")])] });
+    const planId = (await planIds(who, cycleId)).get(peptideB)!;
+    await ok(who.rpc("set_supply_tracking", { p_enabled: true }), "tracking on");
+    const setup = { p_peptide_id: peptideB, p_vial_mg: "10", p_syringe_units: 100, p_line_spacing: "2", p_plan_ids: [planId] };
+    const mixtureId = (await ok(who.rpc("save_mixture", { ...setup, p_liquid_ml: "2" }), "mixture v1"))!;
+    await ok(who.rpc("save_personal_vial", { p_label: `M-${tag()}`, p_peptide_id: peptideB, p_strength_mg: "10", p_mixture_id: mixtureId }), "vial");
+
+    // Today shows 0.4 mg as 8 units from the 10 mg / 2 mL setup.
+    const today = await occurrenceOn(who, cycleId, d(0));
+    const shown = await confirmArgsSeen(who, today);
+    const shownSegment = setupAt((await planSetups(who, id.alex)).get(planId) ?? [], new Date().toISOString())!;
+    expect(shownSegment.versionId).toBe(shown.p_seen_mixture_version_id);
+    expect(drawDisplay(shownSegment.setup, "0.4")).toMatchObject({ kind: "units", units: "8" });
+
+    // Another session changes the setup to 10 mg / 4 mL (16 units).
+    const elsewhere = await signedInClient(people.alex.email);
+    const v1 = (await getMixture(elsewhere, mixtureId))!;
+    // An instant before the change, on the database's clock: when the first setup took effect.
+    const beforeChange = v1.setupSince;
+    await ok(elsewhere.rpc("save_mixture", { ...setup, p_liquid_ml: "4", p_mixture_id: mixtureId, p_version: v1.version }), "mixture v2");
+
+    // The stale page's Taken is refused; nothing is recorded or deducted.
+    expect(await sqlState(who.rpc("confirm_dose", shown), "stale setup")).toBe("AP020");
+    expect(await doseRows(cycleId)).toEqual([]);
+    const vials = await ok(serviceClient().from("personal_vials").select("id").eq("mixture_id", mixtureId), "vial");
+    expect(vials).toHaveLength(1);
+    expect(await deductionsOfVial(vials[0].id)).toEqual([]);
+
+    // Backdated to before the change, the old setup is the one in effect: accepted with it, refused with the new one.
+    const fresh = await confirmArgsSeen(who, today);
+    expect(fresh.p_seen_mixture_version_id).not.toBe(shown.p_seen_mixture_version_id);
+    expect(await sqlState(who.rpc("confirm_dose", { ...fresh, p_actual_at: beforeChange }), "new setup, earlier time")).toBe("AP020");
+    const earlier = (await confirm(who, { ...shown, p_request_key: crypto.randomUUID(), p_actual_at: beforeChange }))!;
+    expect(earlier.mixture_version_id).toBe(shown.p_seen_mixture_version_id);
+    expect(earlier.deduction).toMatchObject({ amount_mg: "0.4", remaining_after_mg: "9.6" });
+    // After a refresh the new setup is shown and recorded.
+    const recorded = (await confirm(who, await confirmArgsSeen(who, await occurrenceOn(who, cycleId, d(-2)))))!;
+    expect(recorded.mixture_version_id).toBe(fresh.p_seen_mixture_version_id);
+    expect(await deductionsOfVial(vials[0].id)).toHaveLength(2);
   });
 });

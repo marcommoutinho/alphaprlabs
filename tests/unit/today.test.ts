@@ -20,6 +20,8 @@ import {
 } from "@/lib/doses/rules";
 import { pendingDoses, todayView } from "@/lib/doses/today";
 import type { Mixture } from "@/lib/mixtures/rules";
+import { setupAt, setupSegments, versionAt } from "@/lib/doses/setups";
+import { cycleDetail, type RecordedConfirmation } from "@/lib/cycles/views";
 import type { Confirmation } from "@/lib/schedule/engine";
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -101,13 +103,18 @@ const NOON = "2026-09-26T16:00:00Z";
 /** A's Sep 24 dose taken at 07:00, entered at 07:05: the Sep 26 dose moves to 07:00. */
 const taken24: Confirmation = { key: keyA(2), actualAt: "2026-09-24T11:00:00Z", recordedAt: "2026-09-24T11:05:00Z" };
 
-const view = (confirmations: Confirmation[], requestedKey: string | null = null, now = NOON) =>
+/** A's setups: 10 mg / 1 mL until Sep 5, then 10 mg / 2 mL (the current one). */
+const oldSetup = { id: uuid(702), mixtureId: mixture.id, number: 1, createdAt: "2026-09-01T12:00:00Z", setup: { ...mixture.setup, liquidMl: "1" } };
+const newSetup = { id: mixture.setupId, mixtureId: mixture.id, number: 2, createdAt: "2026-09-05T12:00:00Z", setup: mixture.setup };
+const setupsA = setupSegments([{ mixtureId: mixture.id, linkedAt: "2026-09-01T12:00:00Z", unlinkedAt: null }], [oldSetup, newSetup]);
+
+const view = (confirmations: RecordedConfirmation[], requestedKey: string | null = null, now = NOON) =>
   todayView({
     cycles: [cycle, ended],
     confirmations: new Map([[cycle.id, confirmations]]),
-    recordedAt: new Map(confirmations.map((c) => [c.key, String(c.recordedAt)])),
     peptides,
     mixtures: new Map([[PLAN_A, mixture]]),
+    setups: new Map([[PLAN_A, setupsA]]),
     vials: new Map([[mixture.id, "R-07"]]),
     now,
     requestedKey,
@@ -134,17 +141,42 @@ describe("R1 Today", () => {
     // Five unconfirmed, plus today's due dose; the ended cycle's open doses don't count.
     expect(today.badge).toBe(6);
     expect(pendingDoses([cycle, ended], new Map([[cycle.id, [taken24]]]), NOON)).toBe(6);
-    expect(today.doses[keyA(3)]).toMatchObject({ vialLabel: "R-07", calculatorHref: `/app/calculator?plan=${PLAN_A}`, recorded: null });
+    expect(today.doses[keyA(3)]).toMatchObject({
+      vialLabel: "R-07",
+      calculatorHref: `/app/calculator?plan=${PLAN_A}`,
+      recorded: null,
+      mixtureVersionId: mixture.setupId,
+      setups: setupsA,
+    });
     expect(today.doses[keyA(3)].effect).toMatchObject({ kind: "interval", everyDays: 2, floor: "2026-09-24T07:00", next: "moves" });
     expect(today.doses[keyB("2026-09-25")].effect).toEqual({ kind: "weekdays", days: "Mon/Wed/Fri", time: "20:00" });
   });
 
-  it("shows today's taken doses and what's next once everything due is confirmed", () => {
-    const taken26: Confirmation = { key: keyA(3), actualAt: "2026-09-26T15:30:00Z", recordedAt: "2026-09-26T15:31:00Z" };
+  it("shows today's taken doses with what was recorded, and what's next once everything due is confirmed", () => {
+    const taken26: RecordedConfirmation = {
+      key: keyA(3),
+      actualAt: "2026-09-26T15:30:00Z",
+      recordedAt: "2026-09-26T15:31:00Z",
+      amountMg: "0.3",
+      site: "Thigh L",
+      notes: "Mild redness",
+    };
     const today = view([taken24, taken26]);
     expect(today.hero).toBeNull();
     expect(today.nothingDue).toEqual({ title: "All done for today", body: expect.stringContaining("Next: Compound A") });
-    expect(today.rows[0]).toMatchObject({ kind: "today", key: keyA(3), status: "Taken 11:30", action: null });
+    // The amount taken, not the plan; the plan quietly where it differs; the site.
+    expect(today.rows[0]).toMatchObject({
+      kind: "today",
+      key: keyA(3),
+      status: "Taken 11:30 · 0.3 mg",
+      statusNote: "(planned 0.4 mg)",
+      sub: "Planned 07:00 · Thigh L",
+      action: "Details",
+    });
+    expect(today.doses[keyA(3)].recorded).toMatchObject({ amount: "0.3 mg", planned: "(planned 0.4 mg)", site: "Thigh L", notes: "Mild redness" });
+    // Taken as planned: no planned note.
+    const asPlanned = view([taken24, { ...taken26, amountMg: "0.40", site: "", notes: "" }]);
+    expect(asPlanned.rows[0]).toMatchObject({ status: "Taken 11:30 · 0.40 mg", statusNote: "", sub: "Planned 07:00" });
     expect(today.badge).toBe(5);
     // Before 07:00 the dose is ahead: "Later today", not counted.
     const early = view([taken24], null, "2026-09-26T10:00:00Z");
@@ -176,12 +208,16 @@ describe("R5 rules", () => {
   });
 
   it("reads only well-formed confirmations", () => {
-    const good = { requestKey: uuid(1), key: keyA(3), seenScheduledAt: NOON, seenDoseMg: "0.4", amount: "0.4", actual: null, site: "", notes: "" };
+    const good = { requestKey: uuid(1), key: keyA(3), seenScheduledAt: NOON, seenDoseMg: "0.4", seenMixtureVersion: null, amount: "0.4", actual: null, site: "", notes: "" };
     expect(readConfirmForm(good)).toEqual(good);
     expect(readConfirmForm({ ...good, requestKey: "x" })).toBeNull();
     expect(readConfirmForm({ ...good, key: "a:b:c" })).toBeNull();
     expect(readConfirmForm({ ...good, actual: 5 })).toBeNull();
     expect(readConfirmForm(null)).toBeNull();
+    // The shown mixture version is required: a version id, or null for none.
+    expect(readConfirmForm({ ...good, seenMixtureVersion: "not-a-uuid" })).toBeNull();
+    expect(readConfirmForm({ ...good, seenMixtureVersion: undefined })).toBeNull();
+    expect(readConfirmForm({ ...good, seenMixtureVersion: uuid(9).toUpperCase() })?.seenMixtureVersion).toBe(uuid(9));
   });
 
   it("says where the next every-N-days dose moves, never before a newer recorded dose", () => {
@@ -209,5 +245,53 @@ describe("R5 rules", () => {
     expect(sheetUnitsLabel(mixture.setup, "")).toBe("enter an amount");
     expect(wallOf(NOON, TORONTO)).toBe("2026-09-26T12:00");
     expect(wallOf("2026-09-26T04:00:00Z", TORONTO)).toBe("2026-09-26T00:00");
+  });
+});
+
+describe("the setup in effect at an actual time (R5, AP020)", () => {
+  it("follows links and versions exactly, as plan_mixture_version_at does", () => {
+    const other = { id: uuid(703), mixtureId: uuid(710), number: 1, createdAt: "2026-09-10T00:00:00Z", setup: { ...mixture.setup, vialMg: "5" } };
+    const links = [
+      { mixtureId: mixture.id, linkedAt: "2026-09-01T12:00:00Z", unlinkedAt: "2026-09-12T00:00:00.000001Z" },
+      { mixtureId: other.mixtureId, linkedAt: "2026-09-12T00:00:00.000001Z", unlinkedAt: "2026-09-20T00:00:00Z" },
+    ];
+    const versions = [oldSetup, newSetup, other];
+    const segments = setupSegments(links, versions);
+    expect(segments.map((s) => [s.from, s.to, s.versionId])).toEqual([
+      ["2026-09-01T12:00:00Z", "2026-09-05T12:00:00Z", oldSetup.id],
+      ["2026-09-05T12:00:00Z", "2026-09-12T00:00:00.000001Z", newSetup.id],
+      ["2026-09-12T00:00:00.000001Z", "2026-09-20T00:00:00Z", other.id],
+    ]);
+    // Microseconds count: the old link is still in effect a microsecond before it ends.
+    for (const at of ["2026-08-31T00:00:00Z", "2026-09-03T00:00:00Z", "2026-09-05T12:00:00Z", "2026-09-12T00:00:00Z", "2026-09-12T00:00:00.000001Z", "2026-09-25T00:00:00Z"]) {
+      expect(setupAt(segments, at)?.versionId ?? null, at).toBe(versionAt(links, versions, at)?.id ?? null);
+    }
+    expect(setupAt(segments, "2026-09-12T00:00:00Z")?.versionId).toBe(newSetup.id);
+    expect(setupAt(segments, "2026-09-25T00:00:00Z")).toBeNull();
+    // Still linked: the last segment stays open.
+    expect(setupsA.at(-1)).toMatchObject({ to: null, versionId: mixture.setupId });
+  });
+
+  it("gives the sheet the setup, and its version, for a backdated time", () => {
+    const detail = view([taken24]).doses[keyA(3)];
+    expect(setupAt(detail.setups, "2026-09-03T12:00:00Z")).toMatchObject({ versionId: oldSetup.id, setup: { liquidMl: "1" } });
+    expect(sheetUnitsLabel(setupAt(detail.setups, "2026-09-03T12:00:00Z")!.setup, "0.4")).toBe("= 4 units");
+    expect(sheetUnitsLabel(detail.setup, "0.4")).toBe("= 8 units");
+  });
+});
+
+describe("R4 history shows what was recorded", () => {
+  it("the amount taken, the plan where it differs, and the site and notes", () => {
+    const detail = cycleDetail(cycle, peptides, NOON, [
+      taken24,
+      { key: keyB("2026-09-25"), actualAt: "2026-09-26T00:10:00Z", recordedAt: "2026-09-26T00:11:00Z", amountMg: "0.75", site: "Abdomen R", notes: "Late" },
+    ]);
+    const rowOf = (key: string) => detail.history.find((row) => row.key === key)!;
+    expect(rowOf(keyB("2026-09-25"))).toMatchObject({ mg: "0.75 mg", plannedMg: "(planned 1 mg)", details: "Abdomen R · Late", state: "taken" });
+    // A confirmation without recorded details (older callers) shows the plan.
+    expect(rowOf(keyA(2))).toMatchObject({ mg: "0.4 mg", plannedMg: "", details: "" });
+    expect(rowOf(keyA(1))).toMatchObject({ mg: "0.4 mg", plannedMg: "", details: "", state: "open" });
+    const dot = detail.timeline.lanes[1].dots.find((x) => x.key === keyB("2026-09-25"))!;
+    expect(dot.label).toMatch(/Taken 20:10 · 0\.75 mg$/);
   });
 });

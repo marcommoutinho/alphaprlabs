@@ -20,6 +20,8 @@ const EXCLUSIVE = [
   // Read-only owner SQL through psql (no fixture), kept apart all the same.
   "tests/integration/cycle-parity.test.ts",
   "tests/integration/dose-parity.test.ts",
+  // An owner-level psql transaction holds save_mixture's locks while a confirmation waits.
+  "tests/integration/dose-locks.test.ts",
 ];
 
 export default defineConfig({

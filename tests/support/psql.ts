@@ -1,7 +1,7 @@
 // Runs SQL as the database owner with psql (the internal schedule functions
 // are not callable through the API). Tests using it run in the
 // integration-exclusive project (vitest.config.mts).
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { Temporal } from "@js-temporal/polyfill";
 import { localSupabase } from "./local-supabase";
 
@@ -21,6 +21,22 @@ export function psql(sql: string): Record<string, string> {
     throw new Error(`psql failed: ${e.stderr ?? String(error)}`);
   }
   return Object.fromEntries(out.split("\n").filter(Boolean).map((line) => line.split("\t") as [string, string]));
+}
+
+/** psql in the background: resolves with its `label\tvalue` rows once the script ends (for lock tests). */
+export function psqlAsync(sql: string): Promise<Record<string, string>> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      "psql",
+      [localSupabase().dbUrl, "-X", "-q", "-A", "-t", "-F", "\t", "-v", "ON_ERROR_STOP=1"],
+      { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+      (error, stdout, stderr) => {
+        if (error) reject(new Error(`psql failed: ${stderr || String(error)}`));
+        else resolve(Object.fromEntries(stdout.split("\n").filter(Boolean).map((line) => line.split("\t") as [string, string])));
+      },
+    );
+    child.stdin?.end(sql);
+  });
 }
 
 export const quote = (value: string) => `'${value.replace(/'/g, "''")}'`;

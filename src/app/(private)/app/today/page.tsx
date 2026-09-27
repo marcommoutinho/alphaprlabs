@@ -2,7 +2,7 @@ import { AppPage } from "@/components/app-shell/app-shell";
 import { TodayScreen } from "@/components/research/today-screen";
 import { requireResearcher } from "@/lib/auth/session";
 import { listCycles, listCyclePeptides } from "@/lib/cycles/service";
-import { confirmationsByCycle, listDoseRecords } from "@/lib/doses/service";
+import { confirmationsByCycle, listDoseRecords, planSetups } from "@/lib/doses/service";
 import { todayView } from "@/lib/doses/today";
 import { getSupplyTracking, listPersonalVials, planMixtures } from "@/lib/mixtures/service";
 import { createClient } from "@/lib/supabase/server";
@@ -24,11 +24,12 @@ export default async function TodayPage({ searchParams }: { searchParams: Search
   const person = await requireResearcher(`/app/today${dose ? `?dose=${encodeURIComponent(dose)}` : ""}`);
 
   const db = await createClient();
-  const [cycles, records, library, mixtures, tracking, vials] = await Promise.all([
+  const [cycles, records, library, mixtures, setups, tracking, vials] = await Promise.all([
     listCycles(db, person.id),
     listDoseRecords(db, person.id),
     listCyclePeptides(db),
     planMixtures(db, person.id),
+    planSetups(db, person.id),
     getSupplyTracking(db, person.id),
     listPersonalVials(db, person.id),
   ]);
@@ -38,9 +39,9 @@ export default async function TodayPage({ searchParams }: { searchParams: Search
   const view = todayView({
     cycles,
     confirmations: confirmationsByCycle(records),
-    recordedAt: new Map(records.map((record) => [record.occurrenceKey, record.recordedAt])),
     peptides: new Map(library.map((peptide) => [peptide.id, peptide])),
     mixtures,
+    setups,
     vials: openVials,
     now: new Date(),
     requestedKey: dose,

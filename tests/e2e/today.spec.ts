@@ -5,7 +5,7 @@
 // the counts the app sets. Each test has its own researcher.
 import { expect, test, type Page } from "@playwright/test";
 import { APP_ORIGIN } from "../../playwright.config";
-import { STALE_LINK, TIME_FUTURE } from "../../src/lib/doses/rules";
+import { DOSE_CHANGED, STALE_LINK, TIME_FUTURE } from "../../src/lib/doses/rules";
 import { createCycle, interval, plan, tag, weekdays } from "../support/cycles";
 import { d, NOON, noonZoneInstant } from "../support/noon";
 import { ensureAccount, hydrated, ok, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
@@ -46,11 +46,15 @@ async function seed(label: string) {
   });
   const plans = await ok(db.from("cycle_plans").select("id, peptide_id").eq("cycle_id", cycleId), "plans");
   const planA = plans.find((p) => p.peptide_id === aId)!.id;
-  await ok(
-    db.rpc("save_mixture", { p_peptide_id: aId, p_vial_mg: "10", p_liquid_ml: "2", p_syringe_units: 100, p_line_spacing: "2", p_plan_ids: [planA] }),
-    "mixture",
-  );
-  return { email, A, B, cycleId };
+  const setup = { p_peptide_id: aId, p_vial_mg: "10", p_syringe_units: 100, p_line_spacing: "2", p_plan_ids: [planA] };
+  const mixtureId = (await ok(db.rpc("save_mixture", { ...setup, p_liquid_ml: "2" }), "mixture"))!;
+  /** Another session changes A's mixture to 10 mg / `liquidMl` mL. */
+  const changeMixture = async (liquidMl: string) => {
+    const elsewhere = await signedInClient(email);
+    const [{ version }] = await ok(elsewhere.from("mixtures").select("version").eq("id", mixtureId), "mixture version");
+    await ok(elsewhere.rpc("save_mixture", { ...setup, p_liquid_ml: liquidMl, p_mixture_id: mixtureId, p_version: version }), "mixture change");
+  };
+  return { email, A, B, cycleId, changeMixture };
 }
 
 /** Records every badge the app sets (0 for a cleared badge). */
@@ -104,7 +108,8 @@ test("Today confirms the due dose in one tap and the badge follows", async ({ pa
   // B's 09:00 dose leads now, in mg (no saved mixture); A's shows as taken today.
   await expect(hero.locator(".app-today-hero-name")).toHaveText(B);
   await expect(hero.getByTestId("hero-mg")).toHaveText("1 mg");
-  await expect(rows.filter({ hasText: A }).first().locator(".app-today-row-status")).toHaveText(/^Taken \d\d:\d\d$/);
+  // The amount taken (here the planned one), not a bare time.
+  await expect(rows.filter({ hasText: A }).first().locator(".app-today-row-status")).toHaveText(/^Taken \d\d:\d\d · 0\.4 mg$/);
 
   const recorded = await doses(cycleId);
   expect(recorded).toHaveLength(1);
@@ -144,6 +149,8 @@ test("the sheet records an earlier time, the amount, a site and notes", async ({
 
   await time.fill(`${d(-2)}T07:40`);
   await expect(sheet.getByRole("alert")).toHaveCount(0);
+  // The mixture was saved today: two days ago there was none, so no units for that time.
+  await expect(sheet.getByTestId("sheet-units")).toHaveText("no saved mixture");
   await expect(sheet).toContainText("You're recording this 2 days after it happened.");
   // A's next dose (today 08:00) is already due, so this entry doesn't move it.
   await expect(sheet).toContainText(`Later ${A} doses that are already due keep their times`);
@@ -163,6 +170,34 @@ test("the sheet records an earlier time, the amount, a site and notes", async ({
   expect(recorded[0]).toMatchObject({ amount_mg: "0.3", site: "Thigh L", notes: "Mild redness" });
   expect(Date.parse(recorded[0].actual_at)).toBe(Date.parse(noonZoneInstant(d(-2), "07:40")));
   expect(Date.parse(recorded[0].recorded_at)).toBeGreaterThan(Date.parse(recorded[0].actual_at));
+
+  // R4 history shows what was recorded: the amount taken, the plan quietly, the site and notes.
+  await page.goto(`${APP_ORIGIN}/app/cycles/${cycleId}`);
+  const taken = page.getByTestId("history-row").filter({ hasText: "Thigh L" });
+  await expect(taken).toContainText(`${A} · 0.3 mg (planned 0.4 mg)`);
+  await expect(taken.getByTestId("history-details")).toHaveText("Thigh L · Mild redness");
+  await expect(taken.locator(".app-cv-history-state")).toHaveText("Taken");
+});
+
+test("a Taken from a screen whose mixture changed elsewhere is refused and shows the current units", async ({ page }) => {
+  const { email, A, cycleId, changeMixture } = await seed("stale");
+  await signIn(page, email);
+  const hero = page.getByTestId("today-hero");
+  await expect(hero.getByTestId("hero-units")).toHaveText("8");
+
+  // Another session changes the setup to 10 mg / 4 mL: 0.4 mg is now 16 units.
+  await changeMixture("4");
+  await (await hydrated(hero.getByRole("button", { name: "Taken", exact: true }))).click();
+  const sheet = page.getByRole("dialog", { name: "Confirm administration" });
+  await expect(sheet).toContainText(DOSE_CHANGED);
+  await expect(sheet.getByTestId("sheet-units")).toHaveText("= 16 units");
+  await expect(hero.getByTestId("hero-units")).toHaveText("16");
+  expect(await doses(cycleId)).toEqual([]);
+
+  await sheet.getByRole("button", { name: "Mark Taken" }).click();
+  await expect(sheet).toBeHidden();
+  await expect(page.getByRole("status").filter({ hasText: `Taken · ${A} · ` })).toBeVisible();
+  expect(await doses(cycleId)).toHaveLength(1);
 });
 
 test("a reminder link opens its dose on a phone; an out-of-date one says so", async ({ page }) => {

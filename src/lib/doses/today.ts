@@ -18,7 +18,7 @@
 // asks the researcher to confirm.
 import type { CycleRecord } from "@/lib/cycles/rules";
 import { cycleStatus, planOccurrences } from "@/lib/cycles/schedule";
-import { occurrenceWhen, STATE_LABEL, type ViewPeptides } from "@/lib/cycles/views";
+import { occurrenceWhen, type RecordedConfirmation, recordedAmount, STATE_LABEL, type ViewPeptides } from "@/lib/cycles/views";
 import { SYRINGE_LABEL } from "@/lib/calculator/calculator";
 import { formatDateTime } from "@/lib/format";
 import type { Mixture } from "@/lib/mixtures/rules";
@@ -32,6 +32,7 @@ import {
 } from "@/lib/schedule/engine";
 import { type InstantInput, toInstant } from "@/lib/schedule/zone";
 import { drawDisplay, type DrawDisplay, type DrawSetup, type ScheduleEffect, STALE_LINK, unitsLabel, type Wall, wallOf } from "./rules";
+import type { SetupSegment } from "./setups";
 
 /** Everything the sheet needs for one dose, as shown now. Serializable. */
 export type DoseDetail = {
@@ -48,15 +49,23 @@ export type DoseDetail = {
   plannedLabel: string;
   state: OccurrenceState;
   stateLabel: string;
+  /** The plan's saved-mixture setup now, and its version id (sent back for a confirmation "now"). */
   setup: DrawSetup | null;
+  mixtureVersionId: string | null;
+  /** The plan's setups over time: the sheet shows (and sends) the one in effect at the actual time chosen. */
+  setups: SetupSegment[];
   /** `8 mg / 2 mL` and `1 mL`, when there is a saved mixture. */
   mixtureLabel: string;
   syringeLabel: string;
   /** The tracked open vial of the plan's mixture, when supply tracking is on. */
   vialLabel: string | null;
   effect: ScheduleEffect;
-  /** When already confirmed: the actual and entered times, in the dose's zone. */
-  recorded: { actual: string; entered: string } | null;
+  /**
+   * When already confirmed: the actual and entered times in the dose's zone,
+   * the amount taken (`0.3 mg`, with `(planned 0.4 mg)` when it differs),
+   * and the site and notes recorded.
+   */
+  recorded: { actual: string; entered: string; amount: string; planned: string; site: string; notes: string } | null;
   calculatorHref: string;
 };
 
@@ -78,9 +87,12 @@ export type TodayRow = {
   kind: "today" | "open" | "next";
   title: string;
   sub: string;
+  /** `Due`, `Later today`, `Next`, or `Taken 20:05 · 0.3 mg` (the amount taken). */
   status: string;
-  /** "Taken" confirms in one tap; "Confirm" opens the sheet. */
-  action: "Taken" | "Confirm" | null;
+  /** Quiet beside the status: `(planned 0.4 mg)` when the amount taken differs, else "". */
+  statusNote: string;
+  /** "Taken" confirms in one tap; "Confirm" opens the sheet; "Details" shows what was recorded. */
+  action: "Taken" | "Confirm" | "Details" | null;
 };
 
 export type TodayView = {
@@ -101,13 +113,13 @@ export type TodayView = {
 
 export type TodayInput = {
   cycles: readonly CycleRecord[];
-  /** Recorded doses as confirmations, by cycle id. */
-  confirmations: ReadonlyMap<string, readonly Confirmation[]>;
-  /** When each recorded dose was entered, by occurrence key. */
-  recordedAt: ReadonlyMap<string, string>;
+  /** Recorded doses as confirmations (with what was recorded), by cycle id. */
+  confirmations: ReadonlyMap<string, readonly RecordedConfirmation[]>;
   peptides: ViewPeptides;
   /** The saved mixture each plan uses now, by plan id. */
   mixtures: ReadonlyMap<string, Mixture>;
+  /** Each plan's setups over time, by plan id (doses/service planSetups). */
+  setups: ReadonlyMap<string, SetupSegment[]>;
   /** Open tracked vial labels by mixture id (empty while tracking is off). */
   vials: ReadonlyMap<string, string>;
   now: InstantInput;
@@ -188,11 +200,16 @@ export function todayView(input: TodayInput): TodayView {
   const setupOf = (entry: Entry): DrawSetup | null => mixtureOf(entry)?.setup ?? null;
   const drawOf = (entry: Entry) => drawDisplay(setupOf(entry), entry.o.doseMg);
 
+  const recordedByKey = new Map([...input.confirmations.values()].flat().map((c) => [c.key, c]));
+  /** What was recorded for a taken dose (the engine's actualAt is the recorded one). */
+  const recordOf = (o: Occurrence) => (o.actualAt ? recordedByKey.get(o.key) : undefined);
+
   const doses: Record<string, DoseDetail> = {};
   const detail = (entry: Entry): DoseDetail => {
     const { o } = entry;
     const mixture = mixtureOf(entry);
-    const recordedAt = input.recordedAt.get(o.key);
+    const record = recordOf(o);
+    const amount = recordedAmount(o.doseMg, record?.amountMg);
     const value: DoseDetail = {
       key: o.key,
       planId: o.planId,
@@ -207,13 +224,22 @@ export function todayView(input: TodayInput): TodayView {
       state: entry.state,
       stateLabel: STATE_LABEL[entry.state],
       setup: mixture?.setup ?? null,
+      mixtureVersionId: mixture?.setupId ?? null,
+      setups: input.setups.get(o.planId) ?? [],
       mixtureLabel: mixture ? `${mixture.setup.vialMg} mg / ${mixture.setup.liquidMl} mL` : "",
       syringeLabel: mixture ? SYRINGE_LABEL[mixture.setup.syringe] : "",
       vialLabel: mixture ? (input.vials.get(mixture.id) ?? null) : null,
       effect: effectOf(entry.cycle, o, byPlan.get(o.planId)?.occurrences ?? [], nowMs),
       recorded:
-        o.actualAt && recordedAt
-          ? { actual: formatDateTime(o.actualAt, { timeZone: o.timeZone }), entered: formatDateTime(recordedAt, { timeZone: o.timeZone }) }
+        o.actualAt && record
+          ? {
+              actual: formatDateTime(o.actualAt, { timeZone: o.timeZone }),
+              entered: formatDateTime(record.recordedAt, { timeZone: o.timeZone }),
+              amount: amount.mg,
+              planned: amount.planned,
+              site: record.site ?? "",
+              notes: record.notes ?? "",
+            }
           : null,
       calculatorHref: `/app/calculator?plan=${o.planId}`,
     };
@@ -248,14 +274,29 @@ export function todayView(input: TodayInput): TodayView {
   const rows: TodayRow[] = [];
   for (const e of today) {
     if (e === heroEntry) continue;
-    detail(e);
+    const d = detail(e);
+    if (e.o.actualAt) {
+      // What was recorded, not the plan: the amount taken, the plan only where it differs.
+      const amount = recordedAmount(e.o.doseMg, recordOf(e.o)?.amountMg);
+      rows.push({
+        key: e.o.key,
+        kind: "today",
+        title: nameOf(e),
+        sub: [`Planned ${e.o.localTime}`, d.recorded?.site].filter(Boolean).join(" · "),
+        status: `Taken ${wallOf(e.o.actualAt, e.o.timeZone).slice(11)} · ${amount.mg}`,
+        statusNote: amount.planned,
+        action: "Details",
+      });
+      continue;
+    }
     rows.push({
       key: e.o.key,
       kind: "today",
       title: nameOf(e),
       sub: `${e.o.localTime} · ${e.o.doseMg} mg · ${unitsLabel(drawOf(e))}`,
-      status: e.o.actualAt ? `Taken ${wallOf(e.o.actualAt, e.o.timeZone).slice(11)}` : at(e.o) <= nowMs ? "Due" : "Later today",
-      action: e.o.actualAt ? null : "Taken",
+      status: at(e.o) <= nowMs ? "Due" : "Later today",
+      statusNote: "",
+      action: "Taken",
     });
   }
   for (const e of open) {
@@ -266,6 +307,7 @@ export function todayView(input: TodayInput): TodayView {
       title: `Unconfirmed · ${nameOf(e)}`,
       sub: `Planned ${occurrenceWhen(e.o)} · ${e.o.doseMg} mg · ${e.cycle.name}`,
       status: "",
+      statusNote: "",
       action: "Confirm",
     });
   }
@@ -277,6 +319,7 @@ export function todayView(input: TodayInput): TodayView {
       title: nameOf(e),
       sub: `${occurrenceWhen(e.o)} · ${e.o.doseMg} mg · ${unitsLabel(drawOf(e))}${interval ? " · interval counted from the last actual dose" : ""}`,
       status: "Next",
+      statusNote: "",
       action: null,
     });
   }

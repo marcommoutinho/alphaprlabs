@@ -26,6 +26,12 @@ export function CycleHistory({ rows }: { rows: HistoryRow[] }) {
           </span>
           <span>
             {row.peptide} <span className="app-cv-history-mg">· {row.mg}</span>
+            {row.plannedMg ? <span className="app-cv-history-planned-mg"> {row.plannedMg}</span> : null}
+            {row.details ? (
+              <span className="app-cv-history-details" data-testid="history-details">
+                {row.details}
+              </span>
+            ) : null}
           </span>
           <span>
             <span className="app-cv-history-label">Actual</span>

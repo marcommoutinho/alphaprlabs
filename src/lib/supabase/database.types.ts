@@ -1247,6 +1247,7 @@ export type Database = {
           p_occurrence_key: string
           p_request_key: string
           p_seen_dose_mg: string
+          p_seen_mixture_version_id: string
           p_seen_scheduled_at: string
           p_site?: string
         }

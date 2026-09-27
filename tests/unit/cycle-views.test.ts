@@ -233,7 +233,7 @@ describe("R4 cycle detail", () => {
     const taken = cycleDetail(cycleOf([revision1, revision2]), peptides, MONDAY_NOON, [
       { key: `${PLAN_A}:${A1}:0`, actualAt: "2026-09-11T00:10:00Z", recordedAt: "2026-09-11T00:12:00Z" },
     ]);
-    expect(taken.timeline.lanes[0].dots[0]).toMatchObject({ state: "taken", label: "Compound A · Thu Sep 10 · 20:00 · Taken 20:10" });
+    expect(taken.timeline.lanes[0].dots[0]).toMatchObject({ state: "taken", label: "Compound A · Thu Sep 10 · 20:00 · Taken 20:10 · 0.4 mg" });
   });
 
   it("describes each phase as of today, and a withdrawn peptide", () => {

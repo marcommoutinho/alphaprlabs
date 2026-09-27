@@ -190,6 +190,8 @@ export type ConfirmForm = {
   key: string;
   seenScheduledAt: string;
   seenDoseMg: string;
+  /** The saved-mixture version whose units were shown for the actual time (null: none). */
+  seenMixtureVersion: string | null;
   amount: string;
   /** null: now. */
   actual: Wall | null;
@@ -215,9 +217,21 @@ export function readConfirmForm(input: unknown): ConfirmForm | null {
     "notes",
   ].map(text);
   const actual = value.actual === null ? null : typeof value.actual === "string" ? value.actual : undefined;
+  const seen = value.seenMixtureVersion;
+  const seenMixtureVersion = seen === null ? null : typeof seen === "string" && UUID.test(seen) ? seen.toLowerCase() : undefined;
   if (!requestKey || !UUID.test(requestKey) || !key || !KEY.test(key) || !seenScheduledAt || !seenDoseMg) return null;
-  if (amount === null || site === null || notes === null || actual === undefined) return null;
-  return { requestKey: requestKey.toLowerCase(), key: key.toLowerCase(), seenScheduledAt, seenDoseMg, amount, actual, site, notes };
+  if (amount === null || site === null || notes === null || actual === undefined || seenMixtureVersion === undefined) return null;
+  return {
+    requestKey: requestKey.toLowerCase(),
+    key: key.toLowerCase(),
+    seenScheduledAt,
+    seenDoseMg,
+    seenMixtureVersion,
+    amount,
+    actual,
+    site,
+    notes,
+  };
 }
 
 /**
