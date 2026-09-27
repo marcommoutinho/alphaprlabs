@@ -255,6 +255,16 @@ switches to the back office and back.
 - The invitation email and invite page are anonymous too ("You've been invited
   to Alpha PR Labs Research"; "An Alpha PR Labs admin invited you").
 
+### Purchase currency decisions (Marco, 2026-09-27)
+
+- Supplier purchases are often in USD. The Inventory purchase form accepts a
+  USD cost and the purchase date, converts with the Bank of Canada daily
+  USD→CAD rate for that date, and stores the USD amount, the rate and the CAD
+  cost. Gross profit stays in CAD.
+- The opening-stock import uses each order's real CAD total where known
+  (shipping and fees included) and the Bank of Canada rate for that date
+  otherwise.
+
 ### Launch exclusions
 
 - Blended or multi-peptide vials. A cycle may still contain several separately
