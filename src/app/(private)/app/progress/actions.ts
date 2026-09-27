@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { SAVE_FAILED_MESSAGE, type ToastTone } from "@/components/app-shell/toast";
 import { signInUrl } from "@/lib/auth/paths";
 import { currentResearcher } from "@/lib/auth/session";
-import { CHECK_IN_CHANGED, CHECK_IN_INVALID, CHECK_IN_SAVED, CYCLE_GONE, NEW_DAY, validateCheckIn } from "@/lib/progress/rules";
+import { CHECK_IN_CHANGED, CHECK_IN_INVALID, CHECK_IN_SAVED, NEW_DAY, validateCheckIn } from "@/lib/progress/rules";
 import { saveCheckIn } from "@/lib/progress/service";
 import { createClient } from "@/lib/supabase/server";
 
@@ -22,8 +22,8 @@ export type CheckInActionResult = {
 /**
  * R9 "Save check-in" / "Update today's check-in", for the signed-in,
  * acknowledged researcher (or admin on the research side) only; a support
- * grant never writes. save_check_in() re-checks the caller, that the cycle is
- * theirs, that the day is still today in its zone, and the version shown.
+ * grant never writes. save_check_in() re-checks the caller, that the day is
+ * still today in America/Toronto, and the version shown.
  */
 export async function saveCheckInAction(input: unknown): Promise<CheckInActionResult> {
   const person = await currentResearcher();
@@ -41,8 +41,6 @@ export async function saveCheckInAction(input: unknown): Promise<CheckInActionRe
       return { error: CHECK_IN_CHANGED };
     case "new_day":
       return { error: NEW_DAY };
-    case "not_found":
-      return { error: CYCLE_GONE };
     case "invalid":
       return { error: CHECK_IN_INVALID };
     default:

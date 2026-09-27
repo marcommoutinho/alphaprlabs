@@ -1,12 +1,14 @@
 -- S15: progress (R9). One daily check-in per researcher (every admin is also
 -- a researcher) across all their active peptides, with one optional
--- goal-related measurement. The cycle goal and starting baseline stay on the
--- cycle (public.cycles, 20260926180000_cycles.sql); the Progress screen shows
--- check-ins beside the actual doses (dose_records) and the cycle's phases and
+-- goal-related measurement. A check-in needs no cycle (Marco, 2026-09-26: a
+-- researcher between cycles, or with none, still checks in). The cycle goal
+-- and starting baseline stay on the cycle (public.cycles,
+-- 20260926180000_cycles.sql); the Progress screen shows check-ins on their
+-- own, or beside a selected cycle's actual doses (dose_records), phases and
 -- dates, and never attributes a result to a compound.
 --
 -- Records:
---   progress_check_ins   one row per researcher per LOCAL day (unique): the
+--   progress_check_ins   one row per researcher per Toronto day (unique): the
 --                        overall feeling 1-5 (required), the unwanted effects
 --                        picked from R9's fixed chips (none, some, or "None
 --                        noticed" alone; no free text: the note covers it),
@@ -15,26 +17,25 @@
 --                        value, unit and measured_at (when that measurement
 --                        was recorded; kept when an edit leaves it unchanged,
 --                        the server's clock when it is new or changed).
---                        time_zone is the zone that defined the day;
 --                        updated_at is when it was last saved ("saved
 --                        HH:MM"); version is the stale-edit token.
 --
--- Which day. As on Today, a researcher's dates follow the cycle's named zone,
--- never the phone's: a check-in is made from the Progress screen of one of the
--- caller's cycles (the prototype reviews check-ins against a cycle's goal; no
--- cycle, no check-in), and its day is TODAY in that cycle's current time
--- zone, by the server's clock. The caller sends the day its screen showed;
--- if that is not today there (the page was opened before midnight, or a past
--- or future day was sent), nothing is saved (AP023). The prototype has only
--- "Today's check-in": past days are not added or edited, and gaps stay gaps.
--- The check-in belongs to the researcher, not to the cycle it was made from:
--- with two cycles in one zone it is the same row.
+-- Which day (Marco, 2026-09-26). A check-in's day is ALWAYS the
+-- America/Toronto calendar day, by the server's clock: the app is strictly
+-- local (the business zone, as business_latest_date() in
+-- 20260926160100_business_inventory_writes.sql), so there is exactly one
+-- check-in per researcher per day whatever zone their cycles use. The caller
+-- sends the day its screen showed; if that is not today in Toronto (the page
+-- was opened before midnight, or a past or future day was sent), nothing is
+-- saved (AP023). Past days are not added or edited: gaps stay gaps. A
+-- Toronto day is a calendar date, so a 23- or 25-hour day around a
+-- daylight-saving change is still one day and one check-in.
 --
--- save_check_in(p_cycle_id, p_day, p_version, p_feeling, p_effects, p_note,
+-- save_check_in(p_day, p_version, p_feeling, p_effects, p_note,
 --               p_measurement_name, p_measurement_value, p_measurement_unit)
 --   * the caller: public.can_write_researcher(owner): the owner, with the
---     disclaimer acknowledged. A support grant never writes. A cycle that is
---     not the caller's (or does not exist) returns null.
+--     disclaimer acknowledged. A support grant never writes; the row is
+--     always the caller's own.
 --   * p_version: null for the day's first check-in, else the version the
 --     screen showed. Editing replaces the day's row in place (version + 1).
 --     A first save when the day already has one (another device saved it,
@@ -45,22 +46,23 @@
 --     characters (trimmed); a measurement only when a value is given (its
 --     name and unit are ignored otherwise): the name one of R9's, the value a
 --     plain decimal from 0 to under 1,000,000 with at most 6 decimals (stored
---     without trailing zeros), the unit 1-20 characters (trimmed).
+--     without trailing zeros), the unit 1-20 characters (trimmed). Lengths
+--     are char_length: characters (code points), as the app counts them
+--     (src/lib/progress/rules.ts characters), never UTF-16 units.
 --   Returns { id, day, version, saved_at } (saved_at = updated_at).
 --
 -- Refusal SQLSTATEs:
 --   42501 not an acknowledged researcher        22023 invalid input
---   AP023 the day sent is not today in the cycle's zone
+--   AP023 the day sent is not today in America/Toronto
 --   AP024 the day's check-in changed since it was shown (stale version)
 --
 -- Lock order: save_check_in locks only the caller's own check-in row for the
--- day (for update; a concurrent first save waits on the unique key). It reads
--- the cycle's zone without locking it and takes no lock in the global order
--- of 20260926200100_dose_confirmation.sql (cycle -> plans -> vial ->
--- mixtures); no other writer locks check-ins, so it closes no cycle. Its
--- implicit foreign-key lock (for key share) falls on the caller's profile,
--- as every researcher-owned insert's does. A cycle edit racing a check-in
--- counts as after it: the day is the zone the check-in read.
+-- day (for update; a concurrent first save waits on the unique key). It
+-- reads no cycle and takes no lock in the global order of
+-- 20260926200100_dose_confirmation.sql (cycle -> plans -> vial -> mixtures);
+-- no other writer locks check-ins, so it closes no cycle. Its implicit
+-- foreign-key lock (for key share) falls on the caller's profile, as every
+-- researcher-owned insert's does.
 --
 -- Access (deny by default), per the S4 grant rules
 -- (20260926150000_support_grants.sql):
@@ -112,6 +114,20 @@ $$;
 revoke all on function public.check_in_effects_valid(text[]) from public, anon;
 grant execute on function public.check_in_effects_valid(text[]) to authenticated, service_role;
 
+-- The check-in day of an instant: its America/Toronto calendar date (see the
+-- header). The app computes the same (src/lib/progress/rules.ts checkInDay).
+create function public.progress_day(p_at timestamptz)
+returns date
+language sql
+stable
+parallel safe
+set search_path = ''
+as $$
+  select (p_at at time zone 'America/Toronto')::date;
+$$;
+
+revoke all on function public.progress_day(timestamptz) from public, anon, authenticated, service_role;
+
 -- R9's measurement names.
 create function public.is_measurement_name(p_name text)
 returns boolean
@@ -131,9 +147,8 @@ grant execute on function public.is_measurement_name(text) to authenticated, ser
 create table public.progress_check_ins (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid not null references public.profiles (id) on delete cascade,
-  -- The local day, in time_zone (the cycle's zone it was made from).
+  -- The America/Toronto calendar day it covers.
   day date not null,
-  time_zone text not null check (char_length(time_zone) between 1 and 64),
   feeling smallint not null check (feeling between 1 and 5),
   effects text[] not null default '{}' check (public.check_in_effects_valid(effects)),
   note text not null default '' check (note = public.trim_whitespace(note) and char_length(note) <= 1000),
@@ -156,7 +171,7 @@ create table public.progress_check_ins (
     or (measurement_name is not null and measurement_value is not null and measurement_unit is not null and measured_at is not null)
   ),
   constraint progress_check_ins_saved check (updated_at >= created_at),
-  -- One check-in per researcher per local day (also the index for reads by day).
+  -- One check-in per researcher per Toronto day (also the index for reads by day).
   constraint progress_check_ins_one_per_day unique (owner_id, day)
 );
 
@@ -171,7 +186,6 @@ create policy progress_check_ins_select on public.progress_check_ins
 -- ── Writer ─────────────────────────────────────────────────────────────────
 
 create function public.save_check_in(
-  p_cycle_id uuid,
   p_day date,
   p_version integer,
   p_feeling integer,
@@ -190,8 +204,8 @@ as $$
 declare
   v_uid uuid := (select auth.uid());
   v_now timestamptz := now();
-  v_zone text;
-  v_today date;
+  -- Today in the app's one zone (see the header).
+  v_today date := public.progress_day(v_now);
   v_row public.progress_check_ins%rowtype;
   v_effects text[];
   v_note text := public.trim_whitespace(coalesce(p_note, ''));
@@ -205,18 +219,8 @@ begin
     raise exception 'not authorized' using errcode = '42501';
   end if;
 
-  -- The caller's cycle, and its current zone (no lock: see the header).
-  select r.time_zone into v_zone
-  from public.cycles c
-  join public.cycle_revisions r on r.cycle_id = c.id and r.number = c.current_revision
-  where c.id = p_cycle_id and c.owner_id = v_uid;
-  if v_zone is null then
-    return null;
-  end if;
-
-  v_today := (v_now at time zone v_zone)::date;
   if p_day is distinct from v_today then
-    raise exception 'the day sent is not today in the cycle''s time zone' using errcode = 'AP023';
+    raise exception 'the day sent is not today in America/Toronto' using errcode = 'AP023';
   end if;
 
   if p_feeling is null or p_feeling not between 1 and 5 then
@@ -252,11 +256,11 @@ begin
       raise exception 'the day already has a check-in' using errcode = 'AP024';
     end if;
     insert into public.progress_check_ins as ci (
-      owner_id, day, time_zone, feeling, effects, note,
+      owner_id, day, feeling, effects, note,
       measurement_name, measurement_value, measurement_unit, measured_at, created_at, updated_at
     )
     values (
-      v_uid, v_today, v_zone, p_feeling, v_effects, v_note,
+      v_uid, v_today, p_feeling, v_effects, v_note,
       v_name, v_value, v_unit, case when v_measured then v_now end, v_now, v_now
     )
     on conflict (owner_id, day) do nothing
@@ -276,8 +280,7 @@ begin
       else v_now
     end;
     update public.progress_check_ins ci
-    set time_zone = v_zone,
-        feeling = p_feeling,
+    set feeling = p_feeling,
         effects = v_effects,
         note = v_note,
         measurement_name = v_name,
@@ -299,5 +302,5 @@ begin
 end;
 $$;
 
-revoke all on function public.save_check_in(uuid, date, integer, integer, text[], text, text, numeric, text) from public, anon;
-grant execute on function public.save_check_in(uuid, date, integer, integer, text[], text, text, numeric, text) to authenticated;
+revoke all on function public.save_check_in(date, integer, integer, text[], text, text, numeric, text) from public, anon;
+grant execute on function public.save_check_in(date, integer, integer, text[], text, text, numeric, text) to authenticated;

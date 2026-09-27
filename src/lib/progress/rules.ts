@@ -3,10 +3,18 @@
 // the tests. The database re-checks everything (save_check_in in
 // 20260926220000_progress.sql).
 //
-// Which day: a check-in is made from one of the researcher's cycles, and its
-// day is today in that cycle's zone (as Today dates doses in their cycle's
-// zone, never the phone's). Only today's check-in can be saved or edited.
+// Which day (Marco, 2026-09-26): always the America/Toronto calendar day (the
+// app is strictly local), whatever zone the researcher's cycles use, so there
+// is one check-in per researcher per day. A check-in needs no cycle. Only
+// today's check-in can be saved or edited.
+//
+// Lengths are counted in characters (Unicode code points), as PostgreSQL's
+// char_length counts them: an emoji such as U+1F600 is one character, though
+// JavaScript's .length (and an input's maxLength) count it as two.
 import { normalizeDecimal, parseDecimal, plain } from "@/lib/calculator/decimal";
+
+/** The zone that defines a check-in's day (the business zone, src/lib/inventory/screens.ts BUSINESS_TIME_ZONE). */
+export const PROGRESS_TIME_ZONE = "America/Toronto";
 
 /** R9's unwanted-effect chips, in the screen's order. "None noticed" is picked alone. */
 export const EFFECTS = ["None noticed", "Injection-site redness", "Mild headache", "Nausea", "Fatigue", "Appetite change", "Other"] as const;
@@ -37,7 +45,10 @@ export const FEELING_REQUIRED = "Pick an overall feeling from 1 to 5.";
 export const VALUE_INVALID = "Measurement must be a number, or leave it empty.";
 export const UNIT_REQUIRED = "Add a unit for the measurement.";
 export const CHECK_IN_SAVED = "Check-in saved.";
-export const NO_CYCLE = "Check-ins are reviewed against a cycle's goal.";
+// Not in the prototype (it required a cycle; Marco, 2026-09-26: check-ins don't).
+export const NO_CYCLE = "No cycle yet — your check-ins are shown on their own.";
+export const NO_CYCLE_OPTION = "No cycle · check-ins only";
+export const NO_CYCLE_SELECTED = "Check-ins only. Pick a cycle to see them beside its doses and phases.";
 export const ONE_ENTRY = "One entry covers all active peptides";
 export const NOT_EVIDENCE = "Shown together for your own comparison — not evidence that a peptide caused a change";
 export const SPARSE = "Sparse history so far — that's fine. Gaps stay gaps.";
@@ -51,7 +62,6 @@ export const UNIT_TOO_LONG = `Units can be up to ${UNIT_LIMIT} characters.`;
 export const NOTE_TOO_LONG = "Notes can be up to 1,000 characters.";
 export const CHECK_IN_CHANGED = "This check-in was changed on another device. Reload the page to see the latest.";
 export const NEW_DAY = "A new day has started. Reload the page to check in for today.";
-export const CYCLE_GONE = "This cycle is no longer available. Reload the page.";
 export const CHECK_IN_INVALID = "This check-in could not be saved. Reload the page and try again.";
 
 export const formTitle = (savedAt: string | null) => (savedAt ? `Today's check-in · saved ${savedAt}` : "Today's check-in");
@@ -80,12 +90,13 @@ export const effectsLine = (effects: readonly string[]) =>
 export const unitFor = (name: string) => MEASUREMENTS.find((m) => m.name === name)?.unit ?? "";
 const isMeasurementName = (value: unknown): value is MeasurementName => MEASUREMENTS.some((m) => m.name === value);
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Characters as PostgreSQL's char_length counts them (code points, not UTF-16 units). */
+export const characters = (text: string) => [...text].length;
+
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** What the form sends. */
 export type CheckInForm = {
-  cycleId: string;
   /** The day the screen showed as today (YYYY-MM-DD). */
   day: string;
   /** The version shown, or null for the day's first check-in. */
@@ -102,7 +113,6 @@ export type CheckInForm = {
 
 /** A check-in ready to save: the value exact and canonical ("82.4"), or no measurement. */
 export type ValidCheckIn = {
-  cycleId: string;
   day: string;
   version: number | null;
   feeling: number;
@@ -134,12 +144,10 @@ export function validateCheckIn(input: unknown): CheckInValidation {
   if (typeof input !== "object" || input === null) return { ok: false, error: CHECK_IN_INVALID };
   const raw = input as Record<string, unknown>;
   const text = (value: unknown) => (typeof value === "string" ? value : "");
-  const cycleId = text(raw.cycleId);
   const day = text(raw.day);
   const version = raw.version === null ? null : raw.version;
   const effects = Array.isArray(raw.effects) ? raw.effects : null;
   if (
-    !UUID.test(cycleId) ||
     !DAY.test(day) ||
     !(version === null || (typeof version === "number" && Number.isInteger(version) && version >= 1)) ||
     effects === null ||
@@ -160,17 +168,17 @@ export function validateCheckIn(input: unknown): CheckInValidation {
     if (!value.ok) return value;
     const unit = text(raw.measurementUnit).trim();
     if (!unit) return { ok: false, error: UNIT_REQUIRED };
-    if (unit.length > UNIT_LIMIT) return { ok: false, error: UNIT_TOO_LONG };
+    if (characters(unit) > UNIT_LIMIT) return { ok: false, error: UNIT_TOO_LONG };
     if (!isMeasurementName(raw.measurementName)) return { ok: false, error: CHECK_IN_INVALID };
     measurement = { name: raw.measurementName, value: value.value, unit };
   }
 
   const note = text(raw.note).trim();
-  if (note.length > NOTE_LIMIT) return { ok: false, error: NOTE_TOO_LONG };
+  if (characters(note) > NOTE_LIMIT) return { ok: false, error: NOTE_TOO_LONG };
 
   return {
     ok: true,
-    value: { cycleId: cycleId.toLowerCase(), day, version, feeling, effects: sortEffects(effects), note, measurement },
+    value: { day, version, feeling, effects: sortEffects(effects), note, measurement },
   };
 }
 
@@ -178,8 +186,8 @@ export function validateCheckIn(input: unknown): CheckInValidation {
 
 const dayFormatters = new Map<string, Intl.DateTimeFormat>();
 
-/** The local date (YYYY-MM-DD) of an instant in a zone: a check-in's day. */
-export function checkInDay(at: Date | string, timeZone: string): string {
+/** The local date (YYYY-MM-DD) of an instant in a zone; a check-in's day is this in PROGRESS_TIME_ZONE. */
+export function checkInDay(at: Date | string, timeZone: string = PROGRESS_TIME_ZONE): string {
   let formatter = dayFormatters.get(timeZone);
   if (!formatter) {
     formatter = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });

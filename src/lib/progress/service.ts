@@ -19,9 +19,8 @@ const PAGE = 1000;
 /** One day's check-in. */
 export type CheckIn = {
   id: string;
-  /** The local day (YYYY-MM-DD) in `timeZone`. */
+  /** The America/Toronto day it covers (YYYY-MM-DD). */
   day: string;
-  timeZone: string;
   feeling: number;
   effects: string[];
   note: string;
@@ -36,7 +35,6 @@ export type CheckIn = {
 type Row = {
   id: string;
   day: string;
-  time_zone: string;
   feeling: number;
   effects: string[];
   note: string;
@@ -50,12 +48,11 @@ type Row = {
 };
 
 const COLUMNS =
-  "id, day, time_zone, feeling, effects, note, measurement_name, measurement_value::text, measurement_unit, measured_at, version, created_at, updated_at";
+  "id, day, feeling, effects, note, measurement_name, measurement_value::text, measurement_unit, measured_at, version, created_at, updated_at";
 
 const checkInOf = (row: Row): CheckIn => ({
   id: row.id,
   day: row.day,
-  timeZone: row.time_zone,
   feeling: row.feeling,
   effects: row.effects,
   note: row.note,
@@ -78,8 +75,10 @@ export async function listCheckIns(
   db: Db,
   ownerId: string,
   range: { from?: string; to?: string } = {},
-  pageSize = PAGE,
+  requested = PAGE,
 ): Promise<CheckIn[]> {
+  // Never more than the API returns: a short page must mean the last one.
+  const pageSize = Math.min(requested, PAGE);
   const rows: Row[] = [];
   for (let after: string | null = null; ; ) {
     let query = db.from("progress_check_ins").select(COLUMNS).eq("owner_id", ownerId);
@@ -104,7 +103,7 @@ export async function countCheckIns(db: Db, ownerId: string): Promise<number> {
 
 export type SaveCheckInResult =
   | { kind: "saved"; id: string; day: string; version: number; savedAt: string }
-  | { kind: "not_found" | "new_day" | "changed" | "invalid" | "error" };
+  | { kind: "new_day" | "changed" | "invalid" | "error" };
 
 const REFUSALS: Record<string, Exclude<SaveCheckInResult["kind"], "saved">> = {
   AP023: "new_day",
@@ -114,10 +113,9 @@ const REFUSALS: Record<string, Exclude<SaveCheckInResult["kind"], "saved">> = {
 
 type ResultJson = { id: string; day: string; version: number; saved_at: string };
 
-/** save_check_in: today's check-in in the cycle's zone, created or replaced in place (stale versions refused). */
+/** save_check_in: the caller's check-in for today (America/Toronto), created or replaced in place (stale versions refused). */
 export async function saveCheckIn(db: Db, input: ValidCheckIn): Promise<SaveCheckInResult> {
   const { data, error } = await db.rpc("save_check_in", {
-    p_cycle_id: input.cycleId,
     p_day: input.day,
     // null is "the day's first check-in" (the generated type has no null for integer arguments).
     p_version: input.version as number,
@@ -134,7 +132,7 @@ export async function saveCheckIn(db: Db, input: ValidCheckIn): Promise<SaveChec
       : {}),
   });
   if (error) return { kind: REFUSALS[error.code] ?? "error" };
-  if (!data) return { kind: "not_found" };
+  if (!data) return { kind: "error" };
   const json = data as unknown as ResultJson;
   return { kind: "saved", id: json.id, day: json.day, version: json.version, savedAt: json.saved_at };
 }

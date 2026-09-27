@@ -3,15 +3,16 @@
 // here directly (committed: the researcher is unique to this run) to prove
 // the reads are complete a page at a time (keyset by day) for the owner and
 // a granted admin, and to build the 14-day history from them. The table's
-// own checks are then tried in one transaction that is rolled back.
-// Runs in the integration-exclusive project.
+// own checks and the database's check-in day (America/Toronto, around
+// midnight and daylight-saving changes) are then tried in transactions that
+// are rolled back. Runs in the integration-exclusive project.
 import { beforeAll, describe, expect, it } from "vitest";
 import { addDays } from "@/lib/cycles/rules";
 import { listCycles, listCyclePeptides } from "@/lib/cycles/service";
+import { checkInDay } from "@/lib/progress/rules";
 import { countCheckIns, listCheckIns } from "@/lib/progress/service";
 import { progressView, progressWindow } from "@/lib/progress/view";
 import { type Client, createCycle, createPeptide, interval, plan, tag } from "../support/cycles";
-import { d, NOON } from "../support/noon";
 import { ensureAccount, ok, signedInClient, uniqueEmail } from "../support/local-supabase";
 import { psql, quote } from "../support/psql";
 
@@ -24,27 +25,36 @@ type Name = keyof typeof people;
 const id = {} as Record<Name, string>;
 const db = {} as Record<Name, Client>;
 const DAYS = 30;
-/** d(-30) … d(-1): every day of the last month but today. */
-const days = Array.from({ length: DAYS }, (_, i) => d(i - DAYS));
+/** Today in Toronto (the run avoids its midnight; see beforeAll). */
+let today = "";
+/** today - 30 … today - 1: every day of the last month but today. */
+let days: string[] = [];
 
 beforeAll(async () => {
+  while (checkInDay(new Date()) !== checkInDay(new Date(Date.now() + 60_000))) await new Promise((r) => setTimeout(r, 5_000));
+  today = checkInDay(new Date());
+  days = Array.from({ length: DAYS }, (_, i) => addDays(today, i - DAYS));
   for (const [key, spec] of Object.entries(people) as [Name, (typeof people)[Name]][]) {
     id[key] = await ensureAccount(spec);
     db[key] = await signedInClient(spec.email);
   }
   const peptide = await createPeptide(db.grace, `Month A ${tag()}`);
-  await createCycle(db.alex, { name: "Month", timeZone: NOON, plans: [plan(peptide, [interval(d(-40), d(10), "0.4", 2, "08:00")])] });
+  await createCycle(db.alex, {
+    name: "Month",
+    timeZone: "America/Toronto",
+    plans: [plan(peptide, [interval(addDays(today, -40), addDays(today, 10), "0.4", 2, "08:00")])],
+  });
   await ok(db.alex.rpc("grant_support_access", { p_admin_id: id.grace }), "grant grace");
   const values = days
     .map((day, i) => {
       const measured = i % 3 === 0 ? `'Weight', ${80 + i / 10}, 'kg', now()` : "null, null, null, null";
-      return `(${quote(id.alex)}, ${quote(day)}, ${quote(NOON)}, ${(i % 5) + 1}, '{}', ${quote(`Day ${i}`)}, ${measured})`;
+      return `(${quote(id.alex)}, ${quote(day)}, ${(i % 5) + 1}, '{}', ${quote(`Day ${i}`)}, ${measured})`;
     })
     .join(",\n");
   psql(`insert into public.progress_check_ins
-    (owner_id, day, time_zone, feeling, effects, note, measurement_name, measurement_value, measurement_unit, measured_at)
+    (owner_id, day, feeling, effects, note, measurement_name, measurement_value, measurement_unit, measured_at)
     values ${values};`);
-});
+}, 120_000);
 
 describe("check-in reads are complete, a page at a time", () => {
   it("reads every day in order for the owner and a granted admin, and nothing for anyone else", async () => {
@@ -60,17 +70,16 @@ describe("check-in reads are complete, a page at a time", () => {
     expect(all[3]).toMatchObject({ feeling: 4, note: "Day 3", measurement: { name: "Weight", value: "80.3", unit: "kg" } });
     expect(all[1].measurement).toBeNull();
     expect(await countCheckIns(db.alex, id.alex)).toBe(DAYS);
-    expect((await listCheckIns(db.grace, id.alex, { from: d(-13), to: d(0) }, 4)).map((c) => c.day)).toEqual(days.slice(-13));
+    expect((await listCheckIns(db.grace, id.alex, { from: addDays(today, -13), to: today }, 4)).map((c) => c.day)).toEqual(days.slice(-13));
     expect(await listCheckIns(db.noah, id.alex, {}, 4)).toEqual([]);
   });
 
   it("builds the last 14 days from them, today still open", async () => {
     const now = new Date();
-    const cycles = await listCycles(db.alex, id.alex);
-    const window = progressWindow(cycles[0], now);
-    expect(window).toEqual({ from: d(-13), to: d(0), timeZone: NOON });
+    const window = progressWindow(now);
+    expect(window).toEqual({ from: addDays(today, -13), to: today });
     const view = progressView({
-      cycles,
+      cycles: await listCycles(db.alex, id.alex),
       selectedId: null,
       checkIns: await listCheckIns(db.alex, id.alex, window, 5),
       total: await countCheckIns(db.alex, id.alex),
@@ -78,12 +87,12 @@ describe("check-in reads are complete, a page at a time", () => {
       peptides: new Map((await listCyclePeptides(db.alex)).map((p) => [p.id, p])),
       now,
     });
-    if (view.kind !== "ready") throw new Error(view.kind);
-    expect(view.rows.map((r) => r.day)).toEqual(Array.from({ length: 14 }, (_, i) => d(-i)));
+    expect(view.cycle?.name).toBe("Month");
+    expect(view.rows.map((r) => r.day)).toEqual(Array.from({ length: 14 }, (_, i) => addDays(today, -i)));
     expect(view.rows.filter((r) => r.feeling !== null)).toHaveLength(13);
     expect(view.rows[0]).toMatchObject({ label: "Today", feeling: null });
-    expect(view.rows[1]).toMatchObject({ day: d(-1), note: "Day 29", feelLabel: "5/5" });
-    expect([view.form.day, view.form.start, view.sparse]).toEqual([d(0), null, ""]);
+    expect(view.rows[1]).toMatchObject({ day: addDays(today, -1), note: "Day 29", feelLabel: "5/5" });
+    expect([view.form.day, view.form.start, view.sparse]).toEqual([today, null, ""]);
   });
 });
 
@@ -99,25 +108,52 @@ exception when others then
 end $$;
 select ${quote(label)}, current_setting('s15_owner.result');\n`;
 
-describe("the table's own checks", () => {
-  it("refuse a second row for a day, bad feelings and chips, and half a measurement", () => {
+describe("the database's check-in day", () => {
+  it("is the Toronto calendar date, turning at Toronto's midnight across daylight-saving changes, as the app computes it", () => {
+    const instants = [
+      // Midnight in EDT (04:00Z) and EST (05:00Z).
+      "2026-09-27T03:59:59.999999Z",
+      "2026-09-27T04:00:00Z",
+      "2027-01-15T04:59:59Z",
+      "2027-01-15T05:00:00Z",
+      // Fall back, Sun Nov 1, 2026: a 25-hour day; 01:30 happens twice.
+      "2026-11-01T03:59:59Z",
+      "2026-11-01T04:00:00Z",
+      "2026-11-01T05:30:00Z",
+      "2026-11-01T06:30:00Z",
+      "2026-11-02T04:59:59Z",
+      "2026-11-02T05:00:00Z",
+      // Spring forward, Sun Mar 8, 2026: a 23-hour day.
+      "2026-03-08T04:59:59Z",
+      "2026-03-08T05:00:00Z",
+      "2026-03-09T03:59:59Z",
+      "2026-03-09T04:00:00Z",
+    ];
+    const script = instants.map((at) => `select ${quote(at)}, public.progress_day(${quote(at)}::timestamptz)::text;`).join("\n");
+    expect(psql(script)).toEqual(Object.fromEntries(instants.map((at) => [at, checkInDay(at)])));
+    expect(checkInDay("2026-11-01T05:30:00Z")).toBe("2026-11-01");
+    expect(checkInDay("2026-11-02T04:59:59Z")).toBe("2026-11-01");
+    expect(checkInDay("2026-03-09T03:59:59Z")).toBe("2026-03-08");
+  });
+
+  it("refuses a second row for a day, bad feelings and chips, and half a measurement", () => {
     const row = (day: string, fields: string, values: string) =>
-      `insert into public.progress_check_ins (owner_id, day, time_zone, feeling${fields}) values (${quote(id.alex)}, ${quote(day)}, ${quote(NOON)}${values})`;
+      `insert into public.progress_check_ins (owner_id, day, feeling${fields}) values (${quote(id.alex)}, ${quote(day)}${values})`;
     const script =
       "begin;\n" +
-      attempt("control", row(d(-60), "", ", 3")) +
+      attempt("control", row(addDays(today, -60), "", ", 3")) +
       attempt("same day", row(days[0], "", ", 3")) +
-      attempt("feeling 0", row(d(-61), "", ", 0")) +
-      attempt("feeling 6", row(d(-61), "", ", 6")) +
-      attempt("unknown chip", row(d(-61), ", effects", ", 3, '{Dizzy}'")) +
-      attempt("none noticed and more", row(d(-61), ", effects", ", 3, '{\"None noticed\",Nausea}'")) +
-      attempt("untrimmed note", row(d(-61), ", note", ", 3, ' x'")) +
-      attempt("half a measurement", row(d(-61), ", measurement_name, measurement_value", ", 3, 'Weight', 80")) +
+      attempt("feeling 0", row(addDays(today, -61), "", ", 0")) +
+      attempt("feeling 6", row(addDays(today, -61), "", ", 6")) +
+      attempt("unknown chip", row(addDays(today, -61), ", effects", ", 3, '{Dizzy}'")) +
+      attempt("none noticed and more", row(addDays(today, -61), ", effects", ", 3, '{\"None noticed\",Nausea}'")) +
+      attempt("untrimmed note", row(addDays(today, -61), ", note", ", 3, ' x'")) +
+      attempt("half a measurement", row(addDays(today, -61), ", measurement_name, measurement_value", ", 3, 'Weight', 80")) +
       attempt(
         "trailing zeros",
-        row(d(-61), ", measurement_name, measurement_value, measurement_unit, measured_at", ", 3, 'Weight', 80.50, 'kg', now()"),
+        row(addDays(today, -61), ", measurement_name, measurement_value, measurement_unit, measured_at", ", 3, 'Weight', 80.50, 'kg', now()"),
       ) +
-      attempt("unknown owner", `insert into public.progress_check_ins (owner_id, day, time_zone, feeling) values (gen_random_uuid(), ${quote(addDays(d(0), -62))}, 'UTC', 3)`) +
+      attempt("unknown owner", `insert into public.progress_check_ins (owner_id, day, feeling) values (gen_random_uuid(), ${quote(addDays(today, -62))}, 3)`) +
       "rollback;\n";
     expect(psql(script)).toEqual({
       control: "1",

@@ -1,4 +1,5 @@
 import "server-only";
+import { Temporal } from "@js-temporal/polyfill";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { allRows } from "@/lib/library/service";
 import type { LineSpacing, SyringeCapacity } from "@/lib/calculator/calculator";
@@ -72,20 +73,42 @@ const recordOf = (row: RecordRow): DoseRecord => ({
   mixtureVersionId: row.mixture_version_id,
 });
 
-/** Every dose `ownerId` recorded (readable to them, or to an admin they granted), in recording order. */
-export async function listDoseRecords(db: Db, ownerId: string): Promise<DoseRecord[]> {
-  const rows = await allRows<RecordRow>(
-    (from, to) =>
-      db
-        .from("dose_records")
-        .select(RECORD_COLUMNS)
-        .eq("owner_id", ownerId)
-        .order("recorded_at")
-        .order("id")
-        .range(from, to) as unknown as PromiseLike<{ data: RecordRow[] | null; error: { message: string } | null }>,
-    "recorded doses",
-  );
-  return rows.map(recordOf);
+/** Rows per request; the API caps a response at 1,000 rows. */
+const PAGE = 1000;
+
+type RecordPage = PromiseLike<{ data: RecordRow[] | null; error: { message: string } | null }>;
+
+/**
+ * Every recorded dose matching `scope` (the owner's, or one cycle's), in
+ * recording order (recorded_at, then id). Read a page at a time by id
+ * (keyset: each page starts after the last id read), so the API's 1,000-row
+ * cap never cuts the history short, and a dose recorded meanwhile can't
+ * shift a page and make a row skip or repeat as offsets could.
+ */
+async function recordRows(db: Db, scope: { ownerId: string } | { cycleId: string }, requested: number): Promise<RecordRow[]> {
+  // Never more than the API returns: a short page must mean the last one.
+  const pageSize = Math.min(requested, PAGE);
+  const rows: RecordRow[] = [];
+  for (let after: string | null = null; ; ) {
+    const query = db.from("dose_records").select(RECORD_COLUMNS);
+    const scoped = "ownerId" in scope ? query.eq("owner_id", scope.ownerId) : query.eq("cycle_id", scope.cycleId);
+    const { data, error } = await ((after ? scoped.gt("id", after) : scoped).order("id").limit(pageSize) as unknown as RecordPage);
+    if (error) throw new Error(`Could not load recorded doses: ${error.message}`);
+    const got = data ?? [];
+    rows.push(...got);
+    if (got.length < pageSize) break;
+    after = got[got.length - 1].id;
+  }
+  // To the microsecond, as the database orders them.
+  return rows.sort((a, b) => Temporal.Instant.compare(Temporal.Instant.from(a.recorded_at), Temporal.Instant.from(b.recorded_at)) || a.id.localeCompare(b.id));
+}
+
+/**
+ * Every dose `ownerId` recorded (readable to them, or to an admin they
+ * granted), in recording order. `pageSize` is for tests that prove paging.
+ */
+export async function listDoseRecords(db: Db, ownerId: string, pageSize = PAGE): Promise<DoseRecord[]> {
+  return (await recordRows(db, { ownerId }, pageSize)).map(recordOf);
 }
 
 /** A recorded dose as the engine's confirmation, with what was recorded. */
@@ -111,19 +134,8 @@ export function confirmationsByCycle(records: readonly DoseRecord[]): Map<string
 }
 
 /** One cycle's confirmations, for a page that shows one cycle. */
-export async function cycleConfirmations(db: Db, cycleId: string): Promise<RecordedConfirmation[]> {
-  const rows = await allRows<RecordRow>(
-    (from, to) =>
-      db
-        .from("dose_records")
-        .select(RECORD_COLUMNS)
-        .eq("cycle_id", cycleId)
-        .order("recorded_at")
-        .order("id")
-        .range(from, to) as unknown as PromiseLike<{ data: RecordRow[] | null; error: { message: string } | null }>,
-    "recorded doses",
-  );
-  return rows.map((row) => confirmationOf(recordOf(row)));
+export async function cycleConfirmations(db: Db, cycleId: string, pageSize = PAGE): Promise<RecordedConfirmation[]> {
+  return (await recordRows(db, { cycleId }, pageSize)).map((row) => confirmationOf(recordOf(row)));
 }
 
 // ── The setups a plan used over time (R5's units and seen version) ──────────

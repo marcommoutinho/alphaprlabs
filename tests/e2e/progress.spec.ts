@@ -2,11 +2,24 @@
 // Today, check in on Progress (feeling, a chip, a note and a measurement
 // typed with a decimal comma), edit the check-in in place, and see it in
 // "Last 14 days" beside the confirmed dose and the cycle's phase. A second
-// tab still showing the first version can't overwrite the edit. Cycles use a
-// fixed-offset zone where it is about 12:00 now (tests/support/noon).
+// tab still showing the first version can't overwrite the edit; "No cycle"
+// shows the check-ins on their own, and a researcher without any cycle checks
+// in too. Days are America/Toronto days. Cycles use a fixed-offset zone where
+// it is about 12:00 now (tests/support/noon).
 import { expect, test } from "@playwright/test";
 import { APP_ORIGIN } from "../../playwright.config";
-import { CHECK_IN_CHANGED, CHECK_IN_SAVED, FEELING_REQUIRED, NO_CHECK_IN, NO_DOSES, NOT_EVIDENCE } from "../../src/lib/progress/rules";
+import {
+  CHECK_IN_CHANGED,
+  CHECK_IN_SAVED,
+  checkInDay,
+  FEELING_REQUIRED,
+  NO_CHECK_IN,
+  NO_CYCLE,
+  NO_CYCLE_OPTION,
+  NO_CYCLE_SELECTED,
+  NO_DOSES,
+  NOT_EVIDENCE,
+} from "../../src/lib/progress/rules";
 import { createCycle, interval, plan, tag } from "../support/cycles";
 import { d, NOON } from "../support/noon";
 import { ensureAccount, hydrated, ok, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
@@ -47,7 +60,7 @@ test("check in, edit it, and see it in history beside a confirmed dose", async (
   await expect(page.getByText(NOT_EVIDENCE)).toBeVisible();
 
   const today = page.getByTestId("progress-day").first();
-  await expect(today).toHaveAttribute("data-day", d(0));
+  await expect(today).toHaveAttribute("data-day", checkInDay(new Date()));
   await expect(today.getByTestId("progress-feel")).toHaveText(NO_CHECK_IN);
   await expect(today.getByTestId("progress-doses")).toHaveText(`Doses: ${A} 0.4 mg`);
   await expect(today).toContainText(`${A}: 0.4 mg`);
@@ -105,10 +118,42 @@ test("check in, edit it, and see it in history beside a confirmed dose", async (
     serviceClient().from("progress_check_ins").select("day, feeling, effects, measurement_value::text, version").eq("owner_id", researcherId),
     "check-ins",
   );
-  expect(rows).toEqual([{ day: d(0), feeling: 3, effects: ["None noticed"], measurement_value: "82.4", version: 2 }]);
+  expect(rows).toEqual([{ day: checkInDay(new Date()), feeling: 3, effects: ["None noticed"], measurement_value: "82.4", version: 2 }]);
 
   // On a phone, the screen fits without sideways scrolling.
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(today.getByTestId("progress-feel")).toHaveText("3/5");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  // No cycle: the same check-in on its own, without doses or phases.
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await (await hydrated(page.getByLabel("Cycle"))).selectOption({ label: NO_CYCLE_OPTION });
+  await expect(page).toHaveURL(`${APP_ORIGIN}/app/progress?cycle=none`);
+  await expect(page.getByTestId("progress-goal")).toHaveText(NO_CYCLE_SELECTED);
+  await expect(today.getByTestId("progress-feel")).toHaveText("3/5");
+  await expect(today.getByTestId("progress-measure")).toHaveText("Weight 82.4 kg");
+  await expect(page.getByTestId("progress-doses")).toHaveCount(0);
+  await expect(today).not.toContainText(`${A}: 0.4 mg`);
+});
+
+test("a researcher without a cycle checks in and sees the check-in on its own", async ({ page }) => {
+  const email = uniqueEmail("s15-nocycle");
+  await ensureAccount({ email, name: "No Cycle E2E", role: "researcher" });
+  await signInAs(page, APP_ORIGIN, email);
+  await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
+  await page.goto(`${APP_ORIGIN}/app/progress`);
+  await expect(page.getByTestId("progress-goal")).toHaveText(`${NO_CYCLE} Create a cycle to see them beside your doses.`);
+  await expect(page.getByLabel("Cycle")).toHaveCount(0);
+
+  const form = page.getByRole("form", { name: "Today's check-in" });
+  await (await hydrated(form.getByRole("radio", { name: "2" }))).click();
+  await form.getByRole("button", { name: "Fatigue" }).click();
+  await form.getByRole("button", { name: "Save check-in" }).click();
+  await expect(page.getByRole("status").filter({ hasText: CHECK_IN_SAVED })).toBeVisible();
+
+  const today = page.getByTestId("progress-day").first();
+  await expect(today).toHaveAttribute("data-day", checkInDay(new Date()));
+  await expect(today.getByTestId("progress-feel")).toHaveText("2/5");
+  await expect(today.getByTestId("progress-effects")).toHaveText("Fatigue");
+  await expect(page.getByTestId("progress-doses")).toHaveCount(0);
 });

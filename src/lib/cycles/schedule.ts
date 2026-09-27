@@ -20,7 +20,7 @@
 // confirmed doses always keep their time. Keys are the engine's
 // (planId:phaseId:index|date).
 import { Temporal } from "@js-temporal/polyfill";
-import { type Confirmation, type Occurrence, type PeptidePlan, scheduleOccurrences } from "@/lib/schedule/engine";
+import { type Confirmation, type Occurrence, type PeptidePlan, type Phase, scheduleOccurrences } from "@/lib/schedule/engine";
 import { type InstantInput, type LocalDate, localDateOf, toInstant } from "@/lib/schedule/zone";
 import type { CycleRevision, StoredPlan } from "./rules";
 
@@ -116,4 +116,44 @@ export function cycleStatus(revision: Pick<CycleRevision, "plans" | "timeZone">,
     plan.phases.some((phase) => phase.kind === "active" && phase.start <= today && phase.end >= today),
   );
   return active ? "Active" : "In break";
+}
+
+/** A plan's phase on a date: the plan's peptide and the phase in force (see phasesOn). */
+export type PlanPhaseOn = { planId: string; peptideId: string; phase: Phase };
+
+/**
+ * Each plan's phase on a local date, across every revision (the header's
+ * takeover rule, by date): a revision schedules a plan from its effectiveFrom
+ * on (all of it when it has none), earlier revisions before that; a plan a
+ * revision removed keeps its earlier phases through the local date of that
+ * revision's creation (in its zone), and has none after. So a day shows what
+ * was planned for it then, whatever later edits changed or removed. Plans in
+ * the order they first appeared (the current revision's order for plans added
+ * together); plans without a phase that day are left out.
+ */
+export function phasesOn(revisions: readonly CycleRevision[], date: LocalDate): PlanPhaseOn[] {
+  const spans = new Map<string, { from: LocalDate | null; plan: StoredPlan }[]>();
+  const removedAfter = new Map<string, LocalDate>();
+  revisions.forEach((revision, index) => {
+    const kept = new Set(revision.plans.map((plan) => plan.planId));
+    for (const plan of revisions[index - 1]?.plans ?? []) {
+      if (!kept.has(plan.planId)) removedAfter.set(plan.planId, localDateOf(toInstant(revision.createdAt), revision.timeZone));
+    }
+    for (const plan of revision.plans) {
+      const list = spans.get(plan.planId);
+      // Revision 1, or a plan this revision adds: all of it.
+      if (!list || !plan.effectiveFrom) spans.set(plan.planId, [{ from: null, plan }]);
+      else list.push({ from: plan.effectiveFrom, plan });
+      removedAfter.delete(plan.planId);
+    }
+  });
+  const found: PlanPhaseOn[] = [];
+  for (const [planId, list] of spans) {
+    const removed = removedAfter.get(planId);
+    if (removed && date > removed) continue;
+    const span = list.filter((s) => s.from === null || s.from <= date).at(-1);
+    const phase = span?.plan.phases.find((p) => p.start <= date && p.end >= date);
+    if (span && phase) found.push({ planId, peptideId: span.plan.peptideId, phase });
+  }
+  return found;
 }

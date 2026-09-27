@@ -1040,7 +1040,6 @@ export type Database = {
           measurement_value: number | null
           note: string
           owner_id: string
-          time_zone: string
           updated_at: string
           version: number
         }
@@ -1056,7 +1055,6 @@ export type Database = {
           measurement_value?: number | null
           note?: string
           owner_id: string
-          time_zone: string
           updated_at?: string
           version?: number
         }
@@ -1072,7 +1070,6 @@ export type Database = {
           measurement_value?: number | null
           note?: string
           owner_id?: string
-          time_zone?: string
           updated_at?: string
           version?: number
         }
@@ -1477,6 +1474,7 @@ export type Database = {
         Args: { p_at: string; p_plan_id: string }
         Returns: string
       }
+      progress_day: { Args: { p_at: string }; Returns: string }
       record_acknowledgement: { Args: { p_version: string }; Returns: boolean }
       record_business_purchase: {
         Args: {
@@ -1521,7 +1519,6 @@ export type Database = {
       revoke_support_access: { Args: { p_admin_id: string }; Returns: boolean }
       save_check_in: {
         Args: {
-          p_cycle_id: string
           p_day: string
           p_effects: string[]
           p_feeling: number
