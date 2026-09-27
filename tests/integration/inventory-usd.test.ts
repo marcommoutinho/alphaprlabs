@@ -18,6 +18,21 @@ vi.mock("next/cache", () => ({
   refresh: () => undefined,
   revalidatePath: (path: string) => void acting.revalidated.push(path),
 }));
+// The rate lookup as is, except that a test can make its next answer a stale
+// one: what the action would have read just before a newer rate was stored.
+const lookup = vi.hoisted(() => ({ stale: null as { rate: string; rateDate: string } | null, calls: 0 }));
+vi.mock("@/lib/inventory/fx", async (original) => {
+  const fx = await original<typeof import("@/lib/inventory/fx")>();
+  return {
+    ...fx,
+    usdCadRate: async (...args: Parameters<typeof fx.usdCadRate>) => {
+      lookup.calls++;
+      const stale = lookup.stale;
+      lookup.stale = null;
+      return stale ? { ok: true as const, ...stale } : fx.usdCadRate(...args);
+    },
+  };
+});
 
 // Real published rates, stored before the tests (as the daily sync would) and
 // also served by the stub: Wed Aug 26, Fri Aug 28 and Fri Sep 4 (none for the
@@ -123,7 +138,7 @@ describe("record_business_purchase_fx", () => {
     ]);
   });
 
-  it("refuses a CAD cost that isn't round(USD × rate, 2), a rate that isn't the stored one, and other inconsistent conversions (22023)", async () => {
+  it("refuses a CAD cost that isn't round(USD × rate, 2), a rate that isn't the latest stored one (AP028), and other inconsistent conversions", async () => {
     const itemId = await newItem();
     const refused = (overrides: Record<string, unknown>) => sqlState(db.rpc("record_business_purchase_fx", usdArgs(itemId, overrides)));
     expect(await refused({ p_unit_cost: "15.27" })).toBe("22023");
@@ -131,9 +146,11 @@ describe("record_business_purchase_fx", () => {
     expect(await refused({ p_fx_rate: "1.3876543" })).toBe("22023");
     expect(await refused({ p_fx_rate: "0" })).toBe("22023");
     // The equation holds (11 × 1.3877 = 15.2647), but the stored Aug 26 rate is 1.3876.
-    expect(await refused({ p_fx_rate: "1.3877" })).toBe("22023");
-    // No rate is stored for Saturday Aug 22.
-    expect(await refused({ p_fx_rate_date: "2026-08-22" })).toBe("22023");
+    expect(await refused({ p_fx_rate: "1.3877" })).toBe("AP028");
+    // Saturday Aug 22 has no stored rate; the latest stored for the window is Aug 26's.
+    expect(await refused({ p_fx_rate_date: "2026-08-22" })).toBe("AP028");
+    // Nothing stored for Aug 10-20.
+    expect(await refused({ p_received_on: "2026-08-20", p_fx_rate_date: "2026-08-20" })).toBe("22023");
     expect(await refused({ p_fx_rate: null })).toBe("22023");
     expect(await refused({ p_fx_rate_date: null })).toBe("22023");
     expect(await refused({ p_fx_rate_date: "2026-08-27" })).toBe("22023"); // after the date received
@@ -145,8 +162,32 @@ describe("record_business_purchase_fx", () => {
     // Above CAD 1,000,000.00 after conversion.
     expect(await refused({ p_original_unit_cost: "1000000", p_unit_cost: "1387600.00" })).toBe("22023");
     expect(await purchasesOf(itemId)).toHaveLength(1);
-    // The same equation holds, 10 days back is the limit.
-    expect(await refused({ p_received_on: "2026-09-05" })).toBe("ok");
+    // Aug 26 is still the latest stored rate for a purchase received on Aug 27.
+    expect(await refused({ p_received_on: "2026-08-27" })).toBe("ok");
+  });
+
+  it("an older stored rate in the window is refused (AP028); only the latest is accepted", async () => {
+    const itemId = await newItem();
+    // Received Labour Day, Sep 7: Aug 28 (1.3888) is in the window and stored, but Sep 4 (1.3840) is the latest.
+    const older = usdArgs(itemId, { p_received_on: "2026-09-07", p_fx_rate: "1.3888", p_fx_rate_date: "2026-08-28", p_unit_cost: "15.28" });
+    expect(await sqlState(db.rpc("record_business_purchase_fx", older))).toBe("AP028");
+    const service = await recordPurchase(db, {
+      idempotencyKey: randomUUID(),
+      stockItemId: itemId,
+      peptideId: null,
+      strengthMg: null,
+      receivedOn: "2026-09-07",
+      quantity: 10,
+      unitCost: "15.28",
+      usd: { usdUnitCost: "11.00", rate: "1.3888", rateDate: "2026-08-28" },
+    });
+    expect(service).toEqual({ kind: "rate_changed" });
+    expect(await purchasesOf(itemId)).toHaveLength(1);
+    const latest = { ...older, p_idempotency_key: randomUUID(), p_fx_rate: "1.3840", p_fx_rate_date: "2026-09-04", p_unit_cost: "15.22" };
+    expect(await sqlState(db.rpc("record_business_purchase_fx", latest))).toBe("ok");
+    // The same key after the refusal: nothing was recorded, so the latest rate records it.
+    expect(await sqlState(db.rpc("record_business_purchase_fx", { ...latest, p_idempotency_key: older.p_idempotency_key }))).toBe("ok");
+    expect(await purchasesOf(itemId)).toHaveLength(3);
   });
 
   it("CAD purchases are recorded as before, through either function", async () => {
@@ -298,6 +339,20 @@ describe("the actions, with the Bank of Canada stubbed", () => {
       ["20.00", null],
       ["15.28", "1.3888"],
     ]);
+  });
+
+  it("a newer rate stored between the lookup and the save: refused by the database, looked up again, recorded at the latest", async () => {
+    const itemId = await newItem();
+    lookup.stale = { rate: "1.3888", rateDate: "2026-08-28" };
+    lookup.calls = 0;
+    expect(await recordPurchaseAction(entry(itemId, { receivedOn: "2026-09-07" }))).toEqual({
+      stockItemId: itemId,
+      toast: "Purchase recorded · 10 vials at USD 11.00 = CAD 15.22",
+      tone: "info",
+    });
+    expect(lookup.calls).toBe(2);
+    const lots = (await getStockItem(db, itemId))!.lots;
+    expect(lots[1]).toMatchObject({ unitCost: "15.22", usd: { rate: "1.3840", rateDate: "2026-09-04" } });
   });
 
   it("researchers are sent to sign in by both actions", async () => {

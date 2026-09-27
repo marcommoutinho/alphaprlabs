@@ -1,8 +1,8 @@
 // USD purchases (Marco, 2026-09-27): choosing the Bank of Canada rate, the
 // lookup from our stored rates with the Valet fallback (an in-memory table
-// and a mocked fetch: tests never call the real API), the sync, the Valet
-// answer's parsing, the local test stub's gate, exact conversion and parsing,
-// and the copy.
+// and a mocked fetch: tests never call the real API), the sync, the local
+// test stub's gate, exact conversion and parsing, and the copy. The Valet
+// answer's strict validation: tests/unit/valet.test.ts.
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -10,7 +10,6 @@ import { StockItemView } from "@/components/admin/inventory-views";
 import {
   addDays,
   fxTestFetch,
-  parseObservations,
   pickRate,
   syncFxRates,
   usdCadRate,
@@ -59,7 +58,14 @@ const RATES: Record<string, string> = {
   "2026-09-25": "1.4145",
 };
 const observations = (rates: Record<string, string>) => Object.entries(rates).map(([d, v]) => ({ d, FXUSDCAD: { v } }));
-const published = parseObservations({ observations: observations(RATES) })!;
+const published: FxRate[] = Object.entries(RATES).map(([rateDate, rate]) => ({ rate, rateDate }));
+/** A Valet stand-in answering, like the real one, only the rates inside the range asked for. */
+const valet = (rates: Record<string, string>) =>
+  vi.fn<typeof globalThis.fetch>(async (input) => {
+    const url = new URL(String(input));
+    const [start, end] = [url.searchParams.get("start_date")!, url.searchParams.get("end_date")!];
+    return Response.json({ observations: observations(Object.fromEntries(Object.entries(rates).filter(([d]) => d >= start && d <= end))) });
+  });
 
 /** public.fx_rates in memory: the latest in a range, and store_fx_rates' first-value-wins rule. */
 function memoryStore(initial: Record<string, string> = {}) {
@@ -118,23 +124,6 @@ describe("choosing the rate for a date received", () => {
     expect(valetUrl("2026-03-05")).toContain("start_date=2026-02-23&end_date=2026-03-05");
     expect(addDays("2026-12-31", 1)).toBe("2027-01-01");
     expect(addDays("2028-03-01", -1)).toBe("2028-02-29");
-  });
-});
-
-describe("the Valet answer", () => {
-  it("keeps each rate exactly as published and skips observations without one", () => {
-    expect(parseObservations({ observations: [{ d: "2026-08-21", FXUSDCAD: { v: "1.3760" } }, { d: "2026-08-22" }] })).toEqual([
-      { rate: "1.3760", rateDate: "2026-08-21" },
-    ]);
-    expect(parseObservations({ observations: [] })).toEqual([]);
-  });
-
-  it("anything else is not an answer", () => {
-    for (const body of [null, "text", {}, { observations: {} }]) expect(parseObservations(body)).toBeNull();
-    for (const v of ["abc", "1,3876", "-1.38", "0", "0.0000", "1.3876543", "138.76", 1.3876]) {
-      expect(parseObservations({ observations: [{ d: "2026-08-26", FXUSDCAD: { v } }] })).toBeNull();
-    }
-    expect(parseObservations({ observations: [{ d: "2026-02-30", FXUSDCAD: { v: "1.38" } }] })).toBeNull();
   });
 });
 
@@ -212,23 +201,38 @@ describe("the rate lookup: our stored rates first, the Valet API only for a miss
     error.mockRestore();
   });
 
-  it("an unreadable table is 'unavailable' (Valet isn't asked); a window without any rate is 'no_rate'", async () => {
+  it("an unreadable table is 'unavailable' (Valet isn't asked); an empty answer is 'no_rate' only where no rate can exist", async () => {
     const [warn, error] = quiet();
     const broken: FxStore = { latest: vi.fn(async () => Promise.reject(new Error("db down"))), save: vi.fn() };
     const fetch = answer(RATES);
     expect(await usdCadRate("2026-08-26", { store: broken, fetch })).toEqual({ ok: false, reason: "unavailable" });
     expect(fetch).not.toHaveBeenCalled();
-    expect(await usdCadRate("2026-08-26", { store: memoryStore().store, fetch: answer({}) })).toEqual({ ok: false, reason: "no_rate" });
+    // Business days already past with no rate at all: the answer is wrong, not the window empty.
+    expect(await usdCadRate("2026-08-26", { store: memoryStore().store, fetch: answer({}), today: "2026-09-27" })).toEqual({
+      ok: false,
+      reason: "unavailable",
+    });
+    // Before the series began (2017-01-03), or only today and a weekend: no rate exists yet.
+    expect(await usdCadRate("2016-06-10", { store: memoryStore().store, fetch: answer({}), today: "2026-09-27" })).toEqual({
+      ok: false,
+      reason: "no_rate",
+    });
+    expect(await usdCadRate("2026-09-28", { store: memoryStore().store, fetch: answer({}), today: "2026-09-28" })).toMatchObject({
+      reason: "unavailable",
+    });
+    // An answer with an observation outside the window is refused whole.
+    const stray = answer({ "2026-08-26": "1.3876", "2026-09-01": "1.3700" });
+    expect(await usdCadRate("2026-08-26", { store: memoryStore().store, fetch: stray })).toEqual({ ok: false, reason: "unavailable" });
     await expect(usdCadRate("2026-02-30", { store: memoryStore().store })).rejects.toThrow(RangeError);
     warn.mockRestore();
     error.mockRestore();
   });
 });
 
-describe("the sync (daily cron and backfill)", () => {
+describe("the sync (daily cron and the route's ?from=)", () => {
   it("reads the last 14 days by default and stores them; again, nothing changes", async () => {
     const { store, rows } = memoryStore();
-    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ observations: observations({ "2026-09-25": "1.4145", "2026-09-24": "1.4100" }) }));
+    const fetch = valet({ "2026-09-25": "1.4145", "2026-09-24": "1.4100" });
     expect(await syncFxRates({ today: "2026-09-27", store, fetch })).toEqual({
       ok: true,
       from: "2026-09-13",
@@ -240,27 +244,53 @@ describe("the sync (daily cron and backfill)", () => {
       conflicts: [],
     });
     expect(fetch.mock.calls[0][0]).toBe(valetRangeUrl("2026-09-13", "2026-09-27"));
+    expect(fetch.mock.calls[0][1]).toMatchObject({ cache: "no-store" });
     expect(await syncFxRates({ today: "2026-09-27", store, fetch })).toMatchObject({ ok: true, stored: 0, unchanged: 2 });
     expect(rows.size).toBe(2);
   });
 
-  it("backfills a long range a year at a time, and stores nothing unless every range was read", async () => {
+  it("reads a long range a year at a time", async () => {
     const { store, rows } = memoryStore();
-    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ observations: observations({ "2025-01-02": "1.4400" }) }));
-    expect(await syncFxRates({ from: "2025-01-01", today: "2026-09-27", store, fetch })).toMatchObject({ ok: true, fetched: 1, stored: 1 });
+    const fetch = valet({ "2025-01-02": "1.4400", "2026-01-02": "1.3700" });
+    expect(await syncFxRates({ from: "2025-01-01", today: "2026-09-27", store, fetch })).toMatchObject({ ok: true, fetched: 2, stored: 2 });
     expect(fetch.mock.calls.map((call) => call[0])).toEqual([
       valetRangeUrl("2025-01-01", "2026-01-01"),
       valetRangeUrl("2026-01-02", "2026-09-27"),
     ]);
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const failing = vi.fn().mockResolvedValueOnce(Response.json({ observations: [] })).mockResolvedValueOnce(new Response("", { status: 500 }));
-    const empty = memoryStore();
-    expect(await syncFxRates({ from: "2025-01-01", today: "2026-09-27", store: empty.store, fetch: failing })).toMatchObject({ ok: false });
-    expect(empty.store.save).not.toHaveBeenCalled();
+    expect(rows.size).toBe(2);
+  });
+
+  it("stores nothing unless every range is valid: a failed, malformed, stray or empty range fails the run", async () => {
+    const answers = [
+      new Response("", { status: 500 }),
+      new Response("<html>maintenance</html>", { status: 200 }),
+      Response.json({ observations: observations({ "2025-06-02": "1.3700", "2027-01-04": "1.3500" }) }), // outside the range
+      Response.json({ observations: observations({ "2025-06-02": "n/a" }) }),
+      Response.json({ observations: [] }), // a year of business days without a rate
+      Response.json({ data: [] }),
+    ];
+    for (const answer of answers) {
+      const { store } = memoryStore();
+      // The first range is fine; the second answers badly.
+      const fetch = vi.fn<typeof globalThis.fetch>().mockImplementationOnce(valet({ "2025-01-02": "1.4400" })).mockResolvedValueOnce(answer);
+      expect(await syncFxRates({ from: "2025-01-01", today: "2026-09-27", store, fetch })).toMatchObject({
+        ok: false,
+        error: expect.stringContaining("Bank of Canada 2026-01-02..2026-09-27"),
+      });
+      expect(store.save).not.toHaveBeenCalled();
+    }
+  });
+
+  it("?from= goes back to 2025-01-01 at the earliest, and at most about two years", async () => {
+    const { store } = memoryStore();
+    const fetch = valet({ "2025-06-02": "1.3700", "2026-06-01": "1.3650", "2027-01-04": "1.3500" });
+    expect(await syncFxRates({ from: "2024-12-31", today: "2026-09-27", store, fetch })).toMatchObject({ ok: false, error: "invalid from date" });
     expect(await syncFxRates({ from: "1999-12-31", today: "2026-09-27", store, fetch })).toMatchObject({ ok: false, error: "invalid from date" });
-    expect(await syncFxRates({ from: "2026-09-28", today: "2026-09-27", store, fetch })).toMatchObject({ ok: false });
-    expect(rows.size).toBe(1);
-    warn.mockRestore();
+    expect(await syncFxRates({ from: "2026-09-28", today: "2026-09-27", store, fetch })).toMatchObject({ ok: false, error: "invalid from date" });
+    expect(await syncFxRates({ from: "soon", today: "2026-09-27", store, fetch })).toMatchObject({ ok: false, error: "invalid from date" });
+    expect(await syncFxRates({ from: "2025-05-31", today: "2027-06-01", store, fetch })).toMatchObject({ ok: false, error: "invalid from date" });
+    expect(await syncFxRates({ from: "2025-06-01", today: "2027-06-01", store, fetch })).toMatchObject({ ok: true, fetched: 3 });
+    expect(fetch).toHaveBeenCalledTimes(2); // two years: two requests at most
   });
 });
 

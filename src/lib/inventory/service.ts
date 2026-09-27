@@ -401,6 +401,8 @@ const REFUSED = {
   AP004: "unknown_buyer",
   AP005: "conflict",
   AP006: "future_date",
+  // record_business_purchase_fx: a newer Bank of Canada rate was stored for the window; look it up again.
+  AP028: "rate_changed",
 } as const;
 type Refusal = (typeof REFUSED)[keyof typeof REFUSED] | "error";
 const refusal = (code: string | undefined): Refusal => REFUSED[code as keyof typeof REFUSED] ?? "error";
@@ -513,7 +515,7 @@ export async function replayUsdPurchase(db: Db, entry: UsdPurchaseEntry): Promis
 export type SaleResult =
   | { kind: "recorded"; saleId: string; replayed: boolean }
   | { kind: "insufficient"; onHand: number }
-  | { kind: Exclude<Refusal, "insufficient" | "unknown_peptide"> };
+  | { kind: Exclude<Refusal, "insufficient" | "unknown_peptide" | "rate_changed"> };
 
 /**
  * A6: records a sale with its FIFO allocation, revenue and cost frozen, in one
@@ -540,7 +542,7 @@ export async function recordSale(db: Db, sale: ValidSale): Promise<SaleResult> {
   if (error) {
     const kind = refusal(error.code);
     if (kind === "insufficient") return { kind, onHand: Number(error.details) || 0 };
-    return { kind: kind === "unknown_peptide" ? "error" : kind };
+    return { kind: kind === "unknown_peptide" || kind === "rate_changed" ? "error" : kind };
   }
   return { kind: "recorded", saleId: data.sale_id, replayed: data.replayed };
 }

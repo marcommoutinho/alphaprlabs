@@ -17,6 +17,7 @@ import {
   stockChangedMessage,
   validatePurchase,
   validateSale,
+  type UsdPurchaseEntry,
   type ValidPurchase,
 } from "@/lib/inventory/rules";
 import {
@@ -93,15 +94,9 @@ export async function recordPurchaseAction(input: unknown): Promise<InventoryAct
     if (recorded) {
       result = await replayUsdPurchase(db, valid.value);
     } else {
-      // A new USD cost: converted here with the Bank of Canada rate looked up
-      // now (our stored rates, fx.ts; never the preview's, never the
-      // browser's). No rate, no save.
-      const fx = await usdCadRate(valid.value.receivedOn);
-      if (!fx.ok) return { error: fx.reason === "no_rate" ? fxNoRateMessage(valid.value.receivedOn) : FX_SAVE_UNAVAILABLE };
-      const converted = convertUsdPurchase(valid.value, fx);
-      if (!converted.ok) return { error: converted.error };
-      purchase = converted.value;
-      result = await recordPurchase(db, purchase);
+      const usd = await recordNewUsdPurchase(db, valid.value);
+      if ("error" in usd) return { error: usd.error };
+      ({ purchase, result } = usd);
     }
   } else {
     purchase = valid.value;
@@ -123,6 +118,8 @@ export async function recordPurchaseAction(input: unknown): Promise<InventoryAct
       };
     case "future_date":
       return { error: PURCHASE_DATE_FUTURE };
+    case "rate_changed":
+      return { error: FX_SAVE_UNAVAILABLE };
     case "unknown_item":
       refresh();
       return { toast: ITEM_GONE };
@@ -134,6 +131,29 @@ export async function recordPurchaseAction(input: unknown): Promise<InventoryAct
     default:
       return { toast: SAVE_FAILED };
   }
+}
+
+/**
+ * A new USD cost: converted here with the Bank of Canada rate looked up now
+ * (our stored rates, fx.ts; never the preview's, never the browser's). No
+ * rate, no save. The database accepts only the latest stored rate for the
+ * window (the same choice as fx.ts); if a newer one was stored between this
+ * lookup and the save (the daily sync, or another save's fallback), it
+ * refuses (rate_changed) and the rate is looked up again, once.
+ */
+async function recordNewUsdPurchase(
+  db: Awaited<ReturnType<typeof createClient>>,
+  entry: UsdPurchaseEntry,
+): Promise<{ error: string } | { purchase: ValidPurchase; result: PurchaseResult }> {
+  let attempt: { purchase: ValidPurchase; result: PurchaseResult } | null = null;
+  for (let tries = 0; tries < 2 && (!attempt || attempt.result.kind === "rate_changed"); tries++) {
+    const fx = await usdCadRate(entry.receivedOn);
+    if (!fx.ok) return { error: fx.reason === "no_rate" ? fxNoRateMessage(entry.receivedOn) : FX_SAVE_UNAVAILABLE };
+    const converted = convertUsdPurchase(entry, fx);
+    if (!converted.ok) return { error: converted.error };
+    attempt = { purchase: converted.value, result: await recordPurchase(db, converted.value) };
+  }
+  return attempt!;
 }
 
 export type UsdRatePreview = { rate?: string; rateDate?: string; error?: string };

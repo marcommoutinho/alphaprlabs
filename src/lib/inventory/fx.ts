@@ -12,12 +12,13 @@
 // Writes go only through store_fx_rates(), with the secret key.
 //
 // Source: the Valet API (public, no key), series FXUSDCAD, one observation per
-// business day, published around 16:30 ET:
-//   https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json?start_date=…&end_date=…
-//   → { "observations": [{ "d": "2026-08-26", "FXUSDCAD": { "v": "1.3876" } }, …] }
-// Every request is `cache: "no-store"`: Next never caches a Valet answer
-// (it would keep any 200, a maintenance page included, before validation).
-// Only validated rates reach the table.
+// business day, published around 16:30 ET. Requests and their strict
+// validation live in ./valet.mjs, shared with scripts/fx-backfill.mjs: an
+// answer is used only when every observation is a real date inside the range
+// asked for with a rate as published, and an empty answer is an error when
+// the range has business days already past. Every request is
+// `cache: "no-store"`: Next never caches a Valet answer. Only validated rates
+// reach the table.
 //
 // Which rate: the stored one for the date received, or else the latest stored
 // before it within FX_LOOKBACK_DAYS (weekends, holidays, and a purchase dated
@@ -25,27 +26,35 @@
 // the Valet API is asked once for it; what it returns is validated, stored,
 // and the stored rate is used. The rate's own date is returned and stored
 // with the purchase, and the form says when it differs from the date received.
+// The database accepts exactly this choice (record_business_purchase_fx: the
+// latest stored rate in the window) and refuses an older one.
 //
 // Failures are never papered over: an unreachable database, or an
 // unreachable, slow (FX_TIMEOUT_MS) or malformed Valet answer, is
 // "unavailable" (the save is refused and can be retried); a window without
-// any rate is "no_rate". There is no fallback rate.
+// any rate (before the series began, or only holidays and today) is
+// "no_rate". There is no fallback rate.
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
 import { calendarDate } from "./rules";
 import { businessToday } from "./screens";
+import { addDays, fetchValetRange, fetchValetRates as fetchValetChunks, valetRangeUrl, valetTestFetch } from "./valet.mjs";
 
-export const VALET_URL = "https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json";
+export { addDays, validateValetRange, valetRangeUrl, VALET_URL } from "./valet.mjs";
+
 /** How many days before the date received a rate may come from (the database checks the same bound). */
 export const FX_LOOKBACK_DAYS = 10;
 export const FX_TIMEOUT_MS = 8_000;
 /** The daily sync re-reads this many days back, so a late or missed run catches up. */
 export const FX_SYNC_DAYS = 14;
-/** Longest range asked of Valet in one request (backfill). */
-const SYNC_CHUNK_DAYS = 366;
-const SYNC_TIMEOUT_MS = 20_000;
+/** The earliest `from` the sync route takes: 2025-01-01, and at most about two years back. */
+export const FX_SYNC_EARLIEST = "2025-01-01";
+export const FX_SYNC_MAX_DAYS = 730;
+const SYNC_TIMEOUT_MS = 15_000;
+/** The whole sync's Valet requests fit in this, well inside the route's maxDuration (60 s). */
+export const FX_SYNC_BUDGET_MS = 45_000;
 
 /** The environment variables read here (process.env by default). */
 export type FxEnv = Record<string, string | undefined>;
@@ -53,19 +62,8 @@ export type FxEnv = Record<string, string | undefined>;
 export type FxRate = { rate: string; rateDate: string };
 export type FxResult = ({ ok: true } & FxRate) | { ok: false; reason: "unavailable" | "no_rate" };
 
-/** A rate as published: above 0 and below 100, at most 6 decimals (the database's parse_fx_rate). */
-const RATE = /^\d{1,2}(\.\d{1,6})?$/;
-
-/** `YYYY-MM-DD` plus `days` (calendar arithmetic, no time zone involved). */
-export function addDays(date: string, days: number): string {
-  const [year, month, day] = date.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
-}
-
 /** The window a date's rate may come from: FX_LOOKBACK_DAYS before it through the date itself. */
 export const fxWindow = (date: string) => ({ start: addDays(date, -FX_LOOKBACK_DAYS), end: date });
-
-export const valetRangeUrl = (start: string, end: string) => `${VALET_URL}?start_date=${start}&end_date=${end}`;
 
 /** The Valet request for a date's window. */
 export const valetUrl = (date: string) => {
@@ -74,29 +72,9 @@ export const valetUrl = (date: string) => {
 };
 
 /**
- * The rates in a Valet answer, or null when it isn't one (no observations
- * list, a bad date, or a malformed rate). An observation without a FXUSDCAD
- * value is skipped: it carries no rate.
- */
-export function parseObservations(body: unknown): FxRate[] | null {
-  const observations = (body as { observations?: unknown } | null)?.observations;
-  if (!Array.isArray(observations)) return null;
-  const rates: FxRate[] = [];
-  for (const observation of observations) {
-    const date = calendarDate((observation as { d?: unknown } | null)?.d);
-    if (!date) return null;
-    const value = (observation as { FXUSDCAD?: { v?: unknown } }).FXUSDCAD?.v;
-    if (value === undefined || value === null || value === "") continue;
-    if (typeof value !== "string" || !RATE.test(value) || !/[1-9]/.test(value)) return null;
-    rates.push({ rate: value, rateDate: date });
-  }
-  return rates;
-}
-
-/**
  * The rate for `date`: its own, else the latest earlier one within the window;
  * null when there is none. The same choice the table lookup makes in SQL
- * (databaseFxStore.latest).
+ * (databaseFxStore.latest) and record_business_purchase_fx enforces.
  */
 export function pickRate(rates: FxRate[], date: string): FxRate | null {
   const { start } = fxWindow(date);
@@ -162,35 +140,15 @@ export type FxDeps = {
   env?: FxEnv;
   /** Defaults to public.fx_rates with the secret key. */
   store?: FxStore;
+  /** Toronto's date (businessToday); injected in tests. */
+  today?: string;
 };
 
-/** The validated Valet rates dated `start`..`end` (one no-store request), or null when unavailable. */
-export async function fetchValetRates(start: string, end: string, deps: FxDeps = {}): Promise<FxRate[] | null> {
+/** The fetch to use: the injected one, else the local stub when allowed, else the real one; null when the stub is refused. */
+function valetFetch(deps: FxDeps): typeof fetch | null {
   const stub = fxTestFetch(deps.env);
   if (stub === "refused") return null;
-  const get = deps.fetch ?? stub ?? fetch;
-  let body: unknown;
-  try {
-    const response = await get(valetRangeUrl(start, end), {
-      headers: { accept: "application/json" },
-      signal: AbortSignal.timeout(deps.timeoutMs ?? FX_TIMEOUT_MS),
-      cache: "no-store",
-    });
-    if (!response.ok) {
-      console.warn(`Bank of Canada rates ${start}..${end}: HTTP ${response.status}`);
-      return null;
-    }
-    body = await response.json();
-  } catch (error) {
-    console.warn(`Bank of Canada rates ${start}..${end}: ${error instanceof Error ? error.message : String(error)}`);
-    return null;
-  }
-  const rates = parseObservations(body);
-  if (!rates) {
-    console.warn(`Bank of Canada rates ${start}..${end}: unexpected answer`);
-    return null;
-  }
-  return rates.filter((rate) => rate.rateDate >= start && rate.rateDate <= end);
+  return deps.fetch ?? stub ?? fetch;
 }
 
 /**
@@ -213,11 +171,20 @@ export async function usdCadRate(date: string, deps: FxDeps = {}): Promise<FxRes
     return { ok: false, reason: "unavailable" };
   }
 
-  const fetched = await fetchValetRates(start, day, deps);
-  if (!fetched) return { ok: false, reason: "unavailable" };
-  if (fetched.length === 0) return { ok: false, reason: "no_rate" };
+  const get = valetFetch(deps);
+  if (!get) return { ok: false, reason: "unavailable" };
+  const fetched = await fetchValetRange(start, day, {
+    fetch: get,
+    timeoutMs: deps.timeoutMs ?? FX_TIMEOUT_MS,
+    today: deps.today ?? businessToday(),
+  });
+  if (!fetched.ok) {
+    console.warn(`Bank of Canada rates ${start}..${day}: ${fetched.error}`);
+    return { ok: false, reason: "unavailable" };
+  }
+  if (fetched.rates.length === 0) return { ok: false, reason: "no_rate" };
   try {
-    logSummary(`Bank of Canada rate for ${day}`, await store.save(fetched));
+    logSummary(`Bank of Canada rate for ${day}`, await store.save(fetched.rates));
     // The stored rate, which is the first one ever stored for its date.
     const stored = await store.latest(start, day);
     return stored ? { ok: true, ...stored } : { ok: false, reason: "no_rate" };
@@ -231,79 +198,44 @@ export type FxSyncResult =
   | ({ ok: true; from: string; to: string; fetched: number } & FxStoreSummary)
   | { ok: false; from: string; to: string; error: string };
 
+/** The earliest `from` the sync takes on `today`: FX_SYNC_EARLIEST, and no more than FX_SYNC_MAX_DAYS back. */
+export function earliestSyncFrom(today: string): string {
+  const back = addDays(today, -FX_SYNC_MAX_DAYS);
+  return back > FX_SYNC_EARLIEST ? back : FX_SYNC_EARLIEST;
+}
+
 /**
- * The daily sync and the backfill: fetches the Valet rates dated `from`
- * (default FX_SYNC_DAYS before today, Toronto) through today, in ranges of at
- * most a year, validates them and stores them (store_fx_rates: new dates
- * added, stored ones kept). Idempotent. Nothing is stored unless every range
- * was fetched and valid.
+ * The daily sync (and the route's `?from=` backfill): fetches the Valet rates
+ * dated `from` (default FX_SYNC_DAYS before today, Toronto; never before
+ * earliestSyncFrom) through today, a year at a time within FX_SYNC_BUDGET_MS,
+ * validates them strictly (./valet.mjs) and stores them (store_fx_rates: new
+ * dates added, stored ones kept). Idempotent. Nothing is stored unless every
+ * range was fetched and valid. Older history: scripts/fx-backfill.mjs.
  */
-export async function syncFxRates(options: { from?: string; today?: string } & FxDeps = {}): Promise<FxSyncResult> {
+export async function syncFxRates(options: { from?: string } & FxDeps = {}): Promise<FxSyncResult> {
   const to = options.today ?? businessToday();
   const from = options.from ?? addDays(to, -FX_SYNC_DAYS);
-  if (!calendarDate(from) || from < "2000-01-01" || from > to) return { ok: false, from, to, error: "invalid from date" };
-  const rates: FxRate[] = [];
-  for (let start = from; start <= to; start = addDays(start, SYNC_CHUNK_DAYS)) {
-    const end = addDays(start, SYNC_CHUNK_DAYS - 1) < to ? addDays(start, SYNC_CHUNK_DAYS - 1) : to;
-    const chunk = await fetchValetRates(start, end, { timeoutMs: SYNC_TIMEOUT_MS, ...options });
-    if (!chunk) return { ok: false, from, to, error: `the Bank of Canada could not be read for ${start}..${end}` };
-    rates.push(...chunk);
-  }
-  if (rates.length === 0) return { ok: true, from, to, fetched: 0, stored: 0, unchanged: 0, invalid: 0, conflicts: [] };
+  if (!calendarDate(from) || from < earliestSyncFrom(to) || from > to) return { ok: false, from, to, error: "invalid from date" };
+  const get = valetFetch(options);
+  if (!get) return { ok: false, from, to, error: "the Bank of Canada test stub is refused here" };
+  const fetched = await fetchValetChunks(from, to, {
+    fetch: get,
+    timeoutMs: options.timeoutMs ?? SYNC_TIMEOUT_MS,
+    today: to,
+    deadline: Date.now() + FX_SYNC_BUDGET_MS,
+  });
+  if (!fetched.ok) return { ok: false, from, to, error: fetched.error };
+  if (fetched.rates.length === 0) return { ok: true, from, to, fetched: 0, stored: 0, unchanged: 0, invalid: 0, conflicts: [] };
   try {
-    const summary = await (options.store ?? defaultStore()).save(rates);
+    const summary = await (options.store ?? defaultStore()).save(fetched.rates);
     logSummary(`Bank of Canada sync ${from}..${to}`, summary);
-    return { ok: true, from, to, fetched: rates.length, ...summary };
+    return { ok: true, from, to, fetched: fetched.rates.length, ...summary };
   } catch (error) {
     return { ok: false, from, to, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
-// ── Local test stub ─────────────────────────────────────────────────────────
-// Tests must not call the real Bank of Canada. BOC_FX_TEST_RATES holds a JSON
-// map of dates to rates ({"2026-08-26":"1.3876"}), served as a Valet answer
-// so the parsing, choice and storing above run unchanged; keys that aren't
-// dates are ignored. A value of "unavailable" makes any request whose range
-// ends on that date answer HTTP 503, and "invalid" a 200 maintenance page.
-// It is honoured only against the local Supabase stack (the app's Supabase
-// URL on 127.0.0.1 or localhost) and never on Vercel. Set anywhere else, it
-// is refused and the Valet API is never asked: a misconfigured production
-// stores no made-up rates and refuses USD saves the table can't serve.
-const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
-
-function localStack(env: FxEnv): boolean {
-  if (env.VERCEL) return false;
-  try {
-    return LOCAL_HOSTS.has(new URL(env.NEXT_PUBLIC_SUPABASE_URL ?? "").hostname);
-  } catch {
-    return false;
-  }
-}
-
-/** The stub fetch when BOC_FX_TEST_RATES is set and allowed, "refused" when set elsewhere, else null. */
+/** The local test stub (./valet.mjs valetTestFetch): the stub fetch, "refused", or null when not set. */
 export function fxTestFetch(env: FxEnv = process.env): typeof fetch | "refused" | null {
-  const raw = env.BOC_FX_TEST_RATES;
-  if (!raw) return null;
-  if (!localStack(env)) {
-    console.error("BOC_FX_TEST_RATES is set outside local testing: refusing every Bank of Canada request.");
-    return "refused";
-  }
-  let rates: Record<string, string>;
-  try {
-    rates = JSON.parse(raw) as Record<string, string>;
-  } catch {
-    return "refused";
-  }
-  return (async (input: RequestInfo | URL) => {
-    const url = new URL(input instanceof Request ? input.url : String(input));
-    const start = url.searchParams.get("start_date") ?? "";
-    const end = url.searchParams.get("end_date") ?? "";
-    if (rates[end] === "unavailable") return new Response("Service Unavailable", { status: 503 });
-    if (rates[end] === "invalid") return new Response("<html>Scheduled maintenance</html>", { status: 200 });
-    const observations = Object.entries(rates)
-      .filter(([date, value]) => calendarDate(date) && date >= start && date <= end && RATE.test(value))
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([d, v]) => ({ d, FXUSDCAD: { v } }));
-    return Response.json({ observations });
-  }) as typeof fetch;
+  return valetTestFetch(env);
 }

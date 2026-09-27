@@ -68,8 +68,11 @@ export function PurchaseForm({
   const key = useRef<string | null>(null);
   // Saved: the stock item is opening; keep the button disabled until it does.
   const [leaving, setLeaving] = useState(false);
-  // Bumped after every save attempt: the USD preview asks for its rate again,
-  // so a form left open across the day's publication shows the current rate.
+  // Bumped after every save attempt that stays on the form: the USD preview
+  // asks for its rate again, so a form left open across the day's publication
+  // (or a newer stored rate) shows the current rate. Not after a save that
+  // opens the stock item: a preview request still in flight would hold up
+  // that navigation (Next runs Server Actions and navigations in order).
   const [previewRound, setPreviewRound] = useState(0);
 
   const update = <K extends keyof Form>(field: K, value: Form[K]) => setForm((current) => ({ ...current, [field]: value }));
@@ -85,8 +88,10 @@ export function PurchaseForm({
         if (pending || leaving) return;
         key.current ??= crypto.randomUUID();
         submit({ ...form, idempotencyKey: key.current }, (result) => {
-          setPreviewRound((round) => round + 1);
-          if (!result.stockItemId) return;
+          if (!result.stockItemId) {
+            setPreviewRound((round) => round + 1);
+            return;
+          }
           key.current = null;
           setLeaving(true);
           router.push(`/admin/inventory/${result.stockItemId}`);

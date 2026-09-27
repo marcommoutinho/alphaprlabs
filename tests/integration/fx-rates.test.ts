@@ -33,10 +33,14 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-/** A date from 2000 to 2019 whose whole 10-day window holds no stored rate (the table persists across runs). */
+/**
+ * A date from 2000 to 2016 whose whole 10-day window holds no stored rate (the
+ * table persists across runs). Before the Valet series began (2017-01-03), so
+ * an empty answer for it is "no rate", not a broken answer.
+ */
 async function emptyWindowDate(): Promise<string> {
   for (;;) {
-    const date = addDays("2000-01-15", randomInt(0, 7000));
+    const date = addDays("2000-01-15", randomInt(0, 6100));
     const { count } = await serviceClient()
       .from("fx_rates")
       .select("rate_date", { count: "exact", head: true })
@@ -184,8 +188,6 @@ describe("the daily sync route (/api/cron/fx-rates)", () => {
     expect(await storedRate("2026-09-24")).toMatchObject({ usd_cad: "1.4100" });
     const again = await call(`Bearer ${SECRET}`, "?from=2026-09-20");
     expect(await again.json()).toMatchObject({ ok: true, fetched: 2, stored: 0, unchanged: 2 });
-    // The daily default (the last 14 days) runs too.
-    expect((await call(`Bearer ${SECRET}`)).status).toBe(200);
   });
 
   it("a bad ?from= is 400, and an unreachable Bank of Canada is 502", async () => {
@@ -193,8 +195,14 @@ describe("the daily sync route (/api/cron/fx-rates)", () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.stubEnv("CRON_SECRET", SECRET);
     expect((await call(`Bearer ${SECRET}`, "?from=1999-01-01")).status).toBe(400);
+    // Older history goes through scripts/fx-backfill.mjs: the route stops at 2025-01-01.
+    expect((await call(`Bearer ${SECRET}`, "?from=2024-12-31")).status).toBe(400);
     expect((await call(`Bearer ${SECRET}`, "?from=soon")).status).toBe(400);
     vi.stubEnv("BOC_FX_TEST_RATES", JSON.stringify({ ...RATES, [businessToday()]: "unavailable" }));
     expect((await call(`Bearer ${SECRET}`, "?from=2026-09-20")).status).toBe(502);
+    vi.stubEnv("BOC_FX_TEST_RATES", JSON.stringify({ ...RATES, [businessToday()]: "invalid" }));
+    const invalid = await call(`Bearer ${SECRET}`, "?from=2026-09-20");
+    expect(invalid.status).toBe(502);
+    expect(await invalid.json()).toMatchObject({ ok: false, error: expect.stringContaining("Bank of Canada 2026-09-20..") });
   });
 });

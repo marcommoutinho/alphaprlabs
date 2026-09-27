@@ -6,67 +6,66 @@
 //
 // Locally it reads .env.local; for production run it with the production
 // NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY in the environment. The
-// deployed app can do the same through its cron route:
+// deployed app can do the same for recent dates through its cron route:
 //   curl -H "Authorization: Bearer $CRON_SECRET" "https://<app host>/api/cron/fx-rates?from=2025-01-01"
 //
-// It asks the Valet API a year at a time and stores through store_fx_rates(),
-// which validates every rate, adds new dates and keeps any date already stored
-// (a different value is reported, never overwritten). Safe to run again.
+// It asks the Valet API a year at a time and validates every answer strictly
+// with the app's own rules (src/lib/inventory/valet.mjs): any malformed,
+// out-of-range or missing observation, or an empty answer for dates already
+// published, fails the run before anything is stored. Then it stores through
+// store_fx_rates(), which adds new dates and keeps any date already stored (a
+// different value is reported, never overwritten). Safe to run again.
+//
+// Exit codes: 0 done; 1 bad arguments or settings, the Bank of Canada could
+// not be read or answered something invalid (nothing stored), storing failed,
+// or the database rejected rows; 2 the Bank of Canada now reports a different
+// rate for dates already stored (the stored ones were kept; check them).
 import { parseArgs } from "node:util";
 import { createClient } from "@supabase/supabase-js";
+import { calendarDay, fetchValetRates, valetChunks, valetTestFetch, VALET_FIRST_DATE } from "../src/lib/inventory/valet.mjs";
 
-const VALET_URL = "https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json";
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const TIMEOUT_MS = 30_000;
 
-const { values } = parseArgs({ options: { from: { type: "string" }, to: { type: "string" } } });
+const fail = (message) => {
+  console.error(message);
+  process.exit(1);
+};
+
+let values;
+try {
+  ({ values } = parseArgs({ options: { from: { type: "string" }, to: { type: "string" } } }));
+} catch (error) {
+  fail(error.message);
+}
 const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto" }).format(new Date());
 const from = values.from;
 const to = values.to ?? today;
-if (!from || !DATE.test(from) || !DATE.test(to) || from < "2000-01-01" || from > to) {
-  console.error("Usage: npm run fx:backfill -- --from YYYY-MM-DD [--to YYYY-MM-DD]  (from 2000-01-01, not after --to)");
-  process.exit(1);
+if (!calendarDay(from) || !calendarDay(to) || from < VALET_FIRST_DATE || from > to || to > today) {
+  fail(`Usage: npm run fx:backfill -- --from YYYY-MM-DD [--to YYYY-MM-DD]  (from ${VALET_FIRST_DATE}, when the series began, to today at most)`);
 }
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const secretKey = process.env.SUPABASE_SECRET_KEY;
-if (!url || !secretKey) {
-  console.error("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY (e.g. in .env.local).");
-  process.exit(1);
-}
+if (!url || !secretKey) fail("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY (e.g. in .env.local).");
+
+// Local tests only (refused against any other database; see valet.mjs).
+const stub = valetTestFetch(process.env);
+if (stub === "refused") fail("BOC_FX_TEST_RATES is set but this isn't the local stack: nothing done.");
+
+// 1. Read and validate everything first: a bad chunk stores nothing.
+const fetched = await fetchValetRates(from, to, { fetch: stub ?? fetch, timeoutMs: TIMEOUT_MS, today });
+if (!fetched.ok) fail(`${fetched.error}. Nothing was stored; run again later.`);
+
+// 2. Store, a chunk at a time.
 const supabase = createClient(url, secretKey, { auth: { persistSession: false, autoRefreshToken: false } });
-
-const addDays = (date, days) => {
-  const [y, m, d] = date.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
-};
-
-const totals = { fetched: 0, stored: 0, unchanged: 0, invalid: 0, conflicts: [] };
-for (let start = from; start <= to; start = addDays(start, 366)) {
-  const end = addDays(start, 365) < to ? addDays(start, 365) : to;
-  const response = await fetch(`${VALET_URL}?start_date=${start}&end_date=${end}`, {
-    headers: { accept: "application/json" },
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!response.ok) {
-    console.error(`Bank of Canada ${start}..${end}: HTTP ${response.status}. Nothing more stored; run again.`);
-    process.exit(1);
-  }
-  const body = await response.json();
-  if (!Array.isArray(body?.observations)) {
-    console.error(`Bank of Canada ${start}..${end}: unexpected answer. Nothing more stored; run again.`);
-    process.exit(1);
-  }
-  // Only observations with a value; store_fx_rates validates each one.
-  const rates = body.observations
-    .filter((o) => typeof o?.d === "string" && typeof o?.FXUSDCAD?.v === "string" && o.FXUSDCAD.v !== "")
-    .map((o) => ({ date: o.d, rate: o.FXUSDCAD.v }));
-  totals.fetched += rates.length;
+const totals = { stored: 0, unchanged: 0, invalid: 0, conflicts: [] };
+for (const { start, end } of valetChunks(from, to)) {
+  const rates = fetched.rates
+    .filter((rate) => rate.rateDate >= start && rate.rateDate <= end)
+    .map((rate) => ({ date: rate.rateDate, rate: rate.rate }));
   if (rates.length === 0) continue;
   const { data, error } = await supabase.rpc("store_fx_rates", { p_rates: rates }).single();
-  if (error) {
-    console.error(`Storing ${start}..${end} failed: ${error.message}`);
-    process.exit(1);
-  }
+  if (error) fail(`Storing ${start}..${end} failed: ${error.message}`);
   totals.stored += data.stored;
   totals.unchanged += data.unchanged;
   totals.invalid += data.invalid;
@@ -75,8 +74,9 @@ for (let start = from; start <= to; start = addDays(start, 366)) {
 }
 
 console.log(
-  `Done ${from}..${to}: ${totals.fetched} rates, ${totals.stored} new, ${totals.unchanged} already stored, ${totals.invalid} invalid.`,
+  `Done ${from}..${to}: ${fetched.rates.length} rates, ${totals.stored} new, ${totals.unchanged} already stored, ${totals.invalid} rejected.`,
 );
+if (totals.invalid > 0) fail(`The database rejected ${totals.invalid} rate(s).`);
 if (totals.conflicts.length > 0) {
   console.error(`Different values for already stored dates (kept the stored ones): ${totals.conflicts.join(", ")}`);
   process.exit(2);

@@ -25,14 +25,18 @@
 -- published); only when that window has none does it ask the Valet API once,
 -- store what it got, and use the stored rate.
 --
--- The database checks a new USD purchase: the rate is the one stored in
--- fx_rates for its date (so it is a published Bank of Canada rate as fetched,
--- never one typed or sent by a browser), that date is on or at most 10 days
--- before the date received, and the CAD cost is exactly round(USD cost ×
--- rate, 2), half away from zero, i.e. half-up for these non-negative amounts,
--- as the app computes it. Which stored date is used (the latest on or before
--- the date received) is the app's choice. Only admins can call the recording
--- functions (is_admin(), as before).
+-- The database checks a new USD purchase the same way the app chooses its
+-- rate: the rate date must be the LATEST fx_rates date on or at most 10 days
+-- before the date received, and the rate that row's rate (so it is a
+-- published Bank of Canada rate as fetched, never one typed or sent by a
+-- browser, and never an older stored rate picked over a newer one). The CAD
+-- cost must be exactly round(USD cost × rate, 2), half away from zero, i.e.
+-- half-up for these non-negative amounts, as the app computes it. If a newer
+-- rate for the window is stored between the app's lookup and the save (the
+-- daily sync, or another save's fallback filling the gap), the save is
+-- refused with AP028 and nothing is recorded; the app then looks the rate up
+-- again and retries once. Only admins can call the recording functions
+-- (is_admin(), as before).
 
 -- ── Columns and checks ─────────────────────────────────────────────────────
 alter table public.business_purchases
@@ -190,9 +194,11 @@ grant execute on function public.store_fx_rates(jsonb) to service_role;
 -- plus the currency the cost was entered in:
 --   * 'CAD': p_unit_cost is the CAD cost per vial; no conversion arguments.
 --   * 'USD': p_original_unit_cost is the USD cost per vial, p_fx_rate and
---     p_fx_rate_date the stored Bank of Canada rate the app's server chose
---     (it must be the fx_rates row for that date), and p_unit_cost the CAD
---     cost per vial the app computed. For a new purchase it must equal
+--     p_fx_rate_date the stored Bank of Canada rate the app's server chose,
+--     and p_unit_cost the CAD cost per vial the app computed. For a new
+--     purchase the rate must be the latest stored one within the 10 days up
+--     to the date received (AP028 otherwise: a newer rate was stored, look it
+--     up again; 22023 when none is stored), and the CAD cost must equal
 --     round(USD × rate, 2) and be at most CAD 1,000,000.00, or nothing is
 --     recorded (22023). A replay needs none of the three.
 -- Idempotency: a repeated p_idempotency_key returns the purchase it already
@@ -228,6 +234,7 @@ declare
   v_currency text := p_original_currency;
   v_original numeric;
   v_rate numeric;
+  v_latest public.fx_rates;
   v_strength numeric;
   v_item uuid := p_stock_item_id;
   v_existing public.business_purchases;
@@ -313,8 +320,16 @@ begin
     if p_fx_rate_date is null or p_fx_rate_date > p_received_on or p_fx_rate_date < p_received_on - 10 then
       raise exception 'the rate date must be the date received or up to 10 days before' using errcode = '22023';
     end if;
-    if not exists (select 1 from public.fx_rates r where r.rate_date = p_fx_rate_date and r.usd_cad = v_rate) then
-      raise exception 'the rate must be the stored Bank of Canada rate for its date' using errcode = '22023';
+    -- The rate the app would choose now: the latest stored in the window.
+    select * into v_latest from public.fx_rates r
+    where r.rate_date between p_received_on - 10 and p_received_on
+    order by r.rate_date desc
+    limit 1;
+    if not found then
+      raise exception 'no Bank of Canada rate is stored for the date received' using errcode = '22023';
+    end if;
+    if v_latest.rate_date <> p_fx_rate_date or v_latest.usd_cad <> v_rate then
+      raise exception 'the rate must be the latest stored Bank of Canada rate for the date received' using errcode = 'AP028';
     end if;
     v_cost := public.parse_cad_amount(p_unit_cost);
     if v_cost is null then
