@@ -799,8 +799,16 @@ and G2 still requires S13.
   applied (dry run showed exactly those four); branch pushed at `265b13f`.
   Imported library and stock unaffected; no support grants existed to migrate.
 
-Next: the USD purchase entry with Bank of Canada conversion (building), then
-S13 reminders last.
+- USD purchases integrated at `a7e68c4` after the standard correction and one
+  extra Marco-approved round: Bank of Canada rates stored in `fx_rates` (daily
+  Vercel cron at 22:00 UTC via `/api/cron/fx-rates`, `CRON_SECRET` required;
+  backfill `npm run fx:backfill -- --from 2025-01-01`); USD purchases must use
+  the latest stored rate in the 10-day window (AP028). Not yet deployed
+  (migration 20260927140000; needs CRON_SECRET in Vercel and the backfill).
+
+Next: sellers, admin invitations and buyer linking (in review), deploy both
+with the rate setup, Marco invites Brian and Natasha, import the Sep 15–24
+sales; then S13 reminders last.
 
 ## Technical references
 
