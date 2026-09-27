@@ -257,6 +257,24 @@ describe("the estimate as the screen reads it", () => {
   });
 });
 
+describe("deleting a mixture", () => {
+  it("unlinks its open vial (never linked to a deleted mixture) and leaves finished vials' history as it was", async () => {
+    const mixtureId = (await ok(db.blair.rpc("save_mixture", mixtureArgs([], { p_vial_mg: "4" })), "mixture"))!;
+    const vial = (label: string) =>
+      ok(db.blair.rpc("save_personal_vial", { p_label: `${label}-${tag()}`, p_peptide_id: peptideA, p_strength_mg: "4", p_mixture_id: mixtureId }), label);
+    const finished = (await vial("F"))!;
+    await ok(db.blair.rpc("finish_personal_vial", { p_vial_id: finished }), "finish");
+    const open = (await vial("O"))!;
+    await ok(db.blair.rpc("delete_mixture", { p_mixture_id: mixtureId, p_version: (await getMixture(db.blair, mixtureId))!.version }), "delete");
+    expect(await vialRow(open)).toMatchObject({ mixture_id: null, finished_at: null });
+    expect(await vialRow(finished)).toMatchObject({ mixture_id: mixtureId });
+    // Someone else can't delete it (nothing locked or changed): null.
+    const other = (await ok(db.blair.rpc("save_mixture", mixtureArgs([], { p_vial_mg: "4" })), "other"))!;
+    expect(await ok(db.alex.rpc("delete_mixture", { p_mixture_id: other, p_version: 1 }), "alex deletes blair's")).toBeNull();
+    expect((await getMixture(db.blair, other))!.deleted).toBe(false);
+  });
+});
+
 describe("nothing adds to or deducts from personal supplies but a confirmed dose", () => {
   it("calculating never deducts: saving and relinking mixtures changes no vial and records no deduction", async () => {
     const cara = await tracked("cara", "8");

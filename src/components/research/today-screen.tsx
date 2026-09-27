@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { unstable_rethrow, usePathname, useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
 import { confirmDoseAction, type ConfirmActionResult } from "@/app/(private)/app/today/actions";
 import { SAVE_FAILED_MESSAGE, useToast } from "@/components/app-shell/toast";
@@ -60,7 +60,9 @@ export function TodayScreen({ view }: { view: TodayView }) {
           timeZone: detail.timeZone,
           ...submission,
         });
-      } catch {
+      } catch (error) {
+        // A redirect (the session ended: sign in again) goes to Next.js, not to the toast.
+        unstable_rethrow(error);
         toast(SAVE_FAILED_MESSAGE, "error");
         setPendingKey(null);
         return;

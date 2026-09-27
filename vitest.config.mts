@@ -24,6 +24,8 @@ const EXCLUSIVE = [
   "tests/integration/dose-locks.test.ts",
   // Owner-level psql tries S14's composite keys (always rolled back).
   "tests/integration/supplies-keys.test.ts",
+  // Owner-level psql transactions hold reopen_personal_vial's (and its rivals') locks.
+  "tests/integration/supplies-locks.test.ts",
 ];
 
 export default defineConfig({

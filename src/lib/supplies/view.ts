@@ -4,6 +4,7 @@
 // estimate and the low-stock rule.
 import { Exact } from "@/lib/calculator/decimal";
 import type { CycleRecord } from "@/lib/cycles/rules";
+import { cycleOccurrences } from "@/lib/cycles/schedule";
 import { occurrenceWhen } from "@/lib/cycles/views";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { type Mixture, mixtureLabel } from "@/lib/mixtures/rules";
@@ -143,10 +144,23 @@ export function suppliesView(input: SuppliesInput): SuppliesView {
   const zone = displayZone(input.cycles);
   const nameOf = (peptideId: string) => input.peptides.get(peptideId)?.name ?? "Unknown peptide";
 
+  // Each dose in its own occurrence's zone, as Today's sheet and the cycle's
+  // history show it (a cycle that moved zones keeps earlier doses in theirs).
+  const zones = new Map<string, Map<string, string>>();
+  const zoneOf = (cycleId: string, key: string): string | undefined => {
+    let byKey = zones.get(cycleId);
+    if (!byKey) {
+      const cycle = cycles.get(cycleId);
+      byKey = new Map(cycle ? cycleOccurrences(cycle.revisions, input.confirmations.get(cycleId) ?? []).map((o) => [o.key, o.timeZone]) : []);
+      zones.set(cycleId, byKey);
+    }
+    return byKey.get(key);
+  };
+
   const history = (d: DeductionInput): HistoryEntry => {
     const dose = doses.get(d.doseId);
     const cycle = dose ? cycles.get(dose.cycleId) : undefined;
-    const timeZone = cycle?.revisions.at(-1)?.timeZone ?? zone;
+    const timeZone = (dose && zoneOf(dose.cycleId, dose.occurrenceKey)) ?? cycle?.revisions.at(-1)?.timeZone ?? zone;
     const after = d.remainingAfterMg.startsWith("-") ? `${mgLabel(d.remainingAfterMg.slice(1))} over` : `${mgLabel(d.remainingAfterMg)} left`;
     return {
       id: d.id,
@@ -168,11 +182,11 @@ export function suppliesView(input: SuppliesInput): SuppliesView {
     const state = open ? vialState(estimate, outlook, mixture !== null) : null;
     const mixLine = mixture
       ? `Mixture ${mixture.setup.vialMg} mg / ${mixture.setup.liquidMl} mL · ${ESTIMATE_NOTE}`
-      : vial.mixtureId
-        ? MIXTURE_DELETED_LINE
-        : open
-          ? NOT_MIXED_LINE
-          : ESTIMATE_NOTE;
+      : !open
+        ? ESTIMATE_NOTE
+        : vial.mixtureId
+          ? MIXTURE_DELETED_LINE
+          : NOT_MIXED_LINE;
     return {
       id: vial.id,
       label: vial.label,
