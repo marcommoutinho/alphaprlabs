@@ -769,7 +769,13 @@ and G2 still requires S13.
   by Marco on 2026-09-27 as impossible for a local-only app. Not yet deployed
   (migration 20260926220000).
 
-Next: S16 Supplements, then S17, and S13 last.
+- S16 (supplements) built, reviewed (one correction) and integrated. Routines
+  have their own toggle, a definition_from date (edits apply from their day;
+  earlier untaken days are refused), and a service-role hook
+  `due_supplement_occurrences` paged by cursor for S13. Not yet deployed
+  (migration 20260927100000).
+
+Next: S17 Me and support history, then S13 last.
 
 ## Technical references
 
