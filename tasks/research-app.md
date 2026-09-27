@@ -226,6 +226,8 @@ switches to the back office and back.
 - One optional measurement per daily check-in, edited with it.
 - Check-ins do not require a cycle: a researcher between cycles can still
   check in, and Progress shows those check-ins without a cycle.
+- A check-in's day is always the America/Toronto calendar day (the app is
+  strictly local), so there is exactly one check-in per researcher per day.
 - No delete; notes and measurement units are free text and must be cleared by
   any future account-closure design.
 
