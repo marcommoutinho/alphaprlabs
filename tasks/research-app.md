@@ -231,6 +231,16 @@ switches to the back office and back.
 - No delete; notes and measurement units are free text and must be cleared by
   any future account-closure design.
 
+### Supplements decisions (Marco, 2026-09-27)
+
+- Supplement tracking has its own toggle, off by default; while off,
+  supplements are hidden and changes are refused, and records are kept.
+- Today lists only today's supplement occurrences; missed ones stay unmarked.
+- The app badge counts peptide doses only, not supplements.
+- Editing a routine applies from now on (including today's occurrence if not
+  yet taken); past Taken records keep what was recorded. Routines are ended,
+  never deleted. Supplement times use America/Toronto.
+
 ### Launch exclusions
 
 - Blended or multi-peptide vials. A cycle may still contain several separately
