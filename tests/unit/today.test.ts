@@ -18,7 +18,7 @@ import {
   TIME_REQUIRED,
   wallOf,
 } from "@/lib/doses/rules";
-import { pendingDoses, todayView } from "@/lib/doses/today";
+import { pendingDoses, setupForActual, todayView } from "@/lib/doses/today";
 import type { Mixture } from "@/lib/mixtures/rules";
 import { setupAt, setupSegments, versionAt } from "@/lib/doses/setups";
 import { cycleDetail, type RecordedConfirmation } from "@/lib/cycles/views";
@@ -277,6 +277,47 @@ describe("the setup in effect at an actual time (R5, AP020)", () => {
     expect(setupAt(detail.setups, "2026-09-03T12:00:00Z")).toMatchObject({ versionId: oldSetup.id, setup: { liquidMl: "1" } });
     expect(sheetUnitsLabel(setupAt(detail.setups, "2026-09-03T12:00:00Z")!.setup, "0.4")).toBe("= 4 units");
     expect(sheetUnitsLabel(detail.setup, "0.4")).toBe("= 8 units");
+  });
+});
+
+describe("the sheet's deduction notice follows the setup of the actual time", () => {
+  // A used mixture OLD (vial "OLD-1") until Sep 20, then was relinked to the current mixture (vial "R-07").
+  const oldMixture = uuid(720);
+  const oldVersion = { id: uuid(721), mixtureId: oldMixture, number: 1, createdAt: "2026-09-02T12:00:00Z", setup: { ...mixture.setup, vialMg: "5" } };
+  const relinked = setupSegments(
+    [
+      { mixtureId: oldMixture, linkedAt: "2026-09-02T12:00:00Z", unlinkedAt: "2026-09-20T12:00:00Z" },
+      { mixtureId: mixture.id, linkedAt: "2026-09-20T12:00:00Z", unlinkedAt: null },
+    ],
+    [oldVersion, oldSetup, newSetup],
+  );
+  const detailWith = (vials: Map<string, string>) =>
+    todayView({
+      cycles: [cycle],
+      confirmations: new Map([[cycle.id, [taken24]]]),
+      peptides,
+      mixtures: new Map([[PLAN_A, mixture]]),
+      setups: new Map([[PLAN_A, relinked]]),
+      vials,
+      now: NOON,
+    }).doses[keyA(3)];
+  const tracked = detailWith(new Map([[mixture.id, "R-07"], [oldMixture, "OLD-1"]]));
+
+  it("names the current mixture's vial now, and the old mixture's vial for a time before the relink", () => {
+    expect(setupForActual(tracked, null)).toEqual({ setup: mixture.setup, versionId: mixture.setupId, vialLabel: "R-07" });
+    expect(setupForActual(tracked, "2026-09-19T12:00:00Z")).toEqual({ setup: oldVersion.setup, versionId: oldVersion.id, vialLabel: "OLD-1" });
+    expect(setupForActual(tracked, "2026-09-21T12:00:00Z")).toMatchObject({ versionId: mixture.setupId, vialLabel: "R-07" });
+  });
+
+  it("shows no deduction before any mixture, for a mixture without an open vial, or with tracking off", () => {
+    expect(setupForActual(tracked, "2026-09-01T12:00:00Z")).toEqual({ setup: null, versionId: null, vialLabel: null });
+    // The old mixture's vial was finished: the current one still has its vial.
+    const oldFinished = detailWith(new Map([[mixture.id, "R-07"]]));
+    expect(setupForActual(oldFinished, "2026-09-19T12:00:00Z")).toMatchObject({ versionId: oldVersion.id, vialLabel: null });
+    // Tracking off: the page passes no vials.
+    const off = detailWith(new Map());
+    expect(setupForActual(off, null).vialLabel).toBeNull();
+    expect(setupForActual(off, "2026-09-19T12:00:00Z").vialLabel).toBeNull();
   });
 });
 

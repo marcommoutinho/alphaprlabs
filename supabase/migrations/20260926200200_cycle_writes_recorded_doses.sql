@@ -15,7 +15,9 @@
 -- A saved edit that adds a revision advances schedule_version on every plan
 -- of the cycle, so queued reminders (S13) recheck their occurrences.
 -- Confirmations (confirm_dose) lock the same cycle row, so an edit and a
--- confirmation of one cycle never interleave.
+-- confirmation of one cycle never interleave. An edit then locks all the
+-- cycle's plans by id before updating any, as save_mixture does (lock order:
+-- 20260926200100_dose_confirmation.sql).
 --
 -- Refusal SQLSTATEs as before:
 --   42501 not an acknowledged researcher      22023 invalid cycle
@@ -112,6 +114,9 @@ begin
     if not found or not public.can_write_researcher(v_cycle.owner_id) then
       return null;
     end if;
+    -- Every plan of the cycle, by id, before any is updated: the order
+    -- save_mixture locks plans in (20260926200100_dose_confirmation.sql).
+    perform 1 from public.cycle_plans cp where cp.cycle_id = v_cycle.id order by cp.id for no key update;
     if p_template_id is not null then
       raise exception 'the template is fixed when a cycle is created' using errcode = '22023';
     end if;

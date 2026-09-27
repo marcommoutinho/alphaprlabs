@@ -17,8 +17,7 @@ import {
   wallOf,
   wallShort,
 } from "@/lib/doses/rules";
-import { setupAt } from "@/lib/doses/setups";
-import type { DoseDetail } from "@/lib/doses/today";
+import { type DoseDetail, setupForActual } from "@/lib/doses/today";
 import { resolveLocal } from "@/lib/schedule/zone";
 
 /** What the sheet submits (the server action adds nothing the screen didn't show). */
@@ -122,10 +121,16 @@ function SheetBody({ detail, pending, error: refused, notice, onSubmit }: Props 
   const late = daysBetween(time.slice(0, 10), now.slice(0, 10));
   const shown = error ?? refused;
   // The setup in effect at the actual time chosen (now: the current one), whose
-  // units are shown and whose version is sent back (confirm_dose checks it).
-  const segment = actual !== null && isWall(actual) ? setupAt(detail.setups, instantOf(actual, detail.timeZone)) : null;
-  const setup = actual === null ? detail.setup : (segment?.setup ?? null);
-  const seenMixtureVersion = actual === null ? detail.mixtureVersionId : (segment?.versionId ?? null);
+  // units are shown, whose version is sent back (confirm_dose checks it), and
+  // whose mixture's tracked vial the deduction notice names.
+  const chosen =
+    actual === null
+      ? setupForActual(detail, null)
+      : isWall(actual)
+        ? setupForActual(detail, instantOf(actual, detail.timeZone))
+        : { setup: null, versionId: null, vialLabel: null };
+  const { setup, vialLabel } = chosen;
+  const seenMixtureVersion = chosen.versionId;
   const submit = () => {
     const submission = { amount, actual, site, notes, seenMixtureVersion };
     const problem = confirmFormError(submission, now);
@@ -235,7 +240,11 @@ function SheetBody({ detail, pending, error: refused, notice, onSubmit }: Props 
         </p>
       ) : null}
       <p className="app-dose-effect">{effectText(detail.effect, detail.peptideName, time, now)}</p>
-      {detail.vialLabel ? <p className="app-dose-vial">{VIAL_NOTE(detail.vialLabel)}</p> : null}
+      {vialLabel ? (
+        <p className="app-dose-vial" data-testid="sheet-vial">
+          {VIAL_NOTE(vialLabel)}
+        </p>
+      ) : null}
       <button type="button" className="app-dose-taken app-dose-taken--sheet" disabled={pending} onClick={submit}>
         {pending ? "Saving…" : "Mark Taken"}
       </button>

@@ -17,7 +17,7 @@ export type SetupLink = { mixtureId: string; linkedAt: string; unlinkedAt: strin
 /** One saved setup of a mixture (mixture_versions). */
 export type SetupVersion = { id: string; mixtureId: string; number: number; createdAt: string; setup: DrawSetup };
 /** A span of time [from, to) during which the plan used one setup (to null: still in use). */
-export type SetupSegment = { from: string; to: string | null; versionId: string; setup: DrawSetup };
+export type SetupSegment = { from: string; to: string | null; versionId: string; mixtureId: string; setup: DrawSetup };
 
 const instant = (iso: string) => Temporal.Instant.from(iso);
 const compare = (a: string, b: string) => Temporal.Instant.compare(instant(a), instant(b));
@@ -51,12 +51,12 @@ export function setupSegments(links: readonly SetupLink[], versions: readonly Se
       last.to = to;
       return;
     }
-    if (version) segments.push({ from, to, versionId: version.id, setup: version.setup });
+    if (version) segments.push({ from, to, versionId: version.id, mixtureId: version.mixtureId, setup: version.setup });
   });
   return segments;
 }
 
 /** The segment in effect at `at`, or null. */
-export function setupAt(segments: readonly SetupSegment[], at: string): SetupSegment | null {
+export function setupAt<S extends SetupSegment>(segments: readonly S[], at: string): S | null {
   return segments.find((s) => compare(s.from, at) <= 0 && (s.to === null || compare(s.to, at) > 0)) ?? null;
 }

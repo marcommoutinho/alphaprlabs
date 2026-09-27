@@ -32,7 +32,7 @@ import {
 } from "@/lib/schedule/engine";
 import { type InstantInput, toInstant } from "@/lib/schedule/zone";
 import { drawDisplay, type DrawDisplay, type DrawSetup, type ScheduleEffect, STALE_LINK, unitsLabel, type Wall, wallOf } from "./rules";
-import type { SetupSegment } from "./setups";
+import { type SetupSegment, setupAt } from "./setups";
 
 /** Everything the sheet needs for one dose, as shown now. Serializable. */
 export type DoseDetail = {
@@ -52,8 +52,12 @@ export type DoseDetail = {
   /** The plan's saved-mixture setup now, and its version id (sent back for a confirmation "now"). */
   setup: DrawSetup | null;
   mixtureVersionId: string | null;
-  /** The plan's setups over time: the sheet shows (and sends) the one in effect at the actual time chosen. */
-  setups: SetupSegment[];
+  /**
+   * The plan's setups over time, each with its mixture's open tracked vial
+   * now (null: none, or tracking off): the sheet shows (and sends) the one in
+   * effect at the actual time chosen, and names the vial it would deduct from.
+   */
+  setups: DoseSetup[];
   /** `8 mg / 2 mL` and `1 mL`, when there is a saved mixture. */
   mixtureLabel: string;
   syringeLabel: string;
@@ -68,6 +72,25 @@ export type DoseDetail = {
   recorded: { actual: string; entered: string; amount: string; planned: string; site: string; notes: string } | null;
   calculatorHref: string;
 };
+
+/** A setup span with the vial a confirmation in it would deduct from (confirm_dose's rule). */
+export type DoseSetup = SetupSegment & { vialLabel: string | null };
+
+/**
+ * What the sheet shows and sends for an actual time (`at`: an instant, or
+ * null for now): the setup whose units it shows, that setup's version id
+ * (confirm_dose refuses another one, AP020), and the tracked vial it would
+ * deduct from: the open vial of the mixture in effect at that time, or none
+ * (no mixture then, or tracking off).
+ */
+export function setupForActual(
+  detail: Pick<DoseDetail, "setup" | "mixtureVersionId" | "vialLabel" | "setups">,
+  at: string | null,
+): { setup: DrawSetup | null; versionId: string | null; vialLabel: string | null } {
+  if (at === null) return { setup: detail.setup, versionId: detail.mixtureVersionId, vialLabel: detail.vialLabel };
+  const segment = setupAt(detail.setups, at);
+  return { setup: segment?.setup ?? null, versionId: segment?.versionId ?? null, vialLabel: segment?.vialLabel ?? null };
+}
 
 export type TodayHero = {
   key: string;
@@ -225,7 +248,7 @@ export function todayView(input: TodayInput): TodayView {
       stateLabel: STATE_LABEL[entry.state],
       setup: mixture?.setup ?? null,
       mixtureVersionId: mixture?.setupId ?? null,
-      setups: input.setups.get(o.planId) ?? [],
+      setups: (input.setups.get(o.planId) ?? []).map((s) => ({ ...s, vialLabel: input.vials.get(s.mixtureId) ?? null })),
       mixtureLabel: mixture ? `${mixture.setup.vialMg} mg / ${mixture.setup.liquidMl} mL` : "",
       syringeLabel: mixture ? SYRINGE_LABEL[mixture.setup.syringe] : "",
       vialLabel: mixture ? (input.vials.get(mixture.id) ?? null) : null,

@@ -35,24 +35,37 @@
 --     same key again (a retry, a double tap) returns the recorded result
 --     with "replayed": true and records nothing more.
 --
--- Lock order (every writer takes its locks in this order, so none deadlock):
---   cycle row -> plan row(s) by id -> mixture row(s) by id -> the owner's
---   personal_supply_settings row; a vial row, where taken, before its mixture.
---   * save_cycle: the cycle (for update), then its plans (updated).
---   * save_mixture: the plans (for no key update, by id), then the mixtures
---     (for update, by id). delete_mixture: the mixture.
---   * save_personal_vial: the vial, then the mixture. finish_personal_vial:
---     the vial. set_supply_tracking: the settings row.
+-- Lock order. One global order, every writer below takes its row locks in
+-- it (each step optional), so no two can wait on each other in a cycle:
+--     cycle -> plans (by id) -> vial -> mixtures (by id)
+--   * save_cycle: the cycle (for update), then all its plans (for no key
+--     update, by id, before touching any; 20260926200200).
+--   * save_mixture: its plans (for no key update, by id), then the mixtures
+--     (for update, by id). delete_mixture: the mixture (for update).
+--   * save_personal_vial: the vial (for update), then the mixture (for
+--     update). finish_personal_vial: the vial (for update).
 --   * confirm_dose: the cycle (for update: one confirmation or edit of a
 --     cycle at a time), the plan (for no key update: a save_mixture linking
---     it waits, or is waited for), then the mixture in effect at the actual
---     time (for share: a save or delete of that mixture, which may end the
---     plan's link without locking the plan, waits, or is waited for) and
---     only then resolves the version; then, while tracking is on, the
---     settings row (for update: one deduction per owner at a time). It never
---     locks a vial, since save_personal_vial takes vial before mixture.
---   With the plan locked no new link can begin, so the version resolved
---   after the mixture lock is final for the transaction.
+--     it waits, or is waited for), then, while tracking is on, the open vial
+--     of the mixture in effect at the actual time (for update: serializes
+--     its deductions; a finish or reassignment waits, or is waited for),
+--     then that mixture (for share: a save or delete of it, which may end
+--     the plan's link without locking the plan, waits, or is waited for).
+--     It resolves the version and vial again under those locks and, if
+--     either moved, rolls the attempt back (releasing them) and starts over.
+--   * set_supply_tracking: only the settings row, which nobody else locks
+--     (confirm_dose reads it plainly: a toggle racing a confirmation counts
+--     as after it).
+--   Implicit foreign-key locks (for key share) fall on rows already locked
+--   more strongly earlier in the same order (a deduction's vial, a dose's
+--   plan, a link's plan and mixture, a version's mixture, a vial's
+--   mixture) or on rows no writer here locks for update or key update (a
+--   dose's mixture version, a deduction's dose); profiles, peptides and
+--   templates are only key-share or share locked here, and their writers
+--   lock none of the rows above, so they close no cycle.
+--   With the plan locked no new link can begin, and with the vial and
+--   mixture locked the open vial can't change, so what is resolved under
+--   the locks is final for the transaction.
 --
 -- Returns the recorded dose as JSON (amounts as exact decimal strings):
 --   { id, cycle_id, plan_id, occurrence_key, scheduled_at, planned_mg,
@@ -67,6 +80,7 @@
 --   AP018 already confirmed           AP019 not due yet (a later day)
 --   AP020 the occurrence changed since it was shown
 --   AP021 actual time in the future   AP022 actual time over a day early
+--   40001 the mixture or vial kept changing under concurrent saves (retry)
 
 -- The recorded dose as confirm_dose() returns it. Internal.
 create function public.dose_result(p_dose_id uuid, p_replayed boolean)
@@ -94,6 +108,22 @@ as $$
 $$;
 
 revoke all on function public.dose_result(uuid, boolean) from public, anon, authenticated;
+
+-- The owner's open tracked vial of a mixture (at most one), or null: no
+-- mixture, tracking off, or no open vial. A plain read. Internal.
+create function public.open_vial_of(p_owner uuid, p_mixture uuid, p_tracking boolean)
+returns uuid
+language sql
+stable
+set search_path = ''
+as $$
+  select pv.id from public.personal_vials pv
+  where p_tracking and pv.owner_id = p_owner and pv.mixture_id = p_mixture and pv.finished_at is null
+  order by pv.id
+  limit 1;
+$$;
+
+revoke all on function public.open_vial_of(uuid, uuid, boolean) from public, anon, authenticated;
 
 create function public.confirm_dose(
   p_request_key uuid,
@@ -126,6 +156,9 @@ declare
   v_version uuid;
   v_mixture uuid;
   v_vial public.personal_vials%rowtype;
+  v_vial_id uuid;
+  v_tracking boolean;
+  v_attempt integer;
   v_used numeric;
   v_dose_id uuid;
   v_key constant text := '^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):'
@@ -191,14 +224,33 @@ begin
     raise exception 'the actual time is more than a day before the planned time' using errcode = 'AP022';
   end if;
 
-  -- The mixture in effect at the actual time: lock it, then resolve again
-  -- (a save or delete in flight may have ended the link or added a version).
-  v_version := public.plan_mixture_version_at(v_plan.id, v_actual);
-  if v_version is not null then
-    select mv.mixture_id into v_mixture from public.mixture_versions mv where mv.id = v_version;
-    perform 1 from public.mixtures m where m.id = v_mixture for share;
-    v_version := public.plan_mixture_version_at(v_plan.id, v_actual);
-  end if;
+  -- The mixture in effect at the actual time and, while tracking is on, its
+  -- open vial: read, lock (vial, then mixture: the vial writers' order), and
+  -- read again under the locks. If a concurrent save moved either meanwhile
+  -- (a link ended, the vial finished or reassigned, a vial opened), this
+  -- attempt's subtransaction is rolled back, which releases its locks, and
+  -- the resolution starts over; never locking a vial while holding a mixture.
+  v_tracking := coalesce((select s.tracking_enabled from public.personal_supply_settings s where s.owner_id = v_uid), false);
+  for v_attempt in 1..5 loop
+    begin
+      v_version := public.plan_mixture_version_at(v_plan.id, v_actual);
+      v_mixture := (select mv.mixture_id from public.mixture_versions mv where mv.id = v_version);
+      v_vial_id := public.open_vial_of(v_uid, v_mixture, v_tracking);
+      perform 1 from public.personal_vials pv where pv.id = v_vial_id for update;
+      perform 1 from public.mixtures m where m.id = v_mixture for share;
+      v_version := public.plan_mixture_version_at(v_plan.id, v_actual);
+      if (select mv.mixture_id from public.mixture_versions mv where mv.id = v_version) is distinct from v_mixture
+         or public.open_vial_of(v_uid, v_mixture, v_tracking) is distinct from v_vial_id then
+        raise exception 'the mixture or vial moved; resolve again' using errcode = 'AP099';
+      end if;
+      exit;
+    exception
+      when sqlstate 'AP099' then
+        if v_attempt = 5 then
+          raise exception 'the mixture or vial kept changing' using errcode = '40001';
+        end if;
+    end;
+  end loop;
   -- The syringe units shown must be the ones for this setup.
   if v_version is distinct from p_seen_mixture_version_id then
     raise exception 'the mixture changed since it was shown' using errcode = 'AP020';
@@ -214,14 +266,10 @@ begin
   )
   returning id into v_dose_id;
 
-  -- The estimated deduction from the open vial of that mixture, while
-  -- tracking is on. The settings row lock serializes the owner's deductions.
-  if v_version is not null
-     and coalesce((select s.tracking_enabled from public.personal_supply_settings s where s.owner_id = v_uid for update), false) then
-    select pv.* into v_vial
-    from public.personal_vials pv
-    where pv.owner_id = v_uid and pv.finished_at is null
-      and pv.mixture_id = (select mv.mixture_id from public.mixture_versions mv where mv.id = v_version);
+  -- The estimated deduction from that open vial (locked above, so its
+  -- deductions are serialized and it is still open and on this mixture).
+  if v_vial_id is not null then
+    select pv.* into v_vial from public.personal_vials pv where pv.id = v_vial_id;
     if found then
       select coalesce(sum(x.amount_mg), 0) into v_used from public.personal_vial_deductions x where x.vial_id = v_vial.id;
       insert into public.personal_vial_deductions (

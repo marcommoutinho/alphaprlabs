@@ -1402,6 +1402,10 @@ export type Database = {
         Returns: undefined
       }
       mixture_decimal: { Args: { p_text: string }; Returns: number }
+      open_vial_of: {
+        Args: { p_mixture: string; p_owner: string; p_tracking: boolean }
+        Returns: string
+      }
       parse_cad_amount: { Args: { p_text: string }; Returns: number }
       parse_strength_mg: { Args: { p_text: string }; Returns: number }
       plan_mixture_version_at: {
