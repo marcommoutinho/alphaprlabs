@@ -17,11 +17,13 @@ import {
   salePreview,
   vials,
 } from "@/lib/inventory/screens";
+import { SELLER_LABEL } from "@/lib/inventory/seller-screens";
 import "@/styles/app/inventory.css";
 
 type Form = {
   stockItemId: string;
   soldOn: string;
+  sellerId: string;
   buyerType: "account" | "outside";
   buyerProfileId: string;
   /** The text in the account search field. */
@@ -47,11 +49,17 @@ export type SaleSelection = { itemId: string; onHand: number; lots: FifoLot[] };
 export function SaleForm({
   items,
   accounts,
+  sellers,
+  defaultSellerId,
   selection,
   today,
 }: {
   items: SaleItemOption[];
   accounts: { id: string; name: string; email: string }[];
+  /** The current admins, any of whom can be the seller (Marco, 2026-09-27). */
+  sellers: { id: string; label: string }[];
+  /** The signed-in admin when they can be chosen, else "". */
+  defaultSellerId: string;
   selection: SaleSelection;
   /** Today in the business time zone: the default sale date. */
   today: string;
@@ -60,6 +68,7 @@ export function SaleForm({
   const [form, setForm] = useState<Form>({
     stockItemId: selection.itemId,
     soldOn: today,
+    sellerId: defaultSellerId,
     buyerType: "account",
     // Blank until the admin picks the buyer's account (Marco, 2026-09-26).
     buyerProfileId: "",
@@ -88,6 +97,8 @@ export function SaleForm({
   const onHand = current?.onHand ?? item?.onHand ?? 0;
   const preview = salePreview({ onHand, lots: current?.lots ?? null, quantity: form.quantity, unitPrice: form.unitPrice });
   const label = item?.label ?? "—";
+  // Only a seller the list still offers (an admin removed meanwhile is dropped when the page refreshes).
+  const sellerId = sellers.some((seller) => seller.id === form.sellerId) ? form.sellerId : "";
   const shown = error ?? (preview.short ? insufficientStockMessage(onHand, label) : undefined);
 
   return (
@@ -104,7 +115,7 @@ export function SaleForm({
           // (the server then answers "Choose the buyer's researcher account.").
           const buyer = accounts.find((account) => account.id === form.buyerProfileId);
           const buyerProfileId = buyer && accountLabel(buyer) === form.buyerSearch ? buyer.id : "";
-          submit({ ...form, buyerProfileId, idempotencyKey: key.current }, (result) => {
+          submit({ ...form, sellerId, buyerProfileId, idempotencyKey: key.current }, (result) => {
             if (!result.stockItemId) return;
             key.current = null;
             setLeaving(true);
@@ -123,6 +134,16 @@ export function SaleForm({
         </Field>
         <Field label="Sale date">
           <input type="date" name="soldOn" max={today} value={form.soldOn} onChange={(e) => update("soldOn", e.target.value)} />
+        </Field>
+        <Field label={SELLER_LABEL}>
+          <select name="sellerId" value={sellerId} onChange={(e) => update("sellerId", e.target.value)}>
+            {sellerId === "" ? <option value="">Choose the seller</option> : null}
+            {sellers.map((seller) => (
+              <option key={seller.id} value={seller.id}>
+                {seller.label}
+              </option>
+            ))}
+          </select>
         </Field>
         <div role="group" aria-labelledby="buyer-label">
           <span id="buyer-label" className="app-field-label">

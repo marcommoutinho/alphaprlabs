@@ -176,9 +176,11 @@ describe("researcher-callable functions name no one", () => {
     `);
     // Each refuses a researcher (support-history.test.ts), except template_peptides, whose names are peptides'.
     expect(out.functions.split(",")).toEqual([
+      "admin_business_seller_totals",
       "admin_business_stock",
       "admin_support_researchers",
       "business_buyer_accounts",
+      "business_sellers",
       "resend_invitation",
       "template_peptides",
     ]);

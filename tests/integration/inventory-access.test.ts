@@ -54,6 +54,7 @@ beforeAll(async () => {
     soldOn: "2026-08-20",
     quantity: 3,
     unitPrice: "40",
+    sellerId: fixture.adminId,
     buyer: { type: "account", profileId: fixture.buyerId },
   });
   if (sale.kind !== "recorded") throw new Error(sale.kind);
@@ -90,11 +91,14 @@ const calls = (db: Client) => ({
       p_quantity: 1,
       p_unit_price: "1",
       p_buyer_name: "Forged",
+      p_seller_id: fixture.adminId,
     }),
   admin_business_stock: () => db.rpc("admin_business_stock"),
   admin_business_lots: () => db.rpc("admin_business_lots", { p_stock_item_id: fixture.stockItemId }),
   admin_business_sales_totals: () => db.rpc("admin_business_sales_totals", {}),
+  admin_business_seller_totals: () => db.rpc("admin_business_seller_totals", {}),
   business_buyer_accounts: () => db.rpc("business_buyer_accounts"),
+  business_sellers: () => db.rpc("business_sellers"),
 });
 
 const counts = async () => {
@@ -122,7 +126,8 @@ describe("only admins read or record business inventory", () => {
       await expect(listStock(db)).rejects.toThrow();
       await expect(listSales(db)).rejects.toThrow();
       await expect(listBuyerAccounts(db)).rejects.toThrow();
-      expect((await recordSale(db, { idempotencyKey: randomUUID(), stockItemId: fixture.stockItemId, soldOn: "2026-08-20", quantity: 1, unitPrice: "1", buyer: { type: "outside", name: "x" } })).kind).toBe("not_authorized");
+      const forged = { idempotencyKey: randomUUID(), stockItemId: fixture.stockItemId, soldOn: "2026-08-20", quantity: 1, unitPrice: "1" };
+      expect((await recordSale(db, { ...forged, sellerId: fixture.adminId, buyer: { type: "outside", name: "x" } })).kind).toBe("not_authorized");
     }
     expect(await counts()).toEqual(before);
   });
@@ -267,9 +272,10 @@ describe("every sale and every lot stays consistent at commit, even for the data
     const lot = (name: string, item = `'${stockItemId}'`) =>
       `${name} as (insert into public.business_purchases (stock_item_id, received_on, quantity, unit_cost, idempotency_key, recorded_by)
        values (${item}, '2026-08-16', 5, 20, gen_random_uuid(), '${adminId}') returning id)`;
+    // Every new sale names its seller, a current admin (20260927160000_sellers_admin_invites.sql).
     const sale = (name: string, quantity: number, cost: number) =>
-      `${name} as (insert into public.business_sales (stock_item_id, sold_on, quantity, unit_price, revenue, cost, buyer_type, buyer_name, idempotency_key, recorded_by)
-       values ('${stockItemId}', '2026-08-21', ${quantity}, 10, ${quantity * 10}, ${cost}, 'outside', 'Forged', gen_random_uuid(), '${adminId}') returning id)`;
+      `${name} as (insert into public.business_sales (stock_item_id, sold_on, quantity, unit_price, revenue, cost, buyer_type, buyer_name, idempotency_key, recorded_by, seller_id, seller_name)
+       values ('${stockItemId}', '2026-08-21', ${quantity}, 10, ${quantity * 10}, ${cost}, 'outside', 'Forged', gen_random_uuid(), '${adminId}', '${adminId}', 'Seller') returning id)`;
     const allocate = (saleRef: string, lotRef: string, quantity: number, unitCost = 20, receivedOn = "2026-08-16") =>
       `insert into public.business_sale_allocations (sale_id, purchase_id, quantity, unit_cost, received_on)
        values (${saleRef}, ${lotRef}, ${quantity}, ${unitCost}, '${receivedOn}')`;
@@ -277,8 +283,8 @@ describe("every sale and every lot stays consistent at commit, even for the data
       "begin;\n" +
         attempt(
           "sale without allocations",
-          `insert into public.business_sales (stock_item_id, sold_on, quantity, unit_price, revenue, cost, buyer_type, buyer_name, idempotency_key, recorded_by)
-           values ('${stockItemId}', '2026-08-21', 1, 10, 10, 0, 'outside', 'Forged', gen_random_uuid(), '${adminId}')`,
+          `insert into public.business_sales (stock_item_id, sold_on, quantity, unit_price, revenue, cost, buyer_type, buyer_name, idempotency_key, recorded_by, seller_id, seller_name)
+           values ('${stockItemId}', '2026-08-21', 1, 10, 10, 0, 'outside', 'Forged', gen_random_uuid(), '${adminId}', '${adminId}', 'Seller')`,
         ) +
         attempt("lot over-allocated", `with ${lot("l")}, ${sale("s", 6, 120)} ${allocate("(select id from s)", "(select id from l)", 6)}`) +
         // Two sales, each matching its own allocation, overdraw the lot together (3 + 3 > 5).

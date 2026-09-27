@@ -96,6 +96,75 @@
   font-size: 12px;
 }
 
+/* Access: Researcher / Admin (the A6 buyer toggle's look). */
+.app-root .app-invite-toggle {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.app-root .app-invite-toggle button {
+  flex: 1;
+  height: 44px;
+  border-radius: var(--app-radius-input-compact);
+  border: 1px solid var(--app-border-input);
+  background: transparent;
+  color: var(--app-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.app-root .app-invite-toggle button[aria-pressed="true"] {
+  background: #ffffff;
+  color: var(--app-on-primary);
+}
+
+.app-root .app-invite-toggle button:disabled {
+  opacity: 0.6;
+}
+
+/* The confirm step before an admin invitation (support.css's confirm look). */
+.app-root .app-invite-confirm {
+  padding: 18px 20px;
+  border-radius: var(--app-radius-card-sm);
+  border: 1px solid var(--app-border-popup);
+  background: var(--app-surface-menu);
+}
+
+.app-root .app-invite-confirm-title {
+  font-size: 15px;
+}
+
+.app-root .app-invite-points {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  list-style: disc;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--app-text-2);
+}
+
+.app-root .app-invite-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.app-root .app-invite-confirm-actions .app-btn {
+  flex: 1 1 auto;
+}
+
+.app-root .app-invite-role {
+  color: var(--app-text-3);
+}
+
+.app-root .app-invite-role[data-role="admin"] {
+  color: var(--app-primary-text);
+  font-weight: 600;
+}
+
 @media (max-width: 759.98px) {
   .app-root .app-invites {
     grid-template-columns: minmax(0, 1fr);

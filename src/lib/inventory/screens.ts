@@ -178,9 +178,16 @@ export const allocationSummary = (allocations: { quantity: number; unitCost: str
 export const lotNote = (lot: { quantity: number; allocated: number }) =>
   lot.allocated > 0 ? `${lot.allocated} of ${lot.quantity} allocated to sales · cost locked` : "None allocated yet";
 
-/** `Jordan Reyes (account)` or `K. Osei (outside)` */
-export const buyerLabel = (sale: { buyerType: "account" | "outside"; buyerName: string }) =>
-  sale.buyerType === "account" ? `${sale.buyerName || "account"} (account)` : `${sale.buyerName || "outside buyer"} (outside)`;
+/**
+ * `Jordan Reyes (account)` or `K. Osei (outside)`; a sale linked to an
+ * account later keeps the name it was recorded with:
+ * `Kwame Osei (account · recorded as K. Osei)`.
+ */
+export function buyerLabel(sale: { buyerType: "account" | "outside"; buyerName: string; originalBuyerName?: string | null }) {
+  if (sale.buyerType === "outside") return `${sale.buyerName || "outside buyer"} (outside)`;
+  const name = sale.buyerName || "account";
+  return sale.originalBuyerName ? `${name} (account · recorded as ${sale.originalBuyerName})` : `${name} (account)`;
+}
 
 /** A7 empty state for the current view, or null when it has sales. */
 export function salesEmptyText(report: { totals: { sales: number }; hasSales: boolean; hasPurchases: boolean }): string | null {

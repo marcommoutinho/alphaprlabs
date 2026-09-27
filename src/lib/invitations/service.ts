@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { describeSendError, sendInvitationEmail, type SmtpSettings } from "./email";
-import { displayState, normalizeEmail, type InvitationDisplayState } from "./state";
+import { displayState, invitationRole, normalizeEmail, type InvitationDisplayState, type InvitationRole } from "./state";
 
 type Db = SupabaseClient<Database>;
 
@@ -37,12 +37,14 @@ export type InvitationRow = {
   email: string;
   sentAt: string;
   state: InvitationDisplayState;
+  /** The role the account is created with (Marco, 2026-09-27: admins can invite admins). */
+  role: InvitationRole;
 };
 
 export async function listInvitations(db: Db, now = new Date()): Promise<InvitationRow[]> {
   const { data, error } = await db
     .from("invitations")
-    .select("id, name, email, state, sent_at, expires_at")
+    .select("id, name, email, state, sent_at, expires_at, role")
     // Newest first by the displayed "Sent" date (resend and re-invite move it).
     .order("sent_at", { ascending: false })
     .order("created_at", { ascending: false })
@@ -54,12 +56,13 @@ export async function listInvitations(db: Db, now = new Date()): Promise<Invitat
     email: row.email,
     sentAt: row.sent_at,
     state: displayState(row, now),
+    role: row.role,
   }));
 }
 
 export type InviteResult =
   | { kind: "sent" | "send_failed" | "account_exists" | "pending_exists"; email: string }
-  | { kind: "invalid_email" | "invalid_name" | "error" };
+  | { kind: "invalid_email" | "invalid_name" | "invalid_role" | "error" };
 
 async function deliver(db: Db, id: string, to: string, name: string, token: string, ctx: SendContext) {
   try {
@@ -74,18 +77,26 @@ async function deliver(db: Db, id: string, to: string, name: string, token: stri
   }
 }
 
+/**
+ * Invites an email as a researcher (the default) or an admin (`role`). Only
+ * admins can invite at all (the SQL function checks is_admin()), so only an
+ * admin can create an admin invitation. The email is the same either way:
+ * anonymous and role-neutral.
+ */
 export async function inviteResearcher(
   db: Db,
-  input: { name: unknown; email: unknown },
+  input: { name: unknown; email: unknown; role?: unknown },
   ctx: SendContext,
 ): Promise<InviteResult> {
   const email = normalizeEmail(input.email);
   if (!email) return { kind: "invalid_email" };
   const name = typeof input.name === "string" ? input.name.trim() : "";
   if (name.length > MAX_NAME_LENGTH) return { kind: "invalid_name" };
+  const role = invitationRole(input.role);
+  if (!role) return { kind: "invalid_role" };
 
   const { token, hash } = newInvitationToken();
-  const { data, error } = await db.rpc("invite_researcher", { p_name: name, p_email: email, p_token_hash: hash });
+  const { data, error } = await db.rpc("invite_researcher", { p_name: name, p_email: email, p_token_hash: hash, p_role: role });
   const result = data?.[0];
   if (error || !result) return { kind: "error" };
   if (result.outcome === "account_exists" || result.outcome === "pending_exists") {
@@ -114,7 +125,8 @@ export async function resendInvitation(db: Db, id: unknown, ctx: SendContext): P
  * researcher never learns which admin it is (Marco, 2026-09-27).
  */
 export type InvitationView =
-  | { state: "valid"; name: string; email: string; expiresAt: string }
+  /** `role` admin: the page may say the account comes with admin access (never who invited). */
+  | { state: "valid"; name: string; email: string; expiresAt: string; role: InvitationRole }
   | { state: "expired"; email: string }
   /** Accepted, an account already exists, or an unknown token (email null). */
   | { state: "used"; email: string | null };
@@ -124,7 +136,7 @@ export async function viewInvitation(token: string, now = new Date()): Promise<I
   const admin = createAdminClient();
   const { data: row } = await admin
     .from("invitations")
-    .select("name, email, state, expires_at")
+    .select("name, email, state, expires_at, role")
     .eq("token_hash", hashToken(token))
     .maybeSingle();
   if (!row) return { state: "used", email: null };
@@ -136,7 +148,7 @@ export async function viewInvitation(token: string, now = new Date()): Promise<I
   if (displayState({ state: "pending", expires_at: row.expires_at }, now) === "expired") {
     return { state: "expired", email: row.email };
   }
-  return { state: "valid", name: row.name, email: row.email, expiresAt: row.expires_at };
+  return { state: "valid", name: row.name, email: row.email, expiresAt: row.expires_at, role: row.role };
 }
 
 export type AcceptResult =

@@ -193,6 +193,7 @@ beforeAll(async () => {
     soldOn: day(-1),
     quantity: 2,
     unitPrice: "41.93",
+    sellerId: id.grace,
     buyer: { type: "account", profileId: id.alex },
   });
   if (sale.kind !== "recorded") throw new Error(`sale: ${sale.kind}`);
@@ -467,7 +468,14 @@ describe("researchers never learn which admin it is", () => {
         expect(payload, admin.email).not.toContain(admin.email);
       }
       // What names people is for admins only: refused to a researcher, or empty under RLS.
-      for (const fn of ["admin_support_researchers", "business_buyer_accounts", "admin_business_stock", "admin_library_peptides"] as const) {
+      for (const fn of [
+        "admin_support_researchers",
+        "business_buyer_accounts",
+        "business_sellers",
+        "admin_business_seller_totals",
+        "admin_business_stock",
+        "admin_library_peptides",
+      ] as const) {
         expect(await sqlState(db.alex.rpc(fn), fn), fn).toBe("42501");
       }
       expect(await sqlState(db.alex.rpc("resend_invitation", { p_id: randomUUID(), p_token_hash: "x" }), "resend_invitation")).toBe("42501");

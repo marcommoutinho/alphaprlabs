@@ -34,6 +34,7 @@ import {
 const KEY = "0b5b3a3e-6f0e-4c8e-9a51-1f9d7f3b2c10";
 const ITEM = "7a51958a-1a5e-4f22-8f55-689ba8ce0a1b";
 const PEPTIDE = "ebf3d87b-e81e-48c7-bfe2-59d163dcd2d4";
+const SELLER = "5d1e2f3a-4b5c-4d6e-8f70-81a2b3c4d5e6";
 /** The admin's local date the forms pass in. */
 const TODAY = "2026-09-26";
 const error = (result: { ok: boolean; error?: string }) => (result.ok ? "ok" : result.error);
@@ -73,13 +74,13 @@ describe("A5 purchase validation", () => {
 });
 
 describe("A6 sale validation", () => {
-  const valid = { idempotencyKey: KEY, stockItemId: ITEM, soldOn: "2026-08-25", quantity: "12", unitPrice: "40", buyerType: "outside", buyerName: "  Walk-in\t" };
+  const valid = { idempotencyKey: KEY, stockItemId: ITEM, soldOn: "2026-08-25", sellerId: SELLER, quantity: "12", unitPrice: "40", buyerType: "outside", buyerName: "  Walk-in\t" };
   const validateSale = (input: unknown) => validateSaleOn(input, TODAY);
 
   it("accepts an outside buyer (trimmed) or an account", () => {
     expect(validateSale(valid)).toEqual({
       ok: true,
-      value: { idempotencyKey: KEY, stockItemId: ITEM, soldOn: "2026-08-25", quantity: 12, unitPrice: "40.00", buyer: { type: "outside", name: "Walk-in" } },
+      value: { idempotencyKey: KEY, stockItemId: ITEM, soldOn: "2026-08-25", sellerId: SELLER, quantity: 12, unitPrice: "40.00", buyer: { type: "outside", name: "Walk-in" } },
     });
     expect(validateSale({ ...valid, buyerType: "account", buyerProfileId: PEPTIDE })).toMatchObject({
       ok: true,
@@ -159,7 +160,7 @@ describe("FIFO preview and gross profit", () => {
 
 describe("form values are strings only", () => {
   const purchase = { idempotencyKey: KEY, stockItemId: ITEM, receivedOn: "2026-08-15", quantity: "10", unitCost: "20" };
-  const sale = { idempotencyKey: KEY, stockItemId: ITEM, soldOn: "2026-08-25", quantity: "12", unitPrice: "40", buyerType: "outside", buyerName: "Walk-in" };
+  const sale = { idempotencyKey: KEY, stockItemId: ITEM, soldOn: "2026-08-25", sellerId: SELLER, quantity: "12", unitPrice: "40", buyerType: "outside", buyerName: "Walk-in" };
 
   it("refuses numbers for amounts, strength, vials and dates instead of converting them", () => {
     for (const unitCost of [20, 0, 20.5, 0.1 + 0.2]) expect(error(validate({ ...purchase, unitCost }, TODAY))).toBe(COST_INVALID);
@@ -181,7 +182,7 @@ describe("form values are strings only", () => {
 
 describe("no future dates", () => {
   const purchase = { idempotencyKey: KEY, stockItemId: ITEM, receivedOn: TODAY, quantity: "10", unitCost: "20" };
-  const sale = { idempotencyKey: KEY, stockItemId: ITEM, soldOn: TODAY, quantity: "1", unitPrice: "40", buyerType: "outside", buyerName: "Walk-in" };
+  const sale = { idempotencyKey: KEY, stockItemId: ITEM, soldOn: TODAY, sellerId: SELLER, quantity: "1", unitPrice: "40", buyerType: "outside", buyerName: "Walk-in" };
 
   it("today and earlier are accepted; after the admin's local today is refused", () => {
     expect(error(validate(purchase, TODAY))).toBe("ok");

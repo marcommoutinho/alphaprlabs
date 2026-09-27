@@ -48,6 +48,7 @@ beforeAll(async () => {
     soldOn: "2026-09-27",
     quantity: 12,
     unitPrice: "40",
+    sellerId: fixture.adminId,
     buyer: { type: "outside", name: "Walk-in" },
   });
   if (sale.kind !== "recorded") throw new Error(sale.kind);

@@ -185,9 +185,9 @@ describe("designed empty states, rendered", () => {
 
   it("A7: nothing yet, purchases only, and a filter with no sales", () => {
     const labels = new Map<string, string>();
-    expect(html(createElement(SalesReportView, { report: report(false, false), itemLabels: labels }))).toContain(SALES_EMPTY_NOTHING);
-    expect(html(createElement(SalesReportView, { report: report(true, false), itemLabels: labels }))).toContain(SALES_EMPTY_NO_SALES);
-    const filtered = html(createElement(SalesReportView, { report: report(true, true), itemLabels: labels }));
+    expect(html(createElement(SalesReportView, { report: report(false, false), itemLabels: labels, sellers: [] }))).toContain(SALES_EMPTY_NOTHING);
+    expect(html(createElement(SalesReportView, { report: report(true, false), itemLabels: labels, sellers: [] }))).toContain(SALES_EMPTY_NO_SALES);
+    const filtered = html(createElement(SalesReportView, { report: report(true, true), itemLabels: labels, sellers: [] }));
     expect(filtered).toContain(SALES_EMPTY_FILTERED);
     expect(filtered.replace(/<[^>]+>/g, "")).toContain("CAD 0.00");
     expect(filtered).not.toContain("Sales in this view");

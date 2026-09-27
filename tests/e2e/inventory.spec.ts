@@ -14,9 +14,10 @@ const JORDAN = { email: uniqueEmail("s6-inv-jordan"), name: "Jordan Reyes" };
 const RESEARCHER = { email: uniqueEmail("s6-inv-researcher"), name: "Inventory Researcher" };
 
 let jordanId: string;
+let adminId: string;
 
 test.beforeAll(async () => {
-  await ensureAccount({ ...ADMIN, role: "admin" });
+  adminId = await ensureAccount({ ...ADMIN, role: "admin" });
   jordanId = await ensureAccount({ ...JORDAN, role: "researcher" });
   await ensureAccount({ ...RESEARCHER, role: "researcher" });
 });
@@ -162,11 +163,14 @@ test("the handoff FIFO scenario: two purchases, a sale of 12, 8 left, 9 more blo
   await expect(account).toHaveValue(`${ADMIN.name} · ${ADMIN.email}`);
   // Typing another name without choosing it unlinks the admin: nothing is recorded.
   await account.fill(JORDAN.name);
-  // Clicked while the list is still open (it hides the rest of the page from
-  // the accessibility tree, so the button is found by its markup).
   await expect(page.getByRole("option").first()).toBeVisible();
-  await expectError(page, page.locator('form.app-inv-form button[type="submit"]'), "Choose the buyer's researcher account.");
-  await expect(account).toHaveValue("");
+  // The open list can cover Record sale (in a full parallel run on a fresh
+  // database it holds many accounts): close it first, then save. (While it is
+  // open it hides the rest of the page from the accessibility tree, so Esc
+  // goes to the focused field through the keyboard.)
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("listbox")).toHaveCount(0);
+  await expectError(page, recordSale, "Choose the buyer's researcher account.");
   expect((await serviceClient().from("business_sales").select("id").eq("stock_item_id", itemId)).data).toEqual([]);
   await account.fill(JORDAN.email.split("@")[0].slice(4));
   const jordanOption = page.getByRole("option", { name: `${JORDAN.name} · ${JORDAN.email}` });
@@ -183,7 +187,7 @@ test("the handoff FIFO scenario: two purchases, a sale of 12, 8 left, 9 more blo
   await expect(page.getByTestId("sale-row")).toHaveText([
     new RegExp(
       `· 12 vials · ${JORDAN.name} \\(account\\)CAD 480\\.00` +
-        "Cost CAD 250\\.00 \\(10 × CAD 20\\.00 \\+ 2 × CAD 25\\.00\\) · gross profit CAD 230\\.00$",
+        `Cost CAD 250\\.00 \\(10 × CAD 20\\.00 \\+ 2 × CAD 25\\.00\\) · gross profit CAD 230\\.00 · Sold by ${ADMIN.name}$`,
     ),
   ]);
   await expect(page.getByTestId("purchase-row").locator(".app-inv-sub")).toHaveText([
@@ -263,6 +267,7 @@ test("A6 validation order, a future date, and stock that changes before saving",
     p_quantity: 1,
     p_unit_price: "40",
     p_buyer_name: "Elsewhere",
+    p_seller_id: adminId,
   });
   expect(other.error).toBeNull();
   await save.click();
@@ -292,6 +297,7 @@ test("phone: tables fit, columns stack, KPIs in two columns", async ({ page }) =
     p_quantity: 4,
     p_unit_price: "1999.99",
     p_buyer_name: "A buyer with a rather long reference name for the phone layout",
+    p_seller_id: adminId,
   });
   expect(sold.error).toBeNull();
   await page.setViewportSize({ width: 390, height: 844 });

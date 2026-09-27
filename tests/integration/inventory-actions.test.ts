@@ -6,13 +6,17 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  LINK_ACCOUNT_REQUIRED,
   PURCHASE_ALREADY_RECORDED,
   SALE_ALREADY_RECORDED,
   SALE_DATE_FUTURE,
+  SELLER_NOT_ADMIN,
+  SELLER_REQUIRED,
   stockChangedMessage,
   VIALS_INVALID,
 } from "@/lib/inventory/rules";
 import { businessToday } from "@/lib/inventory/screens";
+import { LINK_NOT_LINKABLE } from "@/lib/inventory/seller-screens";
 import { ensureAccount, serviceClient, signedInClient, uniqueEmail } from "../support/local-supabase";
 
 const acting = vi.hoisted(() => ({ client: null as unknown, refreshed: 0, revalidated: [] as string[] }));
@@ -22,17 +26,19 @@ vi.mock("next/cache", () => ({
   revalidatePath: (path: string) => void acting.revalidated.push(path),
 }));
 
-const { recordPurchaseAction, recordSaleAction } = await import("@/app/(private)/admin/inventory/actions");
+const { linkSaleAction, recordPurchaseAction, recordSaleAction } = await import("@/app/(private)/admin/inventory/actions");
 
 const admin = { email: uniqueEmail("s6-act-admin"), name: "S6 Action Admin" };
 const jordan = { email: uniqueEmail("s6-act-jordan"), name: "Jordan Reyes" };
 const researcher = { email: uniqueEmail("s6-act-researcher"), name: "S6 Action Researcher" };
 let jordanId: string;
+let adminId: string;
+let researcherId: string;
 
 beforeAll(async () => {
-  await ensureAccount({ ...admin, role: "admin" });
+  adminId = await ensureAccount({ ...admin, role: "admin" });
   jordanId = await ensureAccount({ ...jordan, role: "researcher" });
-  await ensureAccount({ ...researcher, role: "researcher" });
+  researcherId = await ensureAccount({ ...researcher, role: "researcher" });
 });
 
 beforeEach(async () => {
@@ -62,6 +68,7 @@ const sale = (stockItemId: string, fields: Record<string, string>) => ({
   idempotencyKey: randomUUID(),
   stockItemId,
   soldOn: "2026-08-25",
+  sellerId: adminId,
   buyerType: "outside",
   buyerProfileId: "",
   buyerName: "Outside buyer",
@@ -134,6 +141,47 @@ describe("A5 and A6 actions for an admin", () => {
     });
     expect(await recordSaleAction(sale(itemId, { soldOn: "2026-01-02", quantity: "1", unitPrice: "0" }))).toMatchObject({
       toast: "Sale recorded · 1 vial · revenue CAD 0.00 · gross profit CAD 0.00",
+    });
+  });
+
+  it("the seller is required and must be a current admin; a refused seller refreshes the page data", async () => {
+    const peptideId = await newPeptide();
+    const itemId = (await recordPurchaseAction(
+      purchase({ stockItemId: "new", peptideId, strengthMg: "8", receivedOn: "2026-08-15", quantity: "3", unitCost: "20" }),
+    )).stockItemId!;
+    expect(await recordSaleAction(sale(itemId, { sellerId: "", quantity: "1", unitPrice: "40" }))).toEqual({ error: SELLER_REQUIRED });
+    expect(await recordSaleAction(sale(itemId, { sellerId: researcherId, quantity: "1", unitPrice: "40" }))).toEqual({ error: SELLER_NOT_ADMIN });
+    expect(acting.refreshed).toBe(1);
+    expect(await salesOf(itemId)).toHaveLength(0);
+    expect(await recordSaleAction(sale(itemId, { quantity: "1", unitPrice: "40" }))).toMatchObject({ tone: "info" });
+    expect((await serviceClient().from("business_sales").select("seller_id, seller_name").eq("stock_item_id", itemId)).data).toEqual([
+      { seller_id: adminId, seller_name: admin.name },
+    ]);
+  });
+
+  it("links an outside buyer's sale to an account and refreshes the stock item and sales pages", async () => {
+    const peptideId = await newPeptide();
+    const itemId = (await recordPurchaseAction(
+      purchase({ stockItemId: "new", peptideId, strengthMg: "8", receivedOn: "2026-08-15", quantity: "3", unitCost: "20" }),
+    )).stockItemId!;
+    await recordSaleAction(sale(itemId, { buyerName: "J. Reyes", quantity: "1", unitPrice: "40" }));
+    const { data } = await serviceClient().from("business_sales").select("id").eq("stock_item_id", itemId).single();
+    acting.revalidated = [];
+    expect(await linkSaleAction({ saleId: data!.id, profileId: "" })).toEqual({ error: LINK_ACCOUNT_REQUIRED });
+    expect(await linkSaleAction({ saleId: data!.id, profileId: jordanId })).toEqual({
+      linked: true,
+      toast: "Linked 1 sale to Jordan Reyes.",
+      tone: "info",
+    });
+    expect(acting.revalidated).toEqual(["/(private)/admin/inventory/[itemId]", "/admin/sales"]);
+    // A second click: nothing more to link.
+    expect(await linkSaleAction({ saleId: data!.id, profileId: jordanId })).toMatchObject({ linked: true, toast: "This sale was already linked to Jordan Reyes." });
+    expect(await linkSaleAction({ saleId: data!.id, profileId: researcherId })).toEqual({ toast: LINK_NOT_LINKABLE });
+    expect(await salesOf(itemId)).toEqual([{ quantity: 1, revenue: 40, cost: 20, gross_profit: 20, buyer_profile_id: jordanId }]);
+
+    acting.client = await signedInClient(researcher.email);
+    await expect(linkSaleAction({ saleId: data!.id, profileId: researcherId })).rejects.toMatchObject({
+      digest: expect.stringContaining("NEXT_REDIRECT"),
     });
   });
 });

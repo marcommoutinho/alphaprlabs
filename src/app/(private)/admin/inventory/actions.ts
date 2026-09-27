@@ -14,12 +14,16 @@ import {
   PURCHASE_DATE_REQUIRED,
   SALE_ALREADY_RECORDED,
   SALE_DATE_FUTURE,
+  SELLER_NOT_ADMIN,
   stockChangedMessage,
+  validateLink,
   validatePurchase,
   validateSale,
   type UsdPurchaseEntry,
   type ValidPurchase,
 } from "@/lib/inventory/rules";
+import { LINK_NOT_LINKABLE, LINK_UNKNOWN_ACCOUNT, linkedToast } from "@/lib/inventory/seller-screens";
+import { linkSale } from "@/lib/inventory/sellers";
 import {
   businessToday,
   FX_SAVE_UNAVAILABLE,
@@ -206,11 +210,51 @@ export async function recordSaleAction(input: unknown): Promise<InventoryActionR
     case "unknown_buyer":
       refresh();
       return { error: ACCOUNT_REQUIRED };
+    case "seller_not_admin":
+      refresh();
+      return { error: SELLER_NOT_ADMIN };
     case "unknown_item":
       refresh();
       return { toast: ITEM_GONE };
     case "conflict":
       return { toast: SUBMISSION_CONFLICT };
+    default:
+      return { toast: SAVE_FAILED };
+  }
+}
+
+export type LinkActionResult = { error?: string; toast?: string; tone?: ToastTone; linked?: boolean };
+
+/**
+ * "Link to account…" on an outside buyer's sale (Marco, 2026-09-27): the
+ * sale (and optionally every other outside sale with the same buyer name)
+ * becomes an account sale. A buyer reference only: nothing else about the
+ * sale changes, and the account gains no access and no supplies. The stock
+ * item and sales pages are refreshed.
+ */
+export async function linkSaleAction(input: unknown): Promise<LinkActionResult> {
+  const admin = await currentAdmin();
+  if (!admin) redirect(signInUrl({ next: "/admin/sales" }));
+
+  const valid = validateLink(input);
+  if (!valid.ok) return { error: valid.error };
+
+  const db = await createClient();
+  const result = await linkSale(db, valid.value);
+  switch (result.kind) {
+    case "linked": {
+      // Every stock item page (the pattern, with its route group: Next 16.2 docs, revalidatePath).
+      revalidatePath("/(private)/admin/inventory/[itemId]", "page");
+      revalidatePath("/admin/sales");
+      refresh();
+      const sale = await getSale(db, valid.value.saleId).catch(() => null);
+      return { linked: true, toast: linkedToast(result.count, sale?.buyerName ?? "the account"), tone: "info" };
+    }
+    case "not_linkable":
+      refresh();
+      return { toast: LINK_NOT_LINKABLE };
+    case "unknown_buyer":
+      return { error: LINK_UNKNOWN_ACCOUNT };
     default:
       return { toast: SAVE_FAILED };
   }

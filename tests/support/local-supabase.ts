@@ -234,6 +234,8 @@ export async function seedInvitation(opts: {
   state?: "pending" | "failed";
   sentDaysAgo?: number;
   invitedBy?: string;
+  /** The role the account is created with (default researcher). */
+  role?: "researcher" | "admin";
 }): Promise<string> {
   const token = randomBytes(32).toString("base64url");
   const sentAt = new Date(Date.now() - (opts.sentDaysAgo ?? 0) * 86_400_000);
@@ -248,6 +250,7 @@ export async function seedInvitation(opts: {
       expires_at: new Date(sentAt.getTime() + 30 * 86_400_000).toISOString(),
       last_send_error: opts.state === "failed" ? "ECONNREFUSED: seeded failure" : null,
       invited_by: opts.invitedBy ?? null,
+      role: opts.role ?? "researcher",
     });
   if (error) throw error;
   return token;

@@ -12,9 +12,10 @@ import { ensureAccount, serviceClient, signedInClient, uniqueEmail } from "../su
 type Client = Awaited<ReturnType<typeof signedInClient>>;
 const admin = { email: uniqueEmail("s6-paging-admin"), name: "S6 Paging Admin" };
 let db: Client;
+let adminId: string;
 
 beforeAll(async () => {
-  await ensureAccount({ ...admin, role: "admin" });
+  adminId = await ensureAccount({ ...admin, role: "admin" });
   db = await signedInClient(admin.email);
 });
 
@@ -53,6 +54,7 @@ async function sell(stockItemId: string, soldOn: string, quantity: number, unitP
     soldOn,
     quantity,
     unitPrice,
+    sellerId: adminId,
     buyer: { type: "outside", name: "Paging buyer" },
   });
   if (result.kind !== "recorded") throw new Error(`sale refused: ${result.kind}`);

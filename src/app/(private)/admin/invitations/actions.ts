@@ -6,6 +6,7 @@ import { appOrigin } from "@/lib/auth/origin";
 import { signInUrl } from "@/lib/auth/paths";
 import { currentAdmin } from "@/lib/auth/session";
 import { inviteResearcher, resendInvitation } from "@/lib/invitations/service";
+import { INVALID_ROLE } from "@/lib/invitations/state";
 import { createClient } from "@/lib/supabase/server";
 
 export type InviteActionResult = {
@@ -27,7 +28,12 @@ async function requireAdminForAction() {
   return admin;
 }
 
-export async function sendInvitation(input: { name: unknown; email: unknown }): Promise<InviteActionResult> {
+/**
+ * A1 "Send invitation". `role` is "researcher" (the default) or "admin"
+ * (Marco, 2026-09-27; the form asks for confirmation first). Only a signed-in
+ * admin gets here, and the database checks is_admin() again.
+ */
+export async function sendInvitation(input: { name: unknown; email: unknown; role?: unknown }): Promise<InviteActionResult> {
   await requireAdminForAction();
   const db = await createClient();
   const result = await inviteResearcher(db, input, { origin: await appOrigin() });
@@ -37,6 +43,8 @@ export async function sendInvitation(input: { name: unknown; email: unknown }): 
       return { error: "Enter a valid email address." };
     case "invalid_name":
       return { error: "Names can be up to 120 characters." };
+    case "invalid_role":
+      return { error: INVALID_ROLE };
     case "account_exists":
       return { error: `${result.email} already has an account. They can sign in or recover access.` };
     case "pending_exists":

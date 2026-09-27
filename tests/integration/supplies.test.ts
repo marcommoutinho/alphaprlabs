@@ -316,6 +316,7 @@ describe("nothing adds to or deducts from personal supplies but a confirmed dose
       soldOn: day(-1),
       quantity: 2,
       unitPrice: "40",
+      sellerId: id.grace,
       buyer: { type: "account", profileId: id.alex },
     });
     expect(sale.kind).toBe("recorded");

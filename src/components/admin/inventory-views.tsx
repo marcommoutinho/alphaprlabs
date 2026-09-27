@@ -21,7 +21,10 @@ import {
   usdConversionLine,
   vials,
 } from "@/lib/inventory/screens";
-import type { SaleRecord, SalesReport, StockItemDetail, StockItemSummary } from "@/lib/inventory/service";
+import { BY_SELLER_TITLE, sellerLine, sellerRowLabel } from "@/lib/inventory/seller-screens";
+import type { SellerTotals } from "@/lib/inventory/sellers";
+import type { BuyerAccount, SaleRecord, SalesReport, StockItemDetail, StockItemSummary } from "@/lib/inventory/service";
+import { LinkSale } from "./link-sale";
 import "@/styles/app/inventory.css";
 
 export const PURCHASE_PATH = "/admin/inventory/purchase";
@@ -107,7 +110,7 @@ export function InventoryList({ items }: { items: StockItemSummary[] }) {
 }
 
 /** A4 Stock item: on hand, its purchase lots (FIFO order) and its sales (newest first). */
-export function StockItemView({ detail }: { detail: StockItemDetail }) {
+export function StockItemView({ detail, linkAccounts }: { detail: StockItemDetail; linkAccounts?: BuyerAccount[] }) {
   const { item, lots, sales } = detail;
   return (
     <>
@@ -173,7 +176,7 @@ export function StockItemView({ detail }: { detail: StockItemDetail }) {
           <p className="app-inv-caption">{SALES_CAPTION}</p>
           {sales.length === 0 ? <EmptyState>{NO_SALES}</EmptyState> : null}
           {sales.map((sale) => (
-            <SaleEntry key={sale.id} sale={sale} />
+            <SaleEntry key={sale.id} sale={sale} linkAccounts={linkAccounts} />
           ))}
           {detail.salesTruncated ? <p className="app-inv-note">{stockSalesTruncatedNote(sales.length)}</p> : null}
         </section>
@@ -187,7 +190,16 @@ export function StockItemView({ detail }: { detail: StockItemDetail }) {
  * then `Cost CAD 250.00 (10 × CAD 20.00 + 2 × CAD 25.00) · gross profit CAD 230.00`.
  * A7 adds the item label.
  */
-export function SaleEntry({ sale, itemLabel }: { sale: SaleRecord; itemLabel?: string }) {
+export function SaleEntry({
+  sale,
+  itemLabel,
+  linkAccounts,
+}: {
+  sale: SaleRecord;
+  itemLabel?: string;
+  /** The accounts an outside buyer's sale can be linked to ("Link to account…"); none: no link control. */
+  linkAccounts?: BuyerAccount[];
+}) {
   return (
     <div className="app-inv-entry" data-testid="sale-row">
       <div className="app-inv-entry-line">
@@ -200,20 +212,38 @@ export function SaleEntry({ sale, itemLabel }: { sale: SaleRecord; itemLabel?: s
           ) : (
             <b>{vials(sale.quantity)}</b>
           )}{" "}
-          · {buyerLabel(sale)}
+          · <span data-testid="sale-buyer">{buyerLabel(sale)}</span>
         </span>
         <span className="app-inv-entry-amount">{formatCurrency(sale.revenue)}</span>
       </div>
       <div className="app-inv-sub">
         Cost {formatCurrency(sale.cost)} ({allocationSummary(sale.allocations)}) · gross profit{" "}
-        <span data-tone={profitTone(sale.grossProfit)}>{formatCurrency(sale.grossProfit)}</span>
+        <span data-tone={profitTone(sale.grossProfit)}>{formatCurrency(sale.grossProfit)}</span> ·{" "}
+        <span data-testid="sale-seller">{sellerLine(sale)}</span>
       </div>
+      {linkAccounts && sale.buyerType === "outside" ? (
+        <LinkSale saleId={sale.id} buyerName={sale.buyerName} accounts={linkAccounts} />
+      ) : null}
     </div>
   );
 }
 
-/** A7 below the filters: KPIs, the note, the empty state, the by-item rows and the sales list. */
-export function SalesReportView({ report, itemLabels }: { report: SalesReport; itemLabels: Map<string, string> }) {
+/**
+ * A7 below the filters: KPIs, the note, the empty state, the by-item rows,
+ * the by-seller rows (Marco, 2026-09-27) and the sales list.
+ */
+export function SalesReportView({
+  report,
+  itemLabels,
+  sellers,
+  linkAccounts,
+}: {
+  report: SalesReport;
+  itemLabels: Map<string, string>;
+  /** Totals per seller for the same period and item. */
+  sellers: SellerTotals[];
+  linkAccounts?: BuyerAccount[];
+}) {
   const empty = salesEmptyText(report);
   const { totals } = report;
   return (
@@ -248,11 +278,29 @@ export function SalesReportView({ report, itemLabels }: { report: SalesReport; i
               </div>
             ))}
           </div>
+          <h2 className="app-inv-list-title">{BY_SELLER_TITLE}</h2>
+          <div className="app-inv-breakdown" data-testid="by-seller">
+            {sellers.map((row) => (
+              <div key={row.sellerId ?? "none"} className="app-inv-item-row">
+                <b data-muted={row.sellerId === null || undefined}>{sellerRowLabel(row)}</b>
+                <span className="app-inv-num app-inv-muted">{vials(row.vials)}</span>
+                <span className="app-inv-num">
+                  <Money amount={row.revenue} />
+                </span>
+                <span className="app-inv-num app-inv-muted">
+                  <Money amount={row.cost} />
+                </span>
+                <span className="app-inv-num" data-tone={profitTone(row.grossProfit)}>
+                  <Money amount={row.grossProfit} />
+                </span>
+              </div>
+            ))}
+          </div>
           <h2 className="app-inv-list-title">Sales in this view</h2>
           {report.salesTruncated ? <p className="app-inv-note">{salesTruncatedNote(report.sales.length)}</p> : null}
           <div data-testid="sales-list">
             {report.sales.map((sale) => (
-              <SaleEntry key={sale.id} sale={sale} itemLabel={itemLabels.get(sale.stockItemId) ?? "—"} />
+              <SaleEntry key={sale.id} sale={sale} itemLabel={itemLabels.get(sale.stockItemId) ?? "—"} linkAccounts={linkAccounts} />
             ))}
           </div>
         </>

@@ -13,10 +13,10 @@ import {
   type ValidSale,
 } from "./rules";
 
-type Db = SupabaseClient<Database>;
+export type Db = SupabaseClient<Database>;
 
 /** Rows per request: the API's max_rows (supabase/config.toml). */
-const API_PAGE = 1000;
+export const API_PAGE = 1000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** `pageSize` overrides API_PAGE (tests prove paging loses no row with a small page). */
@@ -29,7 +29,7 @@ export type PageOptions = { pageSize?: number };
  * a row written meanwhile can't shift a page, so no row is read twice (which
  * would count a total twice) or skipped.
  */
-async function allPages<Row>(
+export async function allPages<Row>(
   page: (after: Row | null, limit: number) => PromiseLike<{ data: Row[] | null; error: { message: string } | null }>,
   what: string,
   pageSize = API_PAGE,
@@ -94,8 +94,13 @@ export type SaleRecord = {
   buyerType: "account" | "outside";
   /** The linked account; null for an outside buyer. (A referenced account cannot be deleted.) */
   buyerProfileId: string | null;
-  /** The account's name at the time of the sale, or the outside buyer's reference. */
+  /** The account's name at the time of the sale (or of the link), or the outside buyer's reference. */
   buyerName: string;
+  /** Linked later to an account: the outside buyer's name as recorded. Null otherwise. */
+  originalBuyerName: string | null;
+  /** The admin who made the sale and their name at the time; null only for sales recorded before sellers existed. */
+  sellerId: string | null;
+  sellerName: string | null;
   recordedAt: string;
   /** Oldest lot first. */
   allocations: SaleAllocation[];
@@ -135,7 +140,7 @@ export async function listStock(db: Db, options: PageOptions = {}): Promise<Stoc
 
 const SALE_COLUMNS =
   "id, stock_item_id, sold_on, quantity, unit_price::text, revenue::text, cost::text, gross_profit::text, " +
-  "buyer_type, buyer_profile_id, buyer_name, recorded_at, " +
+  "buyer_type, buyer_profile_id, buyer_name, original_buyer_name, seller_id, seller_name, recorded_at, " +
   "business_sale_allocations(purchase_id, quantity, unit_cost::text, received_on, business_purchases(recorded_order))";
 
 type SaleRow = {
@@ -150,6 +155,9 @@ type SaleRow = {
   buyer_type: "account" | "outside";
   buyer_profile_id: string | null;
   buyer_name: string;
+  original_buyer_name: string | null;
+  seller_id: string | null;
+  seller_name: string | null;
   recorded_at: string;
   business_sale_allocations: {
     purchase_id: string;
@@ -172,6 +180,9 @@ const toSale = (row: SaleRow): SaleRecord => ({
   buyerType: row.buyer_type,
   buyerProfileId: row.buyer_profile_id,
   buyerName: row.buyer_name,
+  originalBuyerName: row.original_buyer_name,
+  sellerId: row.seller_id,
+  sellerName: row.seller_name,
   recordedAt: row.recorded_at,
   // FIFO order, the order the sale took them in.
   allocations: row.business_sale_allocations
@@ -403,13 +414,19 @@ const REFUSED = {
   AP006: "future_date",
   // record_business_purchase_fx: a newer Bank of Canada rate was stored for the window; look it up again.
   AP028: "rate_changed",
+  // 20260927160000_sellers_admin_invites.sql
+  AP029: "seller_not_admin",
+  AP030: "not_linkable",
 } as const;
-type Refusal = (typeof REFUSED)[keyof typeof REFUSED] | "error";
-const refusal = (code: string | undefined): Refusal => REFUSED[code as keyof typeof REFUSED] ?? "error";
+export type Refusal = (typeof REFUSED)[keyof typeof REFUSED] | "error";
+export const refusal = (code: string | undefined): Refusal => REFUSED[code as keyof typeof REFUSED] ?? "error";
+
+/** Refusals only a sale or a link can meet: a purchase maps them to "error". */
+type SaleOnly = "insufficient" | "unknown_buyer" | "seller_not_admin" | "not_linkable";
 
 export type PurchaseResult =
   | { kind: "recorded"; purchaseId: string; stockItemId: string; replayed: boolean }
-  | { kind: Exclude<Refusal, "insufficient" | "unknown_buyer"> };
+  | { kind: Exclude<Refusal, SaleOnly> };
 
 /**
  * A5: records a purchase, creating the stock item for a new peptide/strength.
@@ -447,7 +464,8 @@ function purchaseResult(
 ): PurchaseResult {
   if (error || !data) {
     const kind = refusal(error?.code);
-    return { kind: kind === "insufficient" || kind === "unknown_buyer" ? "error" : kind };
+    const saleOnly: readonly Refusal[] = ["insufficient", "unknown_buyer", "seller_not_admin", "not_linkable"];
+    return { kind: saleOnly.includes(kind) ? "error" : (kind as Exclude<Refusal, SaleOnly>) };
   }
   return { kind: "recorded", purchaseId: data.purchase_id, stockItemId: data.stock_item_id, replayed: data.replayed };
 }
@@ -515,13 +533,14 @@ export async function replayUsdPurchase(db: Db, entry: UsdPurchaseEntry): Promis
 export type SaleResult =
   | { kind: "recorded"; saleId: string; replayed: boolean }
   | { kind: "insufficient"; onHand: number }
-  | { kind: Exclude<Refusal, "insufficient" | "unknown_peptide" | "rate_changed"> };
+  | { kind: Exclude<Refusal, "insufficient" | "unknown_peptide" | "rate_changed" | "not_linkable"> };
 
 /**
  * A6: records a sale with its FIFO allocation, revenue and cost frozen, in one
  * transaction. Refused with `insufficient` (and the vials on hand) when stock
- * is short; nothing is recorded then. `replayed` is true when this idempotency
- * key was already recorded.
+ * is short, and with `seller_not_admin` when the seller is not a current
+ * admin; nothing is recorded then. `replayed` is true when this idempotency
+ * key was already recorded (the same details, the seller included).
  */
 export async function recordSale(db: Db, sale: ValidSale): Promise<SaleResult> {
   // The buyer is exactly an account or an outside buyer; anything else (a
@@ -536,13 +555,14 @@ export async function recordSale(db: Db, sale: ValidSale): Promise<SaleResult> {
       p_sold_on: sale.soldOn,
       p_quantity: sale.quantity,
       p_unit_price: sale.unitPrice,
+      p_seller_id: sale.sellerId,
       ...(sale.buyer.type === "account" ? { p_buyer_profile_id: sale.buyer.profileId } : { p_buyer_name: sale.buyer.name }),
     })
     .single();
   if (error) {
     const kind = refusal(error.code);
     if (kind === "insufficient") return { kind, onHand: Number(error.details) || 0 };
-    return { kind: kind === "unknown_peptide" || kind === "rate_changed" ? "error" : kind };
+    return { kind: kind === "unknown_peptide" || kind === "rate_changed" || kind === "not_linkable" ? "error" : kind };
   }
   return { kind: "recorded", saleId: data.sale_id, replayed: data.replayed };
 }

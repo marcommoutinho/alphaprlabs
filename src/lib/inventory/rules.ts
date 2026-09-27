@@ -38,6 +38,11 @@ export const PRICE_INVALID = "Enter the selling price per vial in CAD.";
 export const BUYER_TYPE_REQUIRED = "Choose Researcher account or Outside buyer.";
 export const ACCOUNT_REQUIRED = "Choose the buyer's researcher account.";
 export const OUTSIDE_BUYER_REQUIRED = "Name or reference the outside buyer.";
+// Sellers (Marco, 2026-09-27): every new sale names its seller, a current admin.
+export const SELLER_REQUIRED = "Choose the seller.";
+export const SELLER_NOT_ADMIN = "The seller must be a current admin. The list has been refreshed; choose the seller again.";
+// Linking a past outside sale to an account.
+export const LINK_ACCOUNT_REQUIRED = "Choose the account to link this sale to.";
 // Limits the design does not cover.
 export const VIALS_TOO_MANY = "Vials can be at most 100,000 in one entry.";
 export const AMOUNT_CENTS = "Enter CAD amounts in dollars and cents (at most 2 decimal places).";
@@ -236,11 +241,13 @@ export type ValidSale = {
   soldOn: string;
   quantity: number;
   unitPrice: string;
+  /** The admin who made the sale (required; the database checks they are a current admin). */
+  sellerId: string;
   buyer: { type: "account"; profileId: string } | { type: "outside"; name: string };
 };
 
 /**
- * A6 sale form, first failure wins: item, date, vials, price, buyer. Stock is
+ * A6 sale form, first failure wins: item, date, seller, vials, price, buyer. Stock is
  * checked by the preview and again, atomically, by the database. `today` is
  * the business date (America/Toronto); a later sale date is refused. A sale may be dated
  * before the purchases whose stock it uses.
@@ -254,6 +261,8 @@ export function validateSale(input: unknown, today: string): { ok: true; value: 
   const soldOn = calendarDate(raw.soldOn);
   if (!soldOn) return { ok: false, error: SALE_DATE_REQUIRED };
   if (!notFuture(soldOn, today)) return { ok: false, error: SALE_DATE_FUTURE };
+  const sellerId = uuid(raw.sellerId);
+  if (!sellerId) return { ok: false, error: SELLER_REQUIRED };
   const quantity = vials(raw.quantity);
   if (!quantity.ok) return quantity;
   const unitPrice = amount(raw.unitPrice, PRICE_INVALID);
@@ -271,7 +280,26 @@ export function validateSale(input: unknown, today: string): { ok: true; value: 
   } else {
     return { ok: false, error: BUYER_TYPE_REQUIRED };
   }
-  return { ok: true, value: { idempotencyKey, stockItemId, soldOn, quantity: quantity.value, unitPrice: unitPrice.value, buyer } };
+  return {
+    ok: true,
+    value: { idempotencyKey, stockItemId, soldOn, sellerId, quantity: quantity.value, unitPrice: unitPrice.value, buyer },
+  };
+}
+
+export type ValidLink = { saleId: string; profileId: string; sameName: boolean };
+
+/**
+ * "Link to account…" on an outside buyer's sale: the sale, the chosen
+ * account, and whether every other outside sale recorded with the same buyer
+ * name is linked too (only an exact `true` asks for that).
+ */
+export function validateLink(input: unknown): { ok: true; value: ValidLink } | { ok: false; error: string } {
+  const raw = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
+  const saleId = uuid(raw.saleId);
+  if (!saleId) return { ok: false, error: "This sale could not be identified. Reload the page and try again." };
+  const profileId = uuid(raw.profileId);
+  if (!profileId) return { ok: false, error: LINK_ACCOUNT_REQUIRED };
+  return { ok: true, value: { saleId, profileId, sameName: raw.sameName === true } };
 }
 
 /**

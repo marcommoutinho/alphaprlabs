@@ -127,10 +127,15 @@ export type Database = {
           gross_profit: number | null
           id: string
           idempotency_key: string
+          linked_at: string | null
+          linked_by: string | null
+          original_buyer_name: string | null
           quantity: number
           recorded_at: string
           recorded_by: string
           revenue: number
+          seller_id: string | null
+          seller_name: string | null
           sold_on: string
           stock_item_id: string
           unit_price: number
@@ -144,10 +149,15 @@ export type Database = {
           gross_profit?: number | null
           id?: string
           idempotency_key: string
+          linked_at?: string | null
+          linked_by?: string | null
+          original_buyer_name?: string | null
           quantity: number
           recorded_at?: string
           recorded_by: string
           revenue: number
+          seller_id?: string | null
+          seller_name?: string | null
           sold_on: string
           stock_item_id: string
           unit_price: number
@@ -161,10 +171,15 @@ export type Database = {
           gross_profit?: number | null
           id?: string
           idempotency_key?: string
+          linked_at?: string | null
+          linked_by?: string | null
+          original_buyer_name?: string | null
           quantity?: number
           recorded_at?: string
           recorded_by?: string
           revenue?: number
+          seller_id?: string | null
+          seller_name?: string | null
           sold_on?: string
           stock_item_id?: string
           unit_price?: number
@@ -178,8 +193,22 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "business_sales_linked_by_fkey"
+            columns: ["linked_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "business_sales_recorded_by_fkey"
             columns: ["recorded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "business_sales_seller_id_fkey"
+            columns: ["seller_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -728,6 +757,7 @@ export type Database = {
           invited_by: string | null
           last_send_error: string | null
           name: string
+          role: Database["public"]["Enums"]["app_role"]
           sent_at: string
           state: Database["public"]["Enums"]["invitation_state"]
           token_hash: string
@@ -742,6 +772,7 @@ export type Database = {
           invited_by?: string | null
           last_send_error?: string | null
           name?: string
+          role?: Database["public"]["Enums"]["app_role"]
           sent_at?: string
           state?: Database["public"]["Enums"]["invitation_state"]
           token_hash: string
@@ -756,6 +787,7 @@ export type Database = {
           invited_by?: string | null
           last_send_error?: string | null
           name?: string
+          role?: Database["public"]["Enums"]["app_role"]
           sent_at?: string
           state?: Database["public"]["Enums"]["invitation_state"]
           token_hash?: string
@@ -1435,6 +1467,19 @@ export type Database = {
           vials: number
         }[]
       }
+      admin_business_seller_totals: {
+        Args: { p_from?: string; p_stock_item_id?: string; p_to?: string }
+        Returns: {
+          cost: string
+          gross_profit: string
+          revenue: string
+          sales: number
+          seller_id: string
+          seller_key: string
+          seller_name: string
+          vials: number
+        }[]
+      }
       admin_business_stock: {
         Args: never
         Returns: {
@@ -1495,6 +1540,14 @@ export type Database = {
       }
       business_check_sale: { Args: { p_sale_id: string }; Returns: undefined }
       business_latest_date: { Args: never; Returns: string }
+      business_sellers: {
+        Args: never
+        Returns: {
+          email: string
+          name: string
+          profile_id: string
+        }[]
+      }
       can_read_researcher: { Args: { p_owner: string }; Returns: boolean }
       can_write_researcher: { Args: { p_owner: string }; Returns: boolean }
       check_in_effect_list: { Args: never; Returns: string[] }
@@ -1667,7 +1720,12 @@ export type Database = {
       finish_personal_vial: { Args: { p_vial_id: string }; Returns: boolean }
       has_research_access: { Args: never; Returns: boolean }
       invite_researcher: {
-        Args: { p_email: string; p_name: string; p_token_hash: string }
+        Args: {
+          p_email: string
+          p_name: string
+          p_role?: Database["public"]["Enums"]["app_role"]
+          p_token_hash: string
+        }
         Returns: {
           invitation_id: string
           outcome: string
@@ -1692,6 +1750,14 @@ export type Database = {
           peptide_id: string
           template_count: number
         }[]
+      }
+      link_business_sale: {
+        Args: {
+          p_buyer_profile_id: string
+          p_sale_id: string
+          p_same_name?: boolean
+        }
+        Returns: number
       }
       mark_invitation_send_failed: {
         Args: { p_error: string; p_id: string }
@@ -1757,6 +1823,7 @@ export type Database = {
           p_buyer_profile_id?: string
           p_idempotency_key: string
           p_quantity: number
+          p_seller_id?: string
           p_sold_on: string
           p_stock_item_id: string
           p_unit_price: string

@@ -48,9 +48,10 @@ type Client = Awaited<ReturnType<typeof signedInClient>>;
 const admin = { email: uniqueEmail("usd-admin"), name: "USD Admin" };
 const researcher = { email: uniqueEmail("usd-researcher"), name: "USD Researcher" };
 let db: Client;
+let adminId: string;
 
 beforeAll(async () => {
-  await ensureAccount({ ...admin, role: "admin" });
+  adminId = await ensureAccount({ ...admin, role: "admin" });
   await ensureAccount({ ...researcher, role: "researcher" });
   db = await signedInClient(admin.email);
   const rates = Object.entries(STORED).map(([date, rate]) => ({ date, rate }));
@@ -209,6 +210,7 @@ describe("record_business_purchase_fx", () => {
       soldOn: "2026-08-27",
       quantity: 3,
       unitPrice: "40",
+      sellerId: adminId,
       buyer: { type: "outside", name: "Walk-in" },
     });
     if (sale.kind !== "recorded") throw new Error(sale.kind);

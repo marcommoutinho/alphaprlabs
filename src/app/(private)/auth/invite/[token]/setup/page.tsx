@@ -22,7 +22,9 @@ export default async function AccountSetupPage({ params }: { params: Params }) {
       <h1 className="app-auth-title">Set up your access</h1>
       <AccountSetupForm token={token} name={invitation.name} email={invitation.email} />
       <p className="app-auth-note">
-        Roles are assigned by admins. Accepting an invitation creates a researcher account only.
+        {invitation.role === "admin"
+          ? "Roles are assigned by admins. Accepting this invitation creates a researcher account with admin access."
+          : "Roles are assigned by admins. Accepting an invitation creates a researcher account only."}
       </p>
     </AuthCard>
   );

@@ -27,7 +27,8 @@ export default async function InvitationPage({ params }: { params: Params }) {
           <div className="app-auth-kicker">You&apos;re invited</div>
           <h1 className="app-auth-title">Join Alpha PR Labs Research</h1>
           <p className="app-auth-lead">
-            {INVITER} invited <b>{invitation.email}</b>. Access is by invitation only; there is no
+            {INVITER} invited <b>{invitation.email}</b>
+            {invitation.role === "admin" ? " with admin access" : null}. Access is by invitation only; there is no
             public signup.
           </p>
           <Link

@@ -15,9 +15,10 @@ const admin = { email: uniqueEmail("s5-inv-admin"), name: "S5 Inventory Admin" }
 const jordan = { email: uniqueEmail("s5-inv-jordan"), name: "Jordan Reyes" };
 let db: Client;
 let jordanId: string;
+let adminId: string;
 
 beforeAll(async () => {
-  await ensureAccount({ ...admin, role: "admin" });
+  adminId = await ensureAccount({ ...admin, role: "admin" });
   jordanId = await ensureAccount({ ...jordan, role: "researcher" });
   db = await signedInClient(admin.email);
 });
@@ -57,6 +58,7 @@ const saleInput = (stockItemId: string, quantity: number, unitPrice: string, ext
   soldOn: "2026-08-25",
   quantity,
   unitPrice,
+  sellerId: adminId,
   buyer: { type: "outside" as const, name: "Outside buyer" },
   ...extra,
 });
@@ -357,6 +359,7 @@ describe("validation", () => {
         p_quantity: 1,
         p_unit_price: "1",
         p_buyer_name: "Walk-in",
+        p_seller_id: adminId,
         ...args,
       });
 
@@ -417,6 +420,7 @@ describe("validation", () => {
       p_unit_price: "1",
       p_buyer_profile_id: jordanId,
       p_buyer_name: "Also outside",
+      p_seller_id: adminId,
     });
     expect(both.error?.code).toBe("22023");
     expect(await salesOf(itemId)).toEqual([]);

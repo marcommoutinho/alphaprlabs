@@ -38,6 +38,10 @@ const EXCLUSIVE = [
   // Owner-level psql re-applies the purchase currency migration on recorded CAD purchases (dropping and re-adding
   // business_purchases columns) and tries the table's conversion checks, always rolled back.
   "tests/integration/purchase-currency-owner.test.ts",
+  // Owner-level psql re-applies the sellers migration on recorded sales and invitations (dropping and re-adding
+  // business_sales and invitations columns) and tries the sale guard's one exception, always rolled back; it also
+  // records 1,050 sales (committed, its own stock item) to prove the per-seller totals.
+  "tests/integration/sellers-owner.test.ts",
 ];
 
 export default defineConfig({

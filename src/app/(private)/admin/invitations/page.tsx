@@ -15,8 +15,8 @@ export default async function InvitationsPage() {
     <AppPage>
       <h1 className="app-h1">Researcher invitations</h1>
       <p className="app-subtitle">
-        The only way to join. An invitation creates a researcher account once accepted; it gives you no access to
-        that person&apos;s private history.
+        The only way to join. An invitation creates a researcher account once accepted (with the back office too
+        when you choose Admin); it gives you no access to that person&apos;s private history.
       </p>
       <InvitationsView
         rows={invitations.map((row) => ({
@@ -27,6 +27,7 @@ export default async function InvitationsPage() {
           state: row.state,
           label: STATE_LABEL[row.state],
           canResend: canResend(row.state),
+          role: row.role,
         }))}
       />
     </AppPage>
