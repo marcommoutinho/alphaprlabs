@@ -118,42 +118,74 @@ export function cycleStatus(revision: Pick<CycleRevision, "plans" | "timeZone">,
   return active ? "Active" : "In break";
 }
 
-/** A plan's phase on a date: the plan's peptide and the phase in force (see phasesOn). */
-export type PlanPhaseOn = { planId: string; peptideId: string; phase: Phase };
+/** One phase in force during part of a day, with the local date (in its revision's zone) it applies on there. */
+export type PhasePart = { date: LocalDate; phase: Phase };
+
+/** A plan's phases in force during a day (see phasesDuring), in time order. */
+export type PlanPhasesDuring = { planId: string; peptideId: string; parts: PhasePart[] };
 
 /**
- * Each plan's phase on a local date, across every revision (the header's
- * takeover rule, by date): a revision schedules a plan from its effectiveFrom
- * on (all of it when it has none), earlier revisions before that; a plan a
- * revision removed keeps its earlier phases through the local date of that
- * revision's creation (in its zone), and has none after. So a day shows what
- * was planned for it then, whatever later edits changed or removed. Plans in
- * the order they first appeared (the current revision's order for plans added
- * together); plans without a phase that day are left out.
+ * Each plan's phases in force during one local `day` of `timeZone` (e.g. a
+ * Progress row, a Toronto day), across every revision, by instant, as
+ * planOccurrences resolves occurrences:
+ *   * revision 1, and a plan a revision adds, schedules the plan from the
+ *     start; a later revision takes it over at its seam, the start of its
+ *     effectiveFrom in THAT revision's zone (seamOf), and a later seam cuts
+ *     any span that began after it (as takeOver keeps only what came before);
+ *   * a plan a revision removed ends at that revision's creation instant.
+ * Each span's part of the day is read in its own revision's zone: the local
+ * dates it covers there (one, or two when the zones' days are offset), and
+ * each date's phase. So a day that straddles a seam, or whose hours fall on
+ * two local dates of another zone, lists every phase in force during it, in
+ * time order (repeats kept; callers merge equal ones). Plans in the order
+ * they first appeared; plans with no phase during the day are left out.
  */
-export function phasesOn(revisions: readonly CycleRevision[], date: LocalDate): PlanPhaseOn[] {
-  const spans = new Map<string, { from: LocalDate | null; plan: StoredPlan }[]>();
-  const removedAfter = new Map<string, LocalDate>();
+export function phasesDuring(revisions: readonly CycleRevision[], day: LocalDate, timeZone: string): PlanPhasesDuring[] {
+  const dayStart = seamOf(day, timeZone);
+  const dayEnd = seamOf(Temporal.PlainDate.from(day).add({ days: 1 }).toString(), timeZone);
+  type Span = { from: Temporal.Instant | null; timeZone: string; plan: StoredPlan };
+  const spans = new Map<string, Span[]>();
+  const removedAt = new Map<string, Temporal.Instant>();
   revisions.forEach((revision, index) => {
     const kept = new Set(revision.plans.map((plan) => plan.planId));
     for (const plan of revisions[index - 1]?.plans ?? []) {
-      if (!kept.has(plan.planId)) removedAfter.set(plan.planId, localDateOf(toInstant(revision.createdAt), revision.timeZone));
+      if (!kept.has(plan.planId)) removedAt.set(plan.planId, Temporal.Instant.from(revision.createdAt));
     }
     for (const plan of revision.plans) {
       const list = spans.get(plan.planId);
-      // Revision 1, or a plan this revision adds: all of it.
-      if (!list || !plan.effectiveFrom) spans.set(plan.planId, [{ from: null, plan }]);
-      else list.push({ from: plan.effectiveFrom, plan });
-      removedAfter.delete(plan.planId);
+      if (!list || !plan.effectiveFrom) {
+        spans.set(plan.planId, [{ from: null, timeZone: revision.timeZone, plan }]);
+      } else {
+        const seam = seamOf(plan.effectiveFrom, revision.timeZone);
+        spans.set(plan.planId, [
+          ...list.filter((span) => span.from === null || Temporal.Instant.compare(span.from, seam) < 0),
+          { from: seam, timeZone: revision.timeZone, plan },
+        ]);
+      }
+      removedAt.delete(plan.planId);
     }
   });
-  const found: PlanPhaseOn[] = [];
+
+  const later = (a: Temporal.Instant, b: Temporal.Instant) => (Temporal.Instant.compare(a, b) >= 0 ? a : b);
+  const earlier = (a: Temporal.Instant, b: Temporal.Instant) => (Temporal.Instant.compare(a, b) <= 0 ? a : b);
+  const found: PlanPhasesDuring[] = [];
   for (const [planId, list] of spans) {
-    const removed = removedAfter.get(planId);
-    if (removed && date > removed) continue;
-    const span = list.filter((s) => s.from === null || s.from <= date).at(-1);
-    const phase = span?.plan.phases.find((p) => p.start <= date && p.end >= date);
-    if (span && phase) found.push({ planId, peptideId: span.plan.peptideId, phase });
+    const parts: PhasePart[] = [];
+    list.forEach((span, i) => {
+      const next = list[i + 1]?.from ?? null;
+      const removed = removedAt.get(planId) ?? null;
+      const from = span.from ? later(dayStart, span.from) : dayStart;
+      let to = next ? earlier(dayEnd, next) : dayEnd;
+      if (removed) to = earlier(to, removed);
+      if (Temporal.Instant.compare(from, to) >= 0) return;
+      const first = localDateOf(from, span.timeZone);
+      const last = localDateOf(to.subtract({ nanoseconds: 1 }), span.timeZone);
+      for (let date = first; date <= last; date = Temporal.PlainDate.from(date).add({ days: 1 }).toString()) {
+        const phase = span.plan.phases.find((p) => p.start <= date && p.end >= date);
+        if (phase) parts.push({ date, phase });
+      }
+    });
+    if (parts.length) found.push({ planId, peptideId: list[0].plan.peptideId, parts });
   }
   return found;
 }

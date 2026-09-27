@@ -8,10 +8,13 @@
 //
 // A check-in needs no cycle. With a cycle selected (the cycle picker), each
 // day also shows:
-//   * that cycle's phase for each peptide on that date, across every revision
-//     (phasesOn): what was planned for that day then, even for a plan a later
-//     edit removed. A phase's dates are the cycle's own local dates, read as
-//     calendar dates on the Toronto axis;
+//   * that cycle's phases for each peptide in force during that Toronto day,
+//     across every revision (phasesDuring): resolved by instant, as the
+//     cycle's doses are, with each revision's dates in its own zone, so a
+//     dose always sits beside the phase that planned it, and a plan a later
+//     edit removed still shows on its earlier days. A day during which the
+//     plan changes (an edit's seam falls inside it, or another zone's dates
+//     turn over during it) shows each value in time order: "0.4 mg → 0.6 mg";
 //   * every dose actually recorded that day across all the researcher's
 //     cycles (as the prototype does), placed by the Toronto date of its
 //     actual time. For a cycle in Toronto's zone that is the dose's own local
@@ -24,7 +27,7 @@
 import { formatDate, formatDay, formatMonthDay } from "@/lib/format";
 import type { CycleRecord } from "@/lib/cycles/rules";
 import { doseAt } from "@/lib/cycles/rules";
-import { cycleSpan, cycleStatus, type CycleStatus, phasesOn } from "@/lib/cycles/schedule";
+import { cycleSpan, cycleStatus, type CycleStatus, phasesDuring } from "@/lib/cycles/schedule";
 import { planPeptides, type RecordedConfirmation, type ViewPeptides } from "@/lib/cycles/views";
 import { formatLocalTime, type InstantInput, toInstant, wallClock } from "@/lib/schedule/zone";
 import { checkInDay, effectsLine, formTitle, HISTORY_DAYS, NO_CHECK_IN, NO_DOSES, PROGRESS_TIME_ZONE, saveLabel, SPARSE } from "./rules";
@@ -123,12 +126,17 @@ export function progressWindow(now: InstantInput): { from: string; to: string } 
   return { from: addDay(to, -(HISTORY_DAYS - 1)), to };
 }
 
-/** "Compound A: 0.4 mg · Compound B: break": each plan's phase on `day`, across the cycle's revisions. */
+/**
+ * "Compound A: 0.4 mg · Compound B: break": each plan's phases in force
+ * during the Toronto `day`, across the cycle's revisions; a change during the
+ * day reads "Compound A: 0.4 mg → 0.6 mg".
+ */
 export function phaseLine(cycle: CycleRecord, day: string, peptides: ViewPeptides): string {
-  return phasesOn(cycle.revisions, day)
-    .map(({ peptideId, phase }) => {
+  return phasesDuring(cycle.revisions, day, PROGRESS_TIME_ZONE)
+    .map(({ peptideId, parts }) => {
       const name = peptides.get(peptideId)?.name ?? "Unknown peptide";
-      return `${name}: ${phase.kind === "break" ? "break" : `${doseAt(phase, day)} mg`}`;
+      const values = parts.map(({ phase, date }) => (phase.kind === "break" ? "break" : `${doseAt(phase, date)} mg`));
+      return `${name}: ${values.filter((value, i) => value !== values[i - 1]).join(" → ")}`;
     })
     .join(" · ");
 }

@@ -6,7 +6,7 @@
 // Sep 21, 2026 is a Monday.
 import { describe, expect, it } from "vitest";
 import type { CycleRecord, CycleRevision } from "@/lib/cycles/rules";
-import { phasesOn } from "@/lib/cycles/schedule";
+import { cycleOccurrences, phasesDuring } from "@/lib/cycles/schedule";
 import type { RecordedConfirmation, ViewPeptides } from "@/lib/cycles/views";
 import {
   CHECK_IN_INVALID,
@@ -462,7 +462,7 @@ describe("phases across revisions", () => {
     expect(phaseLine(cycle, "2026-09-17", peptides)).toBe("Compound A: 0.4 mg · Compound B: 1 mg");
     // C's active phase never came: it was removed first.
     expect(phaseLine(cycle, "2026-09-20", peptides)).toBe("Compound A: 0.6 mg · Compound B: 1 mg");
-    expect(phasesOn(cycle.revisions, "2026-09-19").map((p) => p.planId)).toEqual([PLAN_A, PLAN_B]);
+    expect(phasesDuring(cycle.revisions, "2026-09-19", TORONTO).map((p) => p.planId)).toEqual([PLAN_A, PLAN_B]);
     // Only the current revision would have lost C's earlier days.
     expect(phaseLine(cycleOf(504, "Current only", [{ ...edited, number: 1, plans: edited.plans.map((p) => ({ ...p, effectiveFrom: null })) }]), "2026-09-12", peptides)).toBe(
       "Compound A: 0.4 mg",
@@ -471,9 +471,105 @@ describe("phases across revisions", () => {
     expect(v.rows.find((r) => r.day === "2026-09-14")?.phase).toBe("Compound A: 0.4 mg · Compound B: 1 mg · Compound C: break");
   });
 
-  it("uses each revision from its effective date: earlier days keep the plan as it was", () => {
+  it("uses each revision from its effective date: earlier days keep the plan as it was (a same-zone seam, the control)", () => {
+    // The seam is Toronto's midnight: no Toronto day straddles it.
     expect(phaseLine(cycle, "2026-09-17", peptides)).toBe("Compound A: 0.4 mg · Compound B: 1 mg");
     expect(phaseLine(cycle, "2026-09-18", peptides)).toBe("Compound A: 0.6 mg · Compound B: 1 mg");
     expect(phaseLine(cycle, "2026-10-02", peptides)).toBe("Compound A: break · Compound B: 1 mg");
+    expect(phasesDuring(cycle.revisions, "2026-09-17", TORONTO)[0].parts.map((p) => p.date)).toEqual(["2026-09-17"]);
+    everyDoseBesideItsPhase(cycle);
+  });
+
+  it("lets a later seam cut a span that began after it", () => {
+    // Revision 2 (Sep 16) changes A from Sep 25; revision 3 (Sep 17) changes it again from Sep 20.
+    const third: CycleRevision = {
+      ...edited,
+      id: uuid(102),
+      number: 3,
+      createdAt: "2026-09-17T16:00:00Z",
+      plans: [
+        {
+          ...edited.plans[0],
+          effectiveFrom: "2026-09-20",
+          phases: [{ ...(revision.plans[0].phases[0] as ActivePhase), doseChanges: [{ from: "2026-09-20", doseMg: "0.7" }] }, revision.plans[0].phases[1]],
+        },
+        { ...edited.plans[1], effectiveFrom: "2026-09-20" },
+      ],
+    };
+    const later = { ...edited, plans: edited.plans.map((p) => ({ ...p, effectiveFrom: "2026-09-25" })) };
+    const cut = cycleOf(505, "Cut", [revision, later, third]);
+    expect(phaseLine(cut, "2026-09-19", peptides)).toBe("Compound A: 0.4 mg · Compound B: 1 mg");
+    expect(phaseLine(cut, "2026-09-26", peptides)).toBe("Compound A: 0.7 mg · Compound B: 1 mg");
+    everyDoseBesideItsPhase(cut);
+  });
+});
+
+/** Every scheduled dose's amount appears in the phase line of its Toronto day: doses and phases agree across zones. */
+function everyDoseBesideItsPhase(cycle: CycleRecord) {
+  const occurrences = cycleOccurrences(cycle.revisions);
+  expect(occurrences.length).toBeGreaterThan(0);
+  for (const o of occurrences) {
+    const day = localDateOf(o.scheduledAt, TORONTO);
+    const name = peptides.get(cycle.revisions[0].plans.find((p) => p.planId === o.planId)?.peptideId ?? "")?.name;
+    const line = phaseLine(cycle, day, peptides).split(" · ").find((part) => part.startsWith(`${name}: `)) ?? "";
+    expect(line.slice(`${name}: `.length).split(" → "), `${o.key} at ${o.scheduledAt} (${day})`).toContain(`${o.doseMg} mg`);
+  }
+}
+
+describe("phases across a change of time zone", () => {
+  /** A: every day at 08:00, 0.4 mg, Sep 10–30, in Toronto. */
+  const toronto: CycleRevision = {
+    id: uuid(200),
+    number: 1,
+    timeZone: TORONTO,
+    createdAt: "2026-09-01T12:00:00Z",
+    plans: [
+      {
+        planId: PLAN_A,
+        peptideId: PA,
+        effectiveFrom: null,
+        phases: [{ id: A1, kind: "active", start: "2026-09-10", end: "2026-09-30", doseMg: "0.4", time: "08:00", schedule: { type: "interval", everyDays: 1 } }],
+      },
+    ],
+  };
+  /** Edited on Sep 16: from Sep 18 (in `timeZone`), 0.6 mg. */
+  const moved = (timeZone: string): CycleRevision => ({
+    id: uuid(201),
+    number: 2,
+    timeZone,
+    createdAt: "2026-09-16T16:00:00Z",
+    plans: [
+      {
+        ...toronto.plans[0],
+        effectiveFrom: "2026-09-18",
+        phases: [{ ...(toronto.plans[0].phases[0] as ActivePhase), doseChanges: [{ from: "2026-09-18", doseMg: "0.6" }] }],
+      },
+    ],
+  });
+
+  it("Toronto to Tokyo: the seam (Sep 18 00:00 Tokyo) is Sep 17 11:00 in Toronto, so Sep 17 shows both", () => {
+    const cycle = cycleOf(510, "To Tokyo", [toronto, moved("Asia/Tokyo")]);
+    // The new 0.6 mg dose at Sep 18 08:00 Tokyo is Sep 17 19:00 in Toronto.
+    const first = cycleOccurrences(cycle.revisions).find((o) => o.doseMg === "0.6")!;
+    expect([first.scheduledAt, first.timeZone, localDateOf(first.scheduledAt, TORONTO)]).toEqual(["2026-09-17T23:00:00Z", "Asia/Tokyo", "2026-09-17"]);
+    expect(phaseLine(cycle, "2026-09-16", peptides)).toBe("Compound A: 0.4 mg");
+    expect(phaseLine(cycle, "2026-09-17", peptides)).toBe("Compound A: 0.4 mg → 0.6 mg");
+    expect(phasesDuring(cycle.revisions, "2026-09-17", TORONTO)[0].parts.map((p) => p.date)).toEqual(["2026-09-17", "2026-09-18"]);
+    expect(phaseLine(cycle, "2026-09-18", peptides)).toBe("Compound A: 0.6 mg");
+    // Tokyo's last day (Sep 30) ends at Sep 30 11:00 in Toronto.
+    expect(phaseLine(cycle, "2026-09-30", peptides)).toBe("Compound A: 0.6 mg");
+    expect(phaseLine(cycle, "2026-10-01", peptides)).toBe("");
+    everyDoseBesideItsPhase(cycle);
+  });
+
+  it("Toronto to Vancouver: the seam (Sep 18 00:00 Vancouver) is Sep 18 03:00 in Toronto, so Sep 18 shows both", () => {
+    const cycle = cycleOf(511, "To Vancouver", [toronto, moved("America/Vancouver")]);
+    expect(phaseLine(cycle, "2026-09-17", peptides)).toBe("Compound A: 0.4 mg");
+    expect(phaseLine(cycle, "2026-09-18", peptides)).toBe("Compound A: 0.4 mg → 0.6 mg");
+    expect(phaseLine(cycle, "2026-09-19", peptides)).toBe("Compound A: 0.6 mg");
+    // Vancouver's Sep 30 runs to Oct 1 03:00 in Toronto.
+    expect(phaseLine(cycle, "2026-10-01", peptides)).toBe("Compound A: 0.6 mg");
+    expect(phaseLine(cycle, "2026-10-02", peptides)).toBe("");
+    everyDoseBesideItsPhase(cycle);
   });
 });

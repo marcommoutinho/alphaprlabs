@@ -85,9 +85,15 @@ type RecordPage = PromiseLike<{ data: RecordRow[] | null; error: { message: stri
  * cap never cuts the history short, and a dose recorded meanwhile can't
  * shift a page and make a row skip or repeat as offsets could.
  */
-async function recordRows(db: Db, scope: { ownerId: string } | { cycleId: string }, requested: number): Promise<RecordRow[]> {
+/**
+ * How a read is paged; for tests. `afterPage` runs after each page is read
+ * and before the next is asked for (tests write between pages with it).
+ */
+export type DoseReadOptions = { pageSize?: number; afterPage?: (page: number) => Promise<void> | void };
+
+async function recordRows(db: Db, scope: { ownerId: string } | { cycleId: string }, options: DoseReadOptions): Promise<RecordRow[]> {
   // Never more than the API returns: a short page must mean the last one.
-  const pageSize = Math.min(requested, PAGE);
+  const pageSize = Math.min(options.pageSize ?? PAGE, PAGE);
   const rows: RecordRow[] = [];
   for (let after: string | null = null; ; ) {
     const query = db.from("dose_records").select(RECORD_COLUMNS);
@@ -98,6 +104,7 @@ async function recordRows(db: Db, scope: { ownerId: string } | { cycleId: string
     rows.push(...got);
     if (got.length < pageSize) break;
     after = got[got.length - 1].id;
+    await options.afterPage?.(rows.length / pageSize);
   }
   // To the microsecond, as the database orders them.
   return rows.sort((a, b) => Temporal.Instant.compare(Temporal.Instant.from(a.recorded_at), Temporal.Instant.from(b.recorded_at)) || a.id.localeCompare(b.id));
@@ -105,10 +112,10 @@ async function recordRows(db: Db, scope: { ownerId: string } | { cycleId: string
 
 /**
  * Every dose `ownerId` recorded (readable to them, or to an admin they
- * granted), in recording order. `pageSize` is for tests that prove paging.
+ * granted), in recording order.
  */
-export async function listDoseRecords(db: Db, ownerId: string, pageSize = PAGE): Promise<DoseRecord[]> {
-  return (await recordRows(db, { ownerId }, pageSize)).map(recordOf);
+export async function listDoseRecords(db: Db, ownerId: string, options: DoseReadOptions = {}): Promise<DoseRecord[]> {
+  return (await recordRows(db, { ownerId }, options)).map(recordOf);
 }
 
 /** A recorded dose as the engine's confirmation, with what was recorded. */
@@ -134,8 +141,8 @@ export function confirmationsByCycle(records: readonly DoseRecord[]): Map<string
 }
 
 /** One cycle's confirmations, for a page that shows one cycle. */
-export async function cycleConfirmations(db: Db, cycleId: string, pageSize = PAGE): Promise<RecordedConfirmation[]> {
-  return (await recordRows(db, { cycleId }, pageSize)).map((row) => confirmationOf(recordOf(row)));
+export async function cycleConfirmations(db: Db, cycleId: string, options: DoseReadOptions = {}): Promise<RecordedConfirmation[]> {
+  return (await recordRows(db, { cycleId }, options)).map((row) => confirmationOf(recordOf(row)));
 }
 
 // ── The setups a plan used over time (R5's units and seen version) ──────────
