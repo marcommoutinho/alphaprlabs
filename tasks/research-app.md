@@ -262,6 +262,10 @@ switches to the back office and back.
   USD→CAD rate for that date, and stores the USD amount, the rate and the CAD
   cost. Gross profit stays in CAD. Sales are always in CAD (Marco,
   2026-09-27); only purchases can be entered in USD.
+- Bank of Canada rates are stored in the app's own database: a daily sync
+  after publication, a one-off backfill from 2025-01-01, and a single on-demand
+  fetch only when a date's window is missing. Saving a purchase does not depend
+  on the Bank of Canada being reachable (Marco, 2026-09-27).
 - The opening-stock import uses each order's real CAD total where known
   (shipping and fees included) and the Bank of Canada rate for that date
   otherwise.
