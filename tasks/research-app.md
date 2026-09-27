@@ -180,6 +180,22 @@ switches to the back office and back.
   (e.g. Antarctica/Troll) are not supported by the database's due-time check;
   accepted, since the app will never operate there.
 
+### Library views and mixtures decisions (Marco, 2026-09-26)
+
+- A template page shows a notice at the top when it includes a peptide that is
+  no longer offered ("Your copy will include {name}, which is no longer
+  offered"), in addition to the per-peptide label.
+- A researcher whose own cycle uses a withdrawn peptide can open that peptide's
+  library page from their cycle; it stays hidden when browsing.
+- A saved mixture is linked to cycle peptides in the calculator (a picker in the
+  cycle builder may come later).
+- A confirmed dose records the mixture setup in effect at the time the
+  researcher says they actually took it.
+- Kept as built: "Scheduled vs actual" lists past and today's doses (future
+  doses are on the timeline); liquid added is capped at 1,000 mL as a typo
+  guard; a mixture's vial strength cannot change while a tracked open vial uses
+  it.
+
 ### Launch exclusions
 
 - Blended or multi-peptide vials. A cycle may still contain several separately

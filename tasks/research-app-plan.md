@@ -722,6 +722,10 @@ Cleanup before G2 (accepted by Marco, 2026-09-26):
   read-only gateway retry; exact refusal assertions; e2e workers capped at 4).
 - The admin invitation list is not paged; past 1,000 invitations the oldest
   drop out.
+- R6 follow-up (Marco, 2026-09-26): template notice for withdrawn peptides, and
+  a withdrawn peptide's library page reachable from the researcher's own cycle.
+- The cycle builder's template copy (`getTemplateForCopy`) still uses an
+  embedded read subject to the 1,000-row cap.
 
 - S8 (cycle templates) built, reviewed (clear first pass) and integrated at
   `5bb9806`; deployed to the closed production app with its migration on
