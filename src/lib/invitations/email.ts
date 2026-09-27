@@ -21,12 +21,13 @@ export function smtpSettingsFromEnv(): SmtpSettings {
 const isLoopback = (host: string) => host === "localhost" || host === "127.0.0.1" || host === "::1";
 
 /**
- * Sends the plain invitation email: a subject and one link. Throws on any
- * SMTP failure. The link carries the raw token, so neither the link nor the
- * message is ever logged.
+ * Sends the plain invitation email: a subject and one link. It never names
+ * the inviting admin (Marco, 2026-09-27: researchers never learn which admin
+ * it is). Throws on any SMTP failure. The link carries the raw token, so
+ * neither the link nor the message is ever logged.
  */
 export async function sendInvitationEmail(
-  message: { to: string; name: string; inviterName: string; link: string },
+  message: { to: string; name: string; link: string },
   smtp: SmtpSettings = smtpSettingsFromEnv(),
 ): Promise<void> {
   const transport = nodemailer.createTransport({
@@ -49,7 +50,7 @@ export async function sendInvitationEmail(
       text: [
         `Hi ${message.name},`,
         "",
-        `${message.inviterName} invited you to Alpha PR Labs Research. Accept the invitation and set your password here:`,
+        "You've been invited to Alpha PR Labs Research. Accept the invitation and set your password here:",
         "",
         message.link,
         "",

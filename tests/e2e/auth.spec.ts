@@ -65,6 +65,9 @@ test("admin invites; the researcher accepts, sets a password, acknowledges and r
   const mail = await latestEmail(email);
   const link = /http:\/\/\S+\/auth\/invite\/[A-Za-z0-9_-]{43}/.exec(mail.text)?.[0];
   expect(link).toContain(`${APP_ORIGIN}/auth/invite/`);
+  expect(mail.subject).toBe("Your invitation to Alpha PR Labs Research");
+  expect(mail.text).toContain("You've been invited to Alpha PR Labs Research.");
+  for (const part of [mail.subject, mail.text, mail.html]) expect(part).not.toContain("Marco");
   const researcher = await (await browser.newContext()).newPage();
   await researcher.goto(link!);
   await expect(researcher.getByText("You're invited")).toBeVisible();
@@ -158,7 +161,10 @@ test("expired, unknown and failed invitations; resend", async ({ page }) => {
   await expect(toast(page)).toHaveText(`Invitation resent to ${failedEmail}`);
   await expect(row(page, failedEmail)).toContainText("Pending");
   await expect(row(page, failedEmail).getByRole("button", { name: "Resend" })).toHaveCount(0);
-  expect((await latestEmail(failedEmail)).text).toContain("Marco Moutinho invited you");
+  const resent = await latestEmail(failedEmail);
+  expect(resent.text).toContain("You've been invited to Alpha PR Labs Research.");
+  // The email never names the inviting admin.
+  for (const part of [resent.subject, resent.text, resent.html]) expect(part).not.toContain("Marco");
 
   await row(page, expiredEmail).getByRole("button", { name: "Resend" }).click();
   await expect(row(page, expiredEmail)).toContainText("Pending");

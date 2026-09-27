@@ -159,6 +159,26 @@ describe("sharing and stopping", () => {
     expect(await stop(p.blair)).toBe(true);
   });
 
+  it("sharing and stopping at the same time leave one consistent history", async () => {
+    // Twelve taps racing, alternating share and stop.
+    const results = await Promise.all(
+      Array.from({ length: 12 }, (_, i) => (i % 2 === 0 ? p.blair.client.rpc("share_with_team") : p.blair.client.rpc("stop_sharing_with_team"))),
+    );
+    for (const { error } of results) expect(error).toBeNull();
+    const rows = await history(p.blair);
+    // At most one active share, every stopped one stopped after it started, and none overlapping.
+    expect(rows.filter((s) => s.stopped_at === null).length).toBeLessThanOrEqual(1);
+    for (const [i, s] of rows.entries()) {
+      if (s.stopped_at) expect(Date.parse(s.stopped_at)).toBeGreaterThanOrEqual(Date.parse(s.started_at));
+      const next = rows[i + 1];
+      if (next) expect(s.stopped_at === null ? Infinity : Date.parse(s.stopped_at)).toBeLessThanOrEqual(Date.parse(next.started_at));
+    }
+    // The rule follows the final state.
+    expect(await canRead(p.grace, p.blair)).toBe(rows.some((s) => s.stopped_at === null));
+    await stop(p.blair);
+    expect(await canRead(p.grace, p.blair)).toBe(false);
+  });
+
   it("a share works only for current admins: a demoted admin reads nothing, a newly promoted one reads at once", async () => {
     await share(p.alex);
     expect(await canRead(p.noah, p.alex)).toBe(true);

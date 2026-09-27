@@ -28,9 +28,9 @@ async function requireAdminForAction() {
 }
 
 export async function sendInvitation(input: { name: unknown; email: unknown }): Promise<InviteActionResult> {
-  const admin = await requireAdminForAction();
+  await requireAdminForAction();
   const db = await createClient();
-  const result = await inviteResearcher(db, input, { origin: await appOrigin(), inviterName: admin.name });
+  const result = await inviteResearcher(db, input, { origin: await appOrigin() });
 
   switch (result.kind) {
     case "invalid_email":
@@ -53,9 +53,9 @@ export async function sendInvitation(input: { name: unknown; email: unknown }): 
 }
 
 export async function resendInvitationAction(id: unknown): Promise<InviteActionResult> {
-  const admin = await requireAdminForAction();
+  await requireAdminForAction();
   const db = await createClient();
-  const result = await resendInvitation(db, id, { origin: await appOrigin(), inviterName: admin.name });
+  const result = await resendInvitation(db, id, { origin: await appOrigin() });
   refresh();
 
   switch (result.kind) {

@@ -25,7 +25,6 @@ export function hashToken(token: string): string {
 export type SendContext = {
   /** e.g. https://app.alphaprlabs.com — the link is `${origin}/auth/invite/<token>`. */
   origin: string;
-  inviterName: string;
   smtp?: SmtpSettings;
 };
 
@@ -65,7 +64,7 @@ export type InviteResult =
 async function deliver(db: Db, id: string, to: string, name: string, token: string, ctx: SendContext) {
   try {
     await sendInvitationEmail(
-      { to, name: name || to, inviterName: ctx.inviterName, link: `${ctx.origin}/auth/invite/${token}` },
+      { to, name: name || to, link: `${ctx.origin}/auth/invite/${token}` },
       ctx.smtp,
     );
     return "sent" as const;

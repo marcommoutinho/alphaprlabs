@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { Temporal } from "@js-temporal/polyfill";
-import { afterPair, keysetRows, type PageOptions } from "@/lib/keyset";
+import { afterPair, chunks, keysetRows, type PageOptions } from "@/lib/keyset";
 import { allRows } from "@/lib/library/service";
 import type { DoseChange, Phase, TimeChange, Weekday } from "@/lib/schedule/engine";
 import type { Database, Json } from "@/lib/supabase/database.types";
@@ -148,26 +148,28 @@ async function readCycles(db: Db, filter: { ownerId: string } | { cycleId: strin
   ]);
   revisions.sort((a, b) => a.cycle_id.localeCompare(b.cycle_id) || a.number - b.number);
   plans.sort((a, b) => a.revision_id.localeCompare(b.revision_id) || a.position - b.position);
-  const phases = await keysetRows<PhaseRow>(
-    (after, limit) => {
-      const query = db.from("cycle_revision_phases").select(PHASE_COLUMNS);
-      const scoped = byOwner
-        ? query.eq("owner_id", filter.ownerId)
-        : query.in(
-            "revision_id",
-            revisions.map((revision) => revision.id),
-          );
-      return (after ? scoped.or(afterPair("revision_id", after.revision_id, "phase_id", after.phase_id)) : scoped)
-        .order("revision_id")
-        .order("phase_id")
-        .limit(limit) as unknown as PromiseLike<{
-        data: PhaseRow[] | null;
-        error: { message: string } | null;
-      }>;
-    },
-    "cycle phases",
-    options,
-  );
+  // One cycle's phases are found by its revision ids: in bounded chunks, so a
+  // cycle with hundreds of revisions never outgrows the request's URL.
+  const ownerId = "ownerId" in filter ? filter.ownerId : "";
+  const phaseRows = (revisionIds: string[] | null) =>
+    keysetRows<PhaseRow>(
+      (after, limit) => {
+        const query = db.from("cycle_revision_phases").select(PHASE_COLUMNS);
+        const scoped = revisionIds ? query.in("revision_id", revisionIds) : query.eq("owner_id", ownerId);
+        return (after ? scoped.or(afterPair("revision_id", after.revision_id, "phase_id", after.phase_id)) : scoped)
+          .order("revision_id")
+          .order("phase_id")
+          .limit(limit) as unknown as PromiseLike<{
+          data: PhaseRow[] | null;
+          error: { message: string } | null;
+        }>;
+      },
+      "cycle phases",
+      options,
+    );
+  const phases = byOwner
+    ? await phaseRows(null)
+    : (await Promise.all(chunks(revisions.map((revision) => revision.id), options.chunkSize).map(phaseRows))).flat();
 
   const phasesOf = new Map<string, Phase[]>();
   for (const row of phases) {

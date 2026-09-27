@@ -159,7 +159,9 @@ begin
     return v_id;
   end if;
 
-  insert into public.support_shares (researcher_id) values (v_uid) returning id into v_id;
+  -- The time the share really starts, under the lock (not the transaction's start, which a
+  -- tap that waited on the lock would carry): so the history stays in order.
+  insert into public.support_shares (researcher_id, started_at) values (v_uid, clock_timestamp()) returning id into v_id;
   return v_id;
 end;
 $$;
@@ -185,7 +187,7 @@ begin
   perform pg_advisory_xact_lock(hashtextextended('support_share:' || v_uid::text, 0));
 
   update public.support_shares s
-  set stopped_at = greatest(now(), s.started_at)
+  set stopped_at = greatest(clock_timestamp(), s.started_at)
   where s.researcher_id = v_uid and s.stopped_at is null;
   return found;
 end;

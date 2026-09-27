@@ -235,4 +235,3 @@ test("Me signs out", async ({ page }) => {
   await page.goto(`${APP_ORIGIN}/app/me`);
   await expect(page).toHaveURL(new RegExp(`^${APP_ORIGIN}/auth`));
 });
-

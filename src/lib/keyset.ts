@@ -12,7 +12,25 @@ export const API_PAGE = 1000;
  * `afterPage` runs after each full page is read and before the next is asked
  * for (tests write between pages with it); `what` names the collection.
  */
-export type PageOptions = { pageSize?: number; afterPage?: (what: string, page: number) => Promise<void> | void };
+export type PageOptions = {
+  pageSize?: number;
+  afterPage?: (what: string, page: number) => Promise<void> | void;
+  /** Ids per `in (...)` filter (see `chunks`); for tests. */
+  chunkSize?: number;
+};
+
+/**
+ * Ids per `in (...)` filter. The filter travels in the request's URL, which
+ * the API gateway caps (about 16 KB): 100 uuids are under 4 KB.
+ */
+export const IN_CHUNK = 100;
+
+/** `ids`, de-duplicated, in groups of at most `size` (IN_CHUNK), for `in (...)` filters. None for none. */
+export function chunks(ids: readonly string[], size = IN_CHUNK): string[][] {
+  const unique = [...new Set(ids)];
+  const step = Math.max(1, size);
+  return Array.from({ length: Math.ceil(unique.length / step) }, (_, i) => unique.slice(i * step, (i + 1) * step));
+}
 
 type PageResult<Row> = PromiseLike<{ data: Row[] | null; error: { message: string } | null }>;
 

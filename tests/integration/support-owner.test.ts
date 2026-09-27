@@ -1,5 +1,7 @@
 // S17 support access at the database owner's level (psql), in the
 // integration-exclusive project:
+//   * one cycle with 450 revisions read whole by getCycle (the revision ids
+//     go to the API in bounded chunks, never one over-long URL);
 //   * the data migration from S4's per-admin grants to team shares, run
 //     again (the statements read from the migration itself) against grants
 //     seeded in a rolled-back transaction;
@@ -15,6 +17,7 @@
 //     never makes an existing row repeat or go missing (offset paging would).
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
+import { getCycle } from "@/lib/cycles/service";
 import { type ResearcherRecords, readResearcherRecords } from "@/lib/support/service";
 import { type Client, createPeptide, tag } from "../support/cycles";
 import { ensureAccount, ok, signedInClient, uniqueEmail } from "../support/local-supabase";
@@ -29,6 +32,8 @@ const people = {
   tom: { email: uniqueEmail("s17o-tom"), name: "Tom Former", role: "researcher" },
   noah: { email: uniqueEmail("s17o-noah"), name: "Noah Admin", role: "admin" },
   fay: { email: uniqueEmail("s17o-fay"), name: "Fay Former Admin", role: "researcher" },
+  // One cycle with hundreds of revisions.
+  rex: { email: uniqueEmail("s17o-rex"), name: "Rex Revisions", role: "researcher" },
 } as const;
 type Name = keyof typeof people;
 const id = {} as Record<Name, string>;
@@ -84,6 +89,43 @@ beforeAll(async () => {
   `);
   await ok(db.alex.rpc("share_with_team"), "share");
 }, 120_000);
+
+describe("one cycle with hundreds of revisions", () => {
+  it("getCycle reads every revision, its plans and phases (revision ids are sent in bounded chunks)", async () => {
+    const REVISIONS = 450;
+    const rex = quote(id.rex);
+    // 450 revisions of one cycle, each with its plan and a phase starting on a different day.
+    const cycleId = psql(`
+      with c as (
+        insert into public.cycles (owner_id, name, goal, current_revision) values (${rex}, 'Many revisions', 'Revisions', ${REVISIONS})
+        returning id, owner_id
+      ), p as (
+        insert into public.cycle_plans (cycle_id, owner_id, peptide_id) select id, owner_id, ${quote(peptide.p)} from c
+        returning id, cycle_id, owner_id, peptide_id
+      ), r as (
+        insert into public.cycle_revisions (cycle_id, owner_id, number, time_zone)
+        select id, owner_id, n, 'America/Toronto' from c cross join generate_series(1, ${REVISIONS}) n
+        returning id, cycle_id, owner_id, number
+      ), rp as (
+        insert into public.cycle_revision_plans (revision_id, plan_id, cycle_id, owner_id, peptide_id, position)
+        select r.id, p.id, r.cycle_id, r.owner_id, p.peptide_id, 0 from r join p on p.cycle_id = r.cycle_id
+        returning revision_id, plan_id, owner_id
+      ), ph as (
+        insert into public.cycle_revision_phases (revision_id, phase_id, plan_id, owner_id, kind, start_date, end_date, dose_mg, local_time, schedule_type, every_days)
+        select rp.revision_id, gen_random_uuid(), rp.plan_id, rp.owner_id, 'active', date '2026-01-01' + r.number, date '2026-01-01' + r.number + 9, 0.4, '08:00', 'interval', 1
+        from rp join r on r.id = rp.revision_id
+      )
+      select 'id', id from c;
+    `).id;
+    await ok(db.rex.rpc("share_with_team"), "rex shares");
+    for (const who of ["rex", "grace"] as const) {
+      const cycle = await getCycle(db[who], cycleId);
+      expect(cycle?.revisions.map((r) => r.number), who).toEqual(Array.from({ length: REVISIONS }, (_, i) => i + 1));
+      expect(cycle!.revisions.every((r) => r.plans.length === 1 && r.plans[0].phases.length === 1), who).toBe(true);
+      expect(cycle!.revisions.at(-1)!.plans[0].phases[0].start, who).toBe("2027-03-27");
+    }
+  }, 60_000);
+});
 
 describe("the data migration from per-admin grants", () => {
   it("turns active grants to current admins into one team share, and every other grant into history", () => {

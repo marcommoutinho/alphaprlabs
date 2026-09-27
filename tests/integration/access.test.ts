@@ -112,7 +112,7 @@ describe("invitation acceptance", () => {
 });
 
 describe("invitation sending", () => {
-  const ctx = { origin: "http://app.localhost:3000", inviterName: admin.name };
+  const ctx = { origin: "http://app.localhost:3000" };
 
   it("inviting an email whose invitation expired renews that invitation", async () => {
     const email = uniqueEmail("int-reinvite");
@@ -157,6 +157,12 @@ describe("invitation sending", () => {
     expect(resent?.token_hash).not.toBe(row?.token_hash);
 
     const mail = await latestEmail(email);
+    expect(mail.text).toContain("You've been invited to Alpha PR Labs Research.");
+    // The email never names the inviting admin.
+    for (const part of [mail.subject, mail.text, mail.html]) {
+      expect(part).not.toContain(admin.name);
+      expect(part).not.toContain(admin.email);
+    }
     const token = /\/auth\/invite\/([A-Za-z0-9_-]{43})/.exec(mail.text)?.[1];
     expect(token && service.hashToken(token)).toBe(resent?.token_hash);
   });
