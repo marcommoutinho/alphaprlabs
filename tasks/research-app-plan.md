@@ -726,6 +726,9 @@ Cleanup before G2 (accepted by Marco, 2026-09-26):
   a withdrawn peptide's library page reachable from the researcher's own cycle.
 - The cycle builder's template copy (`getTemplateForCopy`) still uses an
   embedded read subject to the 1,000-row cap.
+- e2e: the FIFO sale test clicks Record sale while the account list is open;
+  in a full parallel run on a fresh DB the list can cover the button (passes
+  alone). Close the list or scope the search before clicking.
 
 - S8 (cycle templates) built, reviewed (clear first pass) and integrated at
   `5bb9806`; deployed to the closed production app with its migration on
