@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { connection } from "next/server";
 import { AuthCard } from "@/components/auth/auth-card";
 import { RECOVER_PATH, SIGN_IN_PATH } from "@/lib/auth/paths";

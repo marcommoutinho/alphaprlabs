@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Group } from "@/components/alpha/list";
 import { Tag } from "@/components/alpha/tag";
@@ -25,13 +25,13 @@ export default async function CycleTemplatesPage() {
   return (
     <main className={CYCLES_MAIN}>
       <nav aria-label="Templates" className="flex h-11 items-center pl-1.5 text-[17px] text-signal-ink laptop:hidden">
-        <Link prefetch={false} href="/app/cycles" className="flex h-11 items-center gap-0.5">
+        <Link href="/app/cycles" className="flex h-11 items-center gap-0.5">
           <ChevronLeft className="size-[26px]" aria-hidden />
           Cycles
         </Link>
       </nav>
       <header className="px-5 pt-1.5 laptop:px-0 laptop:pt-0">
-        <Link prefetch={false} href="/app/cycles" className="hidden text-[14px] text-signal-ink laptop:block">
+        <Link href="/app/cycles" className="hidden text-[14px] text-signal-ink laptop:block">
           ‹ Cycles
         </Link>
         <h1 className="mt-1 text-[32px] leading-[1.15] font-semibold tracking-[-0.03em]">Templates</h1>
@@ -45,7 +45,7 @@ export default async function CycleTemplatesPage() {
             const names = new Map(template.peptides.map((peptide) => [peptide.id, peptide]));
             const days = templateDays(template);
             return (
-              <Link prefetch={false} key={template.id} href={`/app/cycles/new?template=${template.id}`} className="flex items-center gap-3 py-3 pr-3 pl-4" data-testid="cycle-template">
+              <Link key={template.id} href={`/app/cycles/new?template=${template.id}`} className="flex items-center gap-3 py-3 pr-3 pl-4" data-testid="cycle-template">
                 <span className="min-w-0 flex-1">
                   <span className="block text-base font-semibold">{template.name}</span>
                   <span className="mt-0.5 block truncate text-[13px] text-ink-2">

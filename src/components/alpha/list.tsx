@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StateGlyph } from "./state-glyph";

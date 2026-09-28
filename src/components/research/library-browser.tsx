@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { useState } from "react";
 import { NO_PEPTIDES, NO_TEMPLATES, NO_TEMPLATES_MATCH, noPeptidesMatch } from "@/lib/library/research-view";
 

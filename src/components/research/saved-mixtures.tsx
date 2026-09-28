@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import type { LinkablePlan } from "@/lib/mixtures/plans";
 import { type Mixture, mixtureDetail, mixtureLabel, NO_MIXTURES } from "@/lib/mixtures/rules";
 

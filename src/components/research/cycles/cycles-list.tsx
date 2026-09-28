@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { ChevronRight, Layers, Plus } from "lucide-react";
 import { buttonVariants } from "@/components/alpha/button-variants";
 import { Group, GroupLabel } from "@/components/alpha/list";
@@ -6,12 +6,6 @@ import { StateGlyph } from "@/components/alpha/state-glyph";
 import type { CycleCard, CycleGroup } from "@/lib/cycles/screens";
 import { cn } from "@/lib/utils";
 import { DayRuler } from "./lanes";
-
-// Every link on the Cycles screens has prefetch={false}: in Next.js 16.2 a
-// <Link> clicked while its prefetch is still in flight can commit an empty
-// page (no content, no loading skeleton) until a reload (vercel/next.js#98684;
-// seen here on card → detail and Browse templates). Each Cycles route has its
-// own loading.tsx, so the navigation still shows a skeleton while it loads.
 
 /** The page frame every Cycles screen shares (Today's): phone gutters, laptop max width. */
 export const CYCLES_MAIN =
@@ -22,7 +16,7 @@ export function CyclesHeader() {
   return (
     <header className="flex items-end justify-between pt-2 pr-3 pl-5 laptop:px-0">
       <h1 className="text-[34px] leading-[1.15] font-semibold tracking-[-0.03em]">Cycles</h1>
-      <Link prefetch={false} href="/app/cycles/new" aria-label="New cycle" className={buttonVariants({ variant: "ink", size: "icon" })}>
+      <Link href="/app/cycles/new" aria-label="New cycle" className={buttonVariants({ variant: "ink", size: "icon" })}>
         <Plus className="size-5" aria-hidden />
       </Link>
     </header>
@@ -59,7 +53,6 @@ export function CyclesList({ groups }: { groups: { group: CycleGroup; label: str
       ))}
       {groups.length ? (
         <Link
-          prefetch={false}
           href="/app/cycles/templates"
           className="mx-3 mt-3 flex h-[52px] items-center gap-2.5 rounded-[16px] bg-sunken px-4 text-[15px] font-semibold laptop:mx-0 laptop:mt-4 laptop:max-w-[760px]"
         >
@@ -74,7 +67,7 @@ export function CyclesList({ groups }: { groups: { group: CycleGroup; label: str
 
 function ActiveCard({ card }: { card: CycleCard }) {
   return (
-    <Link prefetch={false} href={`/app/cycles/${card.id}`} className="block rounded-[24px] border border-line bg-surface p-4" data-testid="cycle-card" data-status={card.status}>
+    <Link href={`/app/cycles/${card.id}`} className="block rounded-[24px] border border-line bg-surface p-4" data-testid="cycle-card" data-status={card.status}>
       <span className="flex items-baseline justify-between gap-3">
         <span className="min-w-0 truncate text-[18px] font-semibold" data-slot="name">
           {card.name}
@@ -115,7 +108,7 @@ function ActiveCard({ card }: { card: CycleCard }) {
 
 function UpcomingCard({ card }: { card: CycleCard }) {
   return (
-    <Link prefetch={false} href={`/app/cycles/${card.id}`} className="block rounded-[24px] border-[1.5px] border-dashed border-ink-3 p-4" data-testid="cycle-card" data-status={card.status}>
+    <Link href={`/app/cycles/${card.id}`} className="block rounded-[24px] border-[1.5px] border-dashed border-ink-3 p-4" data-testid="cycle-card" data-status={card.status}>
       <span className="flex items-baseline justify-between gap-3">
         <span className="min-w-0 truncate text-[18px] font-semibold" data-slot="name">
           {card.name}
@@ -138,7 +131,7 @@ function UpcomingCard({ card }: { card: CycleCard }) {
 
 function EndedRow({ card }: { card: CycleCard }) {
   return (
-    <Link prefetch={false} href={`/app/cycles/${card.id}`} className="flex items-center gap-2.5 py-3 pr-3 pl-4" data-testid="cycle-card" data-status={card.status}>
+    <Link href={`/app/cycles/${card.id}`} className="flex items-center gap-2.5 py-3 pr-3 pl-4" data-testid="cycle-card" data-status={card.status}>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-base font-semibold" data-slot="name">
           {card.name}
@@ -165,10 +158,10 @@ function EmptyCycles() {
         Build one from scratch, or start from a template the team maintains and adjust it.
       </p>
       <div className="mt-4 flex gap-2">
-        <Link prefetch={false} href="/app/cycles/new" className={buttonVariants({ variant: "ink", size: "md" })}>
+        <Link href="/app/cycles/new" className={buttonVariants({ variant: "ink", size: "md" })}>
           Build a cycle
         </Link>
-        <Link prefetch={false} href="/app/cycles/templates" className={buttonVariants({ variant: "outline", size: "md" })}>
+        <Link href="/app/cycles/templates" className={buttonVariants({ variant: "outline", size: "md" })}>
           Templates
         </Link>
       </div>

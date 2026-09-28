@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 
 // notFound() anywhere in the private area (an unknown cycle, template, item…),
 // in the v3 look and the person's Appearance. Unmatched URLs use

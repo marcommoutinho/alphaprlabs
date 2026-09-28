@@ -483,6 +483,45 @@ export type Database = {
           },
         ]
       }
+      cycle_save_requests: {
+        Row: {
+          created_at: string
+          cycle_id: string
+          owner_id: string
+          request_hash: string
+          request_key: string
+        }
+        Insert: {
+          created_at?: string
+          cycle_id: string
+          owner_id: string
+          request_hash: string
+          request_key: string
+        }
+        Update: {
+          created_at?: string
+          cycle_id?: string
+          owner_id?: string
+          request_hash?: string
+          request_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cycle_save_requests_cycle"
+            columns: ["cycle_id", "owner_id"]
+            isOneToOne: false
+            referencedRelation: "cycles"
+            referencedColumns: ["id", "owner_id"]
+          },
+          {
+            foreignKeyName: "cycle_save_requests_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cycle_template_phases: {
         Row: {
           dose_mg: number | null
@@ -1829,6 +1868,10 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      cycle_save_replay: {
+        Args: { p_request_hash: string; p_request_key: string }
+        Returns: string
+      }
       cycle_template_content: { Args: { p_template_id: string }; Returns: Json }
       cycle_time_changes_valid: {
         Args: {
@@ -2057,6 +2100,8 @@ export type Database = {
           p_mixtures?: Json
           p_name: string
           p_plans: Json
+          p_request_hash: string
+          p_request_key: string
           p_template_id?: string
           p_time_zone: string
           p_version?: number

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { confirmRecovery, requestRecovery, setNewPassword, signIn } from "@/app/(private)/auth/actions";
 import { AppButton, Field, InlineError } from "@/components/app-shell/form";
 import { useSubmit } from "@/components/app-shell/use-submit";

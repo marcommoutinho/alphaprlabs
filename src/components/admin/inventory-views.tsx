@@ -1,6 +1,6 @@
 // A4 Inventory, A4 Stock item and the A7 report body: server-rendered views
 // (no client state). Money arrives as exact decimal text from the service.
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { AppButton, EmptyState } from "@/components/app-shell/form";
 import { formatCurrency, formatDate } from "@/lib/format";
 import {

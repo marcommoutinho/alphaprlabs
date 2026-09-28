@@ -1,7 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { useRouter } from "next/navigation";
 import { sendTestNotification } from "@/app/(private)/app/notifications/actions";
 import { AppButton } from "@/components/app-shell/form";

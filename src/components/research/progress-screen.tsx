@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { saveCheckInAction } from "@/app/(private)/app/progress/actions";

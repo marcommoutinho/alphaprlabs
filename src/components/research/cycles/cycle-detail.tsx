@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { ChevronLeft, ChevronRight, FlaskConical } from "lucide-react";
 import { buttonVariants } from "@/components/alpha/button-variants";
 import { Group, GroupLabel, Row } from "@/components/alpha/list";
@@ -29,18 +29,18 @@ export function CycleDetail({ screen }: { screen: CycleScreen }) {
   return (
     <main className={CYCLES_MAIN}>
       <nav aria-label="Cycle" className="flex h-11 items-center justify-between pr-3 pl-1.5 text-[17px] text-signal-ink laptop:hidden">
-        <Link prefetch={false} href="/app/cycles" className="flex h-11 items-center gap-0.5">
+        <Link href="/app/cycles" className="flex h-11 items-center gap-0.5">
           <ChevronLeft className="size-[26px]" aria-hidden />
           Cycles
         </Link>
-        <Link prefetch={false} href={edit} className="flex h-11 items-center px-2 font-medium" aria-label="Edit future plan">
+        <Link href={edit} className="flex h-11 items-center px-2 font-medium" aria-label="Edit future plan">
           Edit
         </Link>
       </nav>
 
       <header className="flex items-end gap-4 px-5 pt-1.5 laptop:px-0 laptop:pt-0">
         <div className="flex min-w-0 flex-col">
-          <Link prefetch={false} href="/app/cycles" className="hidden text-[14px] text-signal-ink laptop:block">
+          <Link href="/app/cycles" className="hidden text-[14px] text-signal-ink laptop:block">
             ‹ Cycles
           </Link>
           <h1 className="mt-1 text-[32px] leading-[1.15] font-semibold tracking-[-0.03em]">{screen.name}</h1>
@@ -52,7 +52,7 @@ export function CycleDetail({ screen }: { screen: CycleScreen }) {
             {screen.subtitle}
           </p>
         </div>
-        <Link prefetch={false} href={edit} className={cn(buttonVariants({ variant: "outline", size: "sm" }), "ml-auto hidden text-[14px] laptop:inline-flex")}>
+        <Link href={edit} className={cn(buttonVariants({ variant: "outline", size: "sm" }), "ml-auto hidden text-[14px] laptop:inline-flex")}>
           Edit future plan
         </Link>
       </header>
@@ -132,7 +132,7 @@ export function CycleDetail({ screen }: { screen: CycleScreen }) {
             History
           </h2>
           {screen.history.length ? (
-            <Link prefetch={false} href={all} className="text-[15px] font-semibold laptop:text-[14px]" data-testid="history-all">
+            <Link href={all} className="text-[15px] font-semibold laptop:text-[14px]" data-testid="history-all">
               <span className="laptop:hidden">See all {screen.history.length}</span>
               <span className="hidden laptop:inline">All {screen.history.length}</span>
             </Link>
@@ -226,7 +226,7 @@ function PlanCard({ plan, todayPercent }: { plan: PlanView; todayPercent: number
           </li>
         ))}
       </ol>
-      <Link prefetch={false} href={mixHref} className="flex items-center gap-2.5 rounded-[12px] bg-paper px-3 py-2.5 text-[13px] text-ink-2" data-slot="saved-mixture">
+      <Link href={mixHref} className="flex items-center gap-2.5 rounded-[12px] bg-paper px-3 py-2.5 text-[13px] text-ink-2" data-slot="saved-mixture">
         <FlaskConical className="size-4 shrink-0" aria-hidden />
         {plan.mix ? (
           <>

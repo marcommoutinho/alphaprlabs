@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { type AccountState, deniedText, type HistoryView, sharedLabel } from "@/lib/support/view";
 
 /** A8's denied state: this researcher isn't sharing with the team (stopped, or never shared). */

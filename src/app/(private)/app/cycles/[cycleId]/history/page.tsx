@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { CYCLES_MAIN } from "@/components/research/cycles/cycles-list";
@@ -30,13 +30,13 @@ export default async function CycleHistoryPage({ params }: { params: Params }) {
   return (
     <main className={CYCLES_MAIN}>
       <nav aria-label="History" className="flex h-11 items-center pl-1.5 text-[17px] text-signal-ink laptop:hidden">
-        <Link prefetch={false} href={back} className="flex h-11 min-w-0 items-center gap-0.5">
+        <Link href={back} className="flex h-11 min-w-0 items-center gap-0.5">
           <ChevronLeft className="size-[26px] shrink-0" aria-hidden />
           <span className="truncate">{cycle.name}</span>
         </Link>
       </nav>
       <header className="px-5 pt-1.5 laptop:px-0 laptop:pt-0">
-        <Link prefetch={false} href={back} className="hidden text-[14px] text-signal-ink laptop:block">
+        <Link href={back} className="hidden text-[14px] text-signal-ink laptop:block">
           ‹ {cycle.name}
         </Link>
         <h1 className="mt-1 text-[32px] leading-[1.15] font-semibold tracking-[-0.03em]">History</h1>

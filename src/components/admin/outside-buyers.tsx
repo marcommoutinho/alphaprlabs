@@ -1,5 +1,5 @@
 import Form from "next/form";
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { AppButton, EmptyState, Field } from "@/components/app-shell/form";
 import { formatCurrency, formatDate } from "@/lib/format";
 import {

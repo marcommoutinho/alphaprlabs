@@ -354,3 +354,59 @@ for (const { device, viewport, colorScheme, phone } of DEVICES) {
     });
   });
 }
+
+test.describe("a peptide's mix in an edit", () => {
+  test.use({ viewport: LAPTOP });
+
+  test("an unchanged mix stays linked; a cleared one comes off the cycle and Today shows no units", async ({ page }) => {
+    const seed = await seedCycles("mix-clear");
+    const [planRow] = await ok(serviceClient().from("cycle_plans").select("id").eq("cycle_id", seed.cycleId).eq("peptide_id", seed.aId), "plan");
+    const links = () =>
+      ok(serviceClient().from("cycle_plan_mixtures").select("mixture_id, linked_at, unlinked_at").eq("plan_id", planRow.id).order("linked_at"), "links");
+    const before = await links();
+    expect(before).toEqual([expect.objectContaining({ unlinked_at: null })]);
+    await signIn(page, seed.email);
+    // A's 250 mcg of 10 mg in 2 mL: 5 units.
+    await expect(page.getByTestId("today-hero").getByTestId("hero-name")).toHaveText(seed.A);
+    await expect(page.getByTestId("today-hero").getByTestId("hero-units")).toHaveText("5");
+
+    async function saveEdit(clear: boolean) {
+      await page.goto(`${APP_ORIGIN}/app/cycles/${seed.cycleId}/edit`);
+      await (await hydrated(page.getByRole("button", { name: "Continue with 2 peptides" }))).click();
+      await expect(page.getByLabel("Vial", { exact: true })).toHaveValue("10");
+      await expect(page.getByLabel("BAC water")).toHaveValue("2");
+      if (clear) {
+        await page.getByLabel("Vial", { exact: true }).fill("");
+        await page.getByLabel("BAC water").fill("");
+        await expect(page.getByTestId("mix-note")).toContainText("Left empty, this peptide's mix comes off the cycle when you save");
+      }
+      await page.getByRole("button", { name: "Continue", exact: true }).click();
+      await page.getByRole("button", { name: `Next: ${seed.B}` }).click();
+      await page.getByRole("button", { name: "Continue", exact: true }).click();
+      await page.getByRole("button", { name: "Review cycle" }).click();
+      await page.getByRole("button", { name: "Save future changes" }).click();
+      await expect(page.getByRole("status").filter({ hasText: "Future plan updated. Recorded history is unchanged." })).toBeVisible();
+      await expect(page).toHaveURL(`${APP_ORIGIN}/app/cycles/${seed.cycleId}`);
+    }
+
+    // Unchanged: the same link, as it was.
+    await saveEdit(false);
+    expect(await links()).toEqual(before);
+    await expect(page.getByTestId("cycle-plan-card").nth(0).locator("[data-slot=saved-mixture]")).toContainText("5 units · 100-unit");
+
+    // Cleared: the link ends; the mixture stays saved.
+    await saveEdit(true);
+    const after = await links();
+    expect(after).toHaveLength(1);
+    expect(after[0]).toMatchObject({ mixture_id: before[0].mixture_id, linked_at: before[0].linked_at });
+    expect(after[0].unlinked_at).not.toBeNull();
+    const [mixture] = await ok(serviceClient().from("mixtures").select("deleted_at").eq("id", before[0].mixture_id), "mixture");
+    expect(mixture.deleted_at).toBeNull();
+    await expect(page.getByTestId("cycle-plan-card").nth(0).locator("[data-slot=saved-mixture]")).toContainText("Set one up");
+
+    await page.goto(`${APP_ORIGIN}/app/today`);
+    await expect(page.getByTestId("today-hero").getByTestId("hero-name")).toHaveText(seed.A);
+    await expect(page.getByTestId("today-hero").getByTestId("hero-mg")).toHaveText("250 mcg");
+    await expect(page.getByTestId("today-hero").getByTestId("hero-units")).toHaveCount(0);
+  });
+});

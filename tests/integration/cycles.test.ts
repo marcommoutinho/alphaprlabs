@@ -6,7 +6,9 @@
 // changed; and save_cycle() re-checking every structural rule itself. No
 // mocked database: the action runs as the signed-in person, only its cookie
 // session is swapped for a signed-in client.
+import { randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { SAVE_FAILED_MESSAGE } from "@/components/app-shell/toast";
 import { editWindow } from "@/lib/cycles/revise";
 import { formFromTemplate, formOfCycle, validateCycle } from "@/lib/cycles/rules";
 import { cycleOccurrences } from "@/lib/cycles/schedule";
@@ -140,7 +142,7 @@ describe("a template copy is a snapshot (handoff: edit the template → the exis
       { peptideId: peptide.b, phases: [{ kind: "active" as const, offset: 0, len: 40, doseMg: "0.3", time: "07:30", schedule: { type: "weekdays" as const, days: [1, 3, 5] as (0 | 1 | 2 | 3 | 4 | 5 | 6)[] } }] },
     ] }, day(1), TORONTO), goal: "Recomp" };
     expect(validateCycle(form, peptides).ok).toBe(true);
-    const saved = await saveCycleAction(form);
+    const saved = await saveCycleAction({ ...form, requestKey: randomUUID() });
     expect(saved).toMatchObject({ saved: true, message: "Cycle saved.", cycleId: expect.any(String) });
     const before = await getCycle(alexDb, saved.cycleId!);
     expect(before).toMatchObject({ templateId, templateName: name, templateGuidance: "Cycle off after.", templateUpdatedAt: template.updated_at });
@@ -177,7 +179,12 @@ describe("editing a cycle: the next revision, future doses only", () => {
     form.name = "Renamed";
 
     acting.client = alexDb;
-    expect(await saveCycleAction(form)).toMatchObject({ saved: true, message: "Future plan updated. Recorded history is unchanged.", cycleId: form.cycleId });
+    const editKey = randomUUID();
+    expect(await saveCycleAction({ ...form, requestKey: editKey })).toMatchObject({
+      saved: true,
+      message: "Future plan updated. Recorded history is unchanged.",
+      cycleId: form.cycleId,
+    });
     const edited = (await getCycle(alexDb, id))!;
     expect(edited).toMatchObject({ name: "Renamed", currentRevision: 2 });
     expect(edited.revisions[0]).toEqual(original.revisions[0]);
@@ -192,12 +199,22 @@ describe("editing a cycle: the next revision, future doses only", () => {
     expect(after.filter((o) => o.planId === c.planId && o.localDate <= day(0)).every((o) => o.doseMg === "1")).toBe(true);
     expect(after.filter((o) => o.planId === c.planId && o.localDate >= day(1)).every((o) => o.doseMg === "1.5")).toBe(true);
 
-    // The form the edit started from is now stale.
-    expect(await saveCycleAction(form)).toEqual({ errors: ["This cycle was changed elsewhere. Reload the page to see the latest plan."] });
+    // The builder retries that submission (its answer was lost): the same
+    // save comes back, and nothing is saved again.
+    expect(await saveCycleAction({ ...form, requestKey: editKey })).toMatchObject({ saved: true, cycleId: form.cycleId });
+    expect(await getCycle(alexDb, id)).toMatchObject({ currentRevision: 2, version: 2 });
+    // The same key with other details is refused.
+    expect(await saveCycleAction({ ...form, name: "Other", requestKey: editKey })).toEqual({ toast: SAVE_FAILED_MESSAGE });
+    // As a new submission, the form the edit started from is now stale.
+    expect(await saveCycleAction({ ...form, requestKey: randomUUID() })).toEqual({
+      errors: ["This cycle was changed elsewhere. Reload the page to see the latest plan."],
+    });
+    // A submission without a key is not saved.
+    expect(await saveCycleAction(form)).toEqual({ errors: ["This cycle could not be saved. Reload the page and try again."] });
 
     // A name-only save adds no revision.
     const again = formOfCycle(edited, editWindow(edited.revisions, now).effective, localDateOf(now, TORONTO));
-    expect(await saveCycleAction({ ...again, goal: "New goal" })).toMatchObject({ saved: true });
+    expect(await saveCycleAction({ ...again, goal: "New goal", requestKey: randomUUID() })).toMatchObject({ saved: true });
     expect(await getCycle(alexDb, id)).toMatchObject({ goal: "New goal", currentRevision: 2, version: 3 });
 
     // The database refuses what the app would never send.
@@ -223,7 +240,7 @@ describe("editing a cycle: the next revision, future doses only", () => {
 
   it("shows the designed messages, in order, from the server action", async () => {
     acting.client = alexDb;
-    const result = await saveCycleAction({ cycleId: null, version: null, templateId: null, name: "", timeZone: TORONTO, goal: "", baseline: "", plans: [] });
+    const result = await saveCycleAction({ requestKey: randomUUID(), cycleId: null, version: null, templateId: null, name: "", timeZone: TORONTO, goal: "", baseline: "", plans: [] });
     expect(result).toEqual({ errors: ["Give the cycle a name.", "Add a goal — results are reviewed against it.", "Add at least one peptide."] });
   });
 });

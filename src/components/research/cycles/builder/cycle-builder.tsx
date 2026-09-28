@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { unstable_rethrow, useRouter } from "next/navigation";
 import { Temporal } from "@js-temporal/polyfill";
 import { useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
@@ -102,6 +102,8 @@ export function CycleBuilder({
   const toast = useAlphaToast();
   const router = useRouter();
   const top = useRef<HTMLDivElement>(null);
+  // The last submission's details and request key (see save()).
+  const submission = useRef<{ payload: string; key: string } | null>(null);
 
   const library = useMemo(() => new Map(peptides.map((peptide) => [peptide.id, peptide])), [peptides]);
   const nameOf = (id: string) => library.get(id)?.name ?? "Unknown peptide";
@@ -175,11 +177,18 @@ export function CycleBuilder({
   function save() {
     const list = reviewIssues(state, nameOf, isValidTimeZone(timeZone));
     if (list.length) return fail(list);
-    const mixes = state.plans.map(mixEntry).filter((entry) => entry !== null);
+    const mixes = state.plans.map((plan) => mixEntry(plan, state.links[plan.peptideId] ?? null)).filter((entry) => entry !== null);
+    const payload = { ...formFromBuilder({ ...state, timeZone }), mixes };
+    // One request key per submission: the same details sent again (a retry
+    // after a lost answer) reuse it, so the server returns that save instead
+    // of saving twice; anything changed is a new submission.
+    const text = JSON.stringify(payload);
+    if (submission.current?.payload !== text) submission.current = { payload: text, key: crypto.randomUUID() };
+    const requestKey = submission.current.key;
     startTransition(async () => {
       let result;
       try {
-        result = await saveCycleAction({ ...formFromBuilder({ ...state, timeZone }), mixes });
+        result = await saveCycleAction({ ...payload, requestKey });
       } catch (error) {
         unstable_rethrow(error);
         toast.error({ message: SAVE_FAILED_MESSAGE });
@@ -208,7 +217,7 @@ export function CycleBuilder({
       data-step={step}
     >
       <nav aria-label="Builder" className="grid h-11 shrink-0 grid-cols-[1fr_auto_1fr] items-center px-5 text-[17px] laptop:px-0">
-        <Link prefetch={false} href={cancelHref} className="justify-self-start text-signal-ink">
+        <Link href={cancelHref} className="justify-self-start text-signal-ink">
           Cancel
         </Link>
         <span className="font-semibold" data-testid="builder-title">
@@ -243,6 +252,7 @@ export function CycleBuilder({
               onDose={(dose) => updatePlan(current, (p) => withDose(p, dose))}
               onUnit={(unit) => updatePlan(current, (p) => withUnit(p, unit))}
               onMix={(mix) => updatePlan(current, (p) => ({ ...p, mix }))}
+              linked={plan.peptideId in state.links}
             />
           </>
         ) : null}

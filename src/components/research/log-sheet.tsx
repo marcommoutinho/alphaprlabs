@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { ChevronRight, Info, Pencil } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/alpha/button";

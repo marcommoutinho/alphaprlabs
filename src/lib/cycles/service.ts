@@ -1,4 +1,5 @@
 import "server-only";
+import { createHash, randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { Temporal } from "@js-temporal/polyfill";
 import { afterPair, chunks, keysetRows, type PageOptions } from "@/lib/keyset";
@@ -339,9 +340,13 @@ const REFUSALS: Record<string, Exclude<SaveCycleResult["kind"], "saved">> = {
   AP010: "stale",
 };
 
-/** The cycle alone (save_cycle), as saveCycleWithMixes without mixes. */
+/**
+ * The cycle alone, with no mix entries (tests and scripts): its own request
+ * key, so every call is a new submission.
+ */
 export async function saveCycle(db: Db, cycle: ValidCycle, revised?: readonly RevisedPlan[]): Promise<SaveCycleResult> {
-  const result = await saveCycleWithMixes(db, cycle, revised, []);
+  const key = randomUUID();
+  const result = await saveCycleWithMixes(db, cycle, revised, [], { key, hash: saveRequestHash({ key }) });
   switch (result.kind) {
     case "mixture_stale":
     case "vial_strength":
@@ -351,8 +356,56 @@ export async function saveCycle(db: Db, cycle: ValidCycle, revised?: readonly Re
   }
 }
 
-/** A peptide's mix as the builder saves it with the cycle (R4b): a new mixture, or a saved one at the version shown. */
-export type CycleMix = { peptideId: string; mixtureId: string | null; version: number | null; setup: MixtureSetup };
+/**
+ * What the builder says about a peptide's mix (R4b), so "left as it was" and
+ * "cleared" are never the same: `set` a new mixture, or a saved one at the
+ * version shown, with its setup (a change is its next version); `keep` the
+ * plan's current mixture unchanged; `remove` the plan's current mixture from
+ * the plan (the mixture and the doses logged with it stay). A peptide with
+ * no entry is left as it is.
+ */
+export type CycleMix =
+  | { kind: "set"; peptideId: string; mixtureId: string | null; version: number | null; setup: MixtureSetup }
+  | { kind: "keep" | "remove"; peptideId: string; mixtureId: string; version: number };
+
+/**
+ * One builder submission (20260928120000_save_cycle_mixtures.sql,
+ * "Idempotency"): `key` is made once in the browser and sent again on a
+ * retry; `hash` is saveRequestHash of what was sent. A retry of a submission
+ * that saved returns that save; the key with other details, or from another
+ * account, is refused.
+ */
+export type SaveRequest = { key: string; hash: string };
+
+/** The JSON of a value with object keys sorted (undefined members dropped), so a submission always reads the same. */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item ?? null)).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const members = Object.entries(value)
+      .filter(([, member]) => member !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${members.map(([name, member]) => `${JSON.stringify(name)}:${canonicalJson(member)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+/** SHA-256 (hex) of a submission's canonical JSON. */
+export function saveRequestHash(submission: unknown): string {
+  return createHash("sha256").update(canonicalJson(submission)).digest("hex");
+}
+
+export type SaveReplay = { kind: "new" } | { kind: "saved"; id: string } | { kind: "used" | "error" };
+
+/**
+ * Whether this submission already saved (cycle_save_replay): the cycle it
+ * saved, "new" when its key is unclaimed, "used" when the key was claimed
+ * with other details or by another account.
+ */
+export async function replayedSave(db: Db, request: SaveRequest): Promise<SaveReplay> {
+  const { data, error } = await db.rpc("cycle_save_replay", { p_request_key: request.key, p_request_hash: request.hash });
+  if (error) return { kind: error.code === "22023" ? "used" : "error" };
+  return data ? { kind: "saved", id: data } : { kind: "new" };
+}
 
 export type SaveCycleWithMixesResult = SaveCycleResult | { kind: "mixture_stale" | "vial_strength" };
 
@@ -360,29 +413,31 @@ const MIX_REFUSALS: Record<string, "mixture_stale" | "vial_strength"> = { AP011:
 
 /**
  * Creates a cycle (from the validated form, optionally copying a template),
- * or saves an edit as the next revision (`revised`: reviseCycle's plans):
- * save_cycle(), or with `mixes` save_cycle_with_mixtures()
- * (20260928120000_save_cycle_mixtures.sql): the cycle and each peptide's mix
- * in one transaction; a refused mix saves nothing, the cycle included.
+ * or saves an edit as the next revision (`revised`: reviseCycle's plans),
+ * with each peptide's mix entry: save_cycle_with_mixtures()
+ * (20260928120000_save_cycle_mixtures.sql), the cycle and the mixes in one
+ * transaction (a refused mix saves nothing, the cycle included), once per
+ * `request` (a retry returns the first save).
  */
 export async function saveCycleWithMixes(
   db: Db,
   cycle: ValidCycle,
   revised: readonly RevisedPlan[] | undefined,
   mixes: readonly CycleMix[],
+  request: SaveRequest,
 ): Promise<SaveCycleWithMixesResult> {
-  const args = {
+  const { data, error } = await db.rpc("save_cycle_with_mixtures", {
+    p_request_key: request.key,
+    p_request_hash: request.hash,
     p_name: cycle.name,
     p_goal: cycle.goal,
     p_baseline: cycle.baseline,
     p_time_zone: cycle.timeZone,
     p_plans: plansArgument(revised ?? cycle.plans),
+    p_mixtures: mixesArgument(mixes),
     ...(cycle.templateId ? { p_template_id: cycle.templateId } : {}),
     ...(cycle.cycleId ? { p_cycle_id: cycle.cycleId, p_version: cycle.version ?? undefined } : {}),
-  };
-  const { data, error } = mixes.length
-    ? await db.rpc("save_cycle_with_mixtures", { ...args, p_mixtures: mixesArgument(mixes) })
-    : await db.rpc("save_cycle", args);
+  });
   if (error) return { kind: MIX_REFUSALS[error.code] ?? REFUSALS[error.code] ?? "error" };
   if (!data) return { kind: "not_found" };
   return { kind: "saved", id: data };
@@ -390,13 +445,18 @@ export async function saveCycleWithMixes(
 
 /** save_cycle_with_mixtures()'s p_mixtures argument. */
 export function mixesArgument(mixes: readonly CycleMix[]): Json {
-  return mixes.map((mix) => ({
-    peptide_id: mix.peptideId,
-    mixture_id: mix.mixtureId,
-    version: mix.version,
-    vial_mg: mix.setup.vialMg,
-    liquid_ml: mix.setup.liquidMl,
-    syringe_units: mix.setup.syringe,
-    line_spacing: mix.setup.lineSpacing,
-  })) as Json;
+  return mixes.map((mix) =>
+    mix.kind === "set"
+      ? {
+          kind: "set",
+          peptide_id: mix.peptideId,
+          mixture_id: mix.mixtureId,
+          version: mix.version,
+          vial_mg: mix.setup.vialMg,
+          liquid_ml: mix.setup.liquidMl,
+          syringe_units: mix.setup.syringe,
+          line_spacing: mix.setup.lineSpacing,
+        }
+      : { kind: mix.kind, peptide_id: mix.peptideId, mixture_id: mix.mixtureId, version: mix.version },
+  ) as Json;
 }

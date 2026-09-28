@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { usePathname } from "next/navigation";
 import type { AppRole } from "@/lib/app/identity";
 import { activeKey, businessItems, isUnder, sectionNavFor } from "@/lib/alpha/nav";

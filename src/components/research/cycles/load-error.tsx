@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { Button } from "@/components/alpha/button";
 import { CYCLES_MAIN } from "./cycles-list";
 
@@ -30,7 +30,7 @@ export function CyclesLoadError({
     <main className={CYCLES_MAIN}>
       <header className="px-5 pt-2 laptop:px-0">
         {back ? (
-          <Link prefetch={false} href="/app/cycles" className="text-[17px] text-signal-ink laptop:text-[14px]">
+          <Link href="/app/cycles" className="text-[17px] text-signal-ink laptop:text-[14px]">
             ‹ Cycles
           </Link>
         ) : null}

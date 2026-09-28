@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { AppPage } from "@/components/app-shell/app-shell";
 import { requireAdmin } from "@/lib/auth/session";
 import { listSupportAccounts } from "@/lib/support/service";

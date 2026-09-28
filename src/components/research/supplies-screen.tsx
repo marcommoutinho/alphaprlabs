@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { useState } from "react";
 import { reopenVialAction, setTrackingAction } from "@/app/(private)/app/supplies/actions";
 import { useSubmit } from "@/components/app-shell/use-submit";

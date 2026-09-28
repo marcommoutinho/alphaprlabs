@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { notFound } from "next/navigation";
 import { AppPage } from "@/components/app-shell/app-shell";
 import { requireResearcher } from "@/lib/auth/session";

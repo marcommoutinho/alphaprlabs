@@ -199,21 +199,47 @@ describe("the mix", () => {
   };
   const plan = (mix = blankMix()): BuilderPlan => ({ ...newBuilderPlan(PA, mix), dose: "250", unit: "mcg" });
 
-  it("nothing to save when blank, or unchanged and already the plan's", () => {
+  const link = { mixtureId: uuid(700), version: 2 };
+
+  it("unchanged and already the plan's: keep; blank with no mix before: nothing to send", () => {
     expect(mixEntry(plan())).toBeNull();
-    expect(mixEntry(plan(mixFrom(mixture, true)))).toBeNull();
-    expect(mixEntry(plan({ ...mixFrom(mixture, true), vialMg: "10.0" }))).toBeNull();
+    expect(mixEntry(plan(mixFrom(mixture, true)), link)).toEqual({ kind: "keep", peptideId: PA, mixtureId: uuid(700), version: 2 });
+    expect(mixEntry(plan({ ...mixFrom(mixture, true), vialMg: "10.0" }), link)).toMatchObject({ kind: "keep" });
+    // The same mixture again after the peptide was removed and added back.
+    expect(mixEntry(plan(mixFrom(mixture, false)), link)).toMatchObject({ kind: "keep" });
+  });
+
+  it("a cleared mix the plan had is removed, never left as it was", () => {
+    const remove = { kind: "remove", peptideId: PA, mixtureId: uuid(700), version: 2 };
+    expect(mixEntry(plan({ ...mixFrom(mixture, true), vialMg: "", liquidMl: "" }), link)).toEqual(remove);
+    expect(mixEntry(plan({ ...mixFrom(mixture, true), vialMg: "  ", liquidMl: "" }), link)).toEqual(remove);
+    // Removed and added back blank: still the plan's link that ends.
+    expect(mixEntry(plan(), link)).toEqual(remove);
+  });
+
+  it("builderFromForm records each plan's mixture when the builder opened", () => {
+    const state = builderFromForm(form, "2026-10-01", { mixes: new Map([[PA, mixFrom(mixture, true)]]) });
+    expect(state.links).toEqual({ [PA]: link });
+    expect(builderFromForm(form, "2026-10-01", { mixes: new Map([[PA, mixFrom(mixture, false)]]) }).links).toEqual({});
+    expect(builderFromForm(form, "2026-10-01").links).toEqual({});
   });
 
   it("a saved mix to reuse links it; a change makes the next setup of the same mixture", () => {
     expect(mixEntry(plan(mixFrom(mixture, false)))).toEqual({
+      kind: "set",
       peptideId: PA,
       mixtureId: uuid(700),
       version: 2,
       setup: { vialMg: "10", liquidMl: "2", syringe: 30, lineSpacing: "0.5" },
     });
-    expect(mixEntry(plan({ ...mixFrom(mixture, true), liquidMl: "3" }))).toMatchObject({ mixtureId: uuid(700), version: 2, setup: { liquidMl: "3" } });
-    expect(mixEntry(plan({ ...blankMix(), vialMg: "5", liquidMl: "2.50" }))).toEqual({
+    expect(mixEntry(plan({ ...mixFrom(mixture, true), liquidMl: "3" }), link)).toMatchObject({
+      kind: "set",
+      mixtureId: uuid(700),
+      version: 2,
+      setup: { liquidMl: "3" },
+    });
+    expect(mixEntry(plan({ ...blankMix(), vialMg: "5", liquidMl: "2.50" }), link)).toEqual({
+      kind: "set",
       peptideId: PA,
       mixtureId: null,
       version: null,

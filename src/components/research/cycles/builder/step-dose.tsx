@@ -34,9 +34,12 @@ export function StepDose({
   onDose,
   onUnit,
   onMix,
+  linked = false,
 }: {
   plan: BuilderPlan;
   name: string;
+  /** The plan had a saved mix when the builder opened (an edit): clearing it removes it. */
+  linked?: boolean;
   onDose: (dose: string) => void;
   onUnit: (unit: MassUnit) => void;
   onMix: (mix: BuilderPlan["mix"]) => void;
@@ -126,8 +129,10 @@ export function StepDose({
           className="mx-5 mt-3 laptop:mx-0"
         />
       ))}
-      <p className="mx-5 mt-3 text-[13px] leading-[18px] text-ink-3 laptop:mx-0">
-        {plan.mix.mixtureId
+      <p className="mx-5 mt-3 text-[13px] leading-[18px] text-ink-3 laptop:mx-0" data-testid="mix-note">
+        {linked && !plan.mix.vialMg.trim() && !plan.mix.liquidMl.trim()
+          ? "Left empty, this peptide's mix comes off the cycle when you save, and Today stops showing units for it. Doses already logged keep the mix they used."
+          : plan.mix.mixtureId
           ? "This mix is saved for this peptide. A change is saved as its next version; doses already logged keep the one they used."
           : "Optional. Saved with the cycle as this peptide's mix, so Today can show the units to draw."}
       </p>

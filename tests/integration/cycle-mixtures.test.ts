@@ -4,10 +4,15 @@
 // transaction: a new mixture, or a saved one at the version shown (a changed
 // setup is its next version, earlier ones kept), linked to that peptide's
 // plan, the plan's previous link closed; other plans on the same mixture keep
-// theirs. Any refusal (stale mixture, a tracked vial of another strength, a
-// malformed entry, someone else's mixture) saves nothing, the cycle included.
+// theirs. `keep` leaves the plan's mixture as it is; `remove` ends the plan's
+// link (the mixture, its versions and its vial stay). Any refusal (stale
+// mixture, a tracked vial of another strength, a malformed entry, someone
+// else's mixture) saves nothing, the cycle included. A request key makes a
+// save idempotent: a retry returns the first save; the key with other
+// details, or from another account, is refused.
+import { createHash, randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import { getMixture, mixtureHistory, planMixtures } from "@/lib/mixtures/service";
+import { getMixture, mixtureHistory, planDraws, planMixtures } from "@/lib/mixtures/service";
 import { type Client, createPeptide, cycleArgs, day, interval, plan, saveCycle, tag } from "../support/cycles";
 import { anonClient, ensureAccount, ok, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
 
@@ -23,6 +28,7 @@ const db = {} as Record<Name, Client>;
 const peptide = { a: "", b: "" };
 
 type Entry = {
+  kind: "set";
   peptide_id: string;
   mixture_id: string | null;
   version: number | null;
@@ -32,6 +38,7 @@ type Entry = {
   line_spacing: string;
 };
 const mix = (peptideId: string, overrides: Partial<Entry> = {}): Entry => ({
+  kind: "set",
   peptide_id: peptideId,
   mixture_id: null,
   version: null,
@@ -42,8 +49,32 @@ const mix = (peptideId: string, overrides: Partial<Entry> = {}): Entry => ({
   ...overrides,
 });
 
-const withMixes = (who: Client, args: Parameters<typeof cycleArgs>[0], mixes: unknown) =>
-  who.rpc("save_cycle_with_mixtures", { ...cycleArgs(args), p_mixtures: mixes as never });
+/** The plan's current mixture, as the builder showed it: kept as it is, or removed from the plan. */
+const linkEntry = (kind: "keep" | "remove", peptideId: string, mixtureId: string, version: number) => ({
+  kind,
+  peptide_id: peptideId,
+  mixture_id: mixtureId,
+  version,
+});
+
+/** A builder submission's key and hash (the app hashes what it sent; any 64 hex digits here). */
+const hashOf = (text: string) => createHash("sha256").update(text).digest("hex");
+const request = () => ({ p_request_key: randomUUID(), p_request_hash: hashOf(randomUUID()) });
+type Request = ReturnType<typeof request>;
+
+const withMixes = (who: Client, args: Parameters<typeof cycleArgs>[0], mixes: unknown, req: Request = request()) =>
+  who.rpc("save_cycle_with_mixtures", { ...cycleArgs(args), ...req, p_mixtures: mixes as never });
+
+/** An edit of a one-peptide cycle that keeps its phase as it is. */
+async function keptPlan(cycleId: string, peptideId: string, phase = interval(day(1), day(20), "0.25", 1)) {
+  const planId = await planIdOf(db.alex, cycleId, peptideId);
+  const { data } = await serviceClient().from("cycle_revision_phases").select("phase_id").eq("plan_id", planId);
+  const kept = { ...phase, phase_id: data![0].phase_id };
+  return { planId, plans: [plan(peptideId, [kept], planId, day(1))] };
+}
+
+const linksOf = async (planId: string) =>
+  ok(serviceClient().from("cycle_plan_mixtures").select("mixture_id, linked_at, unlinked_at").eq("plan_id", planId).order("linked_at"), "links");
 
 async function planIdOf(who: Client, cycleId: string, peptideId: string) {
   const rows = await ok(who.from("cycle_plans").select("id").eq("cycle_id", cycleId).eq("peptide_id", peptideId), "plan id");
@@ -52,6 +83,8 @@ async function planIdOf(who: Client, cycleId: string, peptideId: string) {
 }
 
 const cyclesNamed = async (name: string) => ok(serviceClient().from("cycles").select("id, current_revision").eq("name", name), "cycles");
+/** The cycle's version: each save moves it on (AP010 for a tab holding an older one). */
+const cycleVersion = async (cycleId: string) => (await ok(serviceClient().from("cycles").select("version").eq("id", cycleId), "cycle version"))[0]?.version;
 const mixtureCount = async (ownerId: string) => (await ok(serviceClient().from("mixtures").select("id").eq("owner_id", ownerId), "mixtures")).length;
 
 beforeAll(async () => {
@@ -193,8 +226,18 @@ describe("save_cycle_with_mixtures", () => {
       ["a version without a mixture", [mix(peptide.a, { version: 1 })]],
       ["a mixture without a version", [mix(peptide.a, { mixture_id: peptide.a })]],
       ["a number as a decimal", [{ ...mix(peptide.a), vial_mg: 10 }]],
+      ["no kind", [{ ...mix(peptide.a), kind: undefined }]],
+      ["an unknown kind", [{ ...mix(peptide.a), kind: "clear" }]],
+      ["a keep without its mixture", [{ kind: "keep", peptide_id: peptide.a, mixture_id: null, version: null }]],
+      ["a remove with a setup", [{ ...linkEntry("remove", peptide.a, peptide.a, 1), vial_mg: "10" }]],
     ];
     for (const [label, mixes] of cases) expect(await sqlState(withMixes(db.alex, { name, plans }, mixes), label), label).toBe("22023");
+    for (const [label, req] of [
+      ["a malformed request hash", { ...request(), p_request_hash: "not-a-hash" }],
+      ["an upper-case request hash", { ...request(), p_request_hash: hashOf("x").toUpperCase() }],
+    ] as const) {
+      expect(await sqlState(withMixes(db.alex, { name, plans }, [], req), label), label).toBe("22023");
+    }
 
     const blairs = (await ok(
       db.blair.rpc("save_mixture", { p_peptide_id: peptide.a, p_vial_mg: "5", p_liquid_ml: "1", p_syringe_units: 100, p_line_spacing: "2", p_plan_ids: [] }),
@@ -206,7 +249,9 @@ describe("save_cycle_with_mixtures", () => {
     expect((await getMixture(db.blair, blairs))!.version).toBe(version);
 
     expect(await sqlState(withMixes(db.una, { name, plans }, [mix(peptide.a)]), "unacknowledged")).toBe("42501");
-    expect(await sqlState(anonClient().rpc("save_cycle_with_mixtures", { ...cycleArgs({ name, plans }), p_mixtures: [] }), "anon")).toBe("42501");
+    expect(await sqlState(anonClient().rpc("save_cycle_with_mixtures", { ...cycleArgs({ name, plans }), ...request(), p_mixtures: [] }), "anon")).toBe("42501");
+    expect(await sqlState(anonClient().rpc("cycle_save_replay", request()), "anon replay")).toBe("42501");
+    expect(await sqlState(db.una.rpc("cycle_save_replay", request()), "unacknowledged replay")).toBe("42501");
     expect(await cyclesNamed(name)).toEqual([]);
   });
 
@@ -216,5 +261,158 @@ describe("save_cycle_with_mixtures", () => {
     expect(await cyclesNamed(name)).toEqual([{ id: cycleId, current_revision: 1 }]);
     // An edit of someone else's cycle is null, as save_cycle's.
     expect(await ok(withMixes(db.blair, { name, cycleId, version: 1, plans: [plan(peptide.a, [interval(day(1), day(20))])] }, [mix(peptide.a)]), "blair")).toBeNull();
+  });
+});
+
+describe("keep, set and remove", () => {
+  it("remove: a cleared mix comes off the plan; the mixture, its versions and its vial stay; Today has no units for it", async () => {
+    const name = `Remove ${tag()}`;
+    const cycleId = (await ok(withMixes(db.alex, { name, plans: [plan(peptide.a, [interval(day(1), day(20), "0.25", 1)])] }, [mix(peptide.a)]), "create"))!;
+    const { planId, plans } = await keptPlan(cycleId, peptide.a);
+    const created = (await planMixtures(db.alex, id.alex)).get(planId)!;
+    expect(await planDraws(db.alex, id.alex, [{ planId, doseMg: "0.25" }])).toEqual([expect.objectContaining({ state: "calculated" })]);
+    // A tracked open vial of that mixture.
+    await ok(db.alex.rpc("set_supply_tracking", { p_enabled: true }), "tracking");
+    const vial = (await ok(
+      db.alex.rpc("save_personal_vial", { p_label: `R-${tag()}`, p_peptide_id: peptide.a, p_strength_mg: "10", p_mixture_id: created.id }),
+      "vial",
+    ))!;
+    const shown = (await getMixture(db.alex, created.id))!;
+
+    await ok(withMixes(db.alex, { name, cycleId, version: 1, plans }, [linkEntry("remove", peptide.a, shown.id, shown.version)]), "remove");
+    expect((await planMixtures(db.alex, id.alex)).has(planId)).toBe(false);
+    expect(await planDraws(db.alex, id.alex, [{ planId, doseMg: "0.25" }])).toEqual([{ state: "no-mixture" }]);
+    const links = await linksOf(planId);
+    expect(links).toHaveLength(1);
+    expect(links[0].mixture_id).toBe(created.id);
+    expect(links[0].unlinked_at).not.toBeNull();
+    // Still saved, with its setup and history; its vial keeps it; a tab showing it before can't save over it.
+    const after = (await getMixture(db.alex, created.id))!;
+    expect(after.setup).toEqual(created.setup);
+    expect(after.version).toBe(shown.version + 1);
+    expect((await mixtureHistory(db.alex, created.id)).length).toBe(1);
+    const vials = await ok(serviceClient().from("personal_vials").select("mixture_id, finished_at").eq("id", vial), "vial row");
+    expect(vials).toEqual([{ mixture_id: created.id, finished_at: null }]);
+
+    // Removing it again (a stale builder) is refused, and saves nothing.
+    expect(
+      await sqlState(withMixes(db.alex, { name, cycleId, version: 2, plans }, [linkEntry("remove", peptide.a, after.id, after.version)]), "not linked"),
+    ).toBe("AP011");
+    expect(await cycleVersion(cycleId)).toBe(2);
+  });
+
+  it("keep leaves the plan's mixture as it is; set with a changed setup is its next version on the same link", async () => {
+    const name = `Keep ${tag()}`;
+    const cycleId = (await ok(withMixes(db.alex, { name, plans: [plan(peptide.a, [interval(day(1), day(20), "0.25", 1)])] }, [mix(peptide.a)]), "create"))!;
+    const { planId, plans } = await keptPlan(cycleId, peptide.a);
+    const first = (await planMixtures(db.alex, id.alex)).get(planId)!;
+    const firstLinks = await linksOf(planId);
+
+    // Unchanged: nothing written.
+    await ok(withMixes(db.alex, { name, cycleId, version: 1, plans }, [linkEntry("keep", peptide.a, first.id, first.version)]), "keep");
+    const kept = (await getMixture(db.alex, first.id))!;
+    expect(kept.version).toBe(first.version);
+    expect(kept.planIds).toEqual([planId]);
+    expect((await mixtureHistory(db.alex, first.id)).length).toBe(1);
+    expect(await linksOf(planId)).toEqual(firstLinks);
+
+    // Changed: the next version of the same mixture, on the same link.
+    await ok(
+      withMixes(db.alex, { name, cycleId, version: 2, plans }, [mix(peptide.a, { mixture_id: first.id, version: first.version, liquid_ml: "3" })]),
+      "change",
+    );
+    const changed = (await planMixtures(db.alex, id.alex)).get(planId)!;
+    expect(changed.id).toBe(first.id);
+    expect(changed.setup.liquidMl).toBe("3");
+    expect((await mixtureHistory(db.alex, first.id)).map((v) => [v.number, v.setup.liquidMl])).toEqual([
+      [1, "2"],
+      [2, "3"],
+    ]);
+    expect(await linksOf(planId)).toEqual(firstLinks);
+
+    // Keeping it at the version the builder showed before the change is stale.
+    expect(await sqlState(withMixes(db.alex, { name, cycleId, version: 3, plans }, [linkEntry("keep", peptide.a, first.id, first.version)]), "stale keep")).toBe(
+      "AP011",
+    );
+    // So is keeping a mixture the plan doesn't use.
+    const unlinked = (await ok(
+      db.alex.rpc("save_mixture", { p_peptide_id: peptide.a, p_vial_mg: "5", p_liquid_ml: "1", p_syringe_units: 100, p_line_spacing: "2", p_plan_ids: [] }),
+      "unlinked",
+    ))!;
+    const other = (await getMixture(db.alex, unlinked))!;
+    expect(await sqlState(withMixes(db.alex, { name, cycleId, version: 3, plans }, [linkEntry("keep", peptide.a, other.id, other.version)]), "not its mixture")).toBe(
+      "AP011",
+    );
+    expect(await cycleVersion(cycleId)).toBe(3);
+  });
+});
+
+describe("request keys", () => {
+  it("a retry of a save returns that save and writes nothing more: a new cycle, an edit, two at once", async () => {
+    const name = `Replay ${tag()}`;
+    const args = { name, plans: [plan(peptide.a, [interval(day(1), day(20), "0.25", 1)])] };
+    const req = request();
+    const cycleId = (await ok(withMixes(db.alex, args, [mix(peptide.a)], req), "first"))!;
+    const mixtures = await mixtureCount(id.alex);
+    // The answer was lost; the builder sends the same submission again.
+    expect(await ok(withMixes(db.alex, args, [mix(peptide.a)], req), "retry")).toBe(cycleId);
+    expect(await cyclesNamed(name)).toEqual([{ id: cycleId, current_revision: 1 }]);
+    expect(await mixtureCount(id.alex)).toBe(mixtures);
+    expect(await ok(db.alex.rpc("cycle_save_replay", req), "replay")).toBe(cycleId);
+    expect(await ok(db.alex.rpc("cycle_save_replay", request()), "unknown key")).toBeNull();
+
+    // An edit: the retry returns the cycle and saves nothing again (and no AP010, though the version moved on).
+    const { planId, plans } = await keptPlan(cycleId, peptide.a);
+    const linked = (await planMixtures(db.alex, id.alex)).get(planId)!;
+    const edit = { name, cycleId, version: 1, plans };
+    const changed = [mix(peptide.a, { mixture_id: linked.id, version: linked.version, vial_mg: "20" })];
+    const editReq = request();
+    expect(await ok(withMixes(db.alex, edit, changed, editReq), "edit")).toBe(cycleId);
+    expect(await ok(withMixes(db.alex, edit, changed, editReq), "edit retry")).toBe(cycleId);
+    expect(await cycleVersion(cycleId)).toBe(2);
+    expect((await mixtureHistory(db.alex, linked.id)).length).toBe(2);
+
+    // Two at once with one key: the second waits for the first, then returns its cycle.
+    const raced = `Raced ${tag()}`;
+    const raceReq = request();
+    const both = await Promise.all([0, 1].map(() => ok(withMixes(db.alex, { ...args, name: raced }, [mix(peptide.a)], raceReq), "raced")));
+    expect(both[0]).toBe(both[1]);
+    expect(await cyclesNamed(raced)).toEqual([{ id: both[0], current_revision: 1 }]);
+  });
+
+  it("refuses the key with other details or from another account; a refused save claims no key", async () => {
+    const plans = [plan(peptide.a, [interval(day(1), day(20))])];
+    const name = `Claimed ${tag()}`;
+    const req = request();
+    const cycleId = (await ok(withMixes(db.alex, { name, plans }, [], req), "first"))!;
+
+    // Other details under the same key.
+    const other = `Other details ${tag()}`;
+    const otherReq = { ...req, p_request_hash: hashOf(other) };
+    expect(await sqlState(withMixes(db.alex, { name: other, plans }, [], otherReq), "other details")).toBe("22023");
+    expect(await sqlState(db.alex.rpc("cycle_save_replay", otherReq), "other details replay")).toBe("22023");
+    expect(await cyclesNamed(other)).toEqual([]);
+
+    // Another account's key, even with the same details.
+    const blairs = `Blair's ${tag()}`;
+    expect(await sqlState(withMixes(db.blair, { name: blairs, plans }, [], req), "another account")).toBe("22023");
+    expect(await sqlState(db.blair.rpc("cycle_save_replay", req), "another account replay")).toBe("22023");
+    expect(await cyclesNamed(blairs)).toEqual([]);
+    expect(await cyclesNamed(name)).toEqual([{ id: cycleId, current_revision: 1 }]);
+
+    // A refused save (a stale mixture) claims nothing: the retry saves.
+    const saved = (await ok(
+      db.alex.rpc("save_mixture", { p_peptide_id: peptide.a, p_vial_mg: "5", p_liquid_ml: "1", p_syringe_units: 100, p_line_spacing: "2", p_plan_ids: [] }),
+      "saved",
+    ))!;
+    const version = (await getMixture(db.alex, saved))!.version;
+    const retried = `Retried ${tag()}`;
+    const retryReq = request();
+    expect(await sqlState(withMixes(db.alex, { name: retried, plans }, [mix(peptide.a, { mixture_id: saved, version: version + 1 })], retryReq), "stale")).toBe(
+      "AP011",
+    );
+    expect(await ok(db.alex.rpc("cycle_save_replay", retryReq), "unclaimed")).toBeNull();
+    const retriedId = (await ok(withMixes(db.alex, { name: retried, plans }, [mix(peptide.a, { mixture_id: saved, version })], retryReq), "retry"))!;
+    expect(await cyclesNamed(retried)).toEqual([{ id: retriedId, current_revision: 1 }]);
   });
 });

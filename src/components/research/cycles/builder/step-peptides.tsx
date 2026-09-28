@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { Check, ChevronRight, Layers, Search } from "lucide-react";
 import { useState } from "react";
 import { Tag } from "@/components/alpha/tag";
@@ -53,7 +53,7 @@ export function StepPeptides({
           {templateNote}
         </p>
       ) : templates ? (
-        <Link prefetch={false} href="/app/cycles/templates" className="mx-3 mt-[18px] flex items-center gap-3 rounded-group border border-line bg-surface px-3.5 py-3 laptop:mx-0">
+        <Link href="/app/cycles/templates" className="mx-3 mt-[18px] flex items-center gap-3 rounded-group border border-line bg-surface px-3.5 py-3 laptop:mx-0">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-sunken">
             <Layers className="size-5" aria-hidden />
           </span>

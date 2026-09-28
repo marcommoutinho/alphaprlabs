@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { StateGlyph, type GlyphState } from "@/components/alpha/state-glyph";
 import type { HistoryItem } from "@/lib/cycles/screens";
 import { cn } from "@/lib/utils";
@@ -44,7 +44,7 @@ export function HistoryList({ items, className }: { items: readonly HistoryItem[
             {item.note ? <span className="mt-0.5 block truncate text-[13px] text-ink-2">{item.note}</span> : null}
           </span>
           {item.logHref ? (
-            <Link prefetch={false} href={item.logHref} className="shrink-0 text-[15px] font-semibold text-signal-ink">
+            <Link href={item.logHref} className="shrink-0 text-[15px] font-semibold text-signal-ink">
               {linkLabel(item)}
             </Link>
           ) : (
@@ -92,7 +92,7 @@ export function HistoryTable({ items }: { items: readonly HistoryItem[] }) {
           </span>
           <span role="cell" className="truncate">
             {item.logHref ? (
-              <Link prefetch={false} href={item.logHref} className="font-semibold text-signal-ink">
+              <Link href={item.logHref} className="font-semibold text-signal-ink">
                 {linkLabel(item)}
               </Link>
             ) : (

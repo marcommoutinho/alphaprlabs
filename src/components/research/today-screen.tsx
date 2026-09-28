@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { unstable_rethrow, usePathname, useRouter } from "next/navigation";
 import { Check, Pill } from "lucide-react";
 import { useEffect, useRef, useState, useTransition } from "react";

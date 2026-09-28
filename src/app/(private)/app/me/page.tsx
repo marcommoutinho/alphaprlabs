@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { AppPage } from "@/components/app-shell/app-shell";
 import { MeSignOut, MeSupportSection } from "@/components/research/me-support";
 import { requireResearcher } from "@/lib/auth/session";

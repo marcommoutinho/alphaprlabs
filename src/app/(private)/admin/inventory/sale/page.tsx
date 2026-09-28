@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { AppPage } from "@/components/app-shell/app-shell";
 import { EmptyState } from "@/components/app-shell/form";
 import { SaleForm } from "@/components/admin/sale-form";

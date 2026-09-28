@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/components/alpha/link";
 import { Menu } from "@base-ui/react/menu";
 import { useSignOut } from "@/components/app-shell/use-sign-out";
 import { ACCOUNT_LINKS, isUnder, roleLabel } from "@/lib/alpha/nav";

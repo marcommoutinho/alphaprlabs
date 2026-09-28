@@ -63,9 +63,12 @@ export type BuilderMix = {
   lineSpacing: LineSpacing;
   /** The setup it started from (the plan's, or the saved mixture it reuses); null when fresh. */
   base: MixtureSetup | null;
-  /** The plan uses this mixture now (an edit). */
+  /** The plan used this mixture when the builder opened (an edit). */
   linked: boolean;
 };
+
+/** A plan's mixture when the builder opened (an edit), as shown: what a save keeps or removes. */
+export type MixLink = { mixtureId: string; version: number };
 
 export type BuilderPlan = {
   planId: string | null;
@@ -90,6 +93,12 @@ export type BuilderState = {
   /** Day 1. */
   start: LocalDate;
   plans: BuilderPlan[];
+  /**
+   * By peptide id: each plan's mixture when the builder opened (an edit).
+   * Fixed while editing, so clearing a mix, or removing and adding the
+   * peptide again, still knows which link the save ends (mixEntry).
+   */
+  links: Readonly<Record<string, MixLink>>;
 };
 
 /** New phases: 28 days (a break 7), daily at 08:00. */
@@ -135,7 +144,12 @@ export function builderFromForm(
   start: LocalDate,
   options: { locks?: Readonly<Record<string, PhaseLock>>; started?: readonly string[]; mixes?: ReadonlyMap<string, BuilderMix> } = {},
 ): BuilderState {
+  const links: Record<string, MixLink> = {};
+  for (const [peptideId, mix] of options.mixes ?? []) {
+    if (mix.linked && mix.mixtureId && mix.version !== null) links[peptideId] = { mixtureId: mix.mixtureId, version: mix.version };
+  }
   return {
+    links,
     cycleId: form.cycleId,
     version: form.version,
     templateId: form.templateId,
@@ -313,15 +327,27 @@ export function exactSyringes(mix: Pick<BuilderMix, "vialMg" | "liquidMl" | "syr
   });
 }
 
-/** What the save sends for a peptide's mix: nothing when blank, or unchanged and already in use. */
-export type MixEntry = { peptideId: string; mixtureId: string | null; version: number | null; setup: MixtureSetup };
+/**
+ * What the save sends for a peptide's mix (save_cycle_with_mixtures): `set`
+ * a new or changed mix, or another saved one; `keep` the plan's mixture as it
+ * is; `remove` it when the mix was cleared. The same shape as CycleMix.
+ */
+export type MixEntry =
+  | { kind: "set"; peptideId: string; mixtureId: string | null; version: number | null; setup: MixtureSetup }
+  | { kind: "keep" | "remove"; peptideId: string; mixtureId: string; version: number };
 
 const canonical = (text: string) => normalizeDecimal(text);
 
-export function mixEntry(plan: Pick<BuilderPlan, "peptideId" | "mix">): MixEntry | null {
+/**
+ * A peptide's entry, from its mix and the plan's mixture when the builder
+ * opened (`link`, state.links): blank with a link is `remove`, blank without
+ * one is nothing to send; the linked mixture's setup unchanged is `keep`;
+ * anything else is `set`. mixIssues keeps half-filled mixes from saving.
+ */
+export function mixEntry(plan: Pick<BuilderPlan, "peptideId" | "mix">, link: MixLink | null = null): MixEntry | null {
   const { mix } = plan;
   const [vial, liquid] = [canonical(mix.vialMg), canonical(mix.liquidMl)];
-  if (!vial || !liquid) return null;
+  if (!vial || !liquid) return link ? { kind: "remove", peptideId: plan.peptideId, ...link } : null;
   const setup: MixtureSetup = {
     vialMg: plain(new Exact(vial)),
     liquidMl: plain(new Exact(liquid)),
@@ -334,8 +360,8 @@ export function mixEntry(plan: Pick<BuilderPlan, "peptideId" | "mix">): MixEntry
     sameAmount(mix.base.liquidMl, setup.liquidMl) &&
     mix.base.syringe === setup.syringe &&
     mix.base.lineSpacing === setup.lineSpacing;
-  if (same && mix.linked) return null;
-  return { peptideId: plan.peptideId, mixtureId: mix.mixtureId, version: mix.version, setup };
+  if (same && link && mix.mixtureId === link.mixtureId && mix.version === link.version) return { kind: "keep", peptideId: plan.peptideId, ...link };
+  return { kind: "set", peptideId: plan.peptideId, mixtureId: mix.mixtureId, version: mix.version, setup };
 }
 
 // ── Validation (R4c: the first error, plus "(+N more)") ─────────────────────
