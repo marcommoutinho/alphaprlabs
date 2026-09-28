@@ -1,0 +1,68 @@
+/*
+ * Alpha Research design v3: Tailwind 4 theme bindings (docs/design/research-app-v3/tokens.css).
+ * Imported by src/app/globals.css so the utilities exist (bg-paper, text-ink-2,
+ * border-line, bg-signal, text-missed, rounded-group …).
+ *
+ * Only the bindings live here. The values they point to (--paper, --ink …)
+ * are defined for the private app alone in src/styles/alpha/tokens.css, so the
+ * public site, which never uses these utilities, is unaffected. The shadcn
+ * aliases from the design's tokens.css (--color-background: var(--paper) …) are
+ * NOT bound globally: they would repaint the public site. tokens.css points the
+ * shadcn variables (--background, --primary …) at the v3 tokens inside the
+ * private app instead.
+ */
+@theme inline {
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-on-ink-2: var(--on-ink-2);
+  --color-on-ink-soft: var(--on-ink-soft);
+  --color-signal: var(--signal);
+  --color-on-signal: var(--on-signal);
+  --color-signal-ink: var(--signal-ink);
+  --color-signal-tint: var(--signal-tint);
+  --color-done: var(--done);
+  --color-done-tint: var(--done-tint);
+  --color-missed: var(--missed);
+  --color-missed-tint: var(--missed-tint);
+  --color-low: var(--low);
+  --color-low-tint: var(--low-tint);
+  --color-low-fill: var(--low-fill);
+  --color-low-empty: var(--low-empty);
+  /* Semantic colours as seen on the inverted Now block / toast (see tokens.css). */
+  --color-on-ink-done: var(--on-ink-done);
+  --color-on-ink-missed: var(--on-ink-missed);
+  --color-on-ink-signal-ink: var(--on-ink-signal-ink);
+
+  --radius-tag: var(--r-tag);
+  --radius-chip: var(--r-chip);
+  --radius-btn: var(--r-btn);
+  --radius-group: var(--r-group);
+  --radius-now: var(--r-now);
+  --radius-sheet: var(--r-sheet);
+
+  --shadow-seg: var(--seg-shadow);
+  --shadow-sheet: var(--sheet-shadow);
+  --shadow-drawer: var(--drawer-shadow);
+
+  --ease-alpha: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-alpha-pulse: alpha-pulse 1.6s ease-in-out infinite;
+
+  @keyframes alpha-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.6;
+    }
+  }
+}
+
+/* Phone below 760 px, laptop from 760 px (design v3 "Navigation"). */
+@custom-variant laptop (@media (width >= 760px));
+@custom-variant phone (@media (width < 760px));

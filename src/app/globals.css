@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+/* Design v3 bindings for the private app (values: src/styles/alpha/tokens.css). */
+@import "../styles/alpha/theme.css";
 
 @custom-variant dark (&:is(.dark *));
 

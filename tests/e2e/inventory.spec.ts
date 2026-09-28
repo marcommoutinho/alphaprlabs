@@ -75,13 +75,13 @@ test("the handoff FIFO scenario: two purchases, a sale of 12, 8 left, 9 more blo
   await expect(
     page.getByText("Whole vials on hand, counted per peptide and strength. Business stock only — never a researcher's personal supplies."),
   ).toBeVisible();
-  await expect(activeNav(page)).toHaveText("Inventory");
+  await expect(activeNav(page)).toHaveText("Stock");
   // A7 and A4 are visited before anything is recorded: after each purchase and
   // sale they must show fresh data, never the client's copy of this visit.
   const nav = page.getByRole("navigation", { name: "Main" });
-  await nav.getByRole("link", { name: "Sales" }).click();
+  await nav.getByRole("link", { name: "Ledger" }).click();
   await expect(h1(page)).toHaveText("Sales & gross profit");
-  await nav.getByRole("link", { name: "Inventory" }).click();
+  await nav.getByRole("link", { name: "Stock" }).click();
   await expect(h1(page)).toHaveText("Inventory");
   await expect(page.getByTestId("stock-row").filter({ hasText: peptide })).toHaveCount(0);
   await page.getByRole("link", { name: "Record purchase" }).click();
@@ -89,7 +89,7 @@ test("the handoff FIFO scenario: two purchases, a sale of 12, 8 left, 9 more blo
   // A5, validation in the designed order.
   await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory/purchase`);
   await expect(h1(page)).toHaveText("Record purchase");
-  await expect(activeNav(page)).toHaveText("Inventory");
+  await expect(activeNav(page)).toHaveText("Stock");
   const save = page.getByRole("button", { name: "Record purchase" });
   await hydrated(page.getByLabel("Vials", { exact: true }));
   await expect(page.getByLabel("Received")).toHaveValue(businessToday());
@@ -200,7 +200,7 @@ test("the handoff FIFO scenario: two purchases, a sale of 12, 8 left, 9 more blo
   await expect(page.getByTestId("stock-row").filter({ hasText: peptide })).toHaveText(`${peptide} · 8 mg82012›`);
 
   // A7 for this item: totals match; last month has none of its sales.
-  await nav.getByRole("link", { name: "Sales" }).click();
+  await nav.getByRole("link", { name: "Ledger" }).click();
   await expect(h1(page)).toHaveText("Sales & gross profit");
   await expect(page.getByTestId("sales-list")).toContainText(`${label} · 12 vials · ${JORDAN.name} (account)`);
   await hydrated(page.getByLabel("Item"));

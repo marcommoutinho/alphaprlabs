@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { sideSwitchFor } from "@/components/app-shell/nav";
 import { hasResearchAccess } from "@/lib/app/identity";
 import { destinationFor, safeNextPath, signInUrl } from "@/lib/auth/paths";
 import { displayState, normalizeEmail } from "@/lib/invitations/state";
@@ -33,10 +32,7 @@ describe("return paths", () => {
     expect(destinationFor({ role: "admin", acknowledged: true }, "/administrator")).toBe("/app/today");
   });
 
-  it("the account menu offers the side switch to admins only", () => {
-    expect(sideSwitchFor("admin", "research")).toEqual({ label: "Admin", href: "/admin/inventory" });
-    expect(sideSwitchFor("admin", "admin")).toEqual({ label: "My research", href: "/app/today" });
-    expect(sideSwitchFor("researcher", "research")).toBeNull();
+  it("admins and researchers both have the research side", () => {
     expect(hasResearchAccess("researcher") && hasResearchAccess("admin")).toBe(true);
   });
 });

@@ -39,12 +39,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext value={show}>
       {children}
       {/* The live region stays mounted so screen readers announce each toast. */}
-      <div className="app-toast-region" role="status" aria-live="polite">
-        {toast ? (
-          <div key={toast.id} className="app-toast" data-tone={toast.tone}>
-            {toast.message}
-          </div>
-        ) : null}
+      <div className="app-root" data-legacy-host="">
+        <div className="app-toast-region" role="status" aria-live="polite">
+          {toast ? (
+            <div key={toast.id} className="app-toast" data-tone={toast.tone}>
+              {toast.message}
+            </div>
+          ) : null}
+        </div>
       </div>
     </ToastContext>
   );

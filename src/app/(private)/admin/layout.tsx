@@ -7,7 +7,7 @@ import { requireAdmin } from "@/lib/auth/session";
 export default async function AdminLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const admin = await requireAdmin();
   return (
-    <AppShell identity={{ name: admin.name, email: admin.email, role: admin.role }} side="admin">
+    <AppShell identity={{ name: admin.name, email: admin.email, role: admin.role }}>
       {children}
     </AppShell>
   );

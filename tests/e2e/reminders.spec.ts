@@ -100,8 +100,10 @@ test("the app host serves the manifest, icons and a cache-free worker; only the 
   await page.goto(`${APP_ORIGIN}/auth`);
   await expect(page.locator('link[rel="manifest"]')).toHaveAttribute("href", "/manifest.webmanifest");
   await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute("href", "/app-icons/apple-touch-icon.png");
-  await expect(page.locator('meta[name="apple-mobile-web-app-status-bar-style"]')).toHaveAttribute("content", "black-translucent");
-  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#050505");
+  // Design v3: the status bar follows the page and theme-color follows the mode.
+  await expect(page.locator('meta[name="apple-mobile-web-app-status-bar-style"]')).toHaveAttribute("content", "default");
+  await expect(page.locator('meta[name="theme-color"][media="(prefers-color-scheme: light)"]')).toHaveAttribute("content", "#F2F2EE");
+  await expect(page.locator('meta[name="theme-color"][media="(prefers-color-scheme: dark)"]')).toHaveAttribute("content", "#0C0D0F");
   await page.goto(`${PUBLIC_ORIGIN}/`);
   await expect(page.locator('link[rel="manifest"], meta[name="apple-mobile-web-app-title"], meta[name="theme-color"]')).toHaveCount(0);
   await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute("href", "/apple-touch-icon.png");
@@ -156,8 +158,9 @@ test("turn reminders on and off; turn off and sign out win over a pending re-syn
   await expect(page.getByRole("button", { name: "Turn off reminders" })).toBeVisible();
   await withPendingSync(page, async () => {
     await inPage(page, (w) => w.dropSubscription());
-    await page.locator('button[aria-haspopup="menu"]').click();
-    await page.getByRole("menuitem", { name: "Sign out" }).click();
+    // On a phone, sign out lives on the Me tab (client-side navigation).
+    await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Me" }).click();
+    await page.getByRole("button", { name: "Sign out" }).click();
   });
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth`);
   expect(await deviceRow(endpoint)).toMatchObject({ disabled_reason: "signed_out" });
@@ -186,8 +189,9 @@ test("a re-sync pending in another tab can't switch the phone back on after turn
       await tabA.getByRole("button", { name: "Turn off reminders" }).click();
       await expect(tabA.locator(".app-toast")).toHaveText("Reminders off. Your schedule is unchanged.");
     } else {
-      await tabA.locator('button[aria-haspopup="menu"]').click();
-      await tabA.getByRole("menuitem", { name: "Sign out" }).click();
+      // On a phone, sign out lives on the Me tab (client-side navigation).
+      await tabA.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Me" }).click();
+      await tabA.getByRole("button", { name: "Sign out" }).click();
       await expect(tabA).toHaveURL(`${APP_ORIGIN}/auth`);
     }
     const answered = tabB.waitForResponse((response) => response.request().postData()?.includes("p256dh") ?? false);

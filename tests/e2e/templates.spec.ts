@@ -68,7 +68,9 @@ test("an admin creates and edits a template, which keeps a peptide withdrawn sin
     page.getByText("Starting points researchers copy. Editing a template changes future copies only — existing researcher cycles are untouched."),
   ).toBeVisible();
   await expect(page.getByText(IDLE)).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "Main" }).locator('[aria-current="page"]')).toHaveText("Templates");
+  // Templates is a section of Library in the shell (design v3; V7 merges the pages).
+  await expect(page.getByRole("navigation", { name: "Main" }).locator('[aria-current="page"]')).toHaveText("Library");
+  await expect(page.getByRole("navigation", { name: "Library" }).locator('[aria-current="page"]')).toHaveText("Templates");
 
   // New: the designed first-failure messages.
   await (await hydrated(page.getByRole("button", { name: "New template" }))).click();

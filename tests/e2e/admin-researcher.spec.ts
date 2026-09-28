@@ -19,7 +19,7 @@ const deviceRow = async (endpoint: string) =>
   (await serviceClient().from("push_subscriptions").select("profile_id, disabled_reason").eq("endpoint", endpoint).single())
     .data!;
 
-test("an admin acknowledges, turns on reminders, uses the research side and switches to Admin and back", async ({
+test("an admin acknowledges, turns on reminders, uses the research side and switches to Business and back", async ({
   page,
 }) => {
   const endpoint = `https://fcm.googleapis.com/fcm/send/e2e-admin-${Date.now().toString(36)}`;
@@ -50,35 +50,39 @@ test("an admin acknowledges, turns on reminders, uses the research side and swit
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Today");
 
-  // The settings screen shows this device on for the admin (client-side
-  // navigation: a reload would reset the emulated push service).
-  await accountButton(page).click();
-  await page.getByRole("menuitem", { name: "Notifications" }).click();
+  // The settings screen shows this device on for the admin, reached from the
+  // Me tab (client-side navigation: a reload would reset the emulated push
+  // service).
+  const tabs = page.getByRole("navigation", { name: "Main" });
+  await tabs.getByRole("link", { name: "Me" }).click();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/app/me`);
+  await page.getByRole("link", { name: "Reminders on this phone" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Reminders on this phone");
   await expect(page.locator(".app-reminders-row", { hasText: "Permission on this device" }).locator("b")).toHaveText(
     "Enabled",
   );
   await expect(page.getByRole("button", { name: "Turn off reminders" })).toBeVisible();
 
-  // Account menu: "Admin" switches to the back office, "My research" back.
-  await accountButton(page).click();
-  await page.getByRole("menuitem", { name: "Admin", exact: true }).click();
-  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory`);
-  await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link")).toHaveText([
-    "Inventory",
-    "Sales",
+  // The admin's fourth tab, Business, switches to the back office; Today back.
+  await expect(tabs.getByRole("link")).toHaveText(["Today", "Cycles", "Progress", "Business", "Me"]);
+  await tabs.getByRole("link", { name: "Business" }).click();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/sales`);
+  await expect(tabs.locator('[aria-current="page"]')).toHaveText("Business");
+  await expect(page.getByRole("navigation", { name: "Business" }).getByRole("link")).toHaveText([
+    "Overview",
+    "Stock",
+    "Ledger",
     "Library",
-    "Templates",
-    "Invitations",
-    "Support",
+    "People",
   ]);
-  await accountButton(page).click();
-  await page.getByRole("menuitem", { name: "My research" }).click();
+  await tabs.getByRole("link", { name: "Today" }).click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
-  await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Me" })).toBeVisible();
+  await expect(tabs.locator('[aria-current="page"]')).toHaveText("Today");
 
-  // Signing out from the admin side also stops this phone's reminders.
+  // Signing out from the admin side (the laptop account menu) also stops this
+  // phone's reminders.
   await page.goto(`${APP_ORIGIN}/admin/sales`);
+  await page.setViewportSize({ width: 1280, height: 800 });
   await accountButton(page).click();
   await page.getByRole("menuitem", { name: "Sign out" }).click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth`);

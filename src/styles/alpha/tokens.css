@@ -1,0 +1,200 @@
+/*
+ * Alpha Research design v3: token values, light and dark
+ * (docs/design/research-app-v3/tokens.css, COMPONENTS_AND_THEMING §2–3).
+ * Loaded by the private layout only; the Tailwind bindings are in theme.css.
+ *
+ * Scope: the tokens live on <html> while the private app's root (.alpha, a
+ * direct child of <body>) is mounted, so the page background, overscroll and
+ * anything portalled to <body> all use them. The public site never renders
+ * .alpha, so none of this reaches it.
+ *
+ * Mode, in order of precedence:
+ *   1. `.dark` / `.light` on <html> (set in the page when the Appearance
+ *      preference changes; see src/components/alpha/appearance.ts);
+ *   2. data-appearance="dark" | "light" on .alpha, rendered by the server from
+ *      the alpha-appearance cookie, so a forced mode is right on first paint;
+ *   3. otherwise prefers-color-scheme. Light is the default.
+ * A subtree can also be pinned with data-alpha-theme="light" | "dark" (the
+ * component gallery shows both side by side).
+ */
+
+:root:has(> body > .alpha),
+[data-alpha-theme="light"] {
+  color-scheme: light;
+
+  /* Neutrals */
+  --paper: #f2f2ee;
+  --surface: #ffffff;
+  --sunken: #e8e8e3;
+  --line: #dcdcd5;
+  --ink: #0d0e10;
+  --ink-2: #464950;
+  --ink-3: #676b73;
+  --on-ink-2: #9a9ea6;
+  --on-ink-soft: #c9ccd2;
+
+  /* Brand */
+  --signal: #60a5fa;
+  --on-signal: #0a0b0d;
+  --signal-ink: #1f5fcc;
+  --signal-tint: #e6effd;
+
+  /* Semantic */
+  --done: #177a4e;
+  --done-tint: #e7f4ec;
+  --missed: #b93a26;
+  --missed-tint: #fbedea;
+  --low: #8a5a00;
+  --low-tint: #fff4de;
+  --low-fill: #e9a93a;
+  --low-empty: #e3d6bc;
+
+  /* On the inverted surface (Now block, toast) the semantic colours are the
+     other mode's, so they keep their contrast: the design's toast shows the
+     dark done/missed/signal-ink on the light-mode ink pill. */
+  --on-ink-done: #4cc38a;
+  --on-ink-missed: #ff7a61;
+  --on-ink-signal-ink: #7db6fb;
+
+  /* Overlay */
+  --scrim: rgba(0, 0, 0, 0.45);
+  --scrim-drawer: rgba(0, 0, 0, 0.28);
+  --sheet-shadow: 0 -8px 40px rgba(0, 0, 0, 0.18);
+  --drawer-shadow: -12px 0 40px rgba(0, 0, 0, 0.18);
+  --seg-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+
+  /* Radius */
+  --r-tag: 8px;
+  --r-chip: 12px;
+  --r-btn: 16px;
+  --r-group: 20px;
+  --r-now: 28px;
+  --r-sheet: 28px;
+
+  /* shadcn/ui variables, pointed at the v3 tokens inside the private app. */
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink);
+  --primary: var(--signal);
+  --primary-foreground: var(--on-signal);
+  --secondary: var(--sunken);
+  --secondary-foreground: var(--ink);
+  --muted: var(--sunken);
+  --muted-foreground: var(--ink-3);
+  --accent: var(--sunken);
+  --accent-foreground: var(--ink);
+  --destructive: var(--missed);
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--signal);
+}
+
+/* Dark: the same tokens, other values. Written out twice (forced and
+   OS-following) because a media query can't share a selector list. */
+:root.dark:has(> body > .alpha),
+:root:not(.light, .dark):has(> body > .alpha[data-appearance="dark"]),
+[data-alpha-theme="dark"] {
+  color-scheme: dark;
+  --paper: #0c0d0f;
+  --surface: #16181b;
+  --sunken: #1f2226;
+  --line: #2a2d32;
+  --ink: #f3f3f0;
+  --ink-2: #b4b7be;
+  --ink-3: #8c9098;
+  --on-ink-2: #5a5e66;
+  --on-ink-soft: #3a3d42;
+  --signal-ink: #7db6fb;
+  --signal-tint: #13233a;
+  --done: #4cc38a;
+  --done-tint: #12261c;
+  --missed: #ff7a61;
+  --missed-tint: #2a1714;
+  --low: #f0b44c;
+  --low-tint: #2a2110;
+  --low-empty: #4a3f28;
+  --on-ink-done: #177a4e;
+  --on-ink-missed: #b93a26;
+  --on-ink-signal-ink: #1f5fcc;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light, .dark):has(> body > .alpha:not([data-appearance="light"], [data-appearance="dark"])) {
+    color-scheme: dark;
+    --paper: #0c0d0f;
+    --surface: #16181b;
+    --sunken: #1f2226;
+    --line: #2a2d32;
+    --ink: #f3f3f0;
+    --ink-2: #b4b7be;
+    --ink-3: #8c9098;
+    --on-ink-2: #5a5e66;
+    --on-ink-soft: #3a3d42;
+    --signal-ink: #7db6fb;
+    --signal-tint: #13233a;
+    --done: #4cc38a;
+    --done-tint: #12261c;
+    --missed: #ff7a61;
+    --missed-tint: #2a1714;
+    --low: #f0b44c;
+    --low-tint: #2a2110;
+    --low-empty: #4a3f28;
+    --on-ink-done: #177a4e;
+    --on-ink-missed: #b93a26;
+    --on-ink-signal-ink: #1f5fcc;
+  }
+}
+
+/* ── Base ─────────────────────────────────────────────── */
+
+:root:has(> body > .alpha),
+body:has(> .alpha) {
+  background: var(--paper);
+}
+
+/* The sidebar and tab bar are fixed; clip (not hidden) keeps <body> from
+   becoming a scroll container. */
+body:has(> .alpha) {
+  overflow-x: clip;
+}
+
+.alpha,
+[data-alpha-theme] {
+  color: var(--ink);
+  font-family: var(--font-geist), system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.alpha {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+[data-alpha-theme] {
+  background: var(--paper);
+}
+
+@layer base {
+  .alpha :focus-visible,
+  [data-alpha-theme] :focus-visible {
+    outline: 2px solid var(--signal);
+    outline-offset: 2px;
+  }
+
+  .alpha ::selection {
+    background: var(--signal-tint);
+  }
+
+  .alpha input,
+  .alpha textarea {
+    caret-color: var(--signal);
+  }
+}

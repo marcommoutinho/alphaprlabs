@@ -10,7 +10,7 @@ import { requireResearcher } from "@/lib/auth/session";
 export default async function ResearcherLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const researcher = await requireResearcher();
   return (
-    <AppShell identity={{ name: researcher.name, email: researcher.email, role: researcher.role }} side="research">
+    <AppShell identity={{ name: researcher.name, email: researcher.email, role: researcher.role }}>
       {children}
       <PushSync userId={researcher.id} vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? ""} />
       <BadgeSync />

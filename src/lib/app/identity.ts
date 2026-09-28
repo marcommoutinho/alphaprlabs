@@ -1,12 +1,5 @@
 export type AppRole = "admin" | "researcher";
 
-/**
- * Which navigation the shell shows: the research side (/app) or the admin
- * back office (/admin). Every admin is also a researcher (S3.2), so an admin
- * uses both sides and switches between them from the account menu.
- */
-export type AppSide = "research" | "admin";
-
 /** Roles that may use the research side for their own records: researchers and admins. */
 export function hasResearchAccess(role: AppRole): boolean {
   return role === "researcher" || role === "admin";

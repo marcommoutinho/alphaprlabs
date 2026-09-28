@@ -55,7 +55,8 @@ test("calculate with comma decimals, save a mixture for a cycle peptide, and reo
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
   await page.goto(`${APP_ORIGIN}/app/calculator`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Calculator");
-  await expect(page.getByRole("navigation", { name: "Main" }).locator('[aria-current="page"]')).toHaveText("Calculator");
+  // The calculator belongs to Cycles in the design v3 shell (V2 moves it into the cycle builder).
+  await expect(page.getByRole("navigation", { name: "Main" }).locator('[aria-current="page"]')).toHaveText("Cycles");
   await expect(page.getByText("None yet. Save one above to reuse it in reminders.")).toBeVisible();
 
   // Nothing typed yet: every missing value is listed.
@@ -123,8 +124,8 @@ test("the calculator works at phone width", async ({ page }) => {
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
   await page.goto(`${APP_ORIGIN}/app/calculator?plan=${planId}`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Calculator");
-  // The bottom tab bar, with Calculator current.
-  await expect(page.locator(".app-tabbar [aria-current='page']")).toContainText("Calculator");
+  // The bottom tab bar, with Cycles (which owns the calculator) current.
+  await expect(page.locator(".app-tabbar [aria-current='page']")).toContainText("Cycles");
   const dose = await hydrated(page.getByLabel("Intended dose (mg) · entered by you"));
   await dose.fill("0,2");
   await page.getByLabel("Vial strength (mg per vial)").fill("5");
