@@ -1,15 +1,11 @@
 import { notFound } from "next/navigation";
 import { CycleBuilder } from "@/components/research/cycles/builder/cycle-builder";
 import { requireResearcher } from "@/lib/auth/session";
-import { type BuilderMix, builderFromForm, mixFrom } from "@/lib/cycles/builder";
+import { builderForEdit } from "@/lib/cycles/builder";
 import { timeZoneOptions } from "@/lib/cycles/display";
-import { editWindow } from "@/lib/cycles/revise";
-import { formOfCycle } from "@/lib/cycles/rules";
-import { cycleSpan } from "@/lib/cycles/schedule";
 import { getCycle, listCyclePeptides } from "@/lib/cycles/service";
 import { cycleConfirmations } from "@/lib/doses/service";
 import { listMixtures } from "@/lib/mixtures/service";
-import { localDateOf } from "@/lib/schedule/zone";
 import { createClient } from "@/lib/supabase/server";
 
 type Params = Promise<{ cycleId: string }>;
@@ -34,22 +30,7 @@ export default async function EditCyclePage({ params }: { params: Params }) {
   const current = cycle.revisions[cycle.revisions.length - 1];
   const now = new Date();
   // Recorded doses and skips: never replaced, and they count as started.
-  const { effective, locks, started } = editWindow(cycle.revisions, now, confirmations);
-  const form = formOfCycle(cycle, effective, localDateOf(now, current.timeZone));
-
-  const savedMixes: Record<string, BuilderMix> = {};
-  for (const mixture of mixtures) savedMixes[mixture.peptideId] ??= mixFrom(mixture, false);
-  const planMixes = new Map<string, BuilderMix>();
-  for (const plan of current.plans) {
-    const mixture = mixtures.find((m) => m.planIds.includes(plan.planId));
-    if (mixture) planMixes.set(plan.peptideId, mixFrom(mixture, true));
-  }
-
-  const initial = builderFromForm(form, cycleSpan(current).start, {
-    locks: Object.fromEntries(locks),
-    started: [...started],
-    mixes: planMixes,
-  });
+  const { initial, savedMixes, effective, startLocked } = builderForEdit(cycle, confirmations, mixtures, now);
 
   return (
     <CycleBuilder
@@ -59,8 +40,8 @@ export default async function EditCyclePage({ params }: { params: Params }) {
       now={now.toISOString()}
       datesZone={current.timeZone}
       savedMixes={savedMixes}
-      effective={Object.fromEntries(effective)}
-      startLocked={[...locks.values()].some((lock) => lock !== null)}
+      effective={effective}
+      startLocked={startLocked}
     />
   );
 }

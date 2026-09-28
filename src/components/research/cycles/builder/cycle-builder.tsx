@@ -16,12 +16,15 @@ import {
   type BuilderPlan,
   type BuilderState,
   cycleDays,
+  endBefore,
   mixEntry,
   mixIssues,
   newBuilderPlan,
   newPhase,
+  planLink,
   reviewIssues,
   scheduleIssues,
+  togglePlan,
   withDose,
   withUnit,
   formFromBuilder,
@@ -145,11 +148,7 @@ export function CycleBuilder({
 
   function toggle(peptide: CyclePeptide) {
     setIssues([]);
-    setState((s) => {
-      const index = s.plans.findIndex((p) => p.peptideId === peptide.id);
-      if (index >= 0) return s.plans[index].started ? s : { ...s, plans: s.plans.filter((_, i) => i !== index) };
-      return { ...s, plans: [...s.plans, newBuilderPlan(peptide.id, savedMixes[peptide.id] ?? blankMix())] };
-    });
+    setState((s) => togglePlan(s, peptide.id, () => newBuilderPlan(peptide.id, savedMixes[peptide.id] ?? blankMix())));
   }
 
   function doseContinue() {
@@ -177,7 +176,7 @@ export function CycleBuilder({
   function save() {
     const list = reviewIssues(state, nameOf, isValidTimeZone(timeZone));
     if (list.length) return fail(list);
-    const mixes = state.plans.map((plan) => mixEntry(plan, state.links[plan.peptideId] ?? null)).filter((entry) => entry !== null);
+    const mixes = state.plans.map((plan) => mixEntry(plan, planLink(state, plan))).filter((entry) => entry !== null);
     const payload = { ...formFromBuilder({ ...state, timeZone }), mixes };
     // One request key per submission: the same details sent again (a retry
     // after a lost answer) reuse it, so the server returns that save instead
@@ -252,7 +251,7 @@ export function CycleBuilder({
               onDose={(dose) => updatePlan(current, (p) => withDose(p, dose))}
               onUnit={(unit) => updatePlan(current, (p) => withUnit(p, unit))}
               onMix={(mix) => updatePlan(current, (p) => ({ ...p, mix }))}
-              linked={plan.peptideId in state.links}
+              linked={planLink(state, plan) !== null}
             />
           </>
         ) : null}
@@ -277,7 +276,19 @@ export function CycleBuilder({
                 setState((s) => ({ ...s, start }));
               }}
               onPhase={patchPhase}
-              onRemove={(key) => updatePlan(current, (p) => ({ ...p, phases: p.phases.filter((phase) => phase.key !== key) }))}
+              onRemove={(key) => {
+                // "End it now" on a phase under way: it ends the day before the
+                // edit applies and stays, with its history; others are removed.
+                const phase = plan.phases.find((p) => p.key === key);
+                const ending =
+                  phase?.lock === "started" ? endBefore(phase, state.start, plan.planId ? (effective[plan.planId] ?? null) : null) : null;
+                if (ending) {
+                  patchPhase(key, ending);
+                  setExpanded(null);
+                  return;
+                }
+                updatePlan(current, (p) => ({ ...p, phases: p.phases.filter((phase) => phase.key !== key) }));
+              }}
             />
           </>
         ) : null}

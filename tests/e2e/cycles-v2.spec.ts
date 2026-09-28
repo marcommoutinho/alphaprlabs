@@ -355,7 +355,7 @@ for (const { device, viewport, colorScheme, phone } of DEVICES) {
   });
 }
 
-test.describe("a peptide's mix in an edit", () => {
+test.describe("editing a cycle: mixes, peptides and ending a phase", () => {
   test.use({ viewport: LAPTOP });
 
   test("an unchanged mix stays linked; a cleared one comes off the cycle and Today shows no units", async ({ page }) => {
@@ -408,5 +408,103 @@ test.describe("a peptide's mix in an edit", () => {
     await expect(page.getByTestId("today-hero").getByTestId("hero-name")).toHaveText(seed.A);
     await expect(page.getByTestId("today-hero").getByTestId("hero-mg")).toHaveText("250 mcg");
     await expect(page.getByTestId("today-hero").getByTestId("hero-units")).toHaveCount(0);
+  });
+
+  test("an upcoming peptide unchecked and checked again keeps its plan and its mix", async ({ page }) => {
+    const t = tag();
+    const email = uniqueEmail("v2-round-trip");
+    await ensureAccount({ email, name: "Round Trip", role: "researcher" });
+    const [A, C] = [`BPC ${t}`, `KPV ${t}`];
+    const [aId, cId] = [await seedPeptide(A), await seedPeptide(C)];
+    const db = await signedInClient(email);
+    const cycleId = await createCycle(db, {
+      name: `Round trip ${t}`,
+      goal: "Recovery",
+      timeZone: NOON,
+      plans: [plan(aId, [interval(d(-3), d(20), "0.25", 1, "08:00")]), plan(cId, [interval(d(5), d(20), "0.5", 1, "20:00")])],
+    });
+    const plansOf = () => ok(serviceClient().from("cycle_plans").select("id, peptide_id").eq("cycle_id", cycleId), "plans");
+    const cPlan = (await plansOf()).find((p) => p.peptide_id === cId)!.id;
+    await ok(
+      db.rpc("save_mixture", { p_peptide_id: cId, p_vial_mg: "10", p_liquid_ml: "2", p_syringe_units: 100, p_line_spacing: "2", p_plan_ids: [cPlan] }),
+      "save_mixture",
+    );
+    const links = () => ok(serviceClient().from("cycle_plan_mixtures").select("mixture_id, linked_at, unlinked_at").eq("plan_id", cPlan), "links");
+    const before = await links();
+    await signIn(page, email);
+
+    await page.goto(`${APP_ORIGIN}/app/cycles/${cycleId}/edit`);
+    await (await hydrated(page.getByLabel("Search peptides"))).fill(t);
+    const pick = page.getByRole("checkbox").filter({ hasText: C });
+    await pick.first().click();
+    await expect(page.getByRole("button", { name: "Continue with 1 peptide" })).toBeVisible();
+    await pick.first().click();
+    await page.getByRole("button", { name: "Continue with 2 peptides" }).click();
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByRole("button", { name: `Next: ${C}` }).click();
+    // Its mix, as it was.
+    await expect(page.getByLabel("Vial", { exact: true })).toHaveValue("10");
+    await expect(page.getByLabel("BAC water")).toHaveValue("2");
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByRole("button", { name: "Review cycle" }).click();
+    await page.getByRole("button", { name: "Save future changes" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Future plan updated. Recorded history is unchanged." })).toBeVisible();
+    await expect(page).toHaveURL(`${APP_ORIGIN}/app/cycles/${cycleId}`);
+    expect(await plansOf()).toHaveLength(2);
+    expect(await links()).toEqual(before);
+  });
+
+  test("End it now on a one-phase cycle ends it, with its history kept", async ({ page }) => {
+    const t = tag();
+    const email = uniqueEmail("v2-end-now");
+    await ensureAccount({ email, name: "End Now", role: "researcher" });
+    const A = `BPC ${t}`;
+    const aId = await seedPeptide(A);
+    const db = await signedInClient(email);
+    // Daily at 20:00 in a zone where it is about noon: today's dose is still ahead, so the edit applies from today.
+    const name = `One phase ${t}`;
+    const cycleId = await createCycle(db, { name, goal: "Recovery", timeZone: NOON, plans: [plan(aId, [interval(d(-3), d(20), "0.25", 1, "20:00")])] });
+    const [phase] = await ok(
+      serviceClient().from("cycle_revision_phases").select("plan_id, phase_id, cycle_revision_plans!inner(cycle_id)").eq("cycle_revision_plans.cycle_id", cycleId),
+      "phase",
+    );
+    await ok(
+      db.rpc("confirm_dose", {
+        p_request_key: randomUUID(),
+        p_occurrence_key: `${phase.plan_id}:${phase.phase_id}:0`,
+        p_seen_scheduled_at: noonZoneInstant(d(-3), "20:00"),
+        p_seen_dose_mg: "0.25",
+        p_seen_mixture_version_id: null as unknown as string,
+        p_amount_mg: "0.25",
+        p_actual_at: noonZoneInstant(d(-3), "20:00"),
+        p_site: "Abdomen L",
+      }),
+      "confirm_dose",
+    );
+    await signIn(page, email);
+
+    await page.goto(`${APP_ORIGIN}/app/cycles/${cycleId}/edit`);
+    await (await hydrated(page.getByRole("button", { name: "Continue with 1 peptide" }))).click();
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByTestId("phase-editor").getByRole("button", { name: "End it now" }).click();
+    await expect(page.getByTestId("builder-phase")).toHaveCount(1);
+    await expect(page.getByTestId("builder-phase").locator("[data-slot=ending]")).toHaveText(/^Ends /);
+    await page.getByRole("button", { name: "Review cycle" }).click();
+    await page.getByRole("button", { name: "Save future changes" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Future plan updated. Recorded history is unchanged." })).toBeVisible();
+    await expect(page).toHaveURL(`${APP_ORIGIN}/app/cycles/${cycleId}`);
+
+    const phases = await ok(
+      serviceClient().from("cycle_revision_phases").select("start_date, end_date, cycle_revision_plans!inner(cycle_id, revision_id)").eq("cycle_revision_plans.cycle_id", cycleId),
+      "phases",
+    );
+    expect(phases.map((p) => [p.start_date, p.end_date]).sort()).toEqual([
+      [d(-3), d(-1)],
+      [d(-3), d(20)],
+    ]);
+    const doses = await ok(serviceClient().from("dose_records").select("occurrence_key").eq("cycle_id", cycleId), "doses");
+    expect(doses).toEqual([{ occurrence_key: `${phase.plan_id}:${phase.phase_id}:0` }]);
+    await page.goto(`${APP_ORIGIN}/app/cycles`);
+    await expect(page.locator('[data-testid=cycle-group][data-group=ended]').getByTestId("cycle-card").filter({ hasText: name })).toBeVisible();
   });
 });

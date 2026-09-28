@@ -24,11 +24,12 @@ import {
   type MixtureSetup,
   VIAL_TOO_LARGE,
 } from "@/lib/mixtures/rules";
-import { MAX_EVERY_DAYS, type Phase, type Weekday } from "@/lib/schedule/engine";
-import { isLocalDate, isLocalTime, type LocalDate } from "@/lib/schedule/zone";
+import { type Confirmation, MAX_EVERY_DAYS, type Phase, type Weekday } from "@/lib/schedule/engine";
+import { isLocalDate, isLocalTime, type LocalDate, localDateOf } from "@/lib/schedule/zone";
 import { daysBetween, plusDays } from "./geometry";
-import type { PhaseLock } from "./revise";
-import { CYCLE_LIMITS, type CycleForm, type CyclePhaseForm, DEFAULT_TIME, GOAL_REQUIRED, GOAL_TOO_LONG, NAME_REQUIRED, NAME_TOO_LONG, BASELINE_TOO_LONG, TIME_ZONE_REQUIRED } from "./rules";
+import { editWindow, type PhaseLock } from "./revise";
+import { cycleSpan } from "./schedule";
+import { CYCLE_LIMITS, type CycleForm, type CycleRecord, type CyclePhaseForm, DEFAULT_TIME, formOfCycle, GOAL_REQUIRED, GOAL_TOO_LONG, NAME_REQUIRED, NAME_TOO_LONG, BASELINE_TOO_LONG, TIME_ZONE_REQUIRED } from "./rules";
 
 export type Frequency = "daily" | "weekdays" | "every";
 
@@ -94,11 +95,17 @@ export type BuilderState = {
   start: LocalDate;
   plans: BuilderPlan[];
   /**
-   * By peptide id: each plan's mixture when the builder opened (an edit).
-   * Fixed while editing, so clearing a mix, or removing and adding the
-   * peptide again, still knows which link the save ends (mixEntry).
+   * By stored plan id: each plan's mixture when the builder opened (an
+   * edit). Fixed while editing, so clearing a mix still knows which link the
+   * save ends (mixEntry, through planLink). A plan the save creates has none.
    */
   links: Readonly<Record<string, MixLink>>;
+  /**
+   * By peptide id: the plans taken out in this session (togglePlan). Adding
+   * the peptide back restores its plan as it was (its stored id, phases and
+   * mix), so the save edits that plan instead of creating another.
+   */
+  removed: Readonly<Record<string, BuilderPlan>>;
 };
 
 /** New phases: 28 days (a break 7), daily at 08:00. */
@@ -145,11 +152,13 @@ export function builderFromForm(
   options: { locks?: Readonly<Record<string, PhaseLock>>; started?: readonly string[]; mixes?: ReadonlyMap<string, BuilderMix> } = {},
 ): BuilderState {
   const links: Record<string, MixLink> = {};
-  for (const [peptideId, mix] of options.mixes ?? []) {
-    if (mix.linked && mix.mixtureId && mix.version !== null) links[peptideId] = { mixtureId: mix.mixtureId, version: mix.version };
+  for (const plan of form.plans) {
+    const mix = options.mixes?.get(plan.peptideId);
+    if (plan.planId && mix?.linked && mix.mixtureId && mix.version !== null) links[plan.planId] = { mixtureId: mix.mixtureId, version: mix.version };
   }
   return {
     links,
+    removed: {},
     cycleId: form.cycleId,
     version: form.version,
     templateId: form.templateId,
@@ -185,6 +194,32 @@ export function builderFromForm(
         })),
       };
     }),
+  };
+}
+
+/**
+ * "Edit future plan" as its page opens the builder, as of `now`: the
+ * owner's cycle with its recorded doses and skips (editWindow: each plan's
+ * effective date, ended and started phases) and the owner's saved mixtures
+ * (newest first): each plan starts from the mixture it uses now, and a
+ * peptide added reuses its newest saved one.
+ */
+export function builderForEdit(cycle: CycleRecord, confirmations: readonly Confirmation[], mixtures: readonly Mixture[], now: Date) {
+  const current = cycle.revisions[cycle.revisions.length - 1];
+  const { effective, locks, started } = editWindow(cycle.revisions, now, confirmations);
+  const form = formOfCycle(cycle, effective, localDateOf(now, current.timeZone));
+  const savedMixes: Record<string, BuilderMix> = {};
+  for (const mixture of mixtures) savedMixes[mixture.peptideId] ??= mixFrom(mixture, false);
+  const planMixes = new Map<string, BuilderMix>();
+  for (const plan of current.plans) {
+    const mixture = mixtures.find((m) => m.planIds.includes(plan.planId));
+    if (mixture) planMixes.set(plan.peptideId, mixFrom(mixture, true));
+  }
+  return {
+    initial: builderFromForm(form, cycleSpan(current).start, { locks: Object.fromEntries(locks), started: [...started], mixes: planMixes }),
+    savedMixes,
+    effective: Object.fromEntries(effective) as Record<string, LocalDate>,
+    startLocked: [...locks.values()].some((lock) => lock !== null),
   };
 }
 
@@ -256,6 +291,49 @@ export function newBuilderPlan(peptideId: string, mix: BuilderMix = blankMix()):
   const plan: BuilderPlan = { planId: null, peptideId, unit: "mg", dose: "", phases: [], mix, started: false };
   plan.phases = [newPhase(plan, "active")];
   return plan;
+}
+
+/**
+ * R4a's peptide checkbox. Unchecking takes the plan out (not a started one:
+ * it can only be ended by shortening its phases) and keeps it in
+ * `removed`; checking it again restores that plan as it was (its stored id,
+ * phases and mix), so an edit keeps the same plan and its mixture link.
+ * A peptide never in the builder gets `fresh()`.
+ */
+export function togglePlan(state: BuilderState, peptideId: string, fresh: () => BuilderPlan): BuilderState {
+  const index = state.plans.findIndex((p) => p.peptideId === peptideId);
+  if (index >= 0) {
+    const plan = state.plans[index];
+    if (plan.started) return state;
+    return { ...state, plans: state.plans.filter((_, i) => i !== index), removed: { ...state.removed, [peptideId]: plan } };
+  }
+  const { [peptideId]: back, ...rest } = state.removed;
+  return { ...state, plans: [...state.plans, back ?? fresh()], removed: rest };
+}
+
+/** The plan's mixture when the builder opened (by its stored id): none for a plan the save creates. */
+export function planLink(state: Pick<BuilderState, "links">, plan: Pick<BuilderPlan, "planId">): MixLink | null {
+  return plan.planId ? (state.links[plan.planId] ?? null) : null;
+}
+
+/**
+ * "End it now" on a phase under way (an edit): its length so that it ends
+ * the day before `effective`, the first date the plan's changes apply from.
+ * The phase stays, with its doses so far (history), and nothing is planned
+ * after that day; the edit's revision ends it there (reviseCycle). Null when
+ * it can't end there (no effective date, or it doesn't start before it).
+ */
+export function endBefore(phase: Pick<BuilderPhase, "day">, start: LocalDate, effective: LocalDate | null): { length: string } | null {
+  const day = whole(phase.day);
+  if (!effective || !isLocalDate(effective) || !isLocalDate(start) || day === null || day < 1) return null;
+  const length = daysBetween(plusDays(start, day - 1), effective);
+  return length >= 1 ? { length: String(length) } : null;
+}
+
+/** The phase ends the day before `effective` (as "End it now" leaves it). */
+export function endsBefore(phase: Pick<BuilderPhase, "day" | "length">, start: LocalDate, effective: LocalDate | null): boolean {
+  const ending = endBefore(phase, start, effective);
+  return ending !== null && whole(phase.length) === Number(ending.length);
 }
 
 const sameAmount = (a: string, b: string) => {
@@ -340,7 +418,7 @@ const canonical = (text: string) => normalizeDecimal(text);
 
 /**
  * A peptide's entry, from its mix and the plan's mixture when the builder
- * opened (`link`, state.links): blank with a link is `remove`, blank without
+ * opened (`link`, planLink): blank with a link is `remove`, blank without
  * one is nothing to send; the linked mixture's setup unchanged is `keep`;
  * anything else is `set`. mixIssues keeps half-filled mixes from saving.
  */

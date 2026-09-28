@@ -9,6 +9,8 @@ import {
   type BuilderState,
   builderFromForm,
   cycleDays,
+  endBefore,
+  endsBefore,
   exactSyringes,
   firstIssue,
   formFromBuilder,
@@ -19,9 +21,11 @@ import {
   newPhase,
   nextFreeDay,
   phaseNames,
+  planLink,
   previewPhases,
   reviewIssues,
   scheduleIssues,
+  togglePlan,
   withDose,
   withSyringe,
   withUnit,
@@ -205,7 +209,7 @@ describe("the mix", () => {
     expect(mixEntry(plan())).toBeNull();
     expect(mixEntry(plan(mixFrom(mixture, true)), link)).toEqual({ kind: "keep", peptideId: PA, mixtureId: uuid(700), version: 2 });
     expect(mixEntry(plan({ ...mixFrom(mixture, true), vialMg: "10.0" }), link)).toMatchObject({ kind: "keep" });
-    // The same mixture again after the peptide was removed and added back.
+    // The same mixture shown as a saved one to reuse.
     expect(mixEntry(plan(mixFrom(mixture, false)), link)).toMatchObject({ kind: "keep" });
   });
 
@@ -213,15 +217,53 @@ describe("the mix", () => {
     const remove = { kind: "remove", peptideId: PA, mixtureId: uuid(700), version: 2 };
     expect(mixEntry(plan({ ...mixFrom(mixture, true), vialMg: "", liquidMl: "" }), link)).toEqual(remove);
     expect(mixEntry(plan({ ...mixFrom(mixture, true), vialMg: "  ", liquidMl: "" }), link)).toEqual(remove);
-    // Removed and added back blank: still the plan's link that ends.
-    expect(mixEntry(plan(), link)).toEqual(remove);
   });
 
-  it("builderFromForm records each plan's mixture when the builder opened", () => {
-    const state = builderFromForm(form, "2026-10-01", { mixes: new Map([[PA, mixFrom(mixture, true)]]) });
-    expect(state.links).toEqual({ [PA]: link });
-    expect(builderFromForm(form, "2026-10-01", { mixes: new Map([[PA, mixFrom(mixture, false)]]) }).links).toEqual({});
-    expect(builderFromForm(form, "2026-10-01").links).toEqual({});
+  // An edit whose plan for PA (stored id PLAN) uses the mixture.
+  const PLAN = uuid(800);
+  const stored: CycleForm = { ...form, cycleId: uuid(801), version: 1, plans: [{ ...form.plans[0], planId: PLAN }] };
+  const opened = () => builderFromForm(stored, "2026-10-01", { mixes: new Map([[PA, mixFrom(mixture, true)]]) });
+
+  it("builderFromForm records each stored plan's mixture when the builder opened, by plan id", () => {
+    expect(opened().links).toEqual({ [PLAN]: link });
+    expect(builderFromForm(stored, "2026-10-01", { mixes: new Map([[PA, mixFrom(mixture, false)]]) }).links).toEqual({});
+    // A new cycle's plans aren't stored yet: nothing to keep or remove.
+    expect(builderFromForm(form, "2026-10-01", { mixes: new Map([[PA, mixFrom(mixture, true)]]) }).links).toEqual({});
+    expect(planLink(opened(), { planId: null })).toBeNull();
+  });
+
+  it("unchecking and checking a peptide again restores its plan, its stored id and its mixture link", () => {
+    const fresh = () => newBuilderPlan(PA, mixFrom(mixture, false));
+    const state = opened();
+    const out = togglePlan(state, PA, fresh);
+    expect(out.plans).toEqual([]);
+    const back = togglePlan(out, PA, fresh);
+    expect(back.plans).toEqual(state.plans);
+    expect(back.removed).toEqual({});
+    const entry = (s: typeof state) => mixEntry(s.plans[0], planLink(s, s.plans[0]));
+    // Unchanged, cleared and changed after the round trip: keep, remove and set, on the same plan.
+    expect(entry(back)).toMatchObject({ kind: "keep", mixtureId: uuid(700) });
+    const cleared = { ...back, plans: [{ ...back.plans[0], mix: { ...back.plans[0].mix, vialMg: "", liquidMl: "" } }] };
+    expect(entry(cleared)).toMatchObject({ kind: "remove", mixtureId: uuid(700) });
+    const changed = { ...back, plans: [{ ...back.plans[0], mix: { ...back.plans[0].mix, liquidMl: "3" } }] };
+    expect(entry(changed)).toMatchObject({ kind: "set", mixtureId: uuid(700), setup: { liquidMl: "3" } });
+    expect(changed.plans[0].planId).toBe(PLAN);
+    // A started plan can't be unchecked; a peptide never in the builder is added fresh.
+    const started = { ...state, plans: [{ ...state.plans[0], started: true }] };
+    expect(togglePlan(started, PA, fresh)).toBe(started);
+    expect(togglePlan(state, PB, () => newBuilderPlan(PB)).plans.map((p) => [p.peptideId, p.planId])).toEqual([
+      [PA, PLAN],
+      [PB, null],
+    ]);
+  });
+
+  it("End it now ends a phase under way the day before the edit applies", () => {
+    // Day 3 of a cycle from Oct 1 is Oct 3; changes apply from Oct 10: it ends Oct 9, 7 days long.
+    expect(endBefore({ day: "3" }, "2026-10-01", "2026-10-10")).toEqual({ length: "7" });
+    expect(endsBefore({ day: "3", length: "7" }, "2026-10-01", "2026-10-10")).toBe(true);
+    expect(endsBefore({ day: "3", length: "8" }, "2026-10-01", "2026-10-10")).toBe(false);
+    expect(endBefore({ day: "10" }, "2026-10-01", "2026-10-10")).toBeNull();
+    expect(endBefore({ day: "3" }, "2026-10-01", null)).toBeNull();
   });
 
   it("a saved mix to reuse links it; a change makes the next setup of the same mixture", () => {

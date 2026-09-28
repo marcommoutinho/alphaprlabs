@@ -6,7 +6,7 @@ import { Field, NumberInput, TextInput } from "@/components/alpha/field";
 import { Segmented } from "@/components/alpha/segmented";
 import { clock12, massLabel, mgFromUnit, shortDate } from "@/lib/alpha/format";
 import { isPositiveDecimal } from "@/lib/calculator/decimal";
-import { type BuilderPhase, type BuilderPlan, type Frequency, mixReading, phaseNames, previewPhases } from "@/lib/cycles/builder";
+import { type BuilderPhase, type BuilderPlan, endsBefore, type Frequency, mixReading, phaseNames, previewPhases } from "@/lib/cycles/builder";
 import { type AxisLabel, dateRange, daysLabel, laneBars, monthDay, plusDays } from "@/lib/cycles/geometry";
 import type { Weekday } from "@/lib/schedule/engine";
 import { isLocalDate } from "@/lib/schedule/zone";
@@ -156,6 +156,11 @@ export function StepSchedule({
                     <span className="flex items-center gap-2 text-base font-semibold">
                       {names[i]}
                       {phase.lock === "ended" ? <span className="text-[12px] font-normal text-ink-3">Done</span> : null}
+                      {phase.lock === "started" && effective && endsBefore(phase, start, effective) ? (
+                        <span className="text-[12px] font-normal text-ink-3" data-slot="ending">
+                          Ends {shortDate(plusDays(effective, -1))}
+                        </span>
+                      ) : null}
                     </span>
                     <span className="font-mono text-[13px] font-medium text-ink-2">
                       {phase.kind === "break" ? `${span(phase, start, false)} · ${phase.length || "?"} days` : span(phase, start, false)}
@@ -199,6 +204,8 @@ function PhaseCard({
   const mg = mgFromUnit(phase.dose, plan.unit);
   const reading = phase.kind === "active" ? mixReading(plan.mix, mg) : null;
   const started = phase.lock === "started";
+  // Ended with "End it now": its last day is the one before the edit applies.
+  const ending = started && effective !== null && endsBefore(phase, start, effective);
   return (
     <section
       aria-label={title}
@@ -213,7 +220,11 @@ function PhaseCard({
           {span(phase, start)}
         </span>
       </div>
-      {started ? (
+      {ending ? (
+        <p className="text-[13px] text-ink-2" data-testid="phase-ending">
+          Ends {shortDate(plusDays(effective!, -1))}: nothing is planned after that, and its doses so far stay in the history.
+        </p>
+      ) : started ? (
         <p className="text-[13px] text-ink-2">
           Under way, so its start stays.{effective ? ` Changes apply from ${shortDate(effective)}.` : ""}
         </p>
@@ -273,9 +284,13 @@ function PhaseCard({
         </>
       ) : null}
       <div className="flex justify-between gap-2">
-        <Button type="button" variant="destructive-text" size="sm" onClick={onRemove}>
-          {started ? "End it now" : phase.kind === "break" ? "Remove break" : "Remove phase"}
-        </Button>
+        {ending ? (
+          <span />
+        ) : (
+          <Button type="button" variant="destructive-text" size="sm" onClick={onRemove}>
+            {started ? "End it now" : phase.kind === "break" ? "Remove break" : "Remove phase"}
+          </Button>
+        )}
         <Button type="button" variant="soft" size="sm" onClick={onClose}>
           Done
         </Button>
