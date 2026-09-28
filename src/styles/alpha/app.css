@@ -1,15 +1,27 @@
 /*
- * Design v3 utilities for the private app: a second Tailwind stylesheet,
- * imported by the private root layout (src/app/(private)/layout.tsx) after
- * src/app/globals.css, and never by the public site.
+ * The private app's Tailwind stylesheet: imported by the private root layout
+ * (src/app/(private)/layout.tsx) after src/app/globals.css, never by the
+ * public site.
+ *
+ * SOURCE RULE (the same list, negated, is at the top of globals.css; the unit
+ * test tests/unit/alpha-css-sources.test.ts enforces both):
+ *   - scanned here, and excluded from globals.css: the whole private tree,
+ *     i.e. src/app/(private) and every src/components folder only the private
+ *     app imports (admin, alpha, app-shell, auth, push, research);
+ *   - scanned by globals.css only: everything the public site imports (the
+ *     public routes, src/app/global-not-found.tsx, the top-level components
+ *     and src/components/ui), plus lib, tests and docs, as before.
+ *   A new private component folder goes in both lists. A folder the public
+ *   site starts importing leaves both, and must not use the v3 utilities
+ *   (bg-paper, text-ink, laptop: …), which exist only here.
  *
  * - Theme and utilities only: no preflight, which globals.css already applies
  *   (a second one would reset its base rules).
- * - It scans only the v3 sources (globals.css skips src/components/alpha), so
- *   every class a v3 element uses is generated here, in Tailwind's order,
- *   after the shared stylesheet.
- * - The same shared configuration as globals.css (fonts, dark variant, shadcn
- *   bindings), plus the v3 bindings and the laptop / phone variants.
+ * - Every class a private element uses is generated here, in Tailwind's
+ *   order, after the shared stylesheet, so its utilities never depend on
+ *   globals.css.
+ * - The same shared configuration as globals.css (fonts, shadcn bindings),
+ *   plus the v3 bindings, the laptop / phone variants and the v3 dark variant.
  */
 @layer theme, base, components, utilities;
 @import "tailwindcss/theme.css" layer(theme);
@@ -31,6 +43,11 @@
   }
 }
 
+/* The private tree (see SOURCE RULE above). */
+@source "../../app/(private)";
+@source "../../components/admin";
 @source "../../components/alpha";
-@source "../../components/app-shell/app-shell.tsx";
-@source "../../app/(private)/not-found.tsx";
+@source "../../components/app-shell";
+@source "../../components/auth";
+@source "../../components/push";
+@source "../../components/research";

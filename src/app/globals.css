@@ -1,12 +1,28 @@
+/*
+ * SOURCE RULE (the same list is scanned by src/styles/alpha/app.css, the
+ * private app's own stylesheet; tests/unit/alpha-css-sources.test.ts enforces
+ * both):
+ *   - excluded here, scanned by app.css: the whole private tree, i.e.
+ *     src/app/(private) and every src/components folder only the private app
+ *     imports (admin, alpha, app-shell, auth, push, research);
+ *   - scanned here only: everything the public site imports (the public
+ *     routes, src/app/global-not-found.tsx, the top-level components and
+ *     src/components/ui), plus lib, tests and docs.
+ *   So the public CSS never carries the private app's utilities, and the
+ *   private app gets every one it uses from app.css. A new private component
+ *   folder goes in both lists; a folder the public site starts importing
+ *   leaves both, and must not use the v3 utilities (bg-paper, text-ink,
+ *   laptop: …), which exist only in app.css.
+ */
 @import "tailwindcss";
 @import "../styles/tailwind-config.css";
-/* The design v3 components (and the v3-only shell and 404 files) have their
-   own stylesheet, loaded by the private root layout only
-   (src/styles/alpha/app.css), so the public site never ships their
-   utilities. */
+@source not "./(private)";
+@source not "../components/admin";
 @source not "../components/alpha";
-@source not "../components/app-shell/app-shell.tsx";
-@source not "./(private)/not-found.tsx";
+@source not "../components/app-shell";
+@source not "../components/auth";
+@source not "../components/push";
+@source not "../components/research";
 
 /* The public site's (and shadcn's) `dark:`: inside `.dark`. The design v3
    components use their own, in src/styles/alpha/app.css. */
