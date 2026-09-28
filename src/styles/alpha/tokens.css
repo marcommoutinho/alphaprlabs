@@ -8,12 +8,12 @@
  * anything portalled to <body> all use them. The public site never renders
  * .alpha, so none of this reaches it.
  *
- * Mode, in order of precedence:
- *   1. `.dark` / `.light` on <html> (set in the page when the Appearance
- *      preference changes; see src/components/alpha/appearance.ts);
- *   2. data-appearance="dark" | "light" on .alpha, rendered by the server from
- *      the alpha-appearance cookie, so a forced mode is right on first paint;
- *   3. otherwise prefers-color-scheme. Light is the default.
+ * Mode: `.dark` / `.light` on <html> forces one. The server renders that
+ * class from the alpha-appearance cookie (src/app/(private)/layout.tsx, the
+ * private area's root layout), so a forced mode is right on first paint, and
+ * src/components/alpha/appearance.ts changes it in the page. With neither
+ * class the mode follows prefers-color-scheme; light is the default. The
+ * Tailwind `dark:` variant (src/app/globals.css) follows the same rules.
  * A subtree can also be pinned with data-alpha-theme="light" | "dark" (the
  * component gallery shows both side by side).
  */
@@ -95,7 +95,6 @@
 /* Dark: the same tokens, other values. Written out twice (forced and
    OS-following) because a media query can't share a selector list. */
 :root.dark:has(> body > .alpha),
-:root:not(.light, .dark):has(> body > .alpha[data-appearance="dark"]),
 [data-alpha-theme="dark"] {
   color-scheme: dark;
   --paper: #0c0d0f;
@@ -122,7 +121,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not(.light, .dark):has(> body > .alpha:not([data-appearance="light"], [data-appearance="dark"])) {
+  :root:not(.light, .dark):has(> body > .alpha) {
     color-scheme: dark;
     --paper: #0c0d0f;
     --surface: #16181b;

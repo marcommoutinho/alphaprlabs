@@ -5,6 +5,11 @@ const nextConfig: NextConfig = {
   // public site on www.localhost:3000 (APP_HOST / PUBLIC_HOST); let those
   // hosts load dev-only assets such as HMR.
   allowedDevOrigins: ["app.localhost", "www.localhost"],
+  // The public site and the private app are separate root layouts (see
+  // src/app/document.ts), so unmatched URLs need app/global-not-found.tsx.
+  experimental: {
+    globalNotFound: true,
+  },
   async headers() {
     return [
       {

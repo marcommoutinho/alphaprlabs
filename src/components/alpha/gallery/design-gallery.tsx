@@ -62,6 +62,12 @@ export function DesignGallery({ appearance }: { appearance: Appearance }) {
               { value: "dark", label: "Dark" },
             ]}
           />
+          {/* The Tailwind `dark:` variant's own reading of the page mode: it
+              must always agree with the tokens (html class, or the OS). */}
+          <span className="text-[13px] text-ink-3" data-testid="dark-variant">
+            Showing <span className="font-semibold text-ink dark:hidden">light</span>
+            <span className="hidden font-semibold text-ink dark:inline">dark</span>
+          </span>
         </div>
       </header>
       <OverlayDemos />

@@ -51,7 +51,10 @@ export type SyringeScale = {
   /** Display text of the value: exact up to 6 decimals, else "≈". */
   unitsText: string;
   overCapacity: boolean;
-  /** True on a printed line, false between lines, null when spacing is unknown. */
+  /**
+   * True on a printed line, false between lines (checked over capacity too),
+   * null when spacing is unknown.
+   */
   onLine: boolean | null;
   flags: SyringeFlag[];
 };
@@ -131,10 +134,13 @@ export function syringeScale(input: {
     });
   }
 
+  // The line check runs over capacity too, after the capacity flag, as in the
+  // calculator (src/lib/calculator): 50.5 units on a 50-unit syringe is both
+  // too much and between the 50 and 51 lines.
   let onLine: boolean | null = null;
   if (lineSpacing === "unknown") {
     flags.push({ kind: "unknown-lines", message: UNKNOWN_LINES_MESSAGE });
-  } else if (!overCapacity) {
+  } else {
     const spacing = new Exact(lineSpacing);
     onLine = value.modulo(spacing).isZero();
     if (!onLine) {

@@ -116,12 +116,61 @@ describe("syringe ruler reading and flags", () => {
     });
   });
 
-  it("over capacity: the barrel shows full, no marker, and a flag instead of a line check", () => {
+  it("over capacity: the barrel shows full with no marker, flagged, and on a line only the capacity flag", () => {
     const scale = syringeScale({ units: "120", capacity: 100 })!;
-    expect(scale).toMatchObject({ overCapacity: true, fillPercent: 100, markerPercent: null, onLine: null, labelAtValue: null });
+    expect(scale).toMatchObject({ overCapacity: true, fillPercent: 100, markerPercent: null, onLine: true, labelAtValue: null });
     expect(scale.flags).toEqual([{ kind: "over-capacity", message: "120 units is more than a 100-unit syringe holds." }]);
     // Exactly full is not over.
     expect(syringeScale({ units: "30", capacity: 30 })).toMatchObject({ overCapacity: false, onLine: true, markerPercent: 100 });
+  });
+
+  // The calculator's contract (tests/unit/calculator.test.ts, "checks each
+  // capacity, listing over-capacity before the line check"): over capacity
+  // still gets the line check, after the capacity flag.
+  it("the 50-unit contract: 50.5 units is over capacity and between the 50 and 51 lines", () => {
+    const scale = syringeScale({ units: "50.5", capacity: 50 })!;
+    expect(scale).toMatchObject({ overCapacity: true, onLine: false, markerPercent: null, fillPercent: 100 });
+    expect(scale.flags).toEqual([
+      { kind: "over-capacity", message: "50.5 units is more than a 50-unit syringe holds." },
+      {
+        kind: "between-lines",
+        lower: "50",
+        upper: "51",
+        message: "On a 50-unit syringe, 50.5 units falls between the 50 and 51 lines.",
+      },
+    ]);
+  });
+
+  it.each([
+    // capacity, off-line value, its lines, on-line value (default spacing 2 / 1 / 0.5)
+    [100, "101", "100", "102", "104"],
+    [100, "150.5", "150", "152", "200"],
+    [50, "50.5", "50", "51", "52"],
+    [50, "75.25", "75", "76", "60"],
+    [30, "30.25", "30", "30.5", "31.5"],
+    [30, "45.1", "45", "45.5", "40"],
+  ] as const)("over a %i-unit syringe: %s is between %s and %s; %s is on a line", (capacity, off, lower, upper, on) => {
+    const offScale = syringeScale({ units: off, capacity })!;
+    expect(offScale).toMatchObject({ overCapacity: true, onLine: false });
+    expect(offScale.flags.map((flag) => flag.kind)).toEqual(["over-capacity", "between-lines"]);
+    expect(offScale.flags[1]).toMatchObject({ lower, upper });
+
+    const onScale = syringeScale({ units: on, capacity })!;
+    expect(onScale).toMatchObject({ overCapacity: true, onLine: true });
+    expect(onScale.flags.map((flag) => flag.kind)).toEqual(["over-capacity"]);
+  });
+
+  it("over capacity with a researcher's own spacing, or unknown spacing", () => {
+    // Lined every 2 on a 50-unit syringe: 51 is between 50 and 52; 54 is on a line.
+    expect(syringeScale({ units: "51", capacity: 50, lineSpacing: "2" })!.flags.map((flag) => flag.kind)).toEqual([
+      "over-capacity",
+      "between-lines",
+    ]);
+    expect(syringeScale({ units: "54", capacity: 50, lineSpacing: "2" })!).toMatchObject({ onLine: true });
+    // Unknown spacing can't check lines, over capacity or not (calculator: over-capacity, unknown-lines).
+    const unknown = syringeScale({ units: "31", capacity: 30, lineSpacing: "unknown" })!;
+    expect(unknown).toMatchObject({ overCapacity: true, onLine: null });
+    expect(unknown.flags.map((flag) => flag.kind)).toEqual(["over-capacity", "unknown-lines"]);
   });
 
   it("unknown spacing can't check lines", () => {

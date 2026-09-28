@@ -4,7 +4,21 @@
 /* Design v3 bindings for the private app (values: src/styles/alpha/tokens.css). */
 @import "../styles/alpha/theme.css";
 
-@custom-variant dark (&:is(.dark *));
+/* `dark:` = inside `.dark`, as before. In the private app it matches the v3
+   tokens (src/styles/alpha/tokens.css): it also follows the OS when no
+   `.light`/`.dark` class forces a mode, and a subtree pinned with
+   data-alpha-theme (the component gallery) wins. The public site never has
+   .alpha or data-alpha-theme, so for it this is unchanged. */
+@custom-variant dark {
+  &:is(.dark *, [data-alpha-theme="dark"] *):not([data-alpha-theme="light"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:is(:root:not(.light, .dark):has(> body > .alpha) *):not([data-alpha-theme="light"] *) {
+      @slot;
+    }
+  }
+}
 
 @theme inline {
   --color-background: var(--background);

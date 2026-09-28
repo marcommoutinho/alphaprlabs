@@ -219,6 +219,12 @@ for (const scheme of ["light", "dark"] as const) {
       await mainNav(page).getByRole("link", { name: "Overview" }).click();
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sales & gross profit");
       await expect(mainNav(page).locator('[aria-current="page"]')).toHaveText("Overview");
+      // Ledger opens the same page until V6: it alone is then current.
+      await mainNav(page).getByRole("link", { name: "Ledger" }).click();
+      await expect(mainNav(page).locator('[aria-current="page"]')).toHaveText("Ledger");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sales & gross profit");
+      await mainNav(page).getByRole("link", { name: "Overview" }).click();
+      await expect(mainNav(page).locator('[aria-current="page"]')).toHaveText("Overview");
       await mainNav(page).getByRole("link", { name: "Today" }).click();
       await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
       await expect(mainNav(page).locator('[aria-current="page"]')).toHaveText("Today");
@@ -242,7 +248,7 @@ test.describe("appearance", () => {
   test("follows the OS by default: both theme-colors, the default status bar, no forced class", async ({ page }) => {
     await page.setViewportSize(PHONE);
     await page.goto(`${APP_ORIGIN}/auth`);
-    await expect(page.locator("body > .alpha")).toHaveAttribute("data-appearance", "system");
+    await expect(page.locator("html")).not.toHaveClass(/\b(light|dark)\b/);
     await expect(page.locator('meta[name="apple-mobile-web-app-status-bar-style"]')).toHaveAttribute("content", "default");
     const colors = page.locator('meta[name="theme-color"]');
     await expect(colors).toHaveCount(2);
@@ -265,7 +271,9 @@ test.describe("appearance", () => {
       await noScript.addCookies([{ name: "alpha-appearance", value: forced, url: APP_ORIGIN }]);
       const bare = await noScript.newPage();
       await bare.goto(`${APP_ORIGIN}/auth`);
-      await expect(bare.locator("body > .alpha")).toHaveAttribute("data-appearance", forced);
+      // The server renders the class on <html> (design contract: Appearance sets .light / .dark there).
+      await expect(bare.locator("html")).toHaveClass(new RegExp(`\\b${forced}\\b`));
+      await expect(bare.locator("html")).not.toHaveClass(new RegExp(`\\b${os}\\b`));
       expect(await background(bare, "html")).toBe(PAPER[forced]);
       const colors = bare.locator('meta[name="theme-color"]');
       await expect(colors).toHaveCount(1);
@@ -281,6 +289,67 @@ test.describe("appearance", () => {
       await context.close();
     });
   }
+
+  test("after a reload, <html>'s class, the tokens and the dark: variant agree for every stored choice, without a hydration error", async ({
+    page,
+    context,
+  }) => {
+    const errors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") errors.push(message.text());
+    });
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.setViewportSize(LAPTOP);
+    await signInAs(page, APP_ORIGIN, ADMIN.email);
+    await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
+
+    const cases = [
+      // stored cookie (null: none), OS scheme, class on <html>, mode shown
+      ["dark", "light", "dark", "dark"],
+      ["light", "dark", "light", "light"],
+      [null, "light", null, "light"],
+      [null, "dark", null, "dark"],
+      ["purple", "dark", null, "dark"], // a bad value is "system"
+    ] as const;
+    for (const [stored, os, htmlClass, shown] of cases) {
+      await context.clearCookies({ name: "alpha-appearance" });
+      if (stored) await context.addCookies([{ name: "alpha-appearance", value: stored, url: APP_ORIGIN }]);
+      await page.emulateMedia({ colorScheme: os });
+      await page.goto(`${APP_ORIGIN}/admin/design`);
+      await page.reload();
+      const html = page.locator("html");
+      const notRendered = htmlClass === null ? "(light|dark)" : htmlClass === "dark" ? "light" : "dark";
+      if (htmlClass) await expect(html).toHaveClass(new RegExp(`\\b${htmlClass}\\b`));
+      await expect(html).not.toHaveClass(new RegExp(`\\b${notRendered}\\b`));
+      // The tokens and a `dark:`-styled element show the same mode.
+      expect(await background(page, "aside")).toBe(PAPER[shown]);
+      await expect(page.getByTestId("dark-variant")).toHaveText(`Showing ${shown}`, { useInnerText: true });
+      await expect(page.locator('meta[name="theme-color"]')).toHaveCount(htmlClass ? 1 : 2);
+      // The Appearance control starts on the stored choice, hydrated.
+      const appearance = page.getByRole("group", { name: "Page appearance" });
+      const label = htmlClass ? (htmlClass === "dark" ? "Dark" : "Light") : "System";
+      await expect(await hydrated(appearance.getByRole("button", { name: label }))).toHaveAttribute("aria-pressed", "true");
+    }
+
+    // A change in the page matches what the server renders on the next load.
+    await page.emulateMedia({ colorScheme: "dark" });
+    const appearance = page.getByRole("group", { name: "Page appearance" });
+    await appearance.getByRole("button", { name: "Light" }).click();
+    await expect(page.locator("html")).toHaveClass(/\blight\b/);
+    await expect(page.getByTestId("dark-variant")).toHaveText("Showing light", { useInnerText: true });
+    expect(await background(page, "aside")).toBe(PAPER.light);
+    await page.reload();
+    await expect(page.locator("html")).toHaveClass(/\blight\b/);
+    await expect(page.getByTestId("dark-variant")).toHaveText("Showing light", { useInnerText: true });
+    expect(await background(page, "aside")).toBe(PAPER.light);
+    await (await hydrated(appearance.getByRole("button", { name: "System" }))).click();
+    await expect(page.locator("html")).not.toHaveClass(/\b(light|dark)\b/);
+    await expect(page.getByTestId("dark-variant")).toHaveText("Showing dark", { useInnerText: true });
+    expect(await background(page, "aside")).toBe(PAPER.dark);
+
+    // React reports a hydration mismatch as a console error (#418 in production).
+    expect(errors.filter((text) => /hydrat|#418|#425/i.test(text))).toEqual([]);
+  });
 });
 
 test("the component gallery: light and dark panes, appearance switch, toasts and a sheet", async ({ page }) => {
@@ -304,8 +373,9 @@ test("the component gallery: light and dark panes, appearance switch, toasts and
   await (await hydrated(appearance.getByRole("button", { name: "Dark" }))).click();
   await expect(page.locator("html")).toHaveClass(/\bdark\b/);
   expect(await background(page, "aside")).toBe(PAPER.dark);
+  await expect(page.getByTestId("dark-variant")).toHaveText("Showing dark", { useInnerText: true });
   await page.reload();
-  await expect(page.locator("body > .alpha")).toHaveAttribute("data-appearance", "dark");
+  await expect(page.locator("html")).toHaveClass(/\bdark\b/);
   expect(await background(page, "aside")).toBe(PAPER.dark);
   await (await hydrated(appearance.getByRole("button", { name: "System" }))).click();
   await expect(page.locator("html")).not.toHaveClass(/\bdark\b/);

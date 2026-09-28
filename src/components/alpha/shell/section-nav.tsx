@@ -6,6 +6,7 @@ import type { AppRole } from "@/lib/app/identity";
 import { activeKey, businessItems, isUnder, sectionNavFor } from "@/lib/alpha/nav";
 import { cn } from "@/lib/utils";
 import { SegmentedLinks } from "../segmented";
+import { useNavChoice } from "./nav-choice";
 
 /**
  * Links above a page that the tab bar and sidebar don't reach on their own:
@@ -20,12 +21,13 @@ import { SegmentedLinks } from "../segmented";
  */
 export function SectionNav({ role }: { role: AppRole }) {
   const pathname = usePathname();
+  const { chosen, choose } = useNavChoice();
   const inBusiness = role === "admin" && isUnder(pathname, "/admin");
   const section = sectionNavFor(pathname);
   if (!inBusiness && !section) return null;
 
   const business = businessItems();
-  const currentBusiness = activeKey(business, pathname);
+  const currentBusiness = activeKey(business, pathname, chosen);
   const currentSection = section ? activeKey(section.links, pathname) : null;
 
   return (
@@ -44,6 +46,7 @@ export function SectionNav({ role }: { role: AppRole }) {
             <Link
               key={item.key}
               href={item.href}
+              onClick={() => choose(item.key)}
               aria-current={item.key === currentBusiness ? "page" : undefined}
               className={cn(
                 "inline-flex h-11 shrink-0 items-center rounded-chip border border-line bg-surface px-3.5 text-[15px] text-ink",

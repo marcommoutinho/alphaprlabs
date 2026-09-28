@@ -1,3 +1,4 @@
+import { NavChoiceProvider } from "@/components/alpha/shell/nav-choice";
 import { SectionNav } from "@/components/alpha/shell/section-nav";
 import { Sidebar } from "@/components/alpha/shell/sidebar";
 import { TabBar } from "@/components/alpha/shell/tab-bar";
@@ -13,12 +14,14 @@ import type { AppIdentity } from "@/lib/app/identity";
 export function AppShell({ identity, children }: { identity: AppIdentity; children: React.ReactNode }) {
   return (
     <div className="flex flex-1 flex-col laptop:pl-[232px]" data-slot="app-shell">
-      <Sidebar identity={identity} />
-      <div className="flex min-w-0 flex-1 flex-col pt-[env(safe-area-inset-top)]">
-        <SectionNav role={identity.role} />
-        {children}
-      </div>
-      <TabBar role={identity.role} />
+      <NavChoiceProvider>
+        <Sidebar identity={identity} />
+        <div className="flex min-w-0 flex-1 flex-col pt-[env(safe-area-inset-top)]">
+          <SectionNav role={identity.role} />
+          {children}
+        </div>
+        <TabBar role={identity.role} />
+      </NavChoiceProvider>
     </div>
   );
 }

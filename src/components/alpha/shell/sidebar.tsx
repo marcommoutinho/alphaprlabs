@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { AppIdentity } from "@/lib/app/identity";
 import { activeKey, sidebarFor } from "@/lib/alpha/nav";
+import { useNavChoice } from "./nav-choice";
 import { cn } from "@/lib/utils";
 import { NavIcon } from "./nav-icon";
 import { UserMenu } from "./user-menu";
@@ -31,9 +32,11 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const groups = sidebarFor(identity.role);
+  const { chosen, choose } = useNavChoice();
   const current = activeKey(
     groups.flatMap((group) => group.items),
     pathname,
+    chosen,
   );
 
   return (
@@ -61,6 +64,7 @@ export function Sidebar({
                 <Link
                   key={item.key}
                   href={item.href}
+                  onClick={() => choose(item.key)}
                   aria-current={active ? "page" : undefined}
                   className={cn(
                     "flex h-10 shrink-0 items-center gap-2.5 rounded-[10px] border px-2.5 text-[15px]",

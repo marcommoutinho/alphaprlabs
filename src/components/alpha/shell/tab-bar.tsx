@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { AppRole } from "@/lib/app/identity";
 import { activeKey, tabsFor } from "@/lib/alpha/nav";
 import { cn } from "@/lib/utils";
+import { useNavChoice } from "./nav-choice";
 import { NavIcon } from "./nav-icon";
 
 /**
@@ -16,7 +17,8 @@ import { NavIcon } from "./nav-icon";
 export function TabBar({ role }: { role: AppRole }) {
   const pathname = usePathname();
   const tabs = tabsFor(role);
-  const current = activeKey(tabs, pathname);
+  const { chosen, choose } = useNavChoice();
+  const current = activeKey(tabs, pathname, chosen);
 
   return (
     <nav
@@ -32,6 +34,7 @@ export function TabBar({ role }: { role: AppRole }) {
           <Link
             key={tab.key}
             href={tab.href}
+            onClick={() => choose(tab.key)}
             aria-current={active ? "page" : undefined}
             className={cn(
               "relative flex h-[54px] min-w-0 flex-col items-center justify-center gap-1 text-[12px] tracking-[-0.005em]",

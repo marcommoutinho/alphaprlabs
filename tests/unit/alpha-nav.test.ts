@@ -70,6 +70,20 @@ describe("app shell navigation (design v3)", () => {
     expect(activeKey(business, "/admin/design")).toBeNull();
   });
 
+  it("Overview and Ledger share Sales until V5 / V6: the one chosen is current, never both", () => {
+    const business = businessItems();
+    const sidebar = sidebarFor("admin").flatMap((group) => group.items);
+    for (const items of [business, sidebar]) {
+      expect(activeKey(items, "/admin/sales")).toBe("overview");
+      expect(activeKey(items, "/admin/sales", "ledger")).toBe("ledger");
+      expect(activeKey(items, "/admin/sales/outside", "ledger")).toBe("ledger");
+      expect(activeKey(items, "/admin/sales", "overview")).toBe("overview");
+      // A choice that doesn't own the page is ignored.
+      expect(activeKey(items, "/admin/sales", "stock")).toBe("overview");
+      expect(activeKey(items, "/admin/inventory", "ledger")).toBe("stock");
+    }
+  });
+
   it("section links group the pages a later slice merges", () => {
     expect(sectionNavFor("/admin/templates")).toMatchObject({ label: "Library" });
     expect(labels(sectionNavFor("/admin/library")!.links)).toEqual(["Peptides", "Templates"]);

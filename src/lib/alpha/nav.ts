@@ -98,10 +98,11 @@ const LEDGER: NavItem = {
   label: "Ledger",
   // TODO(V6): A7 / A14 / D5 Ledger (sales and purchases by day or month).
   // Closest today: the sales list on Sales & gross profit, which Overview
-  // also opens, so Overview stays the current item there.
+  // also opens. Both own that page; the one the person chose is current
+  // there (see activeKey), Overview by default.
   href: "/admin/sales",
   icon: "ledger",
-  match: [],
+  match: ["/admin/sales"],
 };
 const ADMIN_LIBRARY: NavItem = {
   key: "admin-library",
@@ -147,9 +148,20 @@ export function businessItems(): readonly NavItem[] {
   return BUSINESS_ITEMS;
 }
 
-/** The key of the first item that owns `pathname`, or null. */
-export function activeKey(items: readonly { key: string; match: readonly string[] }[], pathname: string): string | null {
-  return items.find((item) => item.match.some((prefix) => isUnder(pathname, prefix)))?.key ?? null;
+/**
+ * The key of the item that owns `pathname`, or null. Until their slices build
+ * them, two items can own the same page (Overview and Ledger both open Sales &
+ * gross profit): then `chosen`, the item the person last picked, wins when it
+ * is one of them, so exactly one item is current and it is the one they
+ * clicked; otherwise the first owner.
+ */
+export function activeKey(
+  items: readonly { key: string; match: readonly string[] }[],
+  pathname: string,
+  chosen: string | null = null,
+): string | null {
+  const owners = items.filter((item) => item.match.some((prefix) => isUnder(pathname, prefix)));
+  return (owners.find((item) => item.key === chosen) ?? owners[0])?.key ?? null;
 }
 
 /**
