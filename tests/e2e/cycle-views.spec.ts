@@ -245,7 +245,13 @@ test("R6 hides withdrawn peptides; a template names one and is still a starting 
   await page.goto(`${APP_ORIGIN}/app/library/templates/${templateId}`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(templateName);
   await expect(page.getByText("Template · 40 days")).toBeVisible();
+  // A page-level notice at the top (Marco, 2026-09-26), besides the per-peptide tag; the template stays usable.
+  const notice = page.getByTestId("template-withdrawn-notice");
+  await expect(notice).toHaveText(`Your copy will include ${W}, which is no longer offered.`);
+  await expect(notice).toHaveAttribute("role", "note");
   const plans = page.getByTestId("template-plan");
+  expect((await notice.boundingBox())!.y).toBeLessThan((await plans.first().boundingBox())!.y);
+  if (process.env.V4_SHOTS) await page.screenshot({ path: `${process.env.V4_SHOTS}/v4-template-withdrawn-notice.png`, fullPage: true });
   await expect(plans.getByRole("heading", { level: 2 })).toHaveText([A, `${W}No longer offered for new cycles.`]);
   await expect(plans.nth(0)).not.toContainText("No longer offered for new cycles.");
   await expect(plans.nth(0).locator("[data-slot=group] > div")).toHaveText([

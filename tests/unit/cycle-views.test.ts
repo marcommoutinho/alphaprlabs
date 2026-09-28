@@ -7,6 +7,7 @@ import { cycleOccurrences } from "@/lib/cycles/schedule";
 import { cycleSummary } from "@/lib/cycles/service";
 import { cycleDetail, cycleRow, groupCycles, type ViewPeptides } from "@/lib/cycles/views";
 import {
+  withdrawnNotice,
   includesWithdrawn,
   peptideSub,
   phaseText,
@@ -295,6 +296,21 @@ describe("R6 display", () => {
     ]);
     expect(phaseText(plans[1].phases[0])).toBe("0.3 mg · Mon/Wed/Fri · 07:30");
     expect(templateSearchText({ name: "Recomp Starter", plans }, names)).toEqual(["recomp starter", "compound a", "compound b"]);
+  });
+
+  it("the template page's notice names every peptide no longer offered, or is absent", () => {
+    expect(withdrawnNotice({ plans }, names)).toBe("Your copy will include Compound B, which is no longer offered.");
+    expect(withdrawnNotice({ plans: [plans[0]] }, names)).toBeNull();
+    const more = new Map([
+      ...names,
+      [PA, { name: "Compound A", available: false }],
+      ["c", { name: "Compound C", available: false }],
+    ]);
+    const cPlan: TemplatePlan = { peptideId: "c", phases: plans[1].phases };
+    expect(withdrawnNotice({ plans }, more)).toBe("Your copy will include Compound A and Compound B, which are no longer offered.");
+    expect(withdrawnNotice({ plans: [...plans, cPlan] }, more)).toBe(
+      "Your copy will include Compound A, Compound B and Compound C, which are no longer offered.",
+    );
   });
 
   it("describes entries and where the caller uses them", () => {

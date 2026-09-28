@@ -68,6 +68,25 @@ export function includesWithdrawn(template: { plans: TemplatePlan[] }, peptides:
   return template.plans.some((plan) => peptides.get(plan.peptideId)?.available !== true);
 }
 
+/**
+ * The template page's notice (Marco, 2026-09-26, tasks/research-app.md
+ * "Library views and mixtures decisions"): "Your copy will include {name},
+ * which is no longer offered." Several: every one by name, in the
+ * template's order, "A and B" / "A, B and C", "which are". Null when all
+ * are offered. The template can still be used; the notice only says what
+ * the copy keeps.
+ */
+export function withdrawnNotice(template: { plans: TemplatePlan[] }, peptides: Named): string | null {
+  const names = [
+    ...new Set(
+      template.plans.filter((plan) => peptides.get(plan.peptideId)?.available === false).map((plan) => nameOf(peptides, plan.peptideId)),
+    ),
+  ];
+  if (names.length === 0) return null;
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `Your copy will include ${list}, which ${names.length === 1 ? "is" : "are"} no longer offered.`;
+}
+
 /** `Day 1–29` */
 export const phaseWhen = (phase: TemplatePhase) => `Day ${phase.offset + 1}–${phase.offset + phase.len}`;
 
