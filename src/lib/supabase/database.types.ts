@@ -2049,6 +2049,20 @@ export type Database = {
         }
         Returns: string
       }
+      save_cycle_with_mixtures: {
+        Args: {
+          p_baseline: string
+          p_cycle_id?: string
+          p_goal: string
+          p_mixtures?: Json
+          p_name: string
+          p_plans: Json
+          p_template_id?: string
+          p_time_zone: string
+          p_version?: number
+        }
+        Returns: string
+      }
       save_library_peptide: {
         Args: {
           p_available: boolean

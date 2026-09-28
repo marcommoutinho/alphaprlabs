@@ -7,6 +7,7 @@ import type { DoseChange, Phase, TimeChange, Weekday } from "@/lib/schedule/engi
 import type { Database, Json } from "@/lib/supabase/database.types";
 import type { TemplatePhase, TemplatePlan } from "@/lib/templates/rules";
 import type { RevisedPlan } from "./revise";
+import type { MixtureSetup } from "@/lib/mixtures/rules";
 import type { CyclePeptide, CycleRecord, CycleRevision, DraftPhase, DraftPlan, StoredPlan, ValidCycle } from "./rules";
 import { type CycleStatus, cycleSpan, cycleStatus } from "./schedule";
 
@@ -338,12 +339,39 @@ const REFUSALS: Record<string, Exclude<SaveCycleResult["kind"], "saved">> = {
   AP010: "stale",
 };
 
+/** The cycle alone (save_cycle), as saveCycleWithMixes without mixes. */
+export async function saveCycle(db: Db, cycle: ValidCycle, revised?: readonly RevisedPlan[]): Promise<SaveCycleResult> {
+  const result = await saveCycleWithMixes(db, cycle, revised, []);
+  switch (result.kind) {
+    case "mixture_stale":
+    case "vial_strength":
+      return { kind: "error" };
+    default:
+      return result;
+  }
+}
+
+/** A peptide's mix as the builder saves it with the cycle (R4b): a new mixture, or a saved one at the version shown. */
+export type CycleMix = { peptideId: string; mixtureId: string | null; version: number | null; setup: MixtureSetup };
+
+export type SaveCycleWithMixesResult = SaveCycleResult | { kind: "mixture_stale" | "vial_strength" };
+
+const MIX_REFUSALS: Record<string, "mixture_stale" | "vial_strength"> = { AP011: "mixture_stale", AP014: "vial_strength" };
+
 /**
  * Creates a cycle (from the validated form, optionally copying a template),
- * or saves an edit as the next revision (`revised`: reviseCycle's plans).
+ * or saves an edit as the next revision (`revised`: reviseCycle's plans):
+ * save_cycle(), or with `mixes` save_cycle_with_mixtures()
+ * (20260928120000_save_cycle_mixtures.sql): the cycle and each peptide's mix
+ * in one transaction; a refused mix saves nothing, the cycle included.
  */
-export async function saveCycle(db: Db, cycle: ValidCycle, revised?: readonly RevisedPlan[]): Promise<SaveCycleResult> {
-  const { data, error } = await db.rpc("save_cycle", {
+export async function saveCycleWithMixes(
+  db: Db,
+  cycle: ValidCycle,
+  revised: readonly RevisedPlan[] | undefined,
+  mixes: readonly CycleMix[],
+): Promise<SaveCycleWithMixesResult> {
+  const args = {
     p_name: cycle.name,
     p_goal: cycle.goal,
     p_baseline: cycle.baseline,
@@ -351,8 +379,24 @@ export async function saveCycle(db: Db, cycle: ValidCycle, revised?: readonly Re
     p_plans: plansArgument(revised ?? cycle.plans),
     ...(cycle.templateId ? { p_template_id: cycle.templateId } : {}),
     ...(cycle.cycleId ? { p_cycle_id: cycle.cycleId, p_version: cycle.version ?? undefined } : {}),
-  });
-  if (error) return { kind: REFUSALS[error.code] ?? "error" };
+  };
+  const { data, error } = mixes.length
+    ? await db.rpc("save_cycle_with_mixtures", { ...args, p_mixtures: mixesArgument(mixes) })
+    : await db.rpc("save_cycle", args);
+  if (error) return { kind: MIX_REFUSALS[error.code] ?? REFUSALS[error.code] ?? "error" };
   if (!data) return { kind: "not_found" };
   return { kind: "saved", id: data };
+}
+
+/** save_cycle_with_mixtures()'s p_mixtures argument. */
+export function mixesArgument(mixes: readonly CycleMix[]): Json {
+  return mixes.map((mix) => ({
+    peptide_id: mix.peptideId,
+    mixture_id: mix.mixtureId,
+    version: mix.version,
+    vial_mg: mix.setup.vialMg,
+    liquid_ml: mix.setup.liquidMl,
+    syringe_units: mix.setup.syringe,
+    line_spacing: mix.setup.lineSpacing,
+  })) as Json;
 }

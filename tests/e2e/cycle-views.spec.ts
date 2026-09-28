@@ -1,27 +1,22 @@
-// S10 R2 Cycles, R4 Cycle detail and R6 Library, against the real local
-// Supabase. The server's clock is the real one, so the cycles use a
-// fixed-offset zone where it is about 12:00 now (a 20:00 dose today is still
-// ahead, 07:15 doses are morning ones) and dates relative to today there:
-// every status and dose state is the same whenever the suite runs.
+// R10 Cycles, R3 / D2 Cycle detail (design v3) and R6 Library, against the
+// real local Supabase. The server's clock is the real one, so the cycles use
+// a fixed-offset zone where it is about 12:00 now (a 20:00 dose today is
+// still ahead, 07:15 doses are morning ones) and dates relative to today
+// there: every status and dose state is the same whenever the suite runs.
 // Library rows are shared by every run, so names are unique per run.
 import { expect, test, type Page } from "@playwright/test";
 import { APP_ORIGIN } from "../../playwright.config";
-import { formatDate, formatDay, formatMonthDay } from "../../src/lib/format";
-import { createCycle, day, interval, pause, plan, saveCycle, tag, weekdays } from "../support/cycles";
+import { dateRange } from "../../src/lib/cycles/geometry";
+import { createCycle, interval, pause, plan, saveCycle, tag, weekdays } from "../support/cycles";
 import { ensureAccount, hydrated, ok, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
+import { d, NOON } from "../support/noon";
 
 const RESEARCHER = { email: uniqueEmail("s10-views"), name: "Views Researcher" };
 const OTHER = { email: uniqueEmail("s10-views-other"), name: "Other Researcher" };
 const ADMIN = { email: uniqueEmail("s10-views-admin"), name: "Views Admin" };
 
-/** An IANA fixed-offset zone where the local time now is 12:xx (Etc/GMT signs are inverted). */
-const NOON = (() => {
-  const offset = 12 - new Date().getUTCHours();
-  return offset === 0 ? "Etc/GMT" : offset > 0 ? `Etc/GMT-${offset}` : `Etc/GMT+${-offset}`;
-})();
-const d = (days: number) => day(days, NOON);
-/** `Fri Sep 11 · 20:00`, as R2 and R4 show a dose. */
-const when = (days: number, time: string) => `${formatDay(d(days))} · ${time}`;
+/** "Wed" for a local date. */
+const weekday = (date: string) => new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
 
 test.beforeAll(async () => {
   await ensureAccount({ ...RESEARCHER, role: "researcher" });
@@ -54,7 +49,7 @@ async function firstIds(cycleId: string) {
   return phases[0];
 }
 
-test("R2 lists only the researcher's own cycles, grouped by status", async ({ page }) => {
+test("R10 lists only the researcher's own cycles, grouped by status", async ({ page }) => {
   const t = tag();
   const A = `Views A ${t}`;
   const B = `Views B ${t}`;
@@ -80,103 +75,106 @@ test("R2 lists only the researcher's own cycles, grouped by status", async ({ pa
   await page.goto(`${APP_ORIGIN}/app/cycles`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Cycles");
   const groups = page.getByTestId("cycle-group");
-  await expect(groups.locator("h2")).toHaveText(["Current", "Upcoming", "Past"]);
+  await expect(groups.locator("h2")).toHaveText(["Active", "Upcoming", "Ended"]);
   const card = (name: string) => page.getByTestId("cycle-card").filter({ hasText: name });
-  await expect(groups.nth(0).getByTestId("cycle-card").locator(".app-cv-card-name")).toHaveText([`Resting ${t}`, `Active ${t}`]);
-  await expect(groups.nth(1).getByTestId("cycle-card").locator(".app-cv-card-name")).toHaveText([`Upcoming ${t}`]);
-  await expect(groups.nth(2).getByTestId("cycle-card").locator(".app-cv-card-name")).toHaveText([`Ended ${t}`]);
+  const names = (group: number) => groups.nth(group).getByTestId("cycle-card").locator("[data-slot=name]").filter({ hasText: t });
+  await expect(names(0)).toHaveCount(2);
+  expect((await names(0).allTextContents()).sort()).toEqual([`Active ${t}`, `Resting ${t}`]);
+  await expect(names(1)).toHaveText([`Upcoming ${t}`]);
+  await expect(names(2)).toHaveText([`Ended ${t}`]);
   await expect(page.getByText(`Not mine ${t}`)).toHaveCount(0);
 
-  await expect(card(`Active ${t}`).locator(".app-cv-status")).toHaveText("Active");
-  await expect(card(`Resting ${t}`).locator(".app-cv-status")).toHaveText("In break");
-  await expect(card(`Upcoming ${t}`).locator(".app-cv-status")).toHaveText("Upcoming");
-  await expect(card(`Ended ${t}`).locator(".app-cv-status")).toHaveText("Ended");
-  // Next doses from the engine; with nothing confirmed yet (S12), past doses are unconfirmed.
-  await expect(card(`Active ${t}`).locator(".app-cv-card-meta")).toHaveText(new RegExp(` · ${A} \\+ ${B}$`));
-  await expect(card(`Active ${t}`).locator(".app-cv-card-next")).toHaveText(`Next: ${A} · ${when(0, "20:00")}`);
-  // A: d-4, d-2; B: every day d-4 … d-1 (today's 07:15 is due, not unconfirmed).
-  await expect(card(`Active ${t}`).locator(".app-cv-card-open")).toHaveText("6 unconfirmed");
-  await expect(card(`Upcoming ${t}`).locator(".app-cv-card-next")).toHaveText(`Next: ${A} · ${when(3, "20:00")}`);
-  await expect(card(`Upcoming ${t}`).locator(".app-cv-card-open")).toHaveCount(0);
-  await expect(card(`Ended ${t}`).locator(".app-cv-card-next")).toHaveText("Ended · 0 of 4 doses recorded");
-  await expect(card(`Ended ${t}`).locator(".app-cv-card-open")).toHaveText("4 unconfirmed");
+  await expect(card(`Active ${t}`)).toHaveAttribute("data-status", "Active");
+  await expect(card(`Resting ${t}`)).toHaveAttribute("data-status", "In break");
+  await expect(card(`Upcoming ${t}`)).toHaveAttribute("data-status", "Upcoming");
+  await expect(card(`Ended ${t}`)).toHaveAttribute("data-status", "Ended");
 
-  await card(`Active ${t}`).click();
+  // The day of the cycle, its peptides, the next dose and adherence from the engine.
+  const active = card(`Active ${t}`);
+  await expect(active.locator("[data-slot=day]")).toHaveText("Day 5 of 25");
+  await expect(active.locator("[data-slot=peptides]")).toHaveText(`${A} · ${B}`);
+  await expect(active.getByRole("img")).toHaveAttribute("aria-label", "Day 5 of 25");
+  // Today's 07:15 B dose is due now; A: d-4, d-2 and B: every day d-4 … d-1 are missed.
+  await expect(active.locator("[data-slot=next]")).toContainText(`${B} · 1 mg due now`);
+  await expect(active.locator("[data-slot=next]")).toContainText("6 missed");
+  await expect(active.locator("[data-slot=adherence]")).toHaveText("0%");
+  await expect(card(`Resting ${t}`).locator("[data-slot=peptides]")).toHaveText(`${A} · In break`);
+  await expect(card(`Resting ${t}`).locator("[data-slot=next]")).toContainText(`${A} · 400 mcg next ${weekday(d(4))} 8:00 PM`);
+  await expect(card(`Upcoming ${t}`).locator("[data-slot=day]")).toHaveText(`Starts ${dateRange(d(3), d(3))}`);
+  await expect(card(`Upcoming ${t}`).locator("[data-slot=peptides]")).toHaveText(`${A} · 8 days`);
+  await expect(card(`Upcoming ${t}`).locator("[data-slot=next]")).toHaveText(`First: ${A} · 400 mcg, ${weekday(d(3))} 8:00 PM`);
+  await expect(card(`Ended ${t}`)).toContainText("4 missed");
+  await expect(card(`Ended ${t}`).locator("[data-slot=adherence]")).toHaveText("0%");
+
+  await active.click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Active ${t}`);
   await expect(page.getByRole("navigation", { name: "Main" }).locator('[aria-current="page"]')).toHaveText("Cycles");
 });
 
-test("R4 shows doses from every revision: a mid-cycle time change keeps the rhythm", async ({ page }) => {
+test("R3 / D2 show doses from every revision: a time change keeps the rhythm", async ({ page }) => {
   const t = tag();
   const A = `Timeline A ${t}`;
   const aId = await seedPeptide(A, true, `Cycle-off guidance for ${A}`);
   const mine = await signedInClient(RESEARCHER.email);
   const name = `Timeline ${t}`;
-  // Every 2 days at 20:00 from four days ago; then, from tomorrow, at 07:15.
+  // Every 2 days at 20:00 from five days ago (none today); then, from today, at 07:15.
   const cycleId = await createCycle(mine, {
     name,
     goal: "Sleep quality",
     timeZone: NOON,
-    plans: [plan(aId, [interval(d(-4), d(20), "0.4", 2, "20:00")])],
+    plans: [plan(aId, [interval(d(-5), d(20), "0.4", 2, "20:00")])],
   });
   const ids = await firstIds(cycleId);
-  const edited = { ...interval(d(-4), d(20), "0.4", 2, "20:00", ids.phase_id), time_changes: [{ from: d(1), local_time: "07:15" }] };
-  await ok(saveCycle(mine, { cycleId, version: 1, name, goal: "Sleep quality", timeZone: NOON, plans: [plan(aId, [edited], ids.plan_id, d(1))] }), "revision 2");
+  const edited = { ...interval(d(-5), d(20), "0.4", 2, "20:00", ids.phase_id), time_changes: [{ from: d(0), local_time: "07:15" }] };
+  await ok(saveCycle(mine, { cycleId, version: 1, name, goal: "Sleep quality", timeZone: NOON, plans: [plan(aId, [edited], ids.plan_id, d(0))] }), "revision 2");
 
   await signIn(page, RESEARCHER.email);
+  // R10: the next dose keeps the every-2-days rhythm (tomorrow), at the new time.
+  await page.goto(`${APP_ORIGIN}/app/cycles`);
+  const listed = page.getByTestId("cycle-card").filter({ hasText: name });
+  await expect(listed.locator("[data-slot=next]")).toContainText(`${A} · 400 mcg next tomorrow 7:15 AM`);
+  await expect(listed.locator("[data-slot=next]")).toContainText("3 missed");
+
   await page.goto(`${APP_ORIGIN}/app/cycles/${cycleId}`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(name);
-  await expect(page.locator(".app-cv-status-line")).toHaveText("Active · day 5 of 25");
-  await expect(page.getByTestId("cycle-meta")).toHaveText(
-    `${formatDate(d(-4))} – ${formatDate(d(20))} · ${NOON} · Goal: Sleep quality · Baseline: not set`,
-  );
+  await expect(page.getByTestId("cycle-status")).toHaveText(`Active · ${dateRange(d(-5), d(20))}`);
+  await expect(page.getByTestId("cycle-now").locator("[data-slot=reading]")).toHaveText("6");
+  await expect(page.getByTestId("cycle-now")).toContainText("of 26");
+  await expect(page.getByTestId("cycle-now")).toContainText("20 days left");
+  // Laptop tiles: nothing taken of the three settled doses, all missed.
+  await expect(page.getByTestId("tile-adherence-laptop").locator("[data-slot=value]")).toHaveText("0%");
+  await expect(page.getByTestId("tile-adherence-laptop")).toContainText("0 of 3");
+  await expect(page.getByTestId("tile-missed-laptop").locator("[data-slot=value]")).toHaveText("3 · 0");
 
-  const lane = page.getByTestId("cycle-lane");
-  await expect(lane.locator(".app-cv-lane-name")).toHaveText(`${A} every 2 days · 20:00`);
-  // The phase's bar is cut where the time changes, each piece titled with the time in force; one dose caption.
-  const bars = lane.locator(".app-cv-bar");
-  await expect(bars).toHaveCount(2);
-  expect(await bars.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("title")))).toEqual([
-    "0.4 mg · every 2 days · 20:00",
-    "0.4 mg · every 2 days · 07:15",
-  ]);
-  await expect(lane.locator(".app-cv-cap")).toHaveText(["0.4 mg"]);
-  const dots = lane.getByRole("img");
-  // Earlier doses stay at 20:00; from tomorrow the time is 07:15 on the same every-2-days days.
-  await expect(dots).toHaveCount(13);
-  const labels = await dots.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("aria-label")));
-  expect(labels.slice(0, 6)).toEqual([
-    `${A} · ${when(-4, "20:00")} · Unconfirmed`,
-    `${A} · ${when(-2, "20:00")} · Unconfirmed`,
-    `${A} · ${when(0, "20:00")} · Due`,
-    `${A} · ${when(2, "07:15")} · Planned`,
-    `${A} · ${when(4, "07:15")} · Planned`,
-    `${A} · ${when(6, "07:15")} · Planned`,
-  ]);
-  await expect(page.locator(".app-cv-today-label")).toHaveText("Today");
-  await expect(page.locator(".app-cv-legend")).toHaveText("ActualDue todayPlannedUnconfirmed");
+  // D2's timeline: one row per peptide.
+  const timeline = page.getByTestId("cycle-timeline");
+  await expect(timeline.getByTestId("timeline-row")).toHaveCount(1);
+  await expect(timeline.getByTestId("timeline-row")).toContainText(A);
 
   const card = page.getByTestId("cycle-plan-card");
-  await expect(card.locator("h2")).toHaveText(A);
-  await expect(card.locator(".app-cv-phase-word")).toHaveText(["Now"]);
-  await expect(card.locator(".app-cv-phase-text")).toHaveText(
-    `0.4 mg · every 2 days · 20:00${formatMonthDay(d(-4))} – ${formatDate(d(20))} · from ${formatMonthDay(d(1))}: 07:15`,
-  );
-  await expect(card.locator("[data-slot=saved-mixture]")).toHaveText("No saved mixture — units can't be shown for this peptide. Set one up");
-  await expect(card.locator(".app-cv-guidance")).toHaveText(`SUPPLIED GUIDANCE · ADMIN${`Cycle-off guidance for ${A}`}`);
+  await expect(card.locator("h3")).toHaveText(A);
+  // The time in force from today is the new one; the rhythm is unchanged.
+  await expect(card.locator("[data-slot=schedule]")).toHaveText("400 mcg · every 2 days · 7:15 AM");
+  await expect(card.locator("[data-slot=count]")).toHaveText("0 of 3");
+  await expect(card.getByTestId("phase-row")).toHaveText([`Days 1–26 · ${dateRange(d(-5), d(20))}400 mcgNow`]);
+  const mix = card.locator("[data-slot=saved-mixture]");
+  await expect(mix).toHaveText("No saved mix — units can't be shown.Set one up");
+  await expect(mix).toHaveAttribute("href", `/app/calculator?plan=${ids.plan_id}`);
+  await expect(card.locator("[data-slot=guidance]")).toHaveText(`Cycling off · supplied guidance. Cycle-off guidance for ${A}`);
 
-  const rows = page.getByTestId("history-row");
+  // History: the doses before the change stay at 20:00, newest first; each missed one links to its log-late sheet on Today.
+  const rows = page.getByTestId("history-table-row");
   await expect(rows).toHaveCount(3);
-  await expect(rows.nth(0)).toContainText(`Planned${when(0, "20:00")}`);
-  // S12: an unconfirmed or due dose links to its sheet on Today.
-  await expect(rows.nth(0).locator(".app-cv-history-state")).toHaveText("DueConfirm");
-  await expect(rows.nth(2).locator(".app-cv-history-state")).toHaveText("UnconfirmedConfirm");
-  const confirmLink = rows.nth(2).getByRole("link", { name: "Confirm" });
-  await expect(confirmLink).toHaveAttribute("href", /^\/app\/today\?dose=[0-9a-f-]{36}%3A[0-9a-f-]{36}%3A\d+$/);
+  expect(await rows.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-state")))).toEqual(["missed", "missed", "missed"]);
+  for (let i = 0; i < 3; i++) {
+    await expect(rows.nth(i)).toContainText("8:00 PM");
+    await expect(rows.nth(i).getByRole("link", { name: "Log late dose" })).toHaveAttribute("href", /^\/app\/today\?dose=[0-9a-f-]{36}%3A[0-9a-f-]{36}%3A\d+$/);
+  }
+  await expect(page.getByTestId("history-all").getByText("All 3", { exact: true })).toBeVisible();
 
-  await page.getByRole("link", { name: "Edit future plan" }).click();
+  await (await hydrated(page.getByRole("link", { name: "Edit future plan" }))).click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/cycles/${cycleId}/edit`);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Edit future plan");
+  await expect(page.getByTestId("builder-title")).toHaveText("Edit future plan");
 
   // Another researcher: not found, for the detail as for the builder.
   await page.context().clearCookies();
@@ -253,10 +251,12 @@ test("R6 hides withdrawn peptides; a template names one and is still a starting 
 
   await (await hydrated(page.getByRole("link", { name: "Use as starting point" }))).click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/cycles/new?template=${templateId}`);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("New cycle");
-  const withdrawn = page.getByTestId("cycle-plan").filter({ hasText: W });
-  await expect(withdrawn.locator(".app-cyc-withdrawn")).toHaveText("No longer offered for new cycles.");
-  await expect(page.getByTestId("cycle-plan").filter({ hasText: A })).toBeVisible();
+  await expect(page.getByTestId("builder-title")).toHaveText("New cycle");
+  await expect(page.getByTestId("template-note")).toContainText(templateName);
+  const selected = page.getByTestId("selected-peptides").getByRole("checkbox");
+  await expect(selected).toHaveCount(2);
+  await expect(selected.filter({ hasText: W })).toContainText("Not offered");
+  await expect(selected.filter({ hasText: A })).not.toContainText("Not offered");
 });
 
 test("an admin's own Cycles show only their own cycles while a researcher shares", async ({ page }) => {
@@ -298,14 +298,16 @@ test("the cycle and library views work at phone width", async ({ page }) => {
   await page.goto(`${APP_ORIGIN}/app/cycles/${cycleId}`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Phone ${t}`);
   expect(await noSideScroll()).toBe(true);
-  // The timeline keeps its 720px lanes and scrolls sideways inside its own box.
-  const timeline = page.getByTestId("cycle-timeline");
-  expect(await timeline.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
+  // The phone has no timeline: each peptide card draws its own lane; three tiles sit in one row.
+  await expect(page.getByTestId("cycle-timeline")).toBeHidden();
+  await expect(page.getByTestId("cycle-plan-card").locator("[data-slot=lane]")).toBeVisible();
+  const tiles = await Promise.all(["tile-adherence", "tile-missed", "tile-skipped"].map((id) => page.getByTestId(id).boundingBox()));
+  expect(new Set(tiles.map((box) => Math.round(box!.y))).size).toBe(1);
+  // History: the latest four, then See all.
   const rows = page.getByTestId("history-row");
-  await expect(rows.first()).toBeVisible();
-  // Two columns per history row on phone: the state sits below "Planned".
-  const [planned, state] = [await rows.first().locator("span").first().boundingBox(), await rows.first().locator(".app-cv-history-state").boundingBox()];
-  expect(state!.y).toBeGreaterThan(planned!.y);
+  await expect(rows).toHaveCount(4);
+  await expect(page.getByTestId("history-all").getByText("See all 4")).toBeVisible();
+  await expect(rows.first().getByRole("link", { name: "Log late dose" })).toBeVisible();
 
   await page.goto(`${APP_ORIGIN}/app/library`);
   await expect(page.getByLabel("Search library")).toBeVisible();

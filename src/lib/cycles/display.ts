@@ -1,19 +1,16 @@
-// R3 Cycle builder copy (the prototype's builder screen and saveBuilder).
-// Pure and shared by the screen, the server action and the tests.
+// Cycle builder copy (design v3 R4a–c and review; the messages date from the
+// first builder, R3 in the old handoff). Pure and shared by the screen, the
+// server action and the tests.
 import { formatDay } from "@/lib/format";
 import type { EditIssue } from "./revise";
 
 export const builderTitle = (editing: boolean) => (editing ? "Edit future plan" : "New cycle");
-export const saveLabel = (editing: boolean) => (editing ? "Save future changes" : "Save cycle");
-export const scopeNote = (editing: boolean) =>
-  editing ? "Applies to future occurrences only." : "You can change future phases any time.";
+/** The review's primary button (v3: "Start cycle"). */
+export const saveLabel = (editing: boolean) => (editing ? "Save future changes" : "Start cycle");
 export const CYCLE_SAVED = "Cycle saved.";
 export const FUTURE_PLAN_UPDATED = "Future plan updated. Recorded history is unchanged.";
-export const ERRORS_HEADING = "Fix these before saving";
 export const fromTemplateNote = (name: string) =>
   `Started from the supplied template “${name}”. This copy is yours — later template changes won't touch it.`;
-export const HISTORY_NOTE =
-  "This cycle already has recorded doses. Changes here apply to future occurrences only; what you've already confirmed stays exactly as recorded.";
 /**
  * Not in the prototype: a plan whose peptide is no longer offered (kept by a
  * cycle, or copied from a template that names it; Marco, 2026-09-26).
@@ -49,6 +46,8 @@ export function editIssueMessage(issue: EditIssue, nameOf: (peptideId: string) =
 export const CYCLE_CHANGED = "This cycle was changed elsewhere. Reload the page to see the latest plan.";
 export const CYCLE_GONE = "This cycle no longer exists.";
 export const PAST_REACHED = "Some of these changes would reach doses that are already due. Reload the page and try again.";
+/** A saved mix the builder showed was changed or deleted elsewhere (AP011). */
+export const MIX_CHANGED = "A saved mix in this cycle was changed elsewhere. Reload the page to see the latest.";
 
 /**
  * Time zone choices: every IANA zone this runtime lists, plus `extra` (the

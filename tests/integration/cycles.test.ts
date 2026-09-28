@@ -141,7 +141,7 @@ describe("a template copy is a snapshot (handoff: edit the template → the exis
     ] }, day(1), TORONTO), goal: "Recomp" };
     expect(validateCycle(form, peptides).ok).toBe(true);
     const saved = await saveCycleAction(form);
-    expect(saved).toMatchObject({ saved: true, toast: "Cycle saved." });
+    expect(saved).toMatchObject({ saved: true, message: "Cycle saved.", cycleId: expect.any(String) });
     const before = await getCycle(alexDb, saved.cycleId!);
     expect(before).toMatchObject({ templateId, templateName: name, templateGuidance: "Cycle off after.", templateUpdatedAt: template.updated_at });
     expect(before!.revisions[0].plans[0].phases.map((p) => [p.kind, p.start, p.end])).toEqual([
@@ -177,7 +177,7 @@ describe("editing a cycle: the next revision, future doses only", () => {
     form.name = "Renamed";
 
     acting.client = alexDb;
-    expect(await saveCycleAction(form)).toMatchObject({ saved: true, toast: "Future plan updated. Recorded history is unchanged." });
+    expect(await saveCycleAction(form)).toMatchObject({ saved: true, message: "Future plan updated. Recorded history is unchanged.", cycleId: form.cycleId });
     const edited = (await getCycle(alexDb, id))!;
     expect(edited).toMatchObject({ name: "Renamed", currentRevision: 2 });
     expect(edited.revisions[0]).toEqual(original.revisions[0]);

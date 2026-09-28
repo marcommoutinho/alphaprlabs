@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { SAVE_FAILED_MESSAGE, type ToastTone } from "@/components/app-shell/toast";
+import { SAVE_FAILED_MESSAGE } from "@/components/app-shell/toast";
 import { signInUrl } from "@/lib/auth/paths";
 import { currentResearcher } from "@/lib/auth/session";
 import {
@@ -11,31 +11,64 @@ import {
   CYCLE_SAVED,
   editIssueMessage,
   FUTURE_PLAN_UPDATED,
+  MIX_CHANGED,
   PAST_REACHED,
   TEMPLATE_GONE,
 } from "@/lib/cycles/display";
 import { type RevisedPlan, reviseCycle } from "@/lib/cycles/revise";
-import { type CyclePeptide, INVALID_CYCLE, readCycleForm, validateCycle } from "@/lib/cycles/rules";
-import { getCycle, getTemplateForCopy, listCyclePeptides, saveCycle } from "@/lib/cycles/service";
+import { type CycleForm, type CyclePeptide, INVALID_CYCLE, readCycleForm, validateCycle } from "@/lib/cycles/rules";
+import { type CycleMix, getCycle, getTemplateForCopy, listCyclePeptides, saveCycleWithMixes } from "@/lib/cycles/service";
 import { cycleConfirmations } from "@/lib/doses/service";
+import { validateMixture, VIAL_STRENGTH_TRACKED } from "@/lib/mixtures/rules";
 import { createClient } from "@/lib/supabase/server";
 
 export type CycleActionResult = {
-  /** R3's "Fix these before saving" list, in order. */
+  /** The builder's issues, in order (it shows the first, plus "(+N more)"). */
   errors?: string[];
+  /** A failure that isn't the form's: shown as an error toast. */
   toast?: string;
-  tone?: ToastTone;
-  /** Saved: the builder leaves for the cycles list. */
+  /** Saved: the builder opens the cycle and says so. */
   saved?: boolean;
   cycleId?: string;
+  message?: string;
 };
 
-const failed = (): CycleActionResult => ({ toast: SAVE_FAILED_MESSAGE, tone: "error" });
+const failed = (): CycleActionResult => ({ toast: SAVE_FAILED_MESSAGE });
 
 /**
- * R3 Save: create a cycle (custom, or copied from a template) or save an edit
- * as the next revision, for the signed-in, acknowledged researcher (or admin
- * using the research side) and only for their own cycles. Validates with the
+ * Each peptide's mix as sent (R4b), checked with the saved-mixture rules:
+ * at most one per peptide of the cycle, a complete setup, a new mixture or a
+ * saved one at the version shown. Null when the structure is malformed.
+ */
+function readMixes(input: unknown, form: CycleForm, nameOf: (id: string) => string): { mixes: CycleMix[]; errors: string[] } | null {
+  const raw = (input as { mixes?: unknown } | null)?.mixes ?? [];
+  if (!Array.isArray(raw) || raw.length > form.plans.length) return null;
+  const peptides = new Set(form.plans.map((plan) => plan.peptideId));
+  const seen = new Set<string>();
+  const mixes: CycleMix[] = [];
+  const errors: string[] = [];
+  for (const entry of raw) {
+    const e = (typeof entry === "object" && entry !== null ? entry : {}) as Record<string, unknown>;
+    const setup = (typeof e.setup === "object" && e.setup !== null ? e.setup : {}) as Record<string, unknown>;
+    const peptideId = typeof e.peptideId === "string" ? e.peptideId.toLowerCase() : "";
+    if (!peptides.has(peptideId) || seen.has(peptideId)) return null;
+    seen.add(peptideId);
+    const valid = validateMixture({ ...setup, peptideId, mixtureId: e.mixtureId ?? null, version: e.version ?? null, planIds: [] });
+    if (!valid.ok) {
+      errors.push(...valid.errors.map((error) => `${nameOf(peptideId)}: ${error}`));
+      continue;
+    }
+    mixes.push({ peptideId, mixtureId: valid.value.mixtureId, version: valid.value.version, setup: valid.value.setup });
+  }
+  return { mixes, errors };
+}
+
+/**
+ * The builder's save (R4's review "Start cycle", or an edit's "Save future
+ * changes"): create a cycle (custom, or copied from a template) or save an
+ * edit as the next revision, for the signed-in, acknowledged researcher (or
+ * admin using the research side) and only for their own cycles, with each
+ * peptide's mix (R4b) saved in the same transaction. Validates with the
  * builder's rules and the S7 engine; an edit changes future doses only
  * (reviseCycle). save_cycle() re-checks ownership and every structural rule.
  */
@@ -63,10 +96,12 @@ export async function saveCycleAction(input: unknown): Promise<CycleActionResult
   }
   if (loaded === "gone") return { errors: [TEMPLATE_GONE] };
   const { peptides, copied } = loaded;
-  const valid = validateCycle(input, peptides, copied);
-  if (!valid.ok) return { errors: valid.errors };
-  const cycle = valid.value;
   const nameOf = (id: string) => peptides.find((peptide) => peptide.id === id)?.name ?? "Unknown peptide";
+  const valid = validateCycle(input, peptides, copied);
+  const mixes = form ? readMixes(input, form, nameOf) : null;
+  if (!mixes) return { errors: [INVALID_CYCLE] };
+  if (!valid.ok || mixes.errors.length) return { errors: [...(valid.ok ? [] : valid.errors), ...mixes.errors] };
+  const cycle = valid.value;
 
   let revised: RevisedPlan[] | undefined;
   if (cycle.cycleId) {
@@ -77,19 +112,26 @@ export async function saveCycleAction(input: unknown): Promise<CycleActionResult
       return failed();
     }
     // Only the owner edits; a support share reads but never writes.
-    if (!current || current.ownerId !== person.id) return { toast: CYCLE_GONE, tone: "error" };
+    if (!current || current.ownerId !== person.id) return { toast: CYCLE_GONE };
     if (current.version !== cycle.version) return { errors: [CYCLE_CHANGED] };
-    // Recorded doses: none is ever replaced (save_cycle re-checks with them too).
+    // Recorded doses and skips: none is ever replaced (save_cycle re-checks with them too).
     const revision = reviseCycle(current.revisions, cycle, new Date(), confirmations);
     if (!revision.ok) return { errors: revision.issues.map((issue) => editIssueMessage(issue, nameOf)) };
     revised = revision.plans;
   }
 
-  const result = await saveCycle(db, cycle, revised);
+  let result;
+  try {
+    result = await saveCycleWithMixes(db, cycle, revised, mixes.mixes);
+  } catch {
+    return failed();
+  }
   switch (result.kind) {
     case "saved":
-      revalidatePath("/app/cycles");
-      return { saved: true, cycleId: result.id, toast: cycle.cycleId ? FUTURE_PLAN_UPDATED : CYCLE_SAVED, tone: "info" };
+      revalidatePath("/app/cycles", "layout");
+      revalidatePath("/app/today");
+      revalidatePath("/app/calculator");
+      return { saved: true, cycleId: result.id, message: cycle.cycleId ? FUTURE_PLAN_UPDATED : CYCLE_SAVED };
     case "unavailable": {
       // Withdrawn after the check above: say which, from the library as it is now.
       const fresh = await load().catch(() => loaded);
@@ -103,8 +145,12 @@ export async function saveCycleAction(input: unknown): Promise<CycleActionResult
       return { errors: [CYCLE_CHANGED] };
     case "past":
       return { errors: [PAST_REACHED] };
+    case "mixture_stale":
+      return { errors: [MIX_CHANGED] };
+    case "vial_strength":
+      return { errors: [VIAL_STRENGTH_TRACKED] };
     case "not_found":
-      return { toast: CYCLE_GONE, tone: "error" };
+      return { toast: CYCLE_GONE };
     default:
       return failed();
   }

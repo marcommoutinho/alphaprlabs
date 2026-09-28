@@ -55,7 +55,7 @@ test("calculate with comma decimals, save a mixture for a cycle peptide, and reo
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
   await page.goto(`${APP_ORIGIN}/app/calculator`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Calculator");
-  // The calculator belongs to Cycles in the design v3 shell (V2 moves it into the cycle builder).
+  // The calculator belongs to Cycles in the design v3 shell (a cycle's mix row links to it).
   await expect(page.getByRole("navigation", { name: "Main" }).locator('[aria-current="page"]')).toHaveText("Cycles");
   await expect(page.getByText("None yet. Save one above to reuse it in reminders.")).toBeVisible();
 

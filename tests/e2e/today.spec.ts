@@ -6,6 +6,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { APP_ORIGIN } from "../../playwright.config";
 import { DOSE_CHANGED, STALE_LINK, TIME_FUTURE } from "../../src/lib/doses/rules";
+import { shortDate as formatShortDate } from "../../src/lib/alpha/format";
 import { d, noonZoneInstant } from "../support/noon";
 import { hydrated, ok, serviceClient, signedInClient, signInAs } from "../support/local-supabase";
 import { seedToday } from "../support/today";
@@ -173,12 +174,11 @@ test("the sheet records an earlier time, the amount, a site and notes", async ({
   expect(Date.parse(recorded[0].actual_at)).toBe(Date.parse(noonZoneInstant(d(-2), "07:40")));
   expect(Date.parse(recorded[0].recorded_at)).toBeGreaterThan(Date.parse(recorded[0].actual_at));
 
-  // R4 history shows what was recorded: the amount taken, the plan quietly, the site and notes.
+  // The cycle's history (D2's table) shows what was recorded: the amount taken, the plan quietly, the site and notes.
   await page.goto(`${APP_ORIGIN}/app/cycles/${cycleId}`);
-  const taken = page.getByTestId("history-row").filter({ hasText: "Thigh L" });
-  await expect(taken).toContainText(`${A} · 0.3 mg (planned 0.4 mg)`);
-  await expect(taken.getByTestId("history-details")).toHaveText("Thigh L · Mild redness");
-  await expect(taken.locator(".app-cv-history-state")).toHaveText("Taken");
+  const taken = page.getByTestId("history-table-row").filter({ hasText: "Thigh L" });
+  await expect(taken).toHaveAttribute("data-state", "taken");
+  await expect(taken.getByRole("cell")).toHaveText(["Taken", `${formatShortDate(d(-2))} · 7:40 AM`, A, "300 mcg (planned 400 mcg)", "Thigh L", "Mild redness"]);
 });
 
 test("a Taken from a screen whose mixture changed elsewhere is refused and shows the current units", async ({ page }) => {

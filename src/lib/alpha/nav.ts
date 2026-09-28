@@ -53,8 +53,9 @@ const CYCLES: NavItem = {
   label: "Cycles",
   href: "/app/cycles",
   icon: "cycles",
-  // TODO(V2): the mixture calculator moves into the cycle builder (R4b) and the
-  // log sheet. Until then its page is reached from a cycle and belongs to Cycles.
+  // The mix is set in the cycle builder (R4b) and shown on the log sheet; the
+  // calculator page stays for a cycle's saved mix (R3's mix row links to it)
+  // and belongs to Cycles.
   match: ["/app/cycles", "/app/calculator"],
 };
 const PROGRESS: NavItem = {
