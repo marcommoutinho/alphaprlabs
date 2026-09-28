@@ -24,6 +24,7 @@ import {
   LINE_SPACING_REQUIRED,
 } from "@/lib/calculator/calculator";
 import { formatRatio, parseDecimal, plain } from "@/lib/calculator/decimal";
+import { vialName } from "@/lib/supplies/name";
 
 /** A saved setup, amounts as canonical decimal strings ("8", "0.5"). */
 export type MixtureSetup = {
@@ -262,7 +263,7 @@ export const concentrationOf = (setup: Pick<MixtureSetup, "vialMg" | "liquidMl">
 export function mixtureDetail(setup: MixtureSetup, usedBy: readonly string[], trackedVial?: string): string {
   const lines = setup.lineSpacing === "unknown" ? "line spacing unknown" : `lines every ${setup.lineSpacing} u`;
   const used = usedBy.length ? ` · used by ${[...new Set(usedBy)].join(", ")}` : " · not linked to a plan";
-  return `${concentrationOf(setup)} mg/mL · ${lines}${used}${trackedVial ? ` · vial ${trackedVial} tracked` : ""}`;
+  return `${concentrationOf(setup)} mg/mL · ${lines}${used}${trackedVial ? ` · ${vialName(trackedVial, true)} tracked` : ""}`;
 }
 
 /** R4's line for a plan's mixture: "Mixture 8 mg / 2 mL (4 mg/mL) · 1 mL syringe", or NO_MIXTURE_LINE. */

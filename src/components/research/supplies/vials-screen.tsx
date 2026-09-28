@@ -12,6 +12,7 @@ import type { SuppliesView, UnopenedGroup, VialCard } from "@/lib/supplies/view"
 import { cn } from "@/lib/utils";
 import { SUPPLIES_MAIN, SuppliesHeader, TrackingOff, TrackingSwitch, useSheetAction } from "./supplies-shared";
 import { AddVialSheet, UnopenedSheet, VialSheet } from "./vial-sheets";
+import { vialName } from "@/lib/supplies/name";
 
 /**
  * R7 Supplies · Vials (design v3), and its laptop layout: vials in use with
@@ -102,7 +103,7 @@ export function VialsScreen({ view }: { view: SuppliesView }) {
                       className="flex min-h-[60px] w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left hover:bg-[color-mix(in_oklab,var(--ink)_3%,transparent)]"
                       onClick={() => setOpenId(vial.id)}
                       data-testid="finished-row"
-                      aria-label={`${vial.title}, vial ${vial.label}, finished`}
+                      aria-label={`${vial.title}, ${vialName(vial.label, true)}, finished`}
                     >
                       <span className="min-w-0 flex-1">
                         <span className="block text-base font-semibold text-ink-2">{vial.title}</span>
@@ -153,7 +154,7 @@ function VialRow({ vial, onOpen }: { vial: VialCard; onOpen: () => void }) {
       data-open={vial.open}
       data-tone={vial.tone}
       data-tag={vial.tag ?? undefined}
-      aria-label={`${vial.title}, vial ${vial.label}: ${vial.left}${vial.tag ? `, ${vial.tag}` : ""}`}
+      aria-label={`${vial.title}, ${vialName(vial.label, true)}: ${vial.left}${vial.tag ? `, ${vial.tag}` : ""}`}
     >
       <span className="flex items-center justify-between gap-3">
         <span className="min-w-0 truncate text-base font-semibold">{vial.title}</span>
@@ -166,7 +167,7 @@ function VialRow({ vial, onOpen }: { vial: VialCard; onOpen: () => void }) {
       <span className="mt-0.5 block truncate font-mono text-[12px] text-ink-3" data-slot="meta">
         {vial.meta}
       </span>
-      <LevelMeter value={vial.percent / 100} low={low} label={`Vial ${vial.label} remaining`} className="mt-3" />
+      <LevelMeter value={vial.percent / 100} low={low} label={`${vialName(vial.label)} remaining`} className="mt-3" />
       <span className="mt-2 flex items-baseline justify-between gap-3 text-[14px]">
         <span className={cn("shrink-0 font-semibold whitespace-nowrap", low && "text-low")} data-testid="vial-left">
           {vial.left}

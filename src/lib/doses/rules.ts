@@ -15,6 +15,7 @@ import {
 } from "@/lib/calculator/calculator";
 import { normalizeDecimal, parseDecimal } from "@/lib/calculator/decimal";
 import { formatDay } from "@/lib/format";
+import { vialName } from "@/lib/supplies/name";
 import { RECORDED_SITES, ROTATION } from "./sites";
 
 /** R2's injection sites (design v3: eight, in rotation order), stored as written. See ./sites. */
@@ -39,7 +40,7 @@ export const TIME_NOW_NOTE = "Defaults to now. Change it if this happened earlie
 export const ENDED_NOTE = "Unconfirmed entries from ended cycles stay open in that cycle's history.";
 export const NO_MIXTURE_NOTE = "No saved mixture for this peptide, so syringe units can't be shown.";
 export const VIAL_NOTE = (label: string) =>
-  `Confirming reduces the estimate for vial ${label} by the amount taken. It's an estimate, not a measurement.`;
+  `Confirming reduces the estimate for ${vialName(label, true)} by the amount taken. It's an estimate, not a measurement.`;
 export const lateNote = (days: number) =>
   `You're recording this ${days} day${days === 1 ? "" : "s"} after it happened. That's fine — the actual time is what the schedule uses.`;
 export const takenToast = (peptide: string, when: string) => `Taken · ${peptide} · ${when}`;
@@ -56,7 +57,7 @@ export const ALREADY_SKIPPED = "This dose was skipped, so it can't be logged.";
 export const DOSE_ALREADY_TAKEN = "This dose is already logged.";
 export const SKIPPED_NOTE = "You marked this dose skipped. It counts as skipped, not missed, and can't be logged now.";
 export const discrepancyToast = (peptide: string, when: string, vial: string) =>
-  `Taken · ${peptide} · ${when}. Vial ${vial}'s estimate is now below zero — check it in Personal supplies.`;
+  `Taken · ${peptide} · ${when}. ${vialName(vial)}'s estimate is now below zero — check it in Personal supplies.`;
 
 // ── The syringe draw for a dose ─────────────────────────────────────────────
 

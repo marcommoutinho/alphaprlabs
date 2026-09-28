@@ -32,6 +32,7 @@ import { CheckInSheet, type CheckInContext } from "./check-in-sheet";
 import { LogSheet, type SheetSubmission, SupplementSheet } from "./log-sheet";
 import { useTakeSupplement } from "./supplement-taken";
 import { rememberLoaded } from "./today-loaded";
+import { vialName } from "@/lib/supplies/name";
 
 /** Today's check-in, as R1's card and R6 need it. */
 export type TodayCheckIn = CheckInContext & { done: boolean };
@@ -166,7 +167,7 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials }: 
         const at = clock12(wallOf(result.actualAt, detail.timeZone).slice(11, 16));
         const logged = loggedToast(detail.peptideName, massLabel(result.amountMg ?? submission.amount), at);
         const message = result.discrepancyVial
-          ? `${logged}. Vial ${result.discrepancyVial}'s estimate is now below zero — check it in Personal supplies.`
+          ? `${logged}. ${vialName(result.discrepancyVial)}'s estimate is now below zero — check it in Personal supplies.`
           : logged;
         toast.success({ message, action: { label: "Undo", onAction: () => undo(doseId, detail) } });
         if (fromSheet) closeSheet();

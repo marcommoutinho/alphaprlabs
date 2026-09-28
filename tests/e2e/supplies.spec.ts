@@ -14,7 +14,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { APP_ORIGIN, SERVER_ORIGIN } from "../../playwright.config";
 import { SAVE_FAILED_MESSAGE } from "../../src/components/app-shell/toast";
-import { addedToast, NO_VIALS, TRACKING_OFF } from "../../src/lib/supplies/rules";
+import { NO_VIALS, TRACKING_OFF } from "../../src/lib/supplies/rules";
 import { createCycle, interval, plan, tag } from "../support/cycles";
 import { d, NOON } from "../support/noon";
 import { ensureAccount, hydrated, ok, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
@@ -267,12 +267,20 @@ test.describe("phone, dark", () => {
     await expect(add).toBeVisible();
     await add.getByTestId("add-vial-submit").click();
     await expect(add).toBeHidden();
-    await expect(page.getByRole("status").filter({ hasText: addedToast("Vial 3") })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: /^Vial 3 added\.$/ })).toBeVisible();
     await page.unroute(/\/app\/supplies$/);
     const vials = await ok(serviceClient().from("personal_vials").select("label").eq("peptide_id", aId).order("label"), "vials");
     expect(vials.map((v) => v.label)).toEqual(["U-1", "U-2", "Vial 3"]);
     await expect(group).toContainText("× 3");
     await expect(page.getByText("Unopened · 3")).toBeVisible();
+    // Named once: "Vial 3" beside "Vial U-1" and "Vial U-2", never "Vial Vial 3".
+    await group.click();
+    await expect(pick.getByRole("button", { name: /^Vial (U-1|U-2|3)\b/ })).toHaveCount(3);
+    await pick.getByRole("button", { name: /^Vial 3\b/ }).click();
+    await expect(sheet.getByRole("meter", { name: "Vial 3 remaining" })).toBeVisible();
+    await expect(page.getByText(/Vial Vial/)).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
     expect(await noSideScroll(page)).toBe(true);
 
     // Tracking off: the list is hidden (nothing deleted), and + goes.

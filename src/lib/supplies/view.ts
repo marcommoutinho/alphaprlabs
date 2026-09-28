@@ -2,6 +2,7 @@
 // unopened and finished), and Today's low-stock notes. Pure: built from the researcher's vials,
 // mixtures, deductions, cycles and recorded doses. See ./estimate for the
 // estimate and the low-stock rule.
+import { vialName } from "./name";
 import { massLabel } from "@/lib/alpha/format";
 import { Exact } from "@/lib/calculator/decimal";
 import type { CycleRecord } from "@/lib/cycles/rules";
@@ -159,8 +160,7 @@ const whenOf = (dose: PlannedDose) => occurrenceWhen(dose);
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-/** "Vial 3" as is; a label of the researcher's own ("A-02") as "Vial A-02". */
-export const vialName = (label: string) => (/^vial\b/i.test(label) ? label : `Vial ${label}`);
+export { vialName };
 
 /**
  * Deductions by vial, in the order they were counted: each one's "before" is
@@ -426,7 +426,7 @@ export function todaySupply(input: TodayStockInput & { peptideNames?: ReadonlyMa
     supply.vials.set(mixture.id, { label: vial.label, strengthMg: vial.strengthMg, remainingMg: estimate.remainingMg });
     const outlook = outlookFor(estimate, mixture.id, mixture.planIds, upcoming);
     const name = input.peptideNames?.get(vial.peptideId) ?? "";
-    const title = `${name ? `${name} · ` : ""}${massLabel(vial.strengthMg)} vial ${vial.label}`;
+    const title = `${name ? `${name} · ` : ""}${massLabel(vial.strengthMg)} ${vialName(vial.label, true)}`;
     if (estimate.state === "over") supply.low.push({ vialId: vial.id, title, status: OVER_STATE });
     else if (estimate.state === "empty") supply.low.push({ vialId: vial.id, title, status: "Empty · 0 mg left (estimate)" });
     else if (outlook.kind === "known" && outlook.low)

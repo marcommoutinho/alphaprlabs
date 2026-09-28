@@ -1,6 +1,7 @@
 // R8 personal supplies: the vial form's rules and the screen's wording. Pure.
 // The database re-checks everything (save_personal_vial, reopen_personal_vial).
 import { parseDecimal, plain } from "@/lib/calculator/decimal";
+import { vialName } from "@/lib/supplies/name";
 
 /** Mirrors personal_vials: a label of 1–40 characters, strength up to 100,000 mg. */
 export const VIAL_LIMITS = { label: 40, strengthMg: "100000" } as const;
@@ -31,15 +32,15 @@ export const PEPTIDE_UNAVAILABLE = "This peptide is no longer offered. Choose a 
 // Design v3 R7 "Correct remaining" (correct_personal_vial).
 export const CORRECTION_INVALID = "Enter what's left: from 0 up to the vial's strength, at most 6 decimal places.";
 export const CORRECTION_CHANGED = "A dose changed this vial's estimate since you opened it. Check the new estimate and correct it again.";
-export const correctedToast = (label: string, left: string) => `Vial ${label} set to ${left} left.`;
-export const unchangedToast = (label: string) => `Vial ${label} already shows that amount.`;
+export const correctedToast = (label: string, left: string) => `${vialName(label)} set to ${left} left.`;
+export const unchangedToast = (label: string) => `${vialName(label)} already shows that amount.`;
 
-export const addedToast = (label: string) => `Vial ${label} added.`;
-export const savedToast = (label: string) => `Vial ${label} saved.`;
-export const finishedToast = (label: string) => `Vial ${label} finished. Its history stays here.`;
-export const reopenedToast = (label: string) => `Vial ${label} reopened.`;
+export const addedToast = (label: string) => `${vialName(label)} added.`;
+export const savedToast = (label: string) => `${vialName(label)} saved.`;
+export const finishedToast = (label: string) => `${vialName(label)} finished. Its history stays here.`;
+export const reopenedToast = (label: string) => `${vialName(label)} reopened.`;
 export const unlinkedToast = (label: string) =>
-  `Vial ${label} reopened as not mixed yet: its mixture changed, was deleted or has another open vial. Link it again.`;
+  `${vialName(label)} reopened as not mixed yet: its mixture changed, was deleted or has another open vial. Link it again.`;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const uuidOf = (value: unknown): string | null => (typeof value === "string" && UUID.test(value) ? value.toLowerCase() : null);

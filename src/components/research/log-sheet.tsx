@@ -32,6 +32,7 @@ import { resolveLocal } from "@/lib/schedule/zone";
 import type { SupplementDetail } from "@/lib/supplements/view";
 import { takenTimeError } from "@/lib/supplements/rules";
 import { cn } from "@/lib/utils";
+import { vialName } from "@/lib/supplies/name";
 
 /** What the sheet submits (the server action adds nothing the screen didn't show). */
 export type SheetSubmission = {
@@ -313,7 +314,7 @@ function LogForm({
   if (vial) {
     const after = amountValue ? new Exact(vial.remainingMg).minus(amountValue) : null;
     const low = after !== null && (after.isNegative() || (detail.vialNextMg !== null && after.lessThan(detail.vialNextMg)));
-    vialAfter = { text: after ? massLabel(after) : "—", sub: `of ${massLabel(vial.strengthMg)} · vial ${vial.label}`, low };
+    vialAfter = { text: after ? massLabel(after) : "—", sub: `of ${massLabel(vial.strengthMg)} · ${vialName(vial.label, true)}`, low };
   }
   const primaryLabel = late && actual !== null && isWall(actual) ? `Log at ${clock12(actual.slice(11, 16))}` : `Taken · ${amountLabel}`;
 

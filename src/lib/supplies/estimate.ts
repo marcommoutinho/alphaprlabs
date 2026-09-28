@@ -22,6 +22,7 @@ import type { CycleRecord } from "@/lib/cycles/rules";
 import { cycleStatus, planOccurrences } from "@/lib/cycles/schedule";
 import { Exact, formatAmount, formatRatio } from "@/lib/calculator/decimal";
 import { massLabel } from "@/lib/alpha/format";
+import { vialName } from "@/lib/supplies/name";
 import type { Confirmation, Occurrence } from "@/lib/schedule/engine";
 import { type InstantInput, localDateOf, toInstant } from "@/lib/schedule/zone";
 
@@ -216,8 +217,8 @@ export function outlookLine(outlook: StockOutlook, when: (dose: PlannedDose) => 
 
 /** Today's note beside a dose whose vial is low, empty or over, else null (amounts in the v3 unit: under 1 mg in mcg). */
 export function todayStockNote(label: string, estimate: VialEstimate, outlook: StockOutlook): string | null {
-  if (estimate.state === "over") return `Vial ${label}: the estimate exceeds the vial — check Personal supplies`;
-  if (estimate.state === "empty") return `Vial ${label} is empty (estimate)`;
-  if (outlook.kind === "known" && outlook.low) return `Vial ${label} is low · ${massLabel(estimate.remainingMg)} left (estimate)`;
+  if (estimate.state === "over") return `${vialName(label)}: the estimate exceeds the vial — check Personal supplies`;
+  if (estimate.state === "empty") return `${vialName(label)} is empty (estimate)`;
+  if (outlook.kind === "known" && outlook.low) return `${vialName(label)} is low · ${massLabel(estimate.remainingMg)} left (estimate)`;
   return null;
 }

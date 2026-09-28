@@ -14,11 +14,12 @@ import { inMassUnit, type MassUnit, massUnit, mgFromUnit } from "@/lib/alpha/for
 import type { MixtureOption, SuppliesView, UnopenedGroup, VialCard } from "@/lib/supplies/view";
 import { cn } from "@/lib/utils";
 import { useRequestKey, useSheetAction } from "./supplies-shared";
+import { vialName } from "@/lib/supplies/name";
 
 const NOT_MIXED = "";
 
 /** "Compound A · 8 mg / 2 mL · 1 mL — vial A-01 open" (a mixture takes one open vial). */
-const optionLabel = (mixture: MixtureOption) => `${mixture.label}${mixture.openVial ? ` — vial ${mixture.openVial} open` : ""}`;
+const optionLabel = (mixture: MixtureOption) => `${mixture.label}${mixture.openVial ? ` — ${vialName(mixture.openVial, true)} open` : ""}`;
 
 /** A native select in the v3 field frame. */
 function Select({ label, value, onChange, children }: { label: string; value: string; onChange: (value: string) => void; children: React.ReactNode }) {
@@ -200,7 +201,7 @@ function VialBody({ vial, view, onClose }: { vial: VialCard; view: SuppliesView;
     <SheetContent title={vial.title} context={vial.meta} footer={footer}>
       {confirming ? (
         <p role="alert" className="mx-2 rounded-[14px] bg-sunken px-3.5 py-3 text-[14px] leading-5 text-ink-2">
-          Finish vial {vial.label}? It moves to finished with its history. Confirmed doses stop deducting from it, and its mixture can take a new vial. You can
+          Finish {vialName(vial.label, true)}? It moves to finished with its history. Confirmed doses stop deducting from it, and its mixture can take a new vial. You can
           reopen it.
         </p>
       ) : null}
@@ -212,7 +213,7 @@ function VialBody({ vial, view, onClose }: { vial: VialCard; view: SuppliesView;
           </span>
           {vial.tag ? <Tag tone="low">{vial.tag}</Tag> : null}
         </div>
-        <LevelMeter value={vial.percent / 100} low={low} label={`Vial ${vial.label} remaining`} className="mt-3" />
+        <LevelMeter value={vial.percent / 100} low={low} label={`${vialName(vial.label)} remaining`} className="mt-3" />
         <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[14px]">
           <dt className="text-ink-3">State</dt>
           <dd data-testid="vial-state" data-tone={vial.tone}>
@@ -236,7 +237,7 @@ function VialBody({ vial, view, onClose }: { vial: VialCard; view: SuppliesView;
       {vial.open ? <CorrectRemaining vial={vial} /> : null}
       {vial.open ? <VialDetails key={`${vial.label}/${vial.mixtureId}`} vial={vial} view={view} /> : null}
 
-      <section aria-label={`History of vial ${vial.label}`} className="px-2">
+      <section aria-label={`History of ${vialName(vial.label, true)}`} className="px-2">
         <h3 className="mb-1 text-[13px] font-semibold text-ink-2">History</h3>
         {vial.history.length ? (
           <ol className="divide-y divide-line">
