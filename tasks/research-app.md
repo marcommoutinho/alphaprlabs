@@ -291,8 +291,8 @@ switches to the back office and back.
 - Where the v3 design contradicts a rule already decided in this document, the
   earlier rule wins. Known cases: USD purchases use only the stored Bank of
   Canada rate (no override); a personal vial is low when its remaining is less
-  than the next planned dose; Today keeps every open dose from running cycles
-  (the design's 72-hour window is not applied); researchers see admins as
+  than the next planned dose; Today keeps its current rules for which open
+  doses appear (the design's 72-hour window is not applied); researchers see admins as
   "Admin" / "Alpha PR Labs admins", never by name; sign-up keeps the existing
   password and invitation flow.
 - Everything else the v3 design shows is built, including features the app did
