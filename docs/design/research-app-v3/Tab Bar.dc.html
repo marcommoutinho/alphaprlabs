@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="background:{{ bg }};border-top:1px solid {{ line }};padding:0 6px 34px;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));position:relative">
+  <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+    <div style="height:54px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;position:relative;color:{{ t.color }}">
+      <span style="position:absolute;top:-1px;width:28px;height:2px;border-radius:2px;background:{{ t.bar }}"></span>
+      <span style="width:22px;height:22px;background:currentColor;mask:{{ t.mask }}"></span>
+      <span style="font-size:12px;font-weight:{{ t.weight }};letter-spacing:-.005em">{{ t.label }}</span>
+    </div>
+  </sc-for>
+  <span style="position:absolute;left:50%;bottom:8px;width:134px;height:5px;margin-left:-67px;border-radius:3px;background:{{ ink }}"></span>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:90},&quot;active&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;today&quot;,&quot;cycles&quot;,&quot;progress&quot;,&quot;library&quot;,&quot;business&quot;,&quot;me&quot;],&quot;default&quot;:&quot;today&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;admin&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;dark&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const dark = !!this.props.dark, admin = !!this.props.admin, active = this.props.active ?? 'today';
+    const base = 'https://unpkg.com/lucide-static@0.460.0/icons/';
+    const list = [['today','Today','sun'],['cycles','Cycles','calendar'],['progress','Progress','activity'], admin ? ['business','Business','briefcase'] : ['library','Library','book-open'], ['me','Me','user']];
+    const ink = dark ? '#F3F3F0' : '#0D0E10', ink3 = dark ? '#8C9098' : '#676B73';
+    return {
+      bg: dark ? '#0C0D0F' : '#F2F2EE', line: dark ? '#2A2D32' : '#DCDCD5', ink,
+      tabs: list.map(([k, l, i]) => ({ label: l, color: k === active ? ink : ink3, weight: k === active ? 600 : 500, bar: k === active ? ink : 'transparent', mask: `url(${base}${i}.svg) center/contain no-repeat` }))
+    };
+  }
+}
+</script>
+</body>
+</html>

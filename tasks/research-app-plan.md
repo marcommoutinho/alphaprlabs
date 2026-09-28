@@ -818,6 +818,35 @@ and G2 still requires S13.
 Next: Marco invites Brian and Natasha as admins, import the Sep 15–24 sales
 (preview first); then S13 reminders last.
 
+## Design v3 rebuild (2026-09-28)
+
+Source: `docs/design/research-app-v3/` (README, UI_BREAKDOWN, COMPONENTS_AND_THEMING,
+tokens.css, the .dc.html mocks). Decisions: tasks/research-app.md "Design v3
+rebuild decisions". Each slice keeps every existing business rule, test and
+refusal code; screens are recreated in the stack (Next.js, Tailwind 4,
+shadcn/ui on Base UI, lucide-react, Geist via next/font). Each slice covers its
+phone and laptop layouts, light and dark, and its loading, empty and error
+states. Standard Slipstream loop per slice; one maker at a time.
+
+- V0 Foundation: tokens (light/dark), fonts, theme application without flash,
+  core components (buttons, segmented, chips, rows, Now block, tiles, syringe
+  ruler, state glyphs, sheet, drawer, toast with undo, skeleton), phone tab bar
+  and laptop sidebar for researcher and admin; existing screens keep working
+  inside the new shell.
+- V1 Today: R1, R2, R2b, R6, R9a–c, D1; Skip, Undo, 8 sites with rotation.
+- V2 Cycles: R10, R3, R4a–c + review, D2; adherence with missed and skipped.
+- V3 Progress and supplies: R5, D3 (CSV), R7, R13.
+- V4 Me, library, joining: R8 (preferences, appearance), R17 + grant history,
+  R11, R12, R14–R16 (first standalone launch asks for push).
+- V5 Business: A1, A2, A13, D9, A3, D4 stock table, A6 states, per-item
+  low-stock threshold.
+- V6 Records: A4 / sale drawer, A5 / purchase drawer (supplier; stored rate
+  only), A7, A14, D5.
+- V7 Admin content: A8, A9, D6 (draft / publish), A10, D7, A11, D8, A12.
+- Close: remove the legacy app styles, full suite, deploy, production checks.
+
+Deploys: after V4 (researcher side complete) and after the close.
+
 ## Technical references
 
 - [Supabase tracked migrations and local development](https://supabase.com/docs/guides/local-development/database-migrations)

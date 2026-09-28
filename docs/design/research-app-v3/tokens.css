@@ -1,0 +1,100 @@
+/* Alpha Research v3 — design tokens for Tailwind CSS 4 + shadcn/ui (Base UI).
+   Drop into app/globals.css after the Tailwind/shadcn imports.
+   Light is default; dark follows the OS via prefers-color-scheme, and can be
+   forced with .dark / .light on <html> (Me → Appearance: System / Light / Dark). */
+
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap");
+/* In Next.js prefer next/font: import { Geist, Geist_Mono } from "next/font/google" */
+
+:root {
+  /* Neutrals */
+  --paper:      #F2F2EE; /* page background */
+  --surface:    #FFFFFF; /* grouped rows, cards, sheet content, inputs */
+  --sunken:     #E8E8E3; /* segmented-control track, skeletons, search field, icon wells */
+  --line:       #DCDCD5; /* hairlines, card borders, rail */
+  --ink:        #0D0E10; /* primary text; Now-block background */
+  --ink-2:      #464950; /* secondary text */
+  --ink-3:      #676B73; /* tertiary text — lowest allowed for text */
+  --on-ink-2:   #9A9EA6; /* secondary text inside the Now block */
+  --on-ink-soft:#C9CCD2; /* labels inside the Now block */
+
+  /* Brand */
+  --signal:     #60A5FA; /* primary button fill, due state, syringe fill, today marker */
+  --on-signal:  #0A0B0D; /* text/icons on signal — never themed */
+  --signal-ink: #1F5FCC; /* blue text/links on light */
+  --signal-tint:#E6EFFD; /* due row background */
+
+  /* Semantic (text colour / tint background) */
+  --done:       #177A4E; --done-tint:   #E7F4EC;
+  --missed:     #B93A26; --missed-tint: #FBEDEA;   /* overdue / missed / error / destructive */
+  --low:        #8A5A00; --low-tint:    #FFF4DE;   /* low stock text */
+  --low-fill:   #E9A93A; --low-empty:   #E3D6BC;   /* meter fill / meter empty on low tint */
+
+  /* Overlay */
+  --scrim: rgba(0,0,0,.45);
+  --sheet-shadow: 0 -8px 40px rgba(0,0,0,.18);
+  --drawer-shadow: -12px 0 40px rgba(0,0,0,.18);
+  --seg-shadow: 0 1px 3px rgba(0,0,0,.10);
+
+  /* Radius */
+  --r-tag: 8px; --r-chip: 12px; --r-btn: 16px; --r-group: 20px; --r-now: 28px; --r-sheet: 28px;
+
+  /* Type */
+  --font-sans: "Geist", system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --paper:#0C0D0F; --surface:#16181B; --sunken:#1F2226; --line:#2A2D32;
+    --ink:#F3F3F0; --ink-2:#B4B7BE; --ink-3:#8C9098; --on-ink-2:#5A5E66; --on-ink-soft:#3A3D42;
+    --signal-ink:#7DB6FB; --signal-tint:#13233A;
+    --done:#4CC38A; --done-tint:#12261C;
+    --missed:#FF7A61; --missed-tint:#2A1714;
+    --low:#F0B44C; --low-tint:#2A2110; --low-empty:#4A3F28;
+  }
+}
+.dark {
+  --paper:#0C0D0F; --surface:#16181B; --sunken:#1F2226; --line:#2A2D32;
+  --ink:#F3F3F0; --ink-2:#B4B7BE; --ink-3:#8C9098; --on-ink-2:#5A5E66; --on-ink-soft:#3A3D42;
+  --signal-ink:#7DB6FB; --signal-tint:#13233A;
+  --done:#4CC38A; --done-tint:#12261C;
+  --missed:#FF7A61; --missed-tint:#2A1714;
+  --low:#F0B44C; --low-tint:#2A2110; --low-empty:#4A3F28;
+}
+
+/* Tailwind 4 theme bindings → bg-paper, text-ink-2, border-line, bg-signal, text-missed … */
+@theme inline {
+  --color-paper: var(--paper);   --color-surface: var(--surface); --color-sunken: var(--sunken);
+  --color-line: var(--line);     --color-ink: var(--ink);         --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);   --color-on-ink-2: var(--on-ink-2); --color-on-ink-soft: var(--on-ink-soft);
+  --color-signal: var(--signal); --color-on-signal: var(--on-signal);
+  --color-signal-ink: var(--signal-ink); --color-signal-tint: var(--signal-tint);
+  --color-done: var(--done);     --color-done-tint: var(--done-tint);
+  --color-missed: var(--missed); --color-missed-tint: var(--missed-tint);
+  --color-low: var(--low);       --color-low-tint: var(--low-tint);
+  --color-low-fill: var(--low-fill); --color-low-empty: var(--low-empty);
+  --font-sans: var(--font-sans); --font-mono: var(--font-mono);
+  --radius-tag: var(--r-tag); --radius-chip: var(--r-chip); --radius-btn: var(--r-btn);
+  --radius-group: var(--r-group); --radius-now: var(--r-now);
+
+  /* shadcn/ui semantic aliases */
+  --color-background: var(--paper);  --color-foreground: var(--ink);
+  --color-card: var(--surface);      --color-card-foreground: var(--ink);
+  --color-popover: var(--surface);   --color-popover-foreground: var(--ink);
+  --color-primary: var(--signal);    --color-primary-foreground: var(--on-signal);
+  --color-secondary: var(--sunken);  --color-secondary-foreground: var(--ink);
+  --color-muted: var(--sunken);      --color-muted-foreground: var(--ink-3);
+  --color-accent: var(--sunken);     --color-accent-foreground: var(--ink);
+  --color-destructive: var(--missed);
+  --color-border: var(--line); --color-input: var(--line); --color-ring: var(--signal);
+}
+
+/* The Now block inverts against the page in both modes:
+   light → bg ink (#0D0E10) + text #FFFFFF; dark → bg ink (#F3F3F0) + text surface (#16181B).
+   Use: className="bg-ink text-surface" and secondary text "text-on-ink-2". */
+
+html, body { background: var(--paper); color: var(--ink); font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased; font-variant-numeric: tabular-nums; }
+a { color: var(--signal-ink); } a:hover { color: var(--ink); }
+:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }

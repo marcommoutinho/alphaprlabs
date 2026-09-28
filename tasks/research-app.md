@@ -284,6 +284,28 @@ switches to the back office and back.
   these exist: the vials they used are added back as opening stock dated
   Sep 14 at the same cost, so the final count stays at today's.
 
+### Design v3 rebuild decisions (Marco, 2026-09-28)
+
+- The app is rebuilt to the v3 design in `docs/design/research-app-v3/`
+  (replaces the earlier visual spec; light by default, dark follows the OS).
+- Where the v3 design contradicts a rule already decided in this document, the
+  earlier rule wins. Known cases: USD purchases use only the stored Bank of
+  Canada rate (no override); a personal vial is low when its remaining is less
+  than the next planned dose; Today keeps every open dose from running cycles
+  (the design's 72-hour window is not applied); researchers see admins as
+  "Admin" / "Alpha PR Labs admins", never by name; sign-up keeps the existing
+  password and invitation flow.
+- Everything else the v3 design shows is built, including features the app did
+  not have: Skip a dose (counts as skipped, not missed), Undo after Taken,
+  8 injection sites with rotation, Appearance / default syringe / weight-unit
+  preferences, adherence with missed and skipped counts, supplier on purchases,
+  per-item low-stock threshold (default 10 vials), the Business period views
+  (week, month, custom range, 12 months with month-over-month on matching
+  days), revenue by day, the Ledger grouped by day or month, CSV exports, the
+  library draft / publish state, and the laptop layouts.
+- Marco is away during the rebuild; Main decides review escalations on the
+  safer option and records each one for him.
+
 ### Launch exclusions
 
 - Blended or multi-peptide vials. A cycle may still contain several separately

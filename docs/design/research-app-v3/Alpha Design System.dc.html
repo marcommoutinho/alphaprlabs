@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;background:#E9E9E4;color:#0D0E10;font-family:Geist,system-ui,sans-serif;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+*{box-sizing:border-box}h1,h2,h3,p{margin:0}
+a{color:#1F5FCC;text-decoration:none}a:hover{color:#0D0E10}
+button{font:inherit;color:inherit;cursor:pointer}
+</style>
+</helmet>
+
+<div style="padding:72px 64px 120px;max-width:1480px;margin:0 auto;display:flex;flex-direction:column;gap:96px">
+
+<header data-screen-label="00 Direction" style="display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:64px;align-items:end">
+  <div>
+    <div style="display:flex;align-items:center;gap:14px">
+      <img src="assets/logo.jpeg" alt="Alpha PR Labs" style="width:48px;height:48px;border-radius:12px">
+      <div><div style="font-size:15px;font-weight:600">Alpha PR Labs · Research app</div><div style="font:500 13px 'Geist Mono',monospace;color:#676B73;margin-top:2px">Design language v3 · Sep 2026</div></div>
+    </div>
+    <h1 style="font-size:64px;font-weight:600;letter-spacing:-.04em;line-height:1;margin-top:40px;text-wrap:balance">A bench instrument for your own research.</h1>
+    <p style="font-size:19px;line-height:1.55;color:#464950;margin-top:24px;max-width:680px;text-wrap:pretty">The app reads like lab equipment you trust: one reading at a time, printed large, with its scale drawn next to it. Graduated scales replace rings everywhere. The syringe barrel, the days of a cycle, the check-in and a vial's contents all show their units, so a number is never ambiguous. Each screen has one inverted block, and that is where the day's key number lives.</p>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:#DCDCD5;border:1px solid #DCDCD5;border-radius:20px;overflow:hidden">
+    <div style="background:#F2F2EE;padding:22px"><div style="font:500 13px 'Geist Mono',monospace;color:#676B73">01</div><div style="font-size:17px;font-weight:600;margin-top:10px">One reading, printed large</div><p style="font-size:14px;line-height:1.5;color:#464950;margin-top:6px">Today opens on the next dose in syringe units at 88 px. Everything else is smaller and quieter.</p></div>
+    <div style="background:#F2F2EE;padding:22px"><div style="font:500 13px 'Geist Mono',monospace;color:#676B73">02</div><div style="font-size:17px;font-weight:600;margin-top:10px">Every number carries its scale</div><p style="font-size:14px;line-height:1.5;color:#464950;margin-top:6px">Rulers with real graduations: 2-unit lines on a 100-unit syringe, one tick per cycle day.</p></div>
+    <div style="background:#F2F2EE;padding:22px"><div style="font:500 13px 'Geist Mono',monospace;color:#676B73">03</div><div style="font-size:17px;font-weight:600;margin-top:10px">State is a shape and a word</div><p style="font-size:14px;line-height:1.5;color:#464950;margin-top:6px">Done, due, overdue and low each have a glyph and a label. Colour reinforces; it never carries meaning alone.</p></div>
+    <div style="background:#F2F2EE;padding:22px"><div style="font:500 13px 'Geist Mono',monospace;color:#676B73">04</div><div style="font-size:17px;font-weight:600;margin-top:10px">Light by day, dark by system</div><p style="font-size:14px;line-height:1.5;color:#464950;margin-top:6px">Bench-paper light is the default: clinical, and legible at a 7:30 AM dose. Dark follows iOS and inverts the same tokens.</p></div>
+  </div>
+</header>
+
+<!-- 01 COLOUR -->
+<section data-screen-label="01 Colour" style="display:flex;flex-direction:column;gap:28px">
+  <div style="display:flex;align-items:baseline;gap:16px"><span style="font:500 14px 'Geist Mono',monospace;color:#676B73">01</span><h2 style="font-size:32px;font-weight:600;letter-spacing:-.025em">Colour</h2><p style="font-size:15px;color:#464950;margin-left:auto;max-width:520px">Warm-neutral greys with one brand blue. Semantic colours are darkened on light and lifted on dark so every text pairing clears 4.5:1.</p></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+    <div style="background:#F2F2EE;border-radius:28px;padding:28px;border:1px solid #DCDCD5">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><h3 style="font-size:17px;font-weight:600">Light · default</h3><span style="font:500 13px 'Geist Mono',monospace;color:#676B73">prefers-color-scheme: light</span></div>
+      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:20px">
+        <div><div style="height:72px;border-radius:14px;background:#F2F2EE;border:1px solid #DCDCD5"></div><div style="font-size:14px;font-weight:600;margin-top:8px">Paper</div><div style="font:400 12px 'Geist Mono',monospace;color:#676B73">#F2F2EE · page</div></div>
+        <div><div style="height:72px;border-radius:14px;background:#FFFFFF;border:1px solid #DCDCD5"></div><div style="font-size:14px;font-weight:600;margin-top:8px">Surface</div><div style="font:400 12px 'Geist Mono',monospace;color:#676B73">#FFFFFF · rows, sheets</div></div>
+        <div><div style="height:72px;border-radius:14px;background:#E8E8E3"></div><div style="font-size:14px;font-weight:600;margin-top:8px">Sunken</div><div style="font:400 12px 'Geist Mono',monospace;color:#676B73">#E8E8E3 · tracks</div></div>
+        <div><div style="height:72px;border-radius:14px;background:#DCDCD5"></div><div style="font-size:14px;font-weight:600;margin-top:8px">Line</div><div style="font:400 12px 'Geist Mono',monospace;color:#676B73">#DCDCD5 · hairlines</div></div>
+        <div><div style="height:72px;border-radius:14px;background:#0D0E10"></div><div style="font-size:14px;font-weight:600;margin-top:8px">Ink</div><div style="font:400 12px 'Geist Mono',monospace;color:#676B73">#0D0E10 · text, Now block</div></div>
+        <div><div style="height:72px;border-radius:14px;background:#464950"></div><div style="font-size:14px;font-weight:600;margin-top:8px">Ink 2</div><div style="font:400 12px 'Geist Mono',monospace;color:#676B73">#464950 · secondary</div></div>
+        <div><div style="height:72px;border-radius:14px;background:#676B73"></div><div style="font-size:14px;font-weight:600;margin-top:8px">Ink 3</div><div style="font:400 12px 'Geist Mono',monospace;color:#676B73">#676B73 · lowest text</div></div>
+        <div><div style="height:72px;border-radius:14px;background:#60A5FA;display:flex;align-items:flex-end;padding:8px 10px;font-size:13px;font-weight:600;color:#0A0B0D">Aa 8.1:1</div><div style="font-size:14px;font-weight:600;margin-top:8px">Signal</div><div style="font:400 12px 'Geist Mono',monospace;color:#676B73">#60A5FA · primary fill</div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;margin-top:24px;border-top:1px solid #DCDCD5">
+        <div style="display:grid;grid-template-columns:28px 120px 1fr 150px;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid #DCDCD5"><span style="width:24px;height:24px;border-radius:50%;background:#177A4E;display:flex;align-items:center;justify-content:center;color:#FFFFFF"><span style="width:14px;height:14px;background:currentColor;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/check.svg) center/contain no-repeat"></span></span><b style="font-size:14px">Done</b><span style="font-size:14px;color:#177A4E;font-weight:600">Taken 7:34 AM</span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73;display:flex;gap:6px;align-items:center"><i style="width:14px;height:14px;border-radius:4px;background:#E7F4EC"></i>#177A4E</span></div>
+        <div style="display:grid;grid-template-columns:28px 120px 1fr 150px;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid #DCDCD5"><span style="width:24px;height:24px;border-radius:50%;border:2px solid #1F5FCC;display:flex;align-items:center;justify-content:center"><i style="width:10px;height:10px;border-radius:50%;background:#1F5FCC"></i></span><b style="font-size:14px">Due</b><span style="font-size:14px;color:#1F5FCC;font-weight:600">Due now · 9:00 AM</span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73;display:flex;gap:6px;align-items:center"><i style="width:14px;height:14px;border-radius:4px;background:#E6EFFD"></i>#1F5FCC</span></div>
+        <div style="display:grid;grid-template-columns:28px 120px 1fr 150px;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid #DCDCD5"><span style="width:24px;height:24px;border-radius:50%;border:1.5px solid #676B73"></span><b style="font-size:14px">Upcoming</b><span style="font-size:14px;color:#464950">8:00 PM · in 10 h 48 min</span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">Ink 2</span></div>
+        <div style="display:grid;grid-template-columns:28px 120px 1fr 150px;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid #DCDCD5"><span style="width:24px;height:24px;border-radius:7px;background:#B93A26;color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;transform:rotate(45deg)"><span style="transform:rotate(-45deg)">!</span></span><b style="font-size:14px">Overdue · missed</b><span style="font-size:14px;color:#B93A26;font-weight:600">Not logged · Wed 8:00 PM</span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73;display:flex;gap:6px;align-items:center"><i style="width:14px;height:14px;border-radius:4px;background:#FBEDEA"></i>#B93A26</span></div>
+        <div style="display:grid;grid-template-columns:28px 120px 1fr 150px;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid #DCDCD5"><span style="width:24px;height:24px;display:flex;flex-direction:column;justify-content:flex-end;gap:2px;padding:2px 5px"><i style="height:4px;border-radius:1px;background:#DCDCD5"></i><i style="height:4px;border-radius:1px;background:#DCDCD5"></i><i style="height:4px;border-radius:1px;background:#E9A93A"></i></span><b style="font-size:14px">Low stock</b><span style="font-size:14px;color:#8A5A00;font-weight:600">Low · 6 doses left</span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73;display:flex;gap:6px;align-items:center"><i style="width:14px;height:14px;border-radius:4px;background:#FFF4DE"></i>#8A5A00 · #E9A93A</span></div>
+        <div style="display:grid;grid-template-columns:28px 120px 1fr 150px;gap:12px;align-items:center;padding:12px 0"><span style="width:24px;height:24px;border-radius:50%;border:1.5px dashed #676B73"></span><b style="font-size:14px">Skipped</b><span style="font-size:14px;color:#676B73;text-decoration:line-through">250 mcg</span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">Ink 3</span></div>
+      </div>
+    </div>
+    <div style="background:#0C0D0F;color:#F3F3F0;border-radius:28px;padding:28px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><h3 style="font-size:17px;font-weight:600">Dark · follows system</h3><span style="font:500 13px 'Geist Mono',monospace;color:#8C9098">prefers-color-scheme: dark</span></div>
+      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:20px">
+        <div><div style="height:72px;border-radius:14px;background:#0C0D0F;border:1px solid #2A2D32"></div><div style="font-size:14px;font-weight:600;margin-top:8px">Paper</div><div style="font:400 12px 'Geist Mono',monospace;color:#8C9098">#0C0D0F</div></div>
+        <div><div style="height:72px;border-radius:14px;background:#16181B"></div><div style="font-size:14px;font-weight:600;margin-top:8px">Surface</div><div style="font:400 12px 'Geist Mono',monospace;color:#8C9098">#16181B</div></div>
+        <div><div style="height:72px;border-radius:14px;background:#1F2226"></div><div style="font-size:14px;font-weight:600;margin-top:8px">Sunken</div><div style="font:400 12px 'Geist Mono',monospace;color:#8C9098">#1F2226</div></div>
+        <div><div style="height:72px;border-radius:14px;background:#2A2D32"></div><div style="font-size:14px;font-weight:600;margin-top:8px">Line</div><div style="font:400 12px 'Geist Mono',monospace;color:#8C9098">#2A2D32</div></div>
+        <div><div style="height:72px;border-radius:14px;background:#F3F3F0"></div><div style="font-size:14px;font-weight:600;margin-top:8px">Ink</div><div style="font:400 12px 'Geist Mono',monospace;color:#8C9098">#F3F3F0 · Now block</div></div>
+        <div><div style="height:72px;border-radius:14px;background:#B4B7BE"></div><div style="font-size:14px;font-weight:600;margin-top:8px">Ink 2</div><div style="font:400 12px 'Geist Mono',monospace;color:#8C9098">#B4B7BE</div></div>
+        <div><div style="height:72px;border-radius:14px;background:#8C9098"></div><div style="font-size:14px;font-weight:600;margin-top:8px">Ink 3</div><div style="font:400 12px 'Geist Mono',monospace;color:#8C9098">#8C9098</div></div>
+        <div><div style="height:72px;border-radius:14px;background:#60A5FA;display:flex;align-items:flex-end;padding:8px 10px;font-size:13px;font-weight:600;color:#0A0B0D">Aa 8.1:1</div><div style="font-size:14px;font-weight:600;margin-top:8px">Signal</div><div style="font:400 12px 'Geist Mono',monospace;color:#8C9098">#60A5FA · text #7DB6FB</div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;margin-top:24px;border-top:1px solid #2A2D32">
+        <div style="display:grid;grid-template-columns:28px 120px 1fr 150px;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid #2A2D32"><span style="width:24px;height:24px;border-radius:50%;background:#4CC38A;display:flex;align-items:center;justify-content:center;color:#0C0D0F"><span style="width:14px;height:14px;background:currentColor;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/check.svg) center/contain no-repeat"></span></span><b style="font-size:14px">Done</b><span style="font-size:14px;color:#4CC38A;font-weight:600">Taken 7:34 AM</span><span style="font:400 12px 'Geist Mono',monospace;color:#8C9098">#4CC38A · #12261C</span></div>
+        <div style="display:grid;grid-template-columns:28px 120px 1fr 150px;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid #2A2D32"><span style="width:24px;height:24px;border-radius:50%;border:2px solid #7DB6FB;display:flex;align-items:center;justify-content:center"><i style="width:10px;height:10px;border-radius:50%;background:#7DB6FB"></i></span><b style="font-size:14px">Due</b><span style="font-size:14px;color:#7DB6FB;font-weight:600">Due now · 9:00 AM</span><span style="font:400 12px 'Geist Mono',monospace;color:#8C9098">#7DB6FB · #13233A</span></div>
+        <div style="display:grid;grid-template-columns:28px 120px 1fr 150px;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid #2A2D32"><span style="width:24px;height:24px;border-radius:50%;border:1.5px solid #8C9098"></span><b style="font-size:14px">Upcoming</b><span style="font-size:14px;color:#B4B7BE">8:00 PM · in 10 h 48 min</span><span style="font:400 12px 'Geist Mono',monospace;color:#8C9098">Ink 2</span></div>
+        <div style="display:grid;grid-template-columns:28px 120px 1fr 150px;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid #2A2D32"><span style="width:24px;height:24px;border-radius:7px;background:#FF7A61;color:#0C0D0F;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;transform:rotate(45deg)"><span style="transform:rotate(-45deg)">!</span></span><b style="font-size:14px">Overdue · missed</b><span style="font-size:14px;color:#FF7A61;font-weight:600">Not logged · Wed 8:00 PM</span><span style="font:400 12px 'Geist Mono',monospace;color:#8C9098">#FF7A61 · #2A1714</span></div>
+        <div style="display:grid;grid-template-columns:28px 120px 1fr 150px;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid #2A2D32"><span style="width:24px;height:24px;display:flex;flex-direction:column;justify-content:flex-end;gap:2px;padding:2px 5px"><i style="height:4px;border-radius:1px;background:#2A2D32"></i><i style="height:4px;border-radius:1px;background:#2A2D32"></i><i style="height:4px;border-radius:1px;background:#F0B44C"></i></span><b style="font-size:14px">Low stock</b><span style="font-size:14px;color:#F0B44C;font-weight:600">Low · 6 doses left</span><span style="font:400 12px 'Geist Mono',monospace;color:#8C9098">#F0B44C · #2A2110</span></div>
+        <div style="display:grid;grid-template-columns:28px 120px 1fr 150px;gap:12px;align-items:center;padding:12px 0"><span style="width:24px;height:24px;border-radius:50%;border:1.5px dashed #8C9098"></span><b style="font-size:14px">Skipped</b><span style="font-size:14px;color:#8C9098;text-decoration:line-through">250 mcg</span><span style="font:400 12px 'Geist Mono',monospace;color:#8C9098">Ink 3</span></div>
+      </div>
+    </div>
+  </div>
+  <p style="font-size:14px;color:#464950;max-width:900px;line-height:1.55">Blue is reserved for what you can act on now: the primary button, the due state, the syringe fill. Money in admin views uses Ink, never green or red, except a negative gross profit, which is shown in the overdue red with a minus sign.</p>
+</section>
+
+<!-- 02 TYPE -->
+<section data-screen-label="02 Type" style="display:flex;flex-direction:column;gap:28px">
+  <div style="display:flex;align-items:baseline;gap:16px"><span style="font:500 14px 'Geist Mono',monospace;color:#676B73">02</span><h2 style="font-size:32px;font-weight:600;letter-spacing:-.025em">Typography</h2><p style="font-size:15px;color:#464950;margin-left:auto;max-width:520px">Geist for reading, Geist Mono for units, times and codes. Tabular figures everywhere. Sentence case throughout; no all-caps labels.</p></div>
+  <div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:24px">
+    <div style="background:#FFFFFF;border-radius:28px;padding:12px 28px">
+      <div style="display:grid;grid-template-columns:130px 1fr 190px;gap:16px;align-items:baseline;padding:18px 0;border-bottom:1px solid #DCDCD5"><span style="font-size:13px;color:#676B73">Reading</span><span style="display:flex;align-items:baseline;gap:8px"><span style="font-size:88px;font-weight:600;letter-spacing:-.05em;line-height:.9">50</span><span style="font:400 20px 'Geist Mono',monospace;color:#464950">units</span></span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">88/80 · 600 · −0.05em</span></div>
+      <div style="display:grid;grid-template-columns:130px 1fr 190px;gap:16px;align-items:baseline;padding:18px 0;border-bottom:1px solid #DCDCD5"><span style="font-size:13px;color:#676B73">Display</span><span style="font-size:52px;font-weight:600;letter-spacing:-.04em;line-height:1">$3,496.73</span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">52/52 · 600 · −0.04em</span></div>
+      <div style="display:grid;grid-template-columns:130px 1fr 190px;gap:16px;align-items:baseline;padding:18px 0;border-bottom:1px solid #DCDCD5"><span style="font-size:13px;color:#676B73">Title 1</span><span style="font-size:30px;font-weight:600;letter-spacing:-.025em">Recovery protocol</span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">30/34 · 600 · −0.025em</span></div>
+      <div style="display:grid;grid-template-columns:130px 1fr 190px;gap:16px;align-items:baseline;padding:18px 0;border-bottom:1px solid #DCDCD5"><span style="font-size:13px;color:#676B73">Title 2</span><span style="font-size:22px;font-weight:600;letter-spacing:-.015em">TB-500 · 2.5 mg</span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">22/28 · 600 · −0.015em</span></div>
+      <div style="display:grid;grid-template-columns:130px 1fr 190px;gap:16px;align-items:baseline;padding:18px 0;border-bottom:1px solid #DCDCD5"><span style="font-size:13px;color:#676B73">Headline</span><span style="font-size:17px;font-weight:600">Daily check-in</span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">17/22 · 600</span></div>
+      <div style="display:grid;grid-template-columns:130px 1fr 190px;gap:16px;align-items:baseline;padding:18px 0;border-bottom:1px solid #DCDCD5"><span style="font-size:13px;color:#676B73">Body</span><span style="font-size:16px;line-height:1.4">Draw to the 50 line on a 100-unit syringe.</span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">16/22 · 400</span></div>
+      <div style="display:grid;grid-template-columns:130px 1fr 190px;gap:16px;align-items:baseline;padding:18px 0;border-bottom:1px solid #DCDCD5"><span style="font-size:13px;color:#676B73">Footnote</span><span style="font-size:13px;color:#464950;font-weight:500">Last site: Abdomen L, Mon</span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">13/18 · 500</span></div>
+      <div style="display:grid;grid-template-columns:130px 1fr 190px;gap:16px;align-items:baseline;padding:18px 0"><span style="font-size:13px;color:#676B73">Data · mono</span><span style="font:500 15px 'Geist Mono',monospace">7:30 AM · 250 mcg · 0.05 mL</span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">15 or 13 · 500 · min 12</span></div>
+    </div>
+    <div style="background:#0D0E10;color:#FFFFFF;border-radius:28px;padding:28px;display:flex;flex-direction:column;gap:18px">
+      <h3 style="font-size:17px;font-weight:600">Rules for numbers</h3>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:10px 16px;font-size:14px;line-height:1.45;align-items:baseline">
+        <span style="color:#C9CCD2">Units are written out, lower case, in mono</span><span style="font:500 14px 'Geist Mono',monospace">mg · mcg · mL · units</span>
+        <span style="color:#C9CCD2">Never µg (misread as mg), never "u"</span><span style="font:500 14px 'Geist Mono',monospace;color:#FF7A61;text-decoration:line-through">250 µg · 5u</span>
+        <span style="color:#C9CCD2">Always a leading zero</span><span style="font:500 14px 'Geist Mono',monospace">0.5 mL</span>
+        <span style="color:#C9CCD2">No trailing zeros on doses</span><span style="font:500 14px 'Geist Mono',monospace">2.5 mg</span>
+        <span style="color:#C9CCD2">Syringe units always name the syringe</span><span style="font:500 14px 'Geist Mono',monospace">50 units · 100-unit</span>
+        <span style="color:#C9CCD2">Units are never rounded to a line; the ruler shows where it falls</span><span style="font:500 14px 'Geist Mono',monospace">7.5 units</span>
+        <span style="color:#C9CCD2">Money: two decimals and the currency</span><span style="font:500 14px 'Geist Mono',monospace">$3,925.00 CAD</span>
+        <span style="color:#C9CCD2">Foreign amounts show the source</span><span style="font:500 14px 'Geist Mono',monospace">US$ 460.00</span>
+        <span style="color:#C9CCD2">Stacked numbers use tabular figures</span><span style="font:500 14px 'Geist Mono',monospace">tnum</span>
+      </div>
+      <p style="font-size:13px;color:#9A9EA6;line-height:1.5;margin-top:auto">The mcg and zero rules follow standard medication-safety practice for dose labelling.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 03 SPACE -->
+<section data-screen-label="03 Space, radius, elevation" style="display:flex;flex-direction:column;gap:28px">
+  <div style="display:flex;align-items:baseline;gap:16px"><span style="font:500 14px 'Geist Mono',monospace;color:#676B73">03</span><h2 style="font-size:32px;font-weight:600;letter-spacing:-.025em">Space, radius, surfaces</h2><p style="font-size:15px;color:#464950;margin-left:auto;max-width:520px">4 px base. Screen margin 16 for blocks and 20 for text. Touch targets 44 minimum, 56 for Taken.</p></div>
+  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px">
+    <div style="background:#FFFFFF;border-radius:28px;padding:28px">
+      <h3 style="font-size:17px;font-weight:600">Spacing</h3>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:20px;font:500 13px 'Geist Mono',monospace;color:#464950">
+        <div style="display:flex;align-items:center;gap:12px"><span style="width:28px">4</span><i style="width:4px;height:14px;background:#60A5FA;border-radius:2px"></i><span style="color:#676B73">icon to label</span></div>
+        <div style="display:flex;align-items:center;gap:12px"><span style="width:28px">8</span><i style="width:8px;height:14px;background:#60A5FA;border-radius:2px"></i><span style="color:#676B73">chip gap</span></div>
+        <div style="display:flex;align-items:center;gap:12px"><span style="width:28px">12</span><i style="width:12px;height:14px;background:#60A5FA;border-radius:2px"></i><span style="color:#676B73">between blocks</span></div>
+        <div style="display:flex;align-items:center;gap:12px"><span style="width:28px">16</span><i style="width:16px;height:14px;background:#60A5FA;border-radius:2px"></i><span style="color:#676B73">block margin, row padding</span></div>
+        <div style="display:flex;align-items:center;gap:12px"><span style="width:28px">20</span><i style="width:20px;height:14px;background:#60A5FA;border-radius:2px"></i><span style="color:#676B73">text margin, block padding</span></div>
+        <div style="display:flex;align-items:center;gap:12px"><span style="width:28px">32</span><i style="width:32px;height:14px;background:#60A5FA;border-radius:2px"></i><span style="color:#676B73">between sections</span></div>
+        <div style="display:flex;align-items:center;gap:12px"><span style="width:28px">56</span><i style="width:56px;height:14px;background:#60A5FA;border-radius:2px"></i><span style="color:#676B73">primary button height</span></div>
+      </div>
+    </div>
+    <div style="background:#FFFFFF;border-radius:28px;padding:28px">
+      <h3 style="font-size:17px;font-weight:600">Radius</h3>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:20px">
+        <div><div style="height:64px;border-radius:8px;background:#E8E8E3"></div><div style="font:500 12px 'Geist Mono',monospace;color:#464950;margin-top:8px">8 · tags, bars</div></div>
+        <div><div style="height:64px;border-radius:12px;background:#E8E8E3"></div><div style="font:500 12px 'Geist Mono',monospace;color:#464950;margin-top:8px">12 · chips, inputs</div></div>
+        <div><div style="height:64px;border-radius:16px;background:#E8E8E3"></div><div style="font:500 12px 'Geist Mono',monospace;color:#464950;margin-top:8px">16 · buttons</div></div>
+        <div><div style="height:64px;border-radius:20px;background:#E8E8E3"></div><div style="font:500 12px 'Geist Mono',monospace;color:#464950;margin-top:8px">20 · groups</div></div>
+        <div><div style="height:64px;border-radius:24px;background:#0D0E10"></div><div style="font:500 12px 'Geist Mono',monospace;color:#464950;margin-top:8px">24 · Now block</div></div>
+        <div><div style="height:64px;border-radius:28px 28px 0 0;background:#E8E8E3"></div><div style="font:500 12px 'Geist Mono',monospace;color:#464950;margin-top:8px">28 · sheet top</div></div>
+      </div>
+    </div>
+    <div style="background:#FFFFFF;border-radius:28px;padding:28px">
+      <h3 style="font-size:17px;font-weight:600">Surfaces</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px;font-size:13px">
+        <div style="height:96px;border-radius:16px;background:#F2F2EE;padding:12px;display:flex;flex-direction:column;justify-content:space-between"><b>Paper</b><span style="color:#676B73">Flat. Lists and section text sit straight on it.</span></div>
+        <div style="height:96px;border-radius:16px;background:#FFFFFF;border:1px solid #DCDCD5;padding:12px;display:flex;flex-direction:column;justify-content:space-between"><b>Group</b><span style="color:#676B73">Surface + hairline. No shadow.</span></div>
+        <div style="height:96px;border-radius:16px;background:#0D0E10;color:#FFFFFF;padding:12px;display:flex;flex-direction:column;justify-content:space-between"><b>Inverted</b><span style="color:#9A9EA6">One per screen: the key reading.</span></div>
+        <div style="height:96px;border-radius:16px;background:rgba(0,0,0,.45);padding:12px 12px 0;display:flex;align-items:flex-end"><div style="width:100%;height:58px;border-radius:12px 12px 0 0;background:#F2F2EE;box-shadow:0 -8px 30px rgba(0,0,0,.18);padding:8px 10px"><b>Sheet</b><div style="color:#676B73">Scrim 45% + shadow</div></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 04 ICONS -->
+<section data-screen-label="04 Iconography" style="display:flex;flex-direction:column;gap:28px">
+  <div style="display:flex;align-items:baseline;gap:16px"><span style="font:500 14px 'Geist Mono',monospace;color:#676B73">04</span><h2 style="font-size:32px;font-weight:600;letter-spacing:-.025em">Iconography</h2><p style="font-size:15px;color:#464950;margin-left:auto;max-width:520px">Lucide (ships with shadcn/ui), 2 px stroke, 22 px in the tab bar, 18–20 px inline. Icons sit beside a word; they never stand in for one, except close and back.</p></div>
+  <div style="background:#FFFFFF;border-radius:28px;padding:28px;display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 0;border-radius:14px;background:#F2F2EE"><span style="width:24px;height:24px;background:#0D0E10;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/sun.svg) center/contain no-repeat"></span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">today</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 0;border-radius:14px;background:#F2F2EE"><span style="width:24px;height:24px;background:#0D0E10;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/calendar.svg) center/contain no-repeat"></span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">cycles</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 0;border-radius:14px;background:#F2F2EE"><span style="width:24px;height:24px;background:#0D0E10;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/activity.svg) center/contain no-repeat"></span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">progress</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 0;border-radius:14px;background:#F2F2EE"><span style="width:24px;height:24px;background:#0D0E10;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/book-open.svg) center/contain no-repeat"></span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">library</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 0;border-radius:14px;background:#F2F2EE"><span style="width:24px;height:24px;background:#0D0E10;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/briefcase.svg) center/contain no-repeat"></span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">business</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 0;border-radius:14px;background:#F2F2EE"><span style="width:24px;height:24px;background:#0D0E10;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/user.svg) center/contain no-repeat"></span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">me</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 0;border-radius:14px;background:#F2F2EE"><span style="width:24px;height:24px;background:#0D0E10;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/syringe.svg) center/contain no-repeat"></span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">dose</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 0;border-radius:14px;background:#F2F2EE"><span style="width:24px;height:24px;background:#0D0E10;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/flask-conical.svg) center/contain no-repeat"></span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">vial</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 0;border-radius:14px;background:#F2F2EE"><span style="width:24px;height:24px;background:#0D0E10;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/pill.svg) center/contain no-repeat"></span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">supplement</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 0;border-radius:14px;background:#F2F2EE"><span style="width:24px;height:24px;background:#0D0E10;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/package.svg) center/contain no-repeat"></span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">stock</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 0;border-radius:14px;background:#F2F2EE"><span style="width:24px;height:24px;background:#0D0E10;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/clock.svg) center/contain no-repeat"></span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">time</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 0;border-radius:14px;background:#F2F2EE"><span style="width:24px;height:24px;background:#0D0E10;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/shield.svg) center/contain no-repeat"></span><span style="font:400 12px 'Geist Mono',monospace;color:#676B73">access</span></div>
+  </div>
+</section>
+
+<!-- 05 COMPONENTS -->
+<section data-screen-label="05 Components" style="display:flex;flex-direction:column;gap:28px">
+  <div style="display:flex;align-items:baseline;gap:16px"><span style="font:500 14px 'Geist Mono',monospace;color:#676B73">05</span><h2 style="font-size:32px;font-weight:600;letter-spacing:-.025em">Components</h2><p style="font-size:15px;color:#464950;margin-left:auto;max-width:520px">Each maps to a shadcn/ui primitive restyled with these tokens: Button, Input, ToggleGroup, Drawer, Sonner, Tabs.</p></div>
+
+  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;align-items:start">
+
+    <!-- Buttons -->
+    <div style="background:#F2F2EE;border:1px solid #DCDCD5;border-radius:28px;padding:28px;display:flex;flex-direction:column;gap:14px">
+      <h3 style="font-size:17px;font-weight:600">Buttons</h3>
+      <button style="height:56px;border:none;border-radius:16px;background:#60A5FA;color:#0A0B0D;font-size:17px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px"><span style="width:20px;height:20px;background:currentColor;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/check.svg) center/contain no-repeat"></span>Taken</button>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <button style="height:56px;border:none;border-radius:16px;background:#0D0E10;color:#FFFFFF;font-size:16px;font-weight:600">Continue</button>
+        <button style="height:56px;border:1px solid #DCDCD5;border-radius:16px;background:#FFFFFF;color:#0D0E10;font-size:16px;font-weight:600">Skip</button>
+        <button style="height:44px;border:none;border-radius:12px;background:#E8E8E3;color:#0D0E10;font-size:15px;font-weight:600">Log</button>
+        <button style="height:44px;border:none;border-radius:12px;background:transparent;color:#1F5FCC;font-size:15px;font-weight:600">See all</button>
+        <button style="height:44px;border:1px solid #DCDCD5;border-radius:12px;background:#FFFFFF;color:#B93A26;font-size:15px;font-weight:600">Sign out</button>
+        <button style="height:44px;border:none;border-radius:12px;background:#60A5FA;color:#0A0B0D;font-size:15px;font-weight:600;opacity:.4">Saving…</button>
+      </div>
+      <p style="font-size:13px;color:#676B73;line-height:1.5">Signal: the one action that records something. Ink: navigation and continue. Outline: the alternative. 56 / 44 heights.</p>
+    </div>
+
+    <!-- Inputs -->
+    <div style="background:#F2F2EE;border:1px solid #DCDCD5;border-radius:28px;padding:28px;display:flex;flex-direction:column;gap:16px">
+      <h3 style="font-size:17px;font-weight:600">Inputs</h3>
+      <label style="display:flex;flex-direction:column;gap:6px"><span style="font-size:13px;font-weight:500;color:#464950">Buyer</span><span style="height:48px;border-radius:12px;background:#FFFFFF;border:1px solid #DCDCD5;display:flex;align-items:center;padding:0 14px;font-size:16px">Jordan Reyes</span></label>
+      <label style="display:flex;flex-direction:column;gap:6px"><span style="font-size:13px;font-weight:500;color:#464950">Dose</span><span style="height:56px;border-radius:12px;background:#FFFFFF;border:2px solid #0D0E10;display:flex;align-items:center;padding:0 6px 0 14px;gap:8px"><span style="font-size:24px;font-weight:600;letter-spacing:-.02em;flex:1">250<span style="display:inline-block;width:2px;height:24px;background:#60A5FA;margin-left:2px;vertical-align:-3px"></span></span><span style="display:flex;background:#E8E8E3;border-radius:9px;padding:3px;font:500 14px 'Geist Mono',monospace"><span style="padding:8px 10px;border-radius:7px;background:#FFFFFF;box-shadow:0 1px 2px rgba(0,0,0,.08)">mcg</span><span style="padding:8px 10px;color:#464950">mg</span></span></span></label>
+      <label style="display:flex;flex-direction:column;gap:6px"><span style="font-size:13px;font-weight:500;color:#464950">Price per vial</span><span style="height:48px;border-radius:12px;background:#FFFFFF;border:2px solid #B93A26;display:flex;align-items:center;padding:0 14px;font-size:16px;gap:6px"><span style="color:#676B73">$</span>—<span style="margin-left:auto;font:500 13px 'Geist Mono',monospace;color:#676B73">CAD</span></span><span role="alert" style="font-size:13px;color:#B93A26;display:flex;gap:6px;align-items:center;font-weight:500"><span style="width:15px;height:15px;background:currentColor;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/info.svg) center/contain no-repeat"></span>Enter a price of $0.00 or more.</span></label>
+    </div>
+
+    <!-- Segmented -->
+    <div style="background:#F2F2EE;border:1px solid #DCDCD5;border-radius:28px;padding:28px;display:flex;flex-direction:column;gap:16px">
+      <h3 style="font-size:17px;font-weight:600">Segmented controls</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;background:#E8E8E3;border-radius:12px;padding:3px;height:44px"><span style="border-radius:9px;background:#FFFFFF;box-shadow:0 1px 3px rgba(0,0,0,.1);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:600">Now · 9:12 AM</span><span style="display:flex;align-items:center;justify-content:center;font-size:15px;color:#464950;font-weight:500">Earlier…</span></div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);background:#E8E8E3;border-radius:12px;padding:3px;height:44px;font:500 14px 'Geist Mono',monospace"><span style="border-radius:9px;background:#FFFFFF;box-shadow:0 1px 3px rgba(0,0,0,.1);display:flex;align-items:center;justify-content:center;font-weight:600">100</span><span style="display:flex;align-items:center;justify-content:center;color:#464950">50</span><span style="display:flex;align-items:center;justify-content:center;color:#464950">30</span></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><span style="height:44px;padding:0 14px;border-radius:12px;background:#0D0E10;color:#FFFFFF;display:flex;align-items:center;gap:6px;font-size:15px;font-weight:600"><span style="width:16px;height:16px;background:currentColor;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/check.svg) center/contain no-repeat"></span>Abdomen R</span><span style="height:44px;padding:0 14px;border-radius:12px;background:#FFFFFF;border:1px solid #DCDCD5;display:flex;align-items:center;font-size:15px">Thigh L</span><span style="height:44px;padding:0 14px;border-radius:12px;background:#FFFFFF;border:1px dashed #676B73;display:flex;align-items:center;font-size:15px;gap:6px">Abdomen L<span style="font:500 12px 'Geist Mono',monospace;color:#676B73">last</span></span></div>
+      <p style="font-size:13px;color:#676B73;line-height:1.5">Track for exclusive choices, chips for sets. Selected chips gain a check as well as ink fill.</p>
+    </div>
+
+    <!-- List rows -->
+    <div style="background:#F2F2EE;border:1px solid #DCDCD5;border-radius:28px;padding:28px;display:flex;flex-direction:column;gap:12px;grid-column:span 2">
+      <h3 style="font-size:17px;font-weight:600">Schedule rows · the day rail</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px">
+        <div style="display:flex;flex-direction:column">
+          <div style="display:grid;grid-template-columns:64px 24px 1fr;gap:12px;min-height:64px"><span style="font:500 13px 'Geist Mono',monospace;color:#676B73;padding-top:14px">7:30 AM</span><span style="position:relative;display:flex;justify-content:center;padding-top:12px"><i style="position:absolute;top:0;bottom:0;left:11px;width:2px;background:#DCDCD5"></i><span style="position:relative;width:24px;height:24px;border-radius:50%;background:#177A4E;color:#FFFFFF;display:flex;align-items:center;justify-content:center"><span style="width:14px;height:14px;background:currentColor;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/check.svg) center/contain no-repeat"></span></span></span><span style="padding:12px 0"><span style="display:block;font-size:16px;font-weight:600">BPC-157 <span style="font-weight:400;color:#464950">· 250 mcg</span></span><span style="display:block;font-size:13px;margin-top:2px;color:#464950"><b style="color:#177A4E;font-weight:600">Taken 7:34 AM</b> · Abdomen L</span></span></div>
+          <div style="display:grid;grid-template-columns:64px 24px 1fr;gap:12px;min-height:64px"><span style="font:500 13px 'Geist Mono',monospace;color:#1F5FCC;padding-top:14px;font-weight:600">9:00 AM</span><span style="position:relative;display:flex;justify-content:center;padding-top:12px"><i style="position:absolute;top:0;bottom:0;left:11px;width:2px;background:#DCDCD5"></i><span style="position:relative;width:24px;height:24px;border-radius:50%;border:2px solid #1F5FCC;background:#F2F2EE;display:flex;align-items:center;justify-content:center"><i style="width:10px;height:10px;border-radius:50%;background:#1F5FCC"></i></span></span><span style="padding:12px 0"><span style="display:block;font-size:16px;font-weight:600">TB-500 <span style="font-weight:400;color:#464950">· 2.5 mg · </span><span style="font:500 15px 'Geist Mono',monospace">50 units</span></span><span style="display:block;font-size:13px;margin-top:2px;color:#1F5FCC;font-weight:600">Due now</span></span></div>
+          <div style="display:grid;grid-template-columns:64px 24px 1fr;gap:12px;min-height:64px"><span style="font:500 13px 'Geist Mono',monospace;color:#676B73;padding-top:14px">8:00 PM</span><span style="position:relative;display:flex;justify-content:center;padding-top:12px"><i style="position:absolute;top:0;bottom:0;left:11px;width:2px;background:#DCDCD5"></i><span style="position:relative;width:24px;height:24px;border-radius:50%;border:1.5px solid #676B73;background:#F2F2EE"></span></span><span style="padding:12px 0"><span style="display:block;font-size:16px;font-weight:600">BPC-157 <span style="font-weight:400;color:#464950">· 250 mcg</span></span><span style="display:block;font-size:13px;margin-top:2px;color:#464950">In 10 h 48 min</span></span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;gap:12px;background:#FBEDEA;border-radius:16px;padding:12px 12px 12px 16px"><span style="width:24px;height:24px;border-radius:7px;background:#B93A26;color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;transform:rotate(45deg);flex:none"><span style="transform:rotate(-45deg)">!</span></span><span style="flex:1"><span style="display:block;font-size:16px;font-weight:600">BPC-157 <span style="font-weight:400;color:#464950">· 250 mcg</span></span><span style="display:block;font-size:13px;color:#B93A26;font-weight:600;margin-top:2px">Not logged · Wed 8:00 PM</span></span><button style="height:44px;padding:0 16px;border-radius:12px;border:1px solid #DCDCD5;background:#FFFFFF;font-size:15px;font-weight:600">Log</button></div>
+          <div style="display:flex;align-items:center;gap:12px;background:#FFF4DE;border-radius:16px;padding:12px 12px 12px 16px"><span style="width:24px;height:24px;display:flex;flex-direction:column;justify-content:flex-end;gap:2px;padding:2px 5px;flex:none"><i style="height:4px;border-radius:1px;background:#E3D6BC"></i><i style="height:4px;border-radius:1px;background:#E3D6BC"></i><i style="height:4px;border-radius:1px;background:#E9A93A"></i></span><span style="flex:1"><span style="display:block;font-size:16px;font-weight:600">BPC-157 · 10 mg vial</span><span style="display:block;font-size:13px;color:#8A5A00;font-weight:600;margin-top:2px">Low · 6 doses left, about 3 days</span></span><span style="width:20px;height:20px;background:#676B73;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/chevron-right.svg) center/contain no-repeat"></span></div>
+          <div style="display:flex;align-items:center;gap:12px;background:#FFFFFF;border:1px solid #DCDCD5;border-radius:16px;padding:0 16px;min-height:56px"><span style="flex:1;font-size:16px">Let admins view my history</span><span style="width:51px;height:31px;border-radius:16px;background:#0D0E10;padding:2px;display:flex;justify-content:flex-end"><i style="width:27px;height:27px;border-radius:50%;background:#FFFFFF"></i></span></div>
+          <p style="font-size:13px;color:#676B73;line-height:1.5">Time column in mono so times line up. The rail connects the day; a glyph sits on it for each item.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stat tiles -->
+    <div style="background:#F2F2EE;border:1px solid #DCDCD5;border-radius:28px;padding:28px;display:flex;flex-direction:column;gap:14px">
+      <h3 style="font-size:17px;font-weight:600">Stat tiles</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="background:#FFFFFF;border:1px solid #DCDCD5;border-radius:20px;padding:16px"><div style="font-size:13px;color:#464950;font-weight:500">Adherence</div><div style="display:flex;align-items:baseline;gap:3px;margin-top:10px"><span style="font-size:34px;font-weight:600;letter-spacing:-.03em">96</span><span style="font:500 15px 'Geist Mono',monospace;color:#464950">%</span></div><div style="font-size:13px;color:#676B73;margin-top:2px">46 of 48 doses</div></div>
+        <div style="background:#FFFFFF;border:1px solid #DCDCD5;border-radius:20px;padding:16px"><div style="font-size:13px;color:#464950;font-weight:500">Weight</div><div style="display:flex;align-items:baseline;gap:4px;margin-top:10px"><span style="font-size:34px;font-weight:600;letter-spacing:-.03em">81.4</span><span style="font:500 15px 'Geist Mono',monospace;color:#464950">kg</span></div><div style="font-size:13px;color:#464950;margin-top:2px;display:flex;gap:4px;align-items:center"><span style="width:14px;height:14px;background:currentColor;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/arrow-down-right.svg) center/contain no-repeat"></span>2.3 kg since Sep 1</div></div>
+      </div>
+      <p style="font-size:13px;color:#676B73;line-height:1.5">Label, reading, context. Change is shown with an arrow and words, not red and green.</p>
+    </div>
+
+    <!-- Gauges -->
+    <div style="background:#F2F2EE;border:1px solid #DCDCD5;border-radius:28px;padding:28px;display:flex;flex-direction:column;gap:22px;grid-column:span 2">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><h3 style="font-size:17px;font-weight:600">Graduated gauges</h3><span style="font-size:13px;color:#676B73">The signature element. Replaces every ring.</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px">
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;color:#464950;font-weight:500"><span>Syringe · 100-unit, 2-unit lines</span><span style="font:500 13px 'Geist Mono',monospace">50 units</span></div>
+          <div style="position:relative;height:58px;margin-top:12px">
+            <div style="position:absolute;left:0;right:0;top:0;height:16px;border-radius:5px;background:#E8E8E3;overflow:hidden"><div style="width:50%;height:100%;background:#60A5FA"></div></div>
+            <div style="position:absolute;left:0;right:0;top:20px;height:8px;background:repeating-linear-gradient(90deg,#0D0E10 0 1px,transparent 1px 2%);box-shadow:inset -1px 0 0 #0D0E10"></div>
+            <div style="position:absolute;left:0;right:0;top:20px;height:14px;background:repeating-linear-gradient(90deg,#0D0E10 0 1.5px,transparent 1.5px 10%);box-shadow:inset -1.5px 0 0 #0D0E10"></div>
+            <div style="position:absolute;left:50%;top:-5px;width:2px;height:40px;margin-left:-1px;background:#0D0E10"></div>
+            <div style="position:absolute;left:0;right:0;top:40px;display:flex;justify-content:space-between;font:500 12px 'Geist Mono',monospace;color:#676B73"><span style="width:0;display:flex;justify-content:center">0</span><span style="width:0;display:flex;justify-content:center">10</span><span style="width:0;display:flex;justify-content:center">20</span><span style="width:0;display:flex;justify-content:center">30</span><span style="width:0;display:flex;justify-content:center">40</span><span style="width:0;display:flex;justify-content:center;color:#0D0E10;font-weight:600">50</span><span style="width:0;display:flex;justify-content:center">60</span><span style="width:0;display:flex;justify-content:center">70</span><span style="width:0;display:flex;justify-content:center">80</span><span style="width:0;display:flex;justify-content:center">90</span><span style="width:0;display:flex;justify-content:center">100</span></div>
+          </div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;color:#464950;font-weight:500"><span>Syringe · 30-unit, 0.5-unit lines</span><span style="font:500 13px 'Geist Mono',monospace">5 units</span></div>
+          <div style="position:relative;height:58px;margin-top:12px">
+            <div style="position:absolute;left:0;right:0;top:0;height:16px;border-radius:5px;background:#E8E8E3;overflow:hidden"><div style="width:16.667%;height:100%;background:#60A5FA"></div></div>
+            <div style="position:absolute;left:0;right:0;top:20px;height:6px;background:repeating-linear-gradient(90deg,#0D0E10 0 1px,transparent 1px 1.6667%);box-shadow:inset -1px 0 0 #0D0E10"></div>
+            <div style="position:absolute;left:0;right:0;top:20px;height:10px;background:repeating-linear-gradient(90deg,#0D0E10 0 1px,transparent 1px 3.3333%)"></div>
+            <div style="position:absolute;left:0;right:0;top:20px;height:14px;background:repeating-linear-gradient(90deg,#0D0E10 0 1.5px,transparent 1.5px 16.6667%);box-shadow:inset -1.5px 0 0 #0D0E10"></div>
+            <div style="position:absolute;left:16.667%;top:-5px;width:2px;height:40px;margin-left:-1px;background:#0D0E10"></div>
+            <div style="position:absolute;left:0;right:0;top:40px;display:flex;justify-content:space-between;font:500 12px 'Geist Mono',monospace;color:#676B73"><span style="width:0;display:flex;justify-content:center">0</span><span style="width:0;display:flex;justify-content:center;color:#0D0E10;font-weight:600">5</span><span style="width:0;display:flex;justify-content:center">10</span><span style="width:0;display:flex;justify-content:center">15</span><span style="width:0;display:flex;justify-content:center">20</span><span style="width:0;display:flex;justify-content:center">25</span><span style="width:0;display:flex;justify-content:center">30</span></div>
+          </div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;color:#464950;font-weight:500"><span>Cycle · one tick per day, breaks hatched</span><span style="font:500 13px 'Geist Mono',monospace">Day 24 of 84</span></div>
+          <div style="position:relative;height:28px;margin-top:12px;width:420px;max-width:100%">
+            <div style="position:absolute;inset:0;background:repeating-linear-gradient(90deg,#DCDCD5 0 3px,transparent 3px 5px)"></div>
+            <div style="position:absolute;left:0;top:0;bottom:0;width:120px;background:repeating-linear-gradient(90deg,#0D0E10 0 3px,transparent 3px 5px)"></div>
+            <div style="position:absolute;left:280px;width:70px;top:0;bottom:0;background:repeating-linear-gradient(135deg,#F2F2EE 0 3px,transparent 3px 6px)"></div>
+            <div style="position:absolute;left:118px;top:-6px;bottom:-6px;width:3px;border-radius:2px;background:#60A5FA"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;width:420px;max-width:100%;font:500 12px 'Geist Mono',monospace;color:#676B73;margin-top:8px"><span>Sep 1</span><span>Today</span><span>Break</span><span>Nov 23</span></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+          <div>
+            <div style="font-size:13px;color:#464950;font-weight:500">Level · vial or stock</div>
+            <div style="display:grid;grid-template-columns:repeat(10,1fr);gap:3px;margin-top:14px;height:22px"><i style="border-radius:3px;background:#E9A93A"></i><i style="border-radius:3px;background:#E8E8E3"></i><i style="border-radius:3px;background:#E8E8E3"></i><i style="border-radius:3px;background:#E8E8E3"></i><i style="border-radius:3px;background:#E8E8E3"></i><i style="border-radius:3px;background:#E8E8E3"></i><i style="border-radius:3px;background:#E8E8E3"></i><i style="border-radius:3px;background:#E8E8E3"></i><i style="border-radius:3px;background:#E8E8E3"></i><i style="border-radius:3px;background:#E8E8E3"></i></div>
+            <div style="font-size:13px;color:#8A5A00;font-weight:600;margin-top:8px">Low · 1.5 of 10 mg</div>
+          </div>
+          <div>
+            <div style="font-size:13px;color:#464950;font-weight:500">Feeling · 1–5</div>
+            <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:14px"><span style="height:38px;border-radius:8px;background:#E8E8E3;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:15px;color:#464950">1</span><span style="height:38px;border-radius:8px;background:#E8E8E3;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:15px;color:#464950">2</span><span style="height:38px;border-radius:8px;background:#E8E8E3;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:15px;color:#464950">3</span><span style="height:38px;border-radius:8px;background:#0D0E10;color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:15px">4</span><span style="height:38px;border-radius:8px;background:#E8E8E3;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:15px;color:#464950">5</span></div>
+            <div style="font-size:13px;color:#464950;margin-top:8px">Good</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Now block -->
+    <div style="background:#F2F2EE;border:1px solid #DCDCD5;border-radius:28px;padding:28px;display:flex;flex-direction:column;gap:14px">
+      <h3 style="font-size:17px;font-weight:600">Now block</h3>
+      <div style="background:#0D0E10;color:#FFFFFF;border-radius:24px;padding:18px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="height:26px;padding:0 10px;border-radius:99px;background:#60A5FA;color:#0A0B0D;font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px"><i style="width:6px;height:6px;border-radius:50%;background:#0A0B0D"></i>Due now</span><span style="font:500 13px 'Geist Mono',monospace;color:#9A9EA6">9:00 AM</span></div>
+        <div style="font-size:18px;font-weight:600;margin-top:14px">TB-500 <span style="color:#9A9EA6;font-weight:400">· 2.5 mg</span></div>
+        <div style="display:flex;align-items:baseline;gap:6px;margin-top:6px"><span style="font-size:56px;font-weight:600;letter-spacing:-.05em;line-height:1">50</span><span style="font:400 15px 'Geist Mono',monospace;color:#9A9EA6">units</span></div>
+      </div>
+      <p style="font-size:13px;color:#676B73;line-height:1.5">The only inverted surface. Holds the next dose on Today and gross profit on Business. Ink on light, paper on dark.</p>
+    </div>
+
+    <!-- Charts -->
+    <div style="background:#F2F2EE;border:1px solid #DCDCD5;border-radius:28px;padding:28px;display:flex;flex-direction:column;gap:14px;grid-column:span 2">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><h3 style="font-size:17px;font-weight:600">Charts</h3><span style="font-size:13px;color:#676B73">Trends always sit on the same time axis as doses.</span></div>
+      <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:28px">
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;color:#464950;font-weight:500"><span>Feeling, 30 days</span><span style="font:500 13px 'Geist Mono',monospace">avg 3.9</span></div>
+          <svg viewBox="0 0 400 110" style="width:100%;height:110px;margin-top:10px;display:block">
+            <line x1="0" y1="10" x2="400" y2="10" stroke="#DCDCD5" stroke-dasharray="2 4"></line><line x1="0" y1="55" x2="400" y2="55" stroke="#DCDCD5" stroke-dasharray="2 4"></line><line x1="0" y1="100" x2="400" y2="100" stroke="#DCDCD5"></line>
+            <polyline fill="none" stroke="#0D0E10" stroke-width="2" stroke-linejoin="round" points="0,77 14,77 28,55 41,77 55,55 69,55 83,32 97,55 110,55 124,77 138,55 152,32 166,32 179,55 193,32 207,32 221,10 234,32 248,32 262,55 276,32 290,32 303,10 317,32 331,32 345,10 359,32 372,10 386,32 400,32"></polyline>
+            <circle cx="400" cy="32" r="4.5" fill="#60A5FA" stroke="#0D0E10" stroke-width="2"></circle>
+          </svg>
+          <div style="display:grid;grid-template-columns:64px 1fr;gap:8px;align-items:center;margin-top:10px;font:500 12px 'Geist Mono',monospace;color:#676B73">
+            <span>BPC-157</span><span style="height:10px;background:repeating-linear-gradient(90deg,#0D0E10 0 2px,transparent 2px 13.33px)"></span>
+            <span>TB-500</span><span style="height:10px;background:repeating-linear-gradient(90deg,#0D0E10 0 2px,transparent 2px 40px,#0D0E10 40px 42px,transparent 42px 93.33px)"></span>
+          </div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;color:#464950;font-weight:500"><span>Revenue by day</span><span style="font:500 13px 'Geist Mono',monospace">$3,925.00</span></div>
+          <div style="display:grid;grid-template-columns:repeat(10,1fr);gap:6px;align-items:end;height:110px;margin-top:10px;border-bottom:1px solid #0D0E10"><i style="height:47%;background:#0D0E10;border-radius:4px 4px 0 0"></i><i style="height:2px;background:#DCDCD5"></i><i style="height:69%;background:#0D0E10;border-radius:4px 4px 0 0"></i><i style="height:43%;background:#0D0E10;border-radius:4px 4px 0 0"></i><i style="height:27%;background:#0D0E10;border-radius:4px 4px 0 0"></i><i style="height:2px;background:#DCDCD5"></i><i style="height:100%;background:#60A5FA;border-radius:4px 4px 0 0"></i><i style="height:35%;background:#0D0E10;border-radius:4px 4px 0 0"></i><i style="height:57%;background:#0D0E10;border-radius:4px 4px 0 0"></i><i style="height:63%;background:#0D0E10;border-radius:4px 4px 0 0"></i></div>
+          <div style="display:flex;justify-content:space-between;font:500 12px 'Geist Mono',monospace;color:#676B73;margin-top:8px"><span>Sep 15</span><span>Sep 24</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toasts -->
+    <div style="background:#F2F2EE;border:1px solid #DCDCD5;border-radius:28px;padding:28px;display:flex;flex-direction:column;gap:10px">
+      <h3 style="font-size:17px;font-weight:600;margin-bottom:4px">Toasts</h3>
+      <div style="background:#0D0E10;color:#FFFFFF;border-radius:16px;padding:12px 8px 12px 14px;display:flex;align-items:center;gap:10px"><span style="width:22px;height:22px;border-radius:50%;background:#4CC38A;color:#0D0E10;display:flex;align-items:center;justify-content:center;flex:none"><span style="width:13px;height:13px;background:currentColor;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/check.svg) center/contain no-repeat"></span></span><span style="flex:1;font-size:14px;line-height:1.35">TB-500 · 2.5 mg logged at 9:12 AM</span><button style="height:44px;padding:0 12px;border:none;background:transparent;color:#7DB6FB;font-size:15px;font-weight:600">Undo</button></div>
+      <div style="background:#0D0E10;color:#FFFFFF;border-radius:16px;padding:12px 8px 12px 14px;display:flex;align-items:center;gap:10px"><span style="width:22px;height:22px;border-radius:6px;background:#FF7A61;color:#0D0E10;display:flex;align-items:center;justify-content:center;flex:none;font-weight:700;font-size:14px">!</span><span style="flex:1;font-size:14px;line-height:1.35">Couldn't save. Your entry is still here.</span><button style="height:44px;padding:0 12px;border:none;background:transparent;color:#7DB6FB;font-size:15px;font-weight:600">Retry</button></div>
+      <p style="font-size:13px;color:#676B73;line-height:1.5">Ink pill above the tab bar, 4 s, one action. Errors stay until dismissed.</p>
+    </div>
+
+    <!-- Sheet anatomy -->
+    <div style="background:#F2F2EE;border:1px solid #DCDCD5;border-radius:28px;padding:28px;display:flex;flex-direction:column;gap:14px">
+      <h3 style="font-size:17px;font-weight:600">Bottom sheet</h3>
+      <div style="height:230px;border-radius:20px;background:rgba(0,0,0,.45);padding:24px 16px 0;display:flex;align-items:flex-end;overflow:hidden">
+        <div style="width:100%;height:100%;background:#F2F2EE;border-radius:22px 22px 0 0;padding:8px 14px 0;display:flex;flex-direction:column;gap:10px">
+          <i style="width:36px;height:5px;border-radius:3px;background:#DCDCD5;margin:0 auto"></i>
+          <div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:17px">Title</b><span style="width:32px;height:32px;border-radius:50%;background:#E8E8E3"></span></div>
+          <div style="flex:1;border-radius:12px;border:1px dashed #676B73;display:flex;align-items:center;justify-content:center;font:500 12px 'Geist Mono',monospace;color:#676B73">scrolling content</div>
+          <div style="display:grid;grid-template-columns:80px 1fr;gap:8px;padding-bottom:12px"><i style="height:40px;border-radius:12px;background:#FFFFFF;border:1px solid #DCDCD5"></i><i style="height:40px;border-radius:12px;background:#60A5FA"></i></div>
+        </div>
+      </div>
+      <p style="font-size:13px;color:#676B73;line-height:1.5">Grabber, title and close, content that scrolls, actions pinned above the home indicator. vaul Drawer.</p>
+    </div>
+
+    <!-- Empty state -->
+    <div style="background:#F2F2EE;border:1px solid #DCDCD5;border-radius:28px;padding:28px;display:flex;flex-direction:column;gap:14px">
+      <h3 style="font-size:17px;font-weight:600">Empty state</h3>
+      <div style="border:1px dashed #676B73;border-radius:20px;padding:24px 20px;display:flex;flex-direction:column;gap:6px">
+        <div style="font:500 13px 'Geist Mono',monospace;color:#676B73">0 vials</div>
+        <div style="font-size:20px;font-weight:600;letter-spacing:-.015em">No stock recorded yet</div>
+        <p style="font-size:14px;color:#464950;line-height:1.45">Record a purchase to add the first peptide and strength.</p>
+        <button style="height:44px;border:none;border-radius:12px;background:#0D0E10;color:#FFFFFF;font-size:15px;font-weight:600;margin-top:10px;align-self:flex-start;padding:0 16px">Record a purchase</button>
+      </div>
+      <p style="font-size:13px;color:#676B73;line-height:1.5">A zero reading, one sentence, one action. No illustration.</p>
+    </div>
+
+    <!-- Tab bar -->
+    <div style="background:#F2F2EE;border:1px solid #DCDCD5;border-radius:28px;padding:28px;display:flex;flex-direction:column;gap:14px;grid-column:span 3">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><h3 style="font-size:17px;font-weight:600">Tab bar</h3><span style="font-size:13px;color:#676B73">Solid, docked, full width. Active tab: ink, heavier label, a 2 px bar on the top edge. Admins swap Library for Business; Library moves into Cycles.</span></div>
+      <div style="display:grid;grid-template-columns:repeat(3,390px);gap:24px">
+        <div style="border-radius:0 0 28px 28px;overflow:hidden;border:1px solid #DCDCD5"><dc-import name="Tab Bar" active="today" hint-size="390px,90px"></dc-import></div>
+        <div style="border-radius:0 0 28px 28px;overflow:hidden;border:1px solid #DCDCD5"><dc-import name="Tab Bar" active="business" admin="{{ true }}" hint-size="390px,90px"></dc-import></div>
+        <div style="border-radius:0 0 28px 28px;overflow:hidden"><dc-import name="Tab Bar" active="today" dark="{{ true }}" hint-size="390px,90px"></dc-import></div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<footer style="display:flex;gap:24px;font-size:15px;align-items:center;border-top:1px solid #DCDCD5;padding-top:24px"><span style="color:#464950">Continue to</span><a href="Researcher Screens.dc.html" style="font-weight:600">Researcher screens</a><a href="Admin Screens.dc.html" style="font-weight:600">Admin screens</a></footer>
+
+</div>
+</x-dc>
+</body>
+</html>
