@@ -12,12 +12,16 @@ import {
   CHECK_IN_INVALID,
   characters,
   checkInDay,
+  effectLabel,
   effectsLine,
   FEELING_REQUIRED,
+  formEffects,
   measurementValue,
   NO_CHECK_IN,
   NO_DOSES,
   NOTE_TOO_LONG,
+  OTHER_REQUIRED,
+  OTHER_TOO_LONG,
   PROGRESS_TIME_ZONE,
   SPARSE,
   toggleEffect,
@@ -62,13 +66,29 @@ describe("check-in validation", () => {
     for (const feeling of [1, 2, 3, 4, 5]) expect(validateCheckIn(form({ feeling })).ok).toBe(true);
   });
 
-  it("accepts R9's chips only: distinct, and None noticed alone; stores them in the chips' order", () => {
-    const ok = validateCheckIn(form({ effects: ["Nausea", "Mild headache"] }));
-    expect(ok.ok && ok.value.effects).toEqual(["Mild headache", "Nausea"]);
-    expect(validateCheckIn(form({ effects: ["None noticed"] })).ok).toBe(true);
-    for (const effects of [["Dizzy"], ["Nausea", "Nausea"], ["None noticed", "Nausea"], "Nausea", null]) {
+  it("accepts R6's v3 chips only: distinct, and None alone; stores them in the chips' order", () => {
+    const ok = validateCheckIn(form({ effects: ["Water retention", "Nausea", "Site redness"] }));
+    expect(ok.ok && ok.value.effects).toEqual(["Site redness", "Nausea", "Water retention"]);
+    expect(ok.ok && ok.value.effectsOther).toBe("");
+    expect(validateCheckIn(form({ effects: ["None"] })).ok).toBe(true);
+    expect(validateCheckIn(form({ effects: ["Poor sleep", "Headache", "Fatigue"] })).ok).toBe(true);
+    // The earlier chips are not written any more (stored ones stay readable: effectLabel).
+    for (const effects of [["Dizzy"], ["Nausea", "Nausea"], ["None", "Nausea"], ["None noticed"], ["Mild headache"], ["Appetite change"], "Nausea", null]) {
       expect(error({ effects }), JSON.stringify(effects)).toBe(CHECK_IN_INVALID);
     }
+  });
+
+  it("needs Other's text: trimmed, up to 100 characters, dropped when Other isn't picked", () => {
+    const other = validateCheckIn(form({ effects: ["Other", "Nausea"], effectsOther: "  dizzy after the dose  " }));
+    expect(other.ok && other.value).toMatchObject({ effects: ["Nausea", "Other"], effectsOther: "dizzy after the dose" });
+    expect(error({ effects: ["Other"] })).toBe(OTHER_REQUIRED);
+    expect(error({ effects: ["Other"], effectsOther: " \t " })).toBe(OTHER_REQUIRED);
+    expect(validateCheckIn(form({ effects: ["Other"], effectsOther: "\u{1F600}".repeat(100) })).ok).toBe(true);
+    expect(error({ effects: ["Other"], effectsOther: "x".repeat(101) })).toBe(OTHER_TOO_LONG);
+    const dropped = validateCheckIn(form({ effects: ["Fatigue"], effectsOther: "left over" }));
+    expect(dropped.ok && dropped.value.effectsOther).toBe("");
+    // Feeling first, then Other's text.
+    expect(error({ feeling: 0, effects: ["Other"] })).toBe(FEELING_REQUIRED);
   });
 
   it("refuses a malformed day or version", () => {
@@ -138,14 +158,34 @@ describe("check-in validation", () => {
     expect(validateCheckIn(form({ note: `　${grin.repeat(1000)} ` })).ok).toBe(true);
   });
 
-  it("toggles chips as the prototype does: None noticed clears the others and is cleared by them", () => {
+  it("toggles chips as R6 does: None clears the others and is cleared by them, Other included", () => {
     expect(toggleEffect([], "Nausea")).toEqual(["Nausea"]);
-    expect(toggleEffect(["Nausea"], "Mild headache")).toEqual(["Mild headache", "Nausea"]);
-    expect(toggleEffect(["Nausea", "Fatigue"], "None noticed")).toEqual(["None noticed"]);
-    expect(toggleEffect(["None noticed"], "Fatigue")).toEqual(["Fatigue"]);
+    expect(toggleEffect(["Nausea"], "Headache")).toEqual(["Nausea", "Headache"]);
+    expect(toggleEffect(["Nausea", "Other"], "None")).toEqual(["None"]);
+    expect(toggleEffect(["None"], "Other")).toEqual(["Other"]);
+    expect(toggleEffect(["None"], "Fatigue")).toEqual(["Fatigue"]);
     expect(toggleEffect(["Fatigue"], "Fatigue")).toEqual([]);
+  });
+
+  it("shows stored effects under their v3 names, from either chip list, with Other's text", () => {
+    expect(effectsLine(["None"])).toBe("");
+    expect(effectsLine(["Nausea", "Headache", "Other"], "dizzy")).toBe("Nausea, Headache, Other: dizzy");
+    // Stored with the earlier chips: the same names where one corresponds.
     expect(effectsLine(["None noticed"])).toBe("");
-    expect(effectsLine(["Mild headache", "Nausea"])).toBe("Mild headache, Nausea");
+    expect(effectsLine(["Injection-site redness", "Mild headache", "Appetite change", "Other"])).toBe("Site redness, Headache, Appetite change, Other");
+    expect(["None noticed", "Injection-site redness", "Mild headache", "Nausea", "Fatigue", "Appetite change", "Other"].map(effectLabel)).toEqual([
+      "None",
+      "Site redness",
+      "Headache",
+      "Nausea",
+      "Fatigue",
+      "Appetite change",
+      "Other",
+    ]);
+    // An edit starts from the v3 chips; earlier ones with none to match are picked again.
+    expect(formEffects(["Mild headache", "Appetite change", "Other"], "")).toEqual({ effects: ["Headache"], other: "" });
+    expect(formEffects(["None noticed"], "")).toEqual({ effects: ["None"], other: "" });
+    expect(formEffects(["Site redness", "Other"], "dizzy")).toEqual({ effects: ["Site redness", "Other"], other: "dizzy" });
   });
 });
 
@@ -279,6 +319,7 @@ const checkIn = (day: string, overrides: Partial<CheckIn> = {}): CheckIn => ({
   day,
   feeling: 3,
   effects: [],
+  effectsOther: "",
   note: "",
   measurement: null,
   version: 1,
@@ -362,11 +403,20 @@ describe("R9 Progress view", () => {
       version: 2,
       updatedAt: "2026-09-21T13:05:00Z",
     });
-    const v = view({ checkIns: [checkIn("2026-09-19", { effects: ["None noticed"], feeling: 2 }), today], total: 3 });
+    // Stored with the earlier chips (they stay valid): shown and edited under the v3 names.
+    const v = view({
+      checkIns: [
+        checkIn("2026-09-19", { effects: ["None noticed"], feeling: 2 }),
+        checkIn("2026-09-20", { effects: ["Site redness", "Other"], effectsOther: "dizzy", feeling: 3 }),
+        today,
+      ],
+      total: 3,
+    });
+    expect(v.rows[1]).toMatchObject({ day: "2026-09-20", effects: "Site redness, Other: dizzy" });
     expect(v.rows[0]).toMatchObject({
       feeling: 4,
       feelLabel: "4/5",
-      effects: "Mild headache, Nausea",
+      effects: "Headache, Nausea",
       note: "Slept better.",
       measure: "Weight 82.4 kg",
       doses: "Doses: Compound B 1 mg",
@@ -381,7 +431,8 @@ describe("R9 Progress view", () => {
       start: {
         version: 2,
         feeling: 4,
-        effects: ["Mild headache", "Nausea"],
+        effects: ["Nausea", "Headache"],
+        effectsOther: "",
         note: "Slept better.",
         measurement: { name: "Weight", value: "82.4", unit: "kg" },
       },

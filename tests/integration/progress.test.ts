@@ -22,6 +22,7 @@ const people = {
   cara: { email: uniqueEmail("s15-cara"), name: "Cara Concurrent", role: "researcher" },
   dev: { email: uniqueEmail("s15-dev"), name: "Dev Zones", role: "researcher" },
   eve: { email: uniqueEmail("s15-eve"), name: "Eve No Cycle", role: "researcher" },
+  fay: { email: uniqueEmail("v1-fay"), name: "Fay Effects", role: "researcher" },
   una: { email: uniqueEmail("s15-una"), name: "Una Unacknowledged", role: "researcher", acknowledged: false },
   grace: { email: uniqueEmail("s15-grace"), name: "Grace Granted", role: "admin" },
   noah: { email: uniqueEmail("s15-noah"), name: "Noah Admin", role: "admin" },
@@ -40,7 +41,8 @@ const checkIn = (overrides: Partial<ValidCheckIn> = {}): ValidCheckIn => ({
   day: today,
   version: null,
   feeling: 4,
-  effects: ["Mild headache"],
+  effects: ["Headache"],
+  effectsOther: "",
   note: "Slept better.",
   measurement: null,
   ...overrides,
@@ -86,7 +88,7 @@ describe("check-ins are the owner's; a grant reads, never writes", () => {
 
     // The owner reads it, and writes only through save_check_in.
     const [mine] = await listCheckIns(db.alex, id.alex);
-    expect(mine).toMatchObject({ day: today, feeling: 4, effects: ["Mild headache"], note: "Slept better.", measurement: null, version: 1 });
+    expect(mine).toMatchObject({ day: today, feeling: 4, effects: ["Headache"], effectsOther: "", note: "Slept better.", measurement: null, version: 1 });
     expect(await countCheckIns(db.alex, id.alex)).toBe(1);
     const table = "progress_check_ins";
     expect(await sqlState(db.alex.from(table).update({ feeling: 1 } as never).eq("owner_id", id.alex), "owner updates")).toBe("42501");
@@ -147,11 +149,11 @@ describe("one check-in per researcher per day, edited in place", () => {
     // An edit from version 1 replaces it in place; the unchanged measurement keeps its time.
     const edit = await saveCheckIn(
       db.blair,
-      checkIn({ version: 1, feeling: 2, effects: ["None noticed"], note: "", measurement: { name: "Weight", value: "82.4", unit: "kg" } }),
+      checkIn({ version: 1, feeling: 2, effects: ["None"], note: "", measurement: { name: "Weight", value: "82.4", unit: "kg" } }),
     );
     expect(edit).toMatchObject({ kind: "saved", id: first.id, day: today, version: 2 });
     const [row2] = await rowsOf(id.blair);
-    expect(row2).toMatchObject({ id: first.id, feeling: 2, effects: ["None noticed"], note: "", version: 2, measured_at: row1.measured_at });
+    expect(row2).toMatchObject({ id: first.id, feeling: 2, effects: ["None"], note: "", version: 2, measured_at: row1.measured_at });
     expect(Date.parse(row2.updated_at)).toBeGreaterThanOrEqual(Date.parse(row2.created_at));
 
     // A stale screen (still on version 1) saves nothing.
@@ -209,6 +211,32 @@ describe("the day is today in Toronto, by the server's clock, whatever the cycle
     expect((await listCheckIns(db.eve, id.eve)).map((c) => [c.day, c.note])).toEqual([[today, "Between cycles."]]);
   });
 
+  it("stores R6's v3 chips in order, and Other with its trimmed text; an edit replaces both", async () => {
+    await cycleIn("fay");
+    const grin = "\u{1F600}";
+    const form = validateCheckIn({
+      day: today,
+      version: null,
+      feeling: 3,
+      effects: ["Other", "Water retention", "Site redness", "Poor sleep"],
+      effectsOther: `  ${grin.repeat(100)}  `,
+      note: "",
+      measurementName: "Weight",
+      measurementValue: "",
+      measurementUnit: "",
+    });
+    if (!form.ok) throw new Error(form.error);
+    expect(await saveCheckIn(db.fay, form.value)).toMatchObject({ kind: "saved", version: 1 });
+    const [saved] = await listCheckIns(db.fay, id.fay);
+    expect(saved).toMatchObject({ effects: ["Site redness", "Poor sleep", "Water retention", "Other"], effectsOther: grin.repeat(100) });
+    // The raw writer trims the text as the app does.
+    expect(await sqlState(db.fay.rpc("save_check_in", rawArgs({ p_version: 1, p_effects: ["Other"], p_effects_other: "  dizzy  " }) as never), "trimmed")).toBe("ok");
+    expect((await listCheckIns(db.fay, id.fay))[0]).toMatchObject({ effects: ["Other"], effectsOther: "dizzy" });
+    // None alone clears the text.
+    expect(await saveCheckIn(db.fay, checkIn({ version: 2, effects: ["None"] }))).toMatchObject({ kind: "saved", version: 3 });
+    expect((await listCheckIns(db.fay, id.fay))[0]).toMatchObject({ effects: ["None"], effectsOther: "" });
+  });
+
   it("re-checks every input in the database, counting characters as the app does", async () => {
     const measured = (value: unknown, overrides: Record<string, unknown> = {}) =>
       rawArgs({ p_measurement_name: "Weight", p_measurement_value: value, p_measurement_unit: "kg", ...overrides });
@@ -219,7 +247,15 @@ describe("the day is today in Toronto, by the server's clock, whatever the cycle
       ["feeling 6", rawArgs({ p_feeling: 6 })],
       ["unknown chip", rawArgs({ p_effects: ["Dizzy"] })],
       ["repeated chip", rawArgs({ p_effects: ["Nausea", "Nausea"] })],
-      ["none noticed and more", rawArgs({ p_effects: ["None noticed", "Nausea"] })],
+      ["none and more", rawArgs({ p_effects: ["None", "Nausea"] })],
+      ["none and other", rawArgs({ p_effects: ["None", "Other"], p_effects_other: "dizzy" })],
+      ["earlier none noticed", rawArgs({ p_effects: ["None noticed"] })],
+      ["earlier mild headache", rawArgs({ p_effects: ["Mild headache"] })],
+      ["earlier appetite change", rawArgs({ p_effects: ["Appetite change"] })],
+      ["other without text", rawArgs({ p_effects: ["Other"] })],
+      ["other with blank text", rawArgs({ p_effects: ["Other"], p_effects_other: " \t " })],
+      ["other text of 101", rawArgs({ p_effects: ["Other"], p_effects_other: "x".repeat(101) })],
+      ["other text of 101 emoji", rawArgs({ p_effects: ["Other"], p_effects_other: grin.repeat(101) })],
       ["long note", rawArgs({ p_note: "x".repeat(1001) })],
       ["1,001 emoji", rawArgs({ p_note: grin.repeat(1001) })],
       ["negative value", measured("-1")],
@@ -237,6 +273,7 @@ describe("the day is today in Toronto, by the server's clock, whatever the cycle
         version: null,
         feeling: raw.p_feeling,
         effects: raw.p_effects,
+        effectsOther: raw.p_effects_other,
         note: raw.p_note,
         measurementName: raw.p_measurement_name ?? "Weight",
         measurementValue: raw.p_measurement_value ?? "",
@@ -245,6 +282,10 @@ describe("the day is today in Toronto, by the server's clock, whatever the cycle
       expect(validateCheckIn(asForm).ok, `app: ${label}`).toBe(false);
       expect(await sqlState(db.dev.rpc("save_check_in", args as never), label), label).toBe("22023");
     }
+    // Text without Other: the app drops it; the database refuses it outright.
+    expect(await sqlState(db.dev.rpc("save_check_in", rawArgs({ p_effects: ["Nausea"], p_effects_other: "dizzy" }) as never), "text without other")).toBe(
+      "22023",
+    );
     // The limits in characters: what the app accepts, the database stores unchanged.
     const valid = validateCheckIn({
       day: today,

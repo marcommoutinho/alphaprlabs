@@ -71,7 +71,8 @@ async function seed() {
       p_day: today,
       p_version: null as unknown as number,
       p_feeling: 4,
-      p_effects: ["Mild headache"],
+      p_effects: ["Headache", "Other"],
+      p_effects_other: "dizzy",
       p_note: "Slept better.",
       p_measurement_name: "Weight",
       p_measurement_value: "82.4" as unknown as number,
@@ -175,7 +176,7 @@ test("share with the team, read the full history read-only, stop, and the admin'
   await expect(cycles).toContainText(`${s.A} + ${s.W} · goal: Leaner by October`);
   await expect(admin.getByTestId("history-doses")).toContainText(`${s.A} · 0.4 mg`);
   const checkIns = admin.getByTestId("history-checkins");
-  await expect(checkIns).toContainText("feeling 4/5 · Mild headache");
+  await expect(checkIns).toContainText("feeling 4/5 · Headache, Other: dizzy");
   await expect(checkIns).toContainText("“Slept better.”");
   await expect(checkIns).toContainText("Measurements: Weight 82.4 kg");
   const supplies = admin.getByTestId("history-supplies");

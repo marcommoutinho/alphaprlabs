@@ -1,7 +1,8 @@
 // R9 Progress: copy, the check-in's fixed choices and its validation. Pure
 // and client-safe (no Temporal): shared by the screen, the server action and
 // the tests. The database re-checks everything (save_check_in in
-// 20260926220000_progress.sql).
+// 20260926220000_progress.sql, whose effects rule is now
+// 20260928110000_check_in_effects_v3.sql's).
 //
 // Which day (Marco, 2026-09-26): always the America/Toronto calendar day (the
 // app is strictly local), whatever zone the researcher's cycles use, so there
@@ -16,10 +17,28 @@ import { normalizeDecimal, parseDecimal, plain } from "@/lib/calculator/decimal"
 /** The zone that defines a check-in's day (the business zone, src/lib/inventory/screens.ts BUSINESS_TIME_ZONE). */
 export const PROGRESS_TIME_ZONE = "America/Toronto";
 
-/** R9's unwanted-effect chips, in the screen's order. "None noticed" is picked alone. */
-export const EFFECTS = ["None noticed", "Injection-site redness", "Mild headache", "Nausea", "Fatigue", "Appetite change", "Other"] as const;
+/**
+ * R6's unwanted-effect chips (design v3), in the sheet's order. "None" is
+ * picked alone; "Other" comes with its own text (OTHER_LIMIT characters).
+ */
+export const EFFECTS = ["None", "Site redness", "Nausea", "Headache", "Fatigue", "Poor sleep", "Water retention", "Other"] as const;
 export type Effect = (typeof EFFECTS)[number];
-export const NONE_NOTICED: Effect = "None noticed";
+export const NONE: Effect = "None";
+export const OTHER: Effect = "Other";
+/** The most characters "Other"'s text may have. */
+export const OTHER_LIMIT = 100;
+
+/**
+ * The earlier chips (S15: None noticed, Injection-site redness, Mild
+ * headache, Nausea, Fatigue, Appetite change, Other) stay valid in stored
+ * check-ins. Shown under their v3 name where one corresponds; the others
+ * (Appetite change, and Other, which then had no text) as they were.
+ */
+const LEGACY_LABELS: Readonly<Record<string, Effect>> = {
+  "None noticed": "None",
+  "Injection-site redness": "Site redness",
+  "Mild headache": "Headache",
+};
 
 /** R9's measurement names, each with the unit the form suggests. */
 export const MEASUREMENTS = [
@@ -42,6 +61,8 @@ export const HISTORY_DAYS = 14;
 // ── Copy (the prototype's) ──────────────────────────────────────────────────
 
 export const FEELING_REQUIRED = "Pick an overall feeling from 1 to 5.";
+export const OTHER_REQUIRED = "Describe the other unwanted effect, or unselect Other.";
+export const OTHER_TOO_LONG = `The other unwanted effect can be up to ${OTHER_LIMIT} characters.`;
 export const VALUE_INVALID = "Measurement must be a number, or leave it empty.";
 export const UNIT_REQUIRED = "Add a unit for the measurement.";
 export const CHECK_IN_SAVED = "Check-in saved.";
@@ -71,19 +92,40 @@ export const saveLabel = (existing: boolean) => (existing ? "Update today's chec
 
 const isEffect = (value: unknown): value is Effect => typeof value === "string" && (EFFECTS as readonly string[]).includes(value);
 
-/** Chips after tapping `effect`: "None noticed" clears the others, any other chip clears it. */
+/** Chips after tapping `effect`: "None" clears the others, any other chip clears it. */
 export function toggleEffect(current: readonly Effect[], effect: Effect): Effect[] {
   if (current.includes(effect)) return current.filter((e) => e !== effect);
-  if (effect === NONE_NOTICED) return [NONE_NOTICED];
-  return sortEffects([...current.filter((e) => e !== NONE_NOTICED), effect]);
+  if (effect === NONE) return [NONE];
+  return sortEffects([...current.filter((e) => e !== NONE), effect]);
 }
 
 /** In the chips' order. */
 export const sortEffects = (effects: readonly Effect[]): Effect[] => [...effects].sort((a, b) => EFFECTS.indexOf(a) - EFFECTS.indexOf(b));
 
-/** "Mild headache, Nausea", or "" when none or only "None noticed" (the history's yellow line). */
-export const effectsLine = (effects: readonly string[]) =>
-  effects.length && !(effects.length === 1 && effects[0] === NONE_NOTICED) ? effects.join(", ") : "";
+/** A stored chip as shown: its v3 name ("Mild headache" → "Headache"), or as stored. */
+export const effectLabel = (stored: string): string => LEGACY_LABELS[stored] ?? stored;
+
+/**
+ * "Headache, Nausea, Other: dizzy", or "" when none or only None (the
+ * history's yellow line), for check-ins stored with either chip list.
+ */
+export function effectsLine(effects: readonly string[], other = ""): string {
+  const labels = effects.map(effectLabel);
+  if (labels.length === 0 || (labels.length === 1 && labels[0] === NONE)) return "";
+  return labels.map((label) => (label === OTHER && other ? `${OTHER}: ${other}` : label)).join(", ");
+}
+
+/**
+ * A stored check-in's chips as an edit form starts from them: v3 names, and
+ * the Other text. Earlier chips with no v3 chip (Appetite change, and Other
+ * without text) are left for the researcher to pick again.
+ */
+export function formEffects(effects: readonly string[], other: string): { effects: Effect[]; other: string } {
+  const picked = effects
+    .map(effectLabel)
+    .filter((label): label is Effect => isEffect(label) && (label !== OTHER || other !== ""));
+  return { effects: sortEffects([...new Set(picked)]), other: picked.includes(OTHER) ? other : "" };
+}
 
 // ── Validation ──────────────────────────────────────────────────────────────
 
@@ -104,6 +146,8 @@ export type CheckInForm = {
   /** 0 when not picked. */
   feeling: number;
   effects: string[];
+  /** "Other"'s text (ignored unless Other is picked). */
+  effectsOther?: string;
   note: string;
   measurementName: string;
   /** As typed: "82,4" or "82.4", or "" for none. */
@@ -117,6 +161,8 @@ export type ValidCheckIn = {
   version: number | null;
   feeling: number;
   effects: Effect[];
+  /** "Other"'s text, trimmed: "" unless Other is picked, then 1 to OTHER_LIMIT characters. */
+  effectsOther: string;
   note: string;
   measurement: { name: MeasurementName; value: string; unit: string } | null;
 };
@@ -139,7 +185,7 @@ export function measurementValue(text: string): { ok: true; value: string } | { 
   return { ok: true, value: plain(parsed.abs()) };
 }
 
-/** The first problem in the prototype's order (feeling, measurement, unit), else the check-in to save. */
+/** The first problem in the prototype's order (feeling, Other's text, measurement, unit), else the check-in to save. */
 export function validateCheckIn(input: unknown): CheckInValidation {
   if (typeof input !== "object" || input === null) return { ok: false, error: CHECK_IN_INVALID };
   const raw = input as Record<string, unknown>;
@@ -153,13 +199,18 @@ export function validateCheckIn(input: unknown): CheckInValidation {
     effects === null ||
     !effects.every(isEffect) ||
     new Set(effects).size !== effects.length ||
-    (effects.includes(NONE_NOTICED) && effects.length > 1)
+    (effects.includes(NONE) && effects.length > 1)
   ) {
     return { ok: false, error: CHECK_IN_INVALID };
   }
 
   const feeling = raw.feeling;
   if (typeof feeling !== "number" || !FEELINGS.includes(feeling as never)) return { ok: false, error: FEELING_REQUIRED };
+
+  // "Other" needs its text; without Other, any text is dropped.
+  const effectsOther = effects.includes(OTHER) ? text(raw.effectsOther).trim() : "";
+  if (effects.includes(OTHER) && !effectsOther) return { ok: false, error: OTHER_REQUIRED };
+  if (characters(effectsOther) > OTHER_LIMIT) return { ok: false, error: OTHER_TOO_LONG };
 
   let measurement: ValidCheckIn["measurement"] = null;
   const typed = text(raw.measurementValue).trim();
@@ -178,7 +229,7 @@ export function validateCheckIn(input: unknown): CheckInValidation {
 
   return {
     ok: true,
-    value: { day, version, feeling, effects: sortEffects(effects), note, measurement },
+    value: { day, version, feeling, effects: sortEffects(effects), effectsOther, note, measurement },
   };
 }
 

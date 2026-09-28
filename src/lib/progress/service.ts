@@ -22,7 +22,10 @@ export type CheckIn = {
   /** The America/Toronto day it covers (YYYY-MM-DD). */
   day: string;
   feeling: number;
+  /** As stored: v3 chips, or the earlier ones (effectLabel shows either). */
   effects: string[];
+  /** "Other"'s text, or "" (always "" on check-ins saved with the earlier chips). */
+  effectsOther: string;
   note: string;
   measurement: { name: string; value: string; unit: string; measuredAt: string } | null;
   /** The stale-edit token. */
@@ -37,6 +40,7 @@ type Row = {
   day: string;
   feeling: number;
   effects: string[];
+  effects_other: string;
   note: string;
   measurement_name: string | null;
   measurement_value: string | null;
@@ -48,13 +52,14 @@ type Row = {
 };
 
 const COLUMNS =
-  "id, day, feeling, effects, note, measurement_name, measurement_value::text, measurement_unit, measured_at, version, created_at, updated_at";
+  "id, day, feeling, effects, effects_other, note, measurement_name, measurement_value::text, measurement_unit, measured_at, version, created_at, updated_at";
 
 const checkInOf = (row: Row): CheckIn => ({
   id: row.id,
   day: row.day,
   feeling: row.feeling,
   effects: row.effects,
+  effectsOther: row.effects_other,
   note: row.note,
   measurement:
     row.measurement_name !== null && row.measurement_value !== null && row.measurement_unit !== null && row.measured_at !== null
@@ -121,6 +126,7 @@ export async function saveCheckIn(db: Db, input: ValidCheckIn): Promise<SaveChec
     p_version: input.version as number,
     p_feeling: input.feeling,
     p_effects: input.effects,
+    p_effects_other: input.effectsOther,
     p_note: input.note,
     ...(input.measurement
       ? {

@@ -148,6 +148,18 @@ describe("the database's check-in day", () => {
       attempt("feeling 6", row(addDays(today, -61), "", ", 6")) +
       attempt("unknown chip", row(addDays(today, -61), ", effects", ", 3, '{Dizzy}'")) +
       attempt("none noticed and more", row(addDays(today, -61), ", effects", ", 3, '{\"None noticed\",Nausea}'")) +
+      // V1 (20260928110000): check-ins stored with the earlier chips stay valid; v3 ones need Other's text.
+      attempt("earlier chips", row(addDays(today, -63), ", effects", ", 3, '{\"Injection-site redness\",\"Mild headache\",\"Appetite change\",Other}'")) +
+      attempt("earlier none noticed", row(addDays(today, -64), ", effects", ", 3, '{\"None noticed\"}'")) +
+      attempt("v3 chips and other text", row(addDays(today, -65), ", effects, effects_other", ", 3, '{\"Site redness\",\"Water retention\",Other}', 'dizzy'")) +
+      attempt("v3 none", row(addDays(today, -66), ", effects", ", 3, '{None}'")) +
+      attempt("earlier chips with text", row(addDays(today, -61), ", effects, effects_other", ", 3, '{\"Mild headache\",Other}', 'dizzy'")) +
+      attempt("earlier and v3 mixed", row(addDays(today, -61), ", effects", ", 3, '{\"Mild headache\",\"Poor sleep\"}'")) +
+      attempt("v3 other without text", row(addDays(today, -61), ", effects", ", 3, '{\"Poor sleep\",Other}'")) +
+      attempt("text without other", row(addDays(today, -61), ", effects, effects_other", ", 3, '{Nausea}', 'dizzy'")) +
+      attempt("untrimmed other text", row(addDays(today, -61), ", effects, effects_other", ", 3, '{Other}', ' dizzy'")) +
+      attempt("other text of 101", row(addDays(today, -61), ", effects, effects_other", `, 3, '{Other}', '${"x".repeat(101)}'`)) +
+      attempt("none and more", row(addDays(today, -61), ", effects", ", 3, '{None,Nausea}'")) +
       attempt("untrimmed note", row(addDays(today, -61), ", note", ", 3, ' x'")) +
       attempt("half a measurement", row(addDays(today, -61), ", measurement_name, measurement_value", ", 3, 'Weight', 80")) +
       attempt(
@@ -163,6 +175,17 @@ describe("the database's check-in day", () => {
       "feeling 6": "23514",
       "unknown chip": "23514",
       "none noticed and more": "23514",
+      "earlier chips": "1",
+      "earlier none noticed": "1",
+      "v3 chips and other text": "1",
+      "v3 none": "1",
+      "earlier chips with text": "23514",
+      "earlier and v3 mixed": "23514",
+      "v3 other without text": "23514",
+      "text without other": "23514",
+      "untrimmed other text": "23514",
+      "other text of 101": "23514",
+      "none and more": "23514",
       "untrimmed note": "23514",
       "half a measurement": "23514",
       "trailing zeros": "23514",

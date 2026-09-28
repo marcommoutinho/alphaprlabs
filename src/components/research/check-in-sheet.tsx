@@ -1,8 +1,8 @@
 "use client";
 
 import { unstable_rethrow } from "next/navigation";
-import { ChevronDown, Info } from "lucide-react";
-import { useState, useTransition } from "react";
+import { Check, ChevronDown, Info, Plus } from "lucide-react";
+import { useRef, useState, useTransition } from "react";
 import { saveCheckInAction } from "@/app/(private)/app/progress/actions";
 import { Button } from "@/components/alpha/button";
 import { ChipGroup } from "@/components/alpha/chip";
@@ -10,7 +10,7 @@ import { Field, NumberInput, TextArea, TextInput } from "@/components/alpha/fiel
 import { Sheet, SheetContent } from "@/components/alpha/sheet";
 import { useAlphaToast } from "@/components/alpha/toast";
 import { SAVE_FAILED_MESSAGE } from "@/components/app-shell/toast";
-import { CHECK_IN_SAVED, type Effect, EFFECTS, FEELINGS, MEASUREMENTS, type MeasurementName, toggleEffect, unitFor } from "@/lib/progress/rules";
+import { CHECK_IN_SAVED, type Effect, EFFECTS, FEELINGS, MEASUREMENTS, type MeasurementName, OTHER, toggleEffect, unitFor } from "@/lib/progress/rules";
 import { cn } from "@/lib/utils";
 
 /** R1's check-in card and R6: the five feelings, 1 (rough) to 5 (great). */
@@ -26,7 +26,8 @@ export type CheckInContext = {
 
 /**
  * R6 Daily check-in (a sheet; a drawer on a laptop): the overall feeling
- * (required), unwanted effects ("None noticed" clears the others), one
+ * (required), unwanted effects (R6's chips: "None" clears the others;
+ * "+ Other" asks for its text), one
  * optional measurement and a note. One per America/Toronto day, for today
  * only: save_check_in re-checks the day. Opened from Today's card with the
  * tapped feeling preselected.
@@ -54,6 +55,8 @@ function CheckInBody({ initialFeeling, context, onClose }: { initialFeeling: num
   const toast = useAlphaToast();
   const [feeling, setFeelingValue] = useState<number>(initialFeeling ?? 0);
   const [effects, setEffectsValue] = useState<Effect[]>([]);
+  const [other, setOtherValue] = useState("");
+  const otherRef = useRef<HTMLInputElement>(null);
   const [measurementName, setNameValue] = useState<MeasurementName>("Weight");
   const [measurementValue, setValueValue] = useState("");
   const [measurementUnit, setUnitValue] = useState<string>(unitFor("Weight"));
@@ -66,9 +69,10 @@ function CheckInBody({ initialFeeling, context, onClose }: { initialFeeling: num
       setError(null);
       set(value);
     };
-  const [setFeeling, setEffects, setValue, setUnit, setNote] = [
+  const [setFeeling, setEffects, setOther, setValue, setUnit, setNote] = [
     edited(setFeelingValue),
     edited(setEffectsValue),
+    edited(setOtherValue),
     edited(setValueValue),
     edited(setUnitValue),
     edited(setNoteValue),
@@ -84,6 +88,7 @@ function CheckInBody({ initialFeeling, context, onClose }: { initialFeeling: num
           version: null,
           feeling,
           effects,
+          effectsOther: effects.includes(OTHER) ? other : "",
           note,
           measurementName,
           measurementValue,
@@ -152,17 +157,33 @@ function CheckInBody({ initialFeeling, context, onClose }: { initialFeeling: num
           </h3>
           <span className="text-[13px] text-ink-3">Pick any</span>
         </div>
-        <ChipGroup
-          multiple
-          aria-labelledby="checkin-effects"
-          value={effects}
-          onValueChange={(next) => {
-            // One chip changed: apply R9's rule ("None noticed" is picked alone).
-            const toggled = [...EFFECTS].find((e) => next.includes(e) !== effects.includes(e));
-            if (toggled) setEffects(toggleEffect(effects, toggled));
-          }}
-          options={EFFECTS.map((value) => ({ value, label: value }))}
-        />
+        <div className="flex flex-wrap gap-2">
+          <ChipGroup
+            multiple
+            aria-labelledby="checkin-effects"
+            className="contents"
+            value={effects.filter((e) => e !== OTHER)}
+            onValueChange={(next) => {
+              // One chip changed: apply R6's rule ("None" is picked alone).
+              const toggled = EFFECTS.find((e) => e !== OTHER && next.includes(e) !== effects.includes(e));
+              if (toggled) setEffects(toggleEffect(effects, toggled));
+            }}
+            options={EFFECTS.filter((e) => e !== OTHER).map((value) => ({ value, label: value }))}
+          />
+          <OtherChip
+            picked={effects.includes(OTHER)}
+            onClick={() => {
+              const picking = !effects.includes(OTHER);
+              setEffects(toggleEffect(effects, OTHER));
+              if (picking) setTimeout(() => otherRef.current?.focus(), 0);
+            }}
+          />
+        </div>
+        {effects.includes(OTHER) ? (
+          <Field label="Other effect" description="A few words, up to 100 characters">
+            <TextInput ref={otherRef} compact value={other} onChange={(e) => setOther(e.target.value)} placeholder="e.g. dizziness" />
+          </Field>
+        ) : null}
       </section>
 
       <section aria-labelledby="checkin-measurement" className="flex flex-col gap-2 px-2">
@@ -222,5 +243,23 @@ function CheckInBody({ initialFeeling, context, onClose }: { initialFeeling: num
         </p>
       ) : null}
     </SheetContent>
+  );
+}
+
+/** R6's "+ Other": a dashed add chip; once picked, a selected chip with a check (its text field shows below). */
+function OtherChip({ picked, onClick }: { picked: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={picked}
+      onClick={onClick}
+      className={cn(
+        "inline-flex h-11 cursor-pointer items-center gap-1.5 rounded-chip border px-3.5 text-[15px] select-none",
+        picked ? "border-ink bg-ink font-semibold text-surface" : "border-dashed border-ink-3 bg-transparent text-ink-2",
+      )}
+    >
+      {picked ? <Check className="size-[15px]" strokeWidth={2.5} aria-hidden /> : <Plus className="size-4" aria-hidden />}
+      {OTHER}
+    </button>
   );
 }

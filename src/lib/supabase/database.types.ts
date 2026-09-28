@@ -1241,6 +1241,7 @@ export type Database = {
           created_at: string
           day: string
           effects: string[]
+          effects_other: string
           feeling: number
           id: string
           measured_at: string | null
@@ -1256,6 +1257,7 @@ export type Database = {
           created_at?: string
           day: string
           effects?: string[]
+          effects_other?: string
           feeling: number
           id?: string
           measured_at?: string | null
@@ -1271,6 +1273,7 @@ export type Database = {
           created_at?: string
           day?: string
           effects?: string[]
+          effects_other?: string
           feeling?: number
           id?: string
           measured_at?: string | null
@@ -1706,6 +1709,11 @@ export type Database = {
       can_read_researcher: { Args: { p_owner: string }; Returns: boolean }
       can_write_researcher: { Args: { p_owner: string }; Returns: boolean }
       check_in_effect_list: { Args: never; Returns: string[] }
+      check_in_effect_list_v3: { Args: never; Returns: string[] }
+      check_in_effects_v3_valid: {
+        Args: { p_effects: string[]; p_other: string }
+        Returns: boolean
+      }
       check_in_effects_valid: {
         Args: { p_effects: string[] }
         Returns: boolean
@@ -2009,6 +2017,7 @@ export type Database = {
         Args: {
           p_day: string
           p_effects: string[]
+          p_effects_other?: string
           p_feeling: number
           p_measurement_name?: string
           p_measurement_unit?: string

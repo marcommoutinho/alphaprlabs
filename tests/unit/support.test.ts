@@ -220,7 +220,7 @@ describe("A8 Researcher history", () => {
   it("shows check-ins newest first with their effects and notes, and the measurements", () => {
     const view = historyView(base);
     expect(view.checkIns).toHaveLength(RECENT.checkIns);
-    expect(view.checkIns[0]).toEqual({ id: uuid(406), date: "Sun Sep 20", feeling: 2, effects: "Mild headache, Nausea", note: "Slept better." });
+    expect(view.checkIns[0]).toEqual({ id: uuid(406), date: "Sun Sep 20", feeling: 2, effects: "Headache, Nausea", note: "Slept better." });
     expect(view.checkIns[1].effects).toBe("");
     expect(view.measures).toBe("Measurements: Weight 86.5 kg (Sep 20) · Weight 84.5 kg (Sep 18) · Weight 82.5 kg (Sep 16) · Weight 80.5 kg (Sep 14)");
   });

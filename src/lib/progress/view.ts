@@ -30,7 +30,7 @@ import { doseAt } from "@/lib/cycles/rules";
 import { cycleSpan, cycleStatus, type CycleStatus, phasesDuring } from "@/lib/cycles/schedule";
 import { planPeptides, type RecordedConfirmation, type ViewPeptides } from "@/lib/cycles/views";
 import { formatLocalTime, type InstantInput, toInstant, wallClock } from "@/lib/schedule/zone";
-import { checkInDay, effectsLine, formTitle, HISTORY_DAYS, NO_CHECK_IN, NO_DOSES, PROGRESS_TIME_ZONE, saveLabel, SPARSE } from "./rules";
+import { checkInDay, type Effect, effectsLine, formEffects, formTitle, HISTORY_DAYS, NO_CHECK_IN, NO_DOSES, PROGRESS_TIME_ZONE, saveLabel, SPARSE } from "./rules";
 import type { CheckIn } from "./service";
 
 /** `?cycle=none`: no cycle, check-ins only. */
@@ -40,9 +40,16 @@ export const NO_CYCLE_PARAM = "none";
 export type FormStart = {
   version: number;
   feeling: number;
-  effects: string[];
+  /** v3 chips (a check-in stored with the earlier chips is mapped: formEffects). */
+  effects: Effect[];
+  effectsOther: string;
   note: string;
   measurement: { name: string; value: string; unit: string } | null;
+};
+
+const startEffects = (effects: readonly string[], other: string) => {
+  const start = formEffects(effects, other);
+  return { effects: start.effects, effectsOther: start.other };
 };
 
 export type HistoryDay = {
@@ -198,7 +205,7 @@ export function progressView(input: ProgressInput): ProgressView {
       phase: cycle ? phaseLine(cycle, day, input.peptides) : "",
       feeling: checkIn?.feeling ?? null,
       feelLabel: checkIn ? `${checkIn.feeling}/5` : NO_CHECK_IN,
-      effects: checkIn ? effectsLine(checkIn.effects) : "",
+      effects: checkIn ? effectsLine(checkIn.effects, checkIn.effectsOther) : "",
       note: checkIn?.note ?? "",
       measure: checkIn?.measurement ? `${checkIn.measurement.name} ${checkIn.measurement.value} ${checkIn.measurement.unit}` : "",
       doses: doses === null ? null : dayDoses.length ? `Doses: ${dayDoses.join(", ")}` : NO_DOSES,
@@ -216,7 +223,7 @@ export function progressView(input: ProgressInput): ProgressView {
         ? {
             version: existing.version,
             feeling: existing.feeling,
-            effects: existing.effects,
+            ...startEffects(existing.effects, existing.effectsOther),
             note: existing.note,
             measurement: existing.measurement
               ? { name: existing.measurement.name, value: existing.measurement.value, unit: existing.measurement.unit }

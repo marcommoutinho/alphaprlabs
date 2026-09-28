@@ -9,6 +9,7 @@ import { APP_ORIGIN } from "../../playwright.config";
 import { d, noonZoneInstant } from "../support/noon";
 import { hydrated, ok, serviceClient, signInAs } from "../support/local-supabase";
 import { seedEmpty, seedToday } from "../support/today";
+import { OTHER_REQUIRED } from "../../src/lib/progress/rules";
 
 const PHONE = { width: 390, height: 844 };
 const LAPTOP = { width: 1280, height: 820 };
@@ -185,32 +186,64 @@ test.describe("laptop, dark", () => {
 test.describe("laptop, light", () => {
   test.use({ viewport: LAPTOP, colorScheme: "light" });
 
-  test("the check-in card opens R6 with the feeling tapped; None noticed clears the others", async ({ page }) => {
+  test("the check-in card opens R6 with the feeling tapped; None clears the others; Other needs its text", async ({ page }) => {
     const { email, researcherId } = await seedToday("checkin");
     await open(page, email);
     await (await hydrated(page.getByTestId("today-checkin").getByRole("button", { name: "4 · Good" }))).click();
     const sheet = page.getByRole("dialog", { name: "Daily check-in" });
     await expect(sheet.getByTestId("checkin-feeling")).toHaveText("4 · Good");
     await expect(sheet.getByRole("radio", { name: "4 · Good" })).toHaveAttribute("aria-checked", "true");
-    await sheet.getByRole("button", { name: "Nausea" }).click();
-    await expect(sheet.getByRole("button", { name: "Nausea" })).toHaveAttribute("aria-pressed", "true");
-    await sheet.getByRole("button", { name: "None noticed" }).click();
-    await expect(sheet.getByRole("button", { name: "Nausea" })).toHaveAttribute("aria-pressed", "false");
-    await expect(sheet.getByRole("button", { name: "None noticed" })).toHaveAttribute("aria-pressed", "true");
+    // R6's chips, in the design's order.
+    await expect(sheet.getByRole("group", { name: "Anything unwanted?" }).getByRole("button")).toHaveText([
+      "None",
+      "Site redness",
+      "Nausea",
+      "Headache",
+      "Fatigue",
+      "Poor sleep",
+      "Water retention",
+    ]);
+    const chip = (name: string) => sheet.getByRole("button", { name, exact: true });
+    await chip("Nausea").click();
+    await expect(chip("Nausea")).toHaveAttribute("aria-pressed", "true");
+    await chip("None").click();
+    await expect(chip("Nausea")).toHaveAttribute("aria-pressed", "false");
+    await expect(chip("None")).toHaveAttribute("aria-pressed", "true");
+    // + Other clears None and asks for its text; it's required.
+    await expect(sheet.getByLabel("Other effect")).toHaveCount(0);
+    await chip("Other").click();
+    await expect(chip("Other")).toHaveAttribute("aria-pressed", "true");
+    await expect(chip("None")).toHaveAttribute("aria-pressed", "false");
+    await expect(sheet.getByLabel("Other effect")).toBeFocused();
+    await chip("Site redness").click();
     await sheet.getByLabel("Measurement type").selectOption("Weight");
     await sheet.getByLabel("Value").fill("81,4");
     await sheet.getByLabel("Note").fill("Slept well");
+    await sheet.getByRole("button", { name: "Save check-in" }).click();
+    await expect(sheet.getByRole("alert")).toHaveText(OTHER_REQUIRED);
+    await sheet.getByLabel("Other effect").fill("  Dizzy after the dose ");
     await sheet.getByRole("button", { name: "Save check-in" }).click();
     await expect(sheet).toBeHidden();
     await expect(page.getByRole("status").filter({ hasText: "Check-in saved." })).toBeVisible();
     // Done for today: the card goes.
     await expect(page.getByTestId("today-checkin")).toHaveCount(0);
     const rows = await ok(
-      serviceClient().from("progress_check_ins").select("feeling, effects, note, measurement_name, measurement_value::text, measurement_unit").eq("owner_id", researcherId),
+      serviceClient()
+        .from("progress_check_ins")
+        .select("feeling, effects, effects_other, note, measurement_name, measurement_value::text, measurement_unit")
+        .eq("owner_id", researcherId),
       "check-ins",
     );
     expect(rows).toEqual([
-      { feeling: 4, effects: ["None noticed"], note: "Slept well", measurement_name: "Weight", measurement_value: "81.4", measurement_unit: "kg" },
+      {
+        feeling: 4,
+        effects: ["Site redness", "Other"],
+        effects_other: "Dizzy after the dose",
+        note: "Slept well",
+        measurement_name: "Weight",
+        measurement_value: "81.4",
+        measurement_unit: "kg",
+      },
     ]);
   });
 });

@@ -131,7 +131,8 @@ beforeAll(async () => {
     day: today,
     version: null,
     feeling: 4,
-    effects: ["Mild headache"],
+    effects: ["Headache", "Other"],
+    effectsOther: "dizzy in the evening",
     note: "Slept better.",
     measurement: { name: "Weight", value: "82.4", unit: "kg" },
   });
@@ -313,7 +314,7 @@ describe("A8: the researcher history", () => {
     const view = historyView({ ...shared, peptides, confirmations: confirmationsByCycle(shared.doses), now: new Date(), full: false });
     expect(view.cycles).toEqual([expect.objectContaining({ name: "Alex recomposition", goal: "Leaner by October", peptides: expect.stringContaining(peptide.wName) })]);
     expect(view.doses.map((dose) => dose.peptide).sort()).toEqual([peptide.aName, peptide.wName].sort());
-    expect(view.checkIns).toEqual([expect.objectContaining({ feeling: 4, effects: "Mild headache", note: "Slept better." })]);
+    expect(view.checkIns).toEqual([expect.objectContaining({ feeling: 4, effects: "Headache, Other: dizzy in the evening", note: "Slept better." })]);
     expect(view.measures).toMatch(/^Measurements: Weight 82\.4 kg \(/);
     expect(view.supplies).toMatch(/^Supplies tracked: A-01 · History A .* 10 mg · est\. 9\.6 mg left$/);
     expect(view.supplements).toBe("Supplement routines: Vitamin D3 2000 IU daily 00:00");
@@ -387,7 +388,7 @@ describe("A8: the researcher history", () => {
       expect(error ? "refused" : data === null || data === false ? "refused" : `wrote ${JSON.stringify(data)}`, what).toBe("refused");
     }
     // The owner-bound writes act on the admin's own records only.
-    const graceCheckIn = await saveCheckIn(db.grace, { day: today, version: null, feeling: 1, effects: [], note: "Grace's own", measurement: null });
+    const graceCheckIn = await saveCheckIn(db.grace, { day: today, version: null, feeling: 1, effects: [], effectsOther: "", note: "Grace's own", measurement: null });
     expect(graceCheckIn.kind).toBe("saved");
     await ok(db.grace.rpc("set_supply_tracking", { p_enabled: false }), "grace's own supply tracking");
     await ok(db.grace.rpc("set_supplement_tracking", { p_enabled: false }), "grace's own supplement tracking");

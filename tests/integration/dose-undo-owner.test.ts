@@ -5,9 +5,13 @@
 // And two confirmations sharing a vial, really interleaved in two sessions
 // (a psql transaction holds the vial while PostgREST's call waits on it):
 // the one that took its time first deducts second, so the undo check orders
-// deductions by their position on the vial, never by time.
+// deductions by their position on the vial, never by time. And the V1
+// migration's backfill, run as the migration runs it (its own statements,
+// read from the file) on rows as they were before it, in a transaction
+// rolled back afterwards.
 // Runs in the integration-exclusive project.
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type Client, createCycle, createPeptide, interval, plan, tag } from "../support/cycles";
 import { confirmArgs, confirmArgsSeen, d, NOON, occurrenceOn } from "../support/doses";
@@ -138,5 +142,76 @@ describe("later deductions from a shared vial, interleaved", () => {
     expect(await undoState(a)).toBe("ok");
     expect(await undoState(b)).toBe("ok");
     expect(psql(`select 'n', count(*) from public.personal_vial_deductions where vial_id = ${quote(vialId)};`).n).toBe("0");
+  });
+});
+
+/** The V1 migration's backfill: from the vial_sequence column to the request-key claims, exactly as in the file. */
+function backfillStatements(): string {
+  const file = readFileSync("supabase/migrations/20260928100000_dose_skips_undo_sites.sql", "utf8");
+  const start = file.indexOf("alter table public.personal_vial_deductions add column vial_sequence integer;");
+  const end = file.indexOf("-- ── Results");
+  if (start < 0 || end < start) throw new Error("The backfill section moved; update this test.");
+  return file.slice(start, end);
+}
+
+describe("the V1 migration's backfill on data recorded before it", () => {
+  it("numbers each vial's deductions by time (then id) and claims every recorded dose's key", async () => {
+    // Before V1: three doses from one vial and one from another, recorded through the app.
+    const planOf = async (cycleId: string) => (await ok(wren.from("cycle_plans").select("id").eq("cycle_id", cycleId), "plan"))[0].id;
+    await ok(wren.rpc("set_supply_tracking", { p_enabled: true }), "tracking on");
+    const vialFor = async () => {
+      const pep = await createPeptide(await signedInClient(people.grace.email), `Backfill ${tag()}`);
+      const cycleId = await createCycle(wren, { timeZone: NOON, plans: [plan(pep, [interval(d(-4), d(20), "0.5", 1, "08:00")])] });
+      const mixtureId = await ok(
+        wren.rpc("save_mixture", { p_peptide_id: pep, p_vial_mg: "10", p_liquid_ml: "2", p_syringe_units: 100, p_line_spacing: "2", p_plan_ids: [await planOf(cycleId)] }),
+        "mixture",
+      );
+      const vialId = (await ok(
+        wren.rpc("save_personal_vial", { p_label: `B-${tag()}`, p_peptide_id: pep, p_strength_mg: "10", p_mixture_id: mixtureId }),
+        "vial",
+      )) as unknown as string;
+      return { cycleId, vialId };
+    };
+    const one = await vialFor();
+    const two = await vialFor();
+    const doses: string[] = [];
+    for (const date of [d(-4), d(-3), d(-2)]) {
+      const o = await occurrenceOn(wren, one.cycleId, date);
+      doses.push(((await ok(wren.rpc("confirm_dose", (await confirmArgsSeen(wren, o)) as never), "confirm")) as unknown as { id: string }).id);
+    }
+    const other = await occurrenceOn(wren, two.cycleId, d(-4));
+    const otherDose = ((await ok(wren.rpc("confirm_dose", (await confirmArgsSeen(wren, other)) as never), "confirm")) as unknown as { id: string }).id;
+    const [first, second, third] = doses;
+
+    // As the tables were before V1 (no position, no claims), with recording times out of creation order:
+    // the third dose's deduction first, the other two at the same instant (id decides).
+    const script = `
+      begin;
+      alter table public.personal_vial_deductions drop column vial_sequence;
+      drop table public.dose_request_keys;
+      update public.personal_vial_deductions set recorded_at = '2026-01-01T10:00:00Z' where dose_id = ${quote(third)};
+      update public.personal_vial_deductions set recorded_at = '2026-01-01T11:00:00Z' where dose_id in (${quote(first)}, ${quote(second)});
+      ${backfillStatements()}
+      select 'order', string_agg(x.dose_id::text || '=' || x.vial_sequence, ',' order by x.vial_sequence)
+        from public.personal_vial_deductions x where x.vial_id = ${quote(one.vialId)};
+      -- The tie goes to the deduction with the lower id.
+      select 'lower', (select x.dose_id::text from public.personal_vial_deductions x
+                       where x.dose_id in (${quote(first)}, ${quote(second)}) order by x.id limit 1);
+      select 'other', x.vial_sequence::text from public.personal_vial_deductions x where x.dose_id = ${quote(otherDose)};
+      select 'missing', count(*) from public.dose_records d
+        where not exists (select 1 from public.dose_request_keys k
+                          where k.request_key = d.request_key and k.owner_id = d.owner_id and k.kind = 'taken' and k.claimed_at = d.recorded_at);
+      select 'extra', (select count(*) from public.dose_request_keys) - (select count(*) from public.dose_records);
+      select 'nulls', count(*) from public.personal_vial_deductions where vial_sequence is null;
+      rollback;
+    `;
+    const out = psql(script);
+    const lower = out.lower;
+    const higher = lower === first ? second : first;
+    expect(out.order).toBe(`${third}=1,${lower}=2,${higher}=3`);
+    expect(out.other).toBe("1");
+    expect([out.missing, out.extra, out.nulls]).toEqual(["0", "0", "0"]);
+    // Rolled back: the live table still has the positions confirm_dose gave.
+    expect(psql(`select 'n', string_agg(vial_sequence::text, ',' order by vial_sequence) from public.personal_vial_deductions where vial_id = ${quote(one.vialId)};`).n).toBe("1,2,3");
   });
 });

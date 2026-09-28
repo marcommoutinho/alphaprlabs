@@ -16,6 +16,7 @@ import {
   NO_CYCLE_SELECTED,
   NOT_EVIDENCE,
   ONE_ENTRY,
+  OTHER,
   toggleEffect,
   unitFor,
 } from "@/lib/progress/rules";
@@ -99,7 +100,8 @@ function CheckInForm({ form }: { form: ProgressView["form"] }) {
   const save = useSubmit(saveCheckInAction);
   const start = form.start;
   const [feeling, setFeeling] = useState(start?.feeling ?? 0);
-  const [effects, setEffects] = useState<Effect[]>((start?.effects ?? []) as Effect[]);
+  const [effects, setEffects] = useState<Effect[]>(start?.effects ?? []);
+  const [other, setOther] = useState(start?.effectsOther ?? "");
   const [note, setNote] = useState(start?.note ?? "");
   const [name, setName] = useState(start?.measurement?.name ?? MEASUREMENTS[0].name);
   const [value, setValue] = useState(start?.measurement?.value ?? "");
@@ -122,6 +124,7 @@ function CheckInForm({ form }: { form: ProgressView["form"] }) {
           version: start?.version ?? null,
           feeling,
           effects,
+          effectsOther: effects.includes(OTHER) ? other : "",
           note,
           measurementName: name,
           measurementValue: value,
@@ -166,6 +169,12 @@ function CheckInForm({ form }: { form: ProgressView["form"] }) {
             </button>
           ))}
         </div>
+        {effects.includes(OTHER) ? (
+          <label className="app-field">
+            <span className="app-field-label">Other effect</span>
+            <input value={other} onChange={(event) => setOther(event.target.value)} placeholder="A few words, up to 100 characters" />
+          </label>
+        ) : null}
       </div>
 
       <label className="app-pg-block app-field">

@@ -73,7 +73,7 @@ test("check in, edit it, and see it in history beside a confirmed dose", async (
   await expect(form.getByRole("alert")).toHaveText(FEELING_REQUIRED);
   await form.getByRole("radio", { name: "4" }).click();
   await expect(form.getByRole("radio", { name: "4" })).toHaveAttribute("aria-checked", "true");
-  await form.getByRole("button", { name: "Mild headache" }).click();
+  await form.getByRole("button", { name: "Headache", exact: true }).click();
   await form.getByLabel("Note · optional").fill("Slept better.");
   await form.getByLabel("What").selectOption("Weight");
   await expect(form.getByLabel("Unit")).toHaveValue("kg");
@@ -84,13 +84,13 @@ test("check in, edit it, and see it in history beside a confirmed dose", async (
   const saved = page.getByRole("form", { name: /^Today's check-in · saved \d\d:\d\d$/ });
   await expect(saved.getByRole("button", { name: "Update today's check-in" })).toBeVisible();
   await expect(today.getByTestId("progress-feel")).toHaveText("4/5");
-  await expect(today.getByTestId("progress-effects")).toHaveText("Mild headache");
+  await expect(today.getByTestId("progress-effects")).toHaveText("Headache");
   await expect(today.getByTestId("progress-note")).toHaveText("“Slept better.”");
   await expect(today.getByTestId("progress-measure")).toHaveText("Weight 82.4 kg");
   await expect(today.getByTestId("progress-doses")).toHaveText(`Doses: ${A} 0.4 mg`);
   // The form starts from what was saved.
   await expect(saved.getByLabel("Value")).toHaveValue("82.4");
-  await expect(saved.getByRole("button", { name: "Mild headache" })).toHaveAttribute("aria-pressed", "true");
+  await expect(saved.getByRole("button", { name: "Headache", exact: true })).toHaveAttribute("aria-pressed", "true");
 
   // Another tab opened now shows version 1.
   const other = await context.newPage();
@@ -98,10 +98,10 @@ test("check in, edit it, and see it in history beside a confirmed dose", async (
   const otherForm = other.getByRole("form", { name: /^Today's check-in · saved/ });
   await hydrated(otherForm.getByRole("button", { name: "Update today's check-in" }));
 
-  // Edit it in place: a lower feeling, and "None noticed" clears the headache.
+  // Edit it in place: a lower feeling, and "None" clears the headache.
   await (await hydrated(saved.getByRole("radio", { name: "3" }))).click();
-  await saved.getByRole("button", { name: "None noticed" }).click();
-  await expect(saved.getByRole("button", { name: "Mild headache" })).toHaveAttribute("aria-pressed", "false");
+  await saved.getByRole("button", { name: "None", exact: true }).click();
+  await expect(saved.getByRole("button", { name: "Headache", exact: true })).toHaveAttribute("aria-pressed", "false");
   await saved.getByRole("button", { name: "Update today's check-in" }).click();
   await expect(page.getByRole("status").filter({ hasText: CHECK_IN_SAVED })).toBeVisible();
   await expect(today.getByTestId("progress-feel")).toHaveText("3/5");
@@ -118,7 +118,7 @@ test("check in, edit it, and see it in history beside a confirmed dose", async (
     serviceClient().from("progress_check_ins").select("day, feeling, effects, measurement_value::text, version").eq("owner_id", researcherId),
     "check-ins",
   );
-  expect(rows).toEqual([{ day: checkInDay(new Date()), feeling: 3, effects: ["None noticed"], measurement_value: "82.4", version: 2 }]);
+  expect(rows).toEqual([{ day: checkInDay(new Date()), feeling: 3, effects: ["None"], measurement_value: "82.4", version: 2 }]);
 
   // On a phone, the screen fits without sideways scrolling.
   await page.setViewportSize({ width: 390, height: 844 });

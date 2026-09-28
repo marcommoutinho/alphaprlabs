@@ -125,7 +125,9 @@ export type HistoryInput = {
     id: string;
     day: string;
     feeling: number;
+    /** As stored (v3 chips or the earlier ones), with "Other"'s text ("" when none). */
     effects: readonly string[];
+    effectsOther?: string;
     note: string;
     measurement: { name: string; value: string; unit: string } | null;
   }[];
@@ -276,7 +278,7 @@ export function historyView(input: HistoryInput): HistoryView {
       id: c.id,
       date: formatDay(c.day),
       feeling: c.feeling,
-      effects: effectsLine(c.effects),
+      effects: effectsLine(c.effects, c.effectsOther),
       note: c.note,
     })),
     measures: measures ? `Measurements: ${measures}` : "",
