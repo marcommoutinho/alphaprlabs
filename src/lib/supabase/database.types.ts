@@ -728,6 +728,35 @@ export type Database = {
           },
         ]
       }
+      dose_request_keys: {
+        Row: {
+          claimed_at: string
+          kind: string
+          owner_id: string
+          request_key: string
+        }
+        Insert: {
+          claimed_at?: string
+          kind: string
+          owner_id: string
+          request_key: string
+        }
+        Update: {
+          claimed_at?: string
+          kind?: string
+          owner_id?: string
+          request_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dose_request_keys_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dose_skips: {
         Row: {
           cycle_id: string
@@ -1076,6 +1105,7 @@ export type Database = {
           remaining_before_mg: number
           stock_discrepancy: boolean | null
           vial_id: string
+          vial_sequence: number
         }
         Insert: {
           amount_mg: number
@@ -1087,6 +1117,7 @@ export type Database = {
           remaining_before_mg: number
           stock_discrepancy?: boolean | null
           vial_id: string
+          vial_sequence: number
         }
         Update: {
           amount_mg?: number
@@ -1098,6 +1129,7 @@ export type Database = {
           remaining_before_mg?: number
           stock_discrepancy?: boolean | null
           vial_id?: string
+          vial_sequence?: number
         }
         Relationships: [
           {

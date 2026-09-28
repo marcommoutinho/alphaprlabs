@@ -26,6 +26,7 @@ import type { CycleRecord } from "@/lib/cycles/rules";
 import { cycleSpan, cycleStatus, planOccurrences } from "@/lib/cycles/schedule";
 import { occurrenceWhen, type RecordedConfirmation, recordedAmount, STATE_LABEL, type ViewPeptides } from "@/lib/cycles/views";
 import { SYRINGE_LABEL } from "@/lib/calculator/calculator";
+import { Exact } from "@/lib/calculator/decimal";
 import { formatDateTime } from "@/lib/format";
 import type { Mixture } from "@/lib/mixtures/rules";
 import {
@@ -37,7 +38,7 @@ import {
   type Phase,
 } from "@/lib/schedule/engine";
 import { type InstantInput, localDateOf, toInstant } from "@/lib/schedule/zone";
-import { shortDate } from "@/lib/alpha/format";
+import { massLabel, shortDate } from "@/lib/alpha/format";
 import { drawDisplay, type DrawDisplay, type DrawSetup, type ScheduleEffect, STALE_LINK, unitsLabel, type Wall, wallOf } from "./rules";
 import { type SetupSegment, setupAt } from "./setups";
 import { lastSiteNote, lastSiteUse, nextSite, type RotationSite } from "./sites";
@@ -104,6 +105,16 @@ export type DoseSetup = SetupSegment & { vialLabel: string | null; vial: VialNow
  * deduct from: the open vial of the mixture in effect at that time, or none
  * (no mixture then, or tracking off).
  */
+
+/**
+ * What was recorded, as the sheet shows it (design v3 units: under 1 mg in
+ * mcg): the amount taken, and `(planned 250 mcg)` when it differs.
+ */
+function recordedDose(plannedMg: string, amountMg: string | undefined): { mg: string; planned: string } {
+  if (!amountMg) return { mg: massLabel(plannedMg), planned: "" };
+  const same = new Exact(amountMg).equals(new Exact(plannedMg));
+  return { mg: massLabel(amountMg), planned: same ? "" : `(planned ${massLabel(plannedMg)})` };
+}
 export function setupForActual(
   detail: Pick<DoseDetail, "setup" | "mixtureVersionId" | "vialLabel" | "setups">,
   at: string | null,
@@ -332,7 +343,7 @@ export function todayView(input: TodayInput): TodayView {
     const { o } = entry;
     const mixture = mixtureOf(entry);
     const record = recordOf(o);
-    const amount = recordedAmount(o.doseMg, record?.amountMg);
+    const amount = recordedDose(o.doseMg, record?.amountMg);
     const value: DoseDetail = {
       key: o.key,
       planId: o.planId,

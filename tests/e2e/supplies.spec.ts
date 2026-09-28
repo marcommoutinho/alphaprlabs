@@ -102,12 +102,12 @@ test("a tracked vial drops once for a retried confirmation, and shows low stock 
   expect(await recorded()).toEqual({ doses: 1, deductions: [{ amount_mg: "0.4", remaining_after_mg: "0.3" }] });
 
   await hero.getByRole("button", { name: "Taken", exact: true }).click();
-  await expect(page.getByRole("status").filter({ hasText: `${A} · 0.4 mg logged at ` })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: `${A} · 400 mcg logged at ` })).toBeVisible();
   expect(await recorded()).toEqual({ doses: 1, deductions: [{ amount_mg: "0.4", remaining_after_mg: "0.3" }] });
 
   // 0.3 mg left is less than the next planned 0.4 mg (two days after the actual time): noted beside A's next dose.
   const next = page.locator('[data-testid="today-row"][data-status="Next"]').filter({ hasText: A });
-  await expect(next.getByTestId("today-stock")).toHaveText("Vial E2E-1 is low · 0.3 mg left (estimate)");
+  await expect(next.getByTestId("today-stock")).toHaveText("Vial E2E-1 is low · 300 mcg left (estimate)");
 
   // Supplies: the estimate dropped once, flagged low, with its history.
   await page.goto(`${APP_ORIGIN}/app/supplies`);

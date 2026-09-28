@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import type { CycleRecord, CycleRevision } from "@/lib/cycles/rules";
 import type { RecordedConfirmation, ViewPeptides } from "@/lib/cycles/views";
-import { clock12, shortDate, untilLabel, wallWhen } from "@/lib/alpha/format";
+import { clock12, inMassUnit, massLabel, massUnit, mgFromUnit, shortDate, untilLabel, wallWhen } from "@/lib/alpha/format";
 import { dayProgress, dayRail } from "@/lib/doses/board";
 import { lastSiteNote, lastSiteUse, nextSite, RECORDED_SITES, ROTATION } from "@/lib/doses/sites";
 import { confirmFormError } from "@/lib/doses/rules";
@@ -276,5 +276,34 @@ describe("v3 formats", () => {
     expect(untilLabel(25 * 60_000)).toBe("In 25 min");
     expect(untilLabel(2 * 3_600_000)).toBe("In 2 h");
     expect(untilLabel(10_000)).toBe("In 1 min");
+  });
+
+  it("shows amounts under 1 mg in mcg and the rest in mg, exactly", () => {
+    expect(["0.25", "0.4", "0.05", "0.0001", "0.999", "1", "2.5", "10", "0"].map(massLabel)).toEqual([
+      "250 mcg",
+      "400 mcg",
+      "50 mcg",
+      "0.1 mcg",
+      "999 mcg",
+      "1 mg",
+      "2.5 mg",
+      "10 mg",
+      "0 mg",
+    ]);
+    // Past a vial's contents, and never rounded into another value.
+    expect(massLabel("-0.2")).toBe("-200 mcg");
+    expect(massLabel("0.1234567")).toBe("123.4567 mcg");
+    expect(massLabel("1.0000001")).toBe("≈1 mg");
+    expect(massLabel("n/a")).toBe("n/a mg");
+    expect([massUnit("0.25"), massUnit("1"), massUnit("0")]).toEqual(["mcg", "mg", "mg"]);
+    // The sheet's amount field: typed in the planned dose's unit, sent in mg.
+    expect(inMassUnit("0.25", "mcg")).toBe("250");
+    expect(inMassUnit("2.5", "mg")).toBe("2.5");
+    expect(mgFromUnit("250", "mcg")).toBe("0.25");
+    expect(mgFromUnit("1500", "mcg")).toBe("1.5");
+    expect(mgFromUnit("0,5", "mcg")).toBe("0.0005");
+    expect(mgFromUnit("2.5", "mg")).toBe("2.5");
+    expect(mgFromUnit("abc", "mcg")).toBe("abc");
+    expect(mgFromUnit(inMassUnit("0.123456789", "mcg"), "mcg")).toBe("0.123456789");
   });
 });

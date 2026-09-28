@@ -20,7 +20,7 @@ import { useNavCount } from "@/components/alpha/shell/nav-counts";
 import { useAlphaToast } from "@/components/alpha/toast";
 import { SAVE_FAILED_MESSAGE } from "@/components/app-shell/toast";
 import { AppBadge } from "@/components/push/app-badge";
-import { clock12, untilLabel, wallWhen } from "@/lib/alpha/format";
+import { clock12, massLabel, untilLabel, wallWhen } from "@/lib/alpha/format";
 import { dayProgress, dayRail, type RailEntry } from "@/lib/doses/board";
 import { ENDED_NOTE, loggedToast, NO_MIXTURE_NOTE, skippedToast, UNDO_FAILED, undoneToast, wallOf } from "@/lib/doses/rules";
 import type { DoseDetail, TodayDose, TodayView } from "@/lib/doses/today";
@@ -163,7 +163,7 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials }: 
       if (result.outcome === "recorded" && result.actualAt && result.doseId) {
         const doseId = result.doseId;
         const at = clock12(wallOf(result.actualAt, detail.timeZone).slice(11, 16));
-        const logged = loggedToast(detail.peptideName, `${result.amountMg ?? submission.amount} mg`, at);
+        const logged = loggedToast(detail.peptideName, massLabel(result.amountMg ?? submission.amount), at);
         const message = result.discrepancyVial
           ? `${logged}. Vial ${result.discrepancyVial}'s estimate is now below zero — check it in Personal supplies.`
           : logged;
@@ -370,7 +370,7 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials }: 
                   testId="today-overdue"
                   title={
                     <>
-                      {item.peptideName} <span className="font-normal text-ink-2">· {item.doseMg} mg</span>
+                      {item.peptideName} <span className="font-normal text-ink-2">· {massLabel(item.doseMg)}</span>
                     </>
                   }
                   status={`Not logged · ${wallWhen(`${item.localDate}T${item.localTime}`, "")}`}
@@ -528,7 +528,7 @@ function NowCard({
         {item.peptideName}
       </div>
       <div className="mt-0.5 text-[14px] text-on-ink-2">
-        {item.doseMg} mg{item.schedule ? ` · ${item.schedule}` : ""}
+        {massLabel(item.doseMg)}{item.schedule ? ` · ${item.schedule}` : ""}
       </div>
       {draw.kind === "units" && setup ? (
         <>
@@ -548,7 +548,7 @@ function NowCard({
         </>
       ) : (
         <>
-          <NowReading className="mt-3.5" size="m" value={<span data-testid="hero-mg">{item.doseMg} mg</span>} />
+          <NowReading className="mt-3.5" size="m" value={<span data-testid="hero-mg">{massLabel(item.doseMg)}</span>} />
           <p className="mt-3 text-[13px] text-on-ink-2">
             {draw.kind === "error" ? `Units can't be calculated with your saved mixture: ${draw.message}` : NO_MIXTURE_NOTE}{" "}
             <Link href={detail.calculatorHref} className="font-semibold text-surface underline underline-offset-2">
@@ -665,7 +665,7 @@ function RailRow({
   let statusText: string;
   if (dose.state === "taken" && dose.actualAt) {
     const at = clock12(wallOf(dose.actualAt, dose.timeZone).slice(11, 16));
-    const amount = dose.amountMg && dose.amountMg !== dose.doseMg ? `${dose.amountMg} mg of ${dose.doseMg} mg` : null;
+    const amount = dose.amountMg && dose.amountMg !== dose.doseMg ? `${massLabel(dose.amountMg)} of ${massLabel(dose.doseMg)}` : null;
     statusText = ["Taken " + at, amount, dose.site].filter(Boolean).join(" · ");
     status = (
       <>
@@ -699,7 +699,7 @@ function RailRow({
         <span className="block text-[16px] font-semibold" data-testid="today-row-title">
           {dose.peptideName}{" "}
           <span className="font-normal text-ink-2">
-            · {dose.doseMg} mg{units ? " · " : ""}
+            · {massLabel(dose.doseMg)}{units ? " · " : ""}
           </span>
           {units ? <span className="font-mono text-[15px] font-medium">{units}</span> : null}
         </span>
@@ -799,7 +799,7 @@ function NextRow({ item, today, divided }: { item: TodayDose; today: string; div
         <span className="block text-[16px] font-semibold" data-testid="today-row-title">
           {item.peptideName}{" "}
           <span className="font-normal text-ink-2">
-            · {item.doseMg} mg{units ? " · " : ""}
+            · {massLabel(item.doseMg)}{units ? " · " : ""}
           </span>
           {units ? <span className="font-mono text-[15px] font-medium">{units}</span> : null}
         </span>

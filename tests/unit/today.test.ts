@@ -179,7 +179,8 @@ describe("R1 Today", () => {
       sub: "Planned 07:00 · Thigh L",
       action: "Details",
     });
-    expect(today.doses[keyA(3)].recorded).toMatchObject({ amount: "0.3 mg", planned: "(planned 0.4 mg)", site: "Thigh L", notes: "Mild redness" });
+    // The sheet shows what was recorded in the v3 unit: under 1 mg in mcg (stored in mg).
+    expect(today.doses[keyA(3)].recorded).toMatchObject({ amount: "300 mcg", planned: "(planned 400 mcg)", site: "Thigh L", notes: "Mild redness" });
     // Taken as planned: no planned note.
     const asPlanned = view([taken24, { ...taken26, amountMg: "0.40", site: "", notes: "" }]);
     expect(asPlanned.rows[0]).toMatchObject({ status: "Taken 11:30 · 0.40 mg", statusNote: "", sub: "Planned 07:00" });

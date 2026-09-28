@@ -5,7 +5,8 @@
 // planned time); undo_dose() retracts a Taken or a skip just recorded into
 // the dose_voids audit trail, restoring the vial estimate and the schedule,
 // and refuses when later records depend on it; both are idempotent by request
-// key and serialized per cycle. The 60-second window and entries recorded
+// key (one namespace of keys across the three writes) and serialized per
+// cycle. The 60-second window and entries recorded
 // before V1 are proved at owner level (dose-undo-owner.test.ts).
 // Cycles use a fixed-offset zone where it is about 12:00 now (tests/support/noon.ts).
 import { randomUUID } from "node:crypto";
@@ -319,6 +320,100 @@ describe("undo", () => {
     expect(raced.filter((s) => s === "ok")).toHaveLength(1);
     expect(raced.filter((s) => s !== "ok")[0]).toMatch(/^AP03[1]$|^AP018$/);
     expect((await doseRows(cycleId)).length + (await skipRows(cycleId)).length).toBe(1);
+  });
+});
+
+describe("request keys: one namespace for Taken, Skip and Undo", () => {
+  const skipState = (who: Client, o: Occurrence, key: string) => sqlState(who.rpc("skip_dose", skipArgs(o, { p_request_key: key })), "skip_dose");
+  const confirmState = (who: Client, o: Occurrence, key: string) => sqlState(who.rpc("confirm_dose", confirmArgs(o, { p_request_key: key })), "confirm_dose");
+  /** Everything recorded with `key`, in every table a dose write records into. */
+  const recordedWith = async (key: string) => [
+    ...(await ok(service().from("dose_records").select("id").eq("request_key", key), "doses")),
+    ...(await ok(service().from("dose_skips").select("id").eq("request_key", key), "skips")),
+    ...(await ok(service().from("dose_voids").select("id").eq("request_key", key), "voids")),
+  ];
+
+  it("refuses a key recorded by one write for every other write, of any kind or account", async () => {
+    const cycleId = await createCycle(db.sam, { timeZone: NOON, plans: [plan(peptideA, [interval(d(-6), d(20), "0.4", 1, "08:00")])] });
+    const occ = (await occurrencesOf(db.sam, cycleId)).filter((o) => o.localDate <= d(0));
+    expect(occ).toHaveLength(7);
+    const blairCycle = await createCycle(db.blair, { timeZone: NOON, plans: [plan(peptideA, [interval(d(-2), d(20), "0.4", 1, "08:00")])] });
+    const blairOcc = (await occurrencesOf(db.blair, blairCycle)).filter((o) => o.localDate <= d(0));
+
+    // A Taken's key: not a skip's, not an undo's (not even of that dose), not another account's.
+    const takenKey = randomUUID();
+    const taken = (await confirm(db.sam, confirmArgs(occ[0], { p_request_key: takenKey })))!;
+    expect(await skipState(db.sam, occ[1], takenKey)).toBe("22023");
+    expect(await undoState(db.sam, taken.id, takenKey)).toBe("22023");
+    expect(await confirmState(db.blair, blairOcc[0], takenKey)).toBe("22023");
+    expect(await doseRows(cycleId)).toHaveLength(1);
+
+    // A skip's key: not a Taken's, not an undo's.
+    const skipKey = randomUUID();
+    const skipped = (await skip(db.sam, skipArgs(occ[1], { p_request_key: skipKey })))!;
+    expect(await confirmState(db.sam, occ[2], skipKey)).toBe("22023");
+    expect(await undoState(db.sam, skipped.id, skipKey)).toBe("22023");
+    expect(await skipState(db.blair, blairOcc[0], skipKey)).toBe("22023");
+    expect(await skipRows(cycleId)).toHaveLength(1);
+
+    // An undo's key: not a Taken's, not a skip's, not another undo's, not another account's.
+    const undoKey = randomUUID();
+    await undo(db.sam, skipped.id, undoKey);
+    expect(await confirmState(db.sam, occ[2], undoKey)).toBe("22023");
+    expect(await skipState(db.sam, occ[2], undoKey)).toBe("22023");
+    expect(await skipState(db.sam, occ[1], undoKey)).toBe("22023");
+    const blairDose = (await confirm(db.blair, confirmArgs(blairOcc[0])))!;
+    expect(await undoState(db.blair, blairDose.id, undoKey)).toBe("22023");
+    expect(await ok(service().from("dose_records").select("id").eq("cycle_id", blairCycle), "blair doses")).toHaveLength(1);
+
+    // The undone skip's key stays claimed: its replay is AP034, any other write with it is refused.
+    expect(await skipState(db.sam, occ[1], skipKey)).toBe("AP034");
+    expect(await confirmState(db.sam, occ[1], skipKey)).toBe("22023");
+    expect(await undoState(db.sam, taken.id, skipKey)).toBe("22023");
+
+    // Nothing the refused writes asked for was recorded: one dose, no skip, one void.
+    expect(await doseRows(cycleId)).toHaveLength(1);
+    expect(await skipRows(cycleId)).toEqual([]);
+    expect(await voidRows(cycleId)).toHaveLength(1);
+    // The refusals were about the keys alone: the latest entry is undoable with a key of its own.
+    const latest = (await confirm(db.sam, confirmArgs(occ[3])))!;
+    expect(await undoState(db.sam, latest.id, takenKey)).toBe("22023");
+    expect(await undo(db.sam, latest.id)).toMatchObject({ kind: "taken", entry_id: latest.id });
+  });
+
+  it("lets only the first of two writes racing with one key record, whatever their kinds", async () => {
+    // Each write in its own cycle: they take different locks and really run at once.
+    const fresh = async () => {
+      const cycleId = await createCycle(db.sam, { timeZone: NOON, plans: [plan(peptideA, [interval(d(-2), d(20), "0.4", 2, "08:00")])] });
+      return occurrenceOn(db.sam, cycleId, d(0));
+    };
+    const writes = {
+      taken: async (key: string) => {
+        const o = await fresh();
+        return () => sqlState(db.sam.rpc("confirm_dose", confirmArgs(o, { p_request_key: key })), "confirm");
+      },
+      skipped: async (key: string) => {
+        const o = await fresh();
+        return () => sqlState(db.sam.rpc("skip_dose", skipArgs(o, { p_request_key: key })), "skip");
+      },
+      undo: async (key: string) => {
+        const dose = (await confirm(db.sam, confirmArgs(await fresh())))!;
+        return () => undoState(db.sam, dose.id, key);
+      },
+    };
+    const pairs: [keyof typeof writes, keyof typeof writes][] = [
+      ["taken", "skipped"],
+      ["taken", "undo"],
+      ["skipped", "undo"],
+      ["taken", "taken"],
+    ];
+    for (const [first, second] of pairs) {
+      const key = randomUUID();
+      const calls = [await writes[first](key), await writes[second](key)];
+      const states = await Promise.all(calls.map((call) => call()));
+      expect(states.sort(), `${first} + ${second}`).toEqual(["22023", "ok"]);
+      expect(await recordedWith(key), `${first} + ${second}`).toHaveLength(1);
+    }
   });
 });
 

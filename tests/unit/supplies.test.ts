@@ -294,7 +294,7 @@ describe("Today's low-stock notes", () => {
   });
 
   it("names the low vial beside every dose of the plans using its mixture, and nothing otherwise", () => {
-    expect(todayStockNotes(input([deduction(1, "7.7", "8")]))).toEqual(new Map([[PLAN_A, "Vial A-01 is low · 0.3 mg left (estimate)"]]));
+    expect(todayStockNotes(input([deduction(1, "7.7", "8")]))).toEqual(new Map([[PLAN_A, "Vial A-01 is low · 300 mcg left (estimate)"]]));
     expect(todayStockNotes(input([deduction(1, "7.6", "8")]))).toEqual(new Map());
     expect(todayStockNotes(input([deduction(1, "8", "8")])).get(PLAN_A)).toBe("Vial A-01 is empty (estimate)");
     expect(todayStockNotes(input([deduction(1, "8.4", "8")])).get(PLAN_A)).toBe("Vial A-01: the estimate exceeds the vial — check Personal supplies");
@@ -317,7 +317,7 @@ describe("Today's low-stock notes", () => {
       stock: todayStockNotes(input([deduction(1, "7.7", "8")])),
       now: NOON,
     });
-    expect(today.hero).toMatchObject({ key: keyA(3), stockNote: "Vial A-01 is low · 0.3 mg left (estimate)" });
+    expect(today.hero).toMatchObject({ key: keyA(3), stockNote: "Vial A-01 is low · 300 mcg left (estimate)" });
     expect(today.rows.filter((r) => r.stockNote).map((r) => [r.kind, r.key])).toEqual([["next", keyA(4)]]);
     expect(today.rows.filter((r) => r.kind === "open").every((r) => r.stockNote === null)).toBe(true);
   });

@@ -3,6 +3,10 @@
 // removed) now read the schedule with the recorded doses, and the app's
 // editWindow/reviseCycle, given the same confirmations, choose what the
 // database accepts. Through PostgREST, in a zone where it is about 12:00 now.
+// V1: a skip (skip_dose) is settled history exactly like a confirmation, in
+// both save_cycle and the app's revise path: a later-today dose skipped this
+// morning is never edited, retargeted, ended or removed from today.
+import { randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 import { editWindow, reviseCycle } from "@/lib/cycles/revise";
 import { formOfCycle, validateCycle } from "@/lib/cycles/rules";
@@ -11,6 +15,7 @@ import { cycleConfirmations } from "@/lib/doses/service";
 import { type Client, createCycle, createPeptide, interval, plan, saveCycle, tag, weekdays } from "../support/cycles";
 import { confirmArgs, d, NOON, noonZoneInstant, occurrenceOn, occurrencesOf } from "../support/doses";
 import { ensureAccount, ok, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
+import type { Occurrence } from "@/lib/schedule/engine";
 
 const alex = { email: uniqueEmail("s12-edit-alex"), name: "S12 Edit Alex", role: "researcher" } as const;
 const admin = { email: uniqueEmail("s12-edit-admin"), name: "S12 Edit Admin", role: "admin" } as const;
@@ -43,6 +48,11 @@ const edit = async (cycleId: string, from: string, change: (plans: PlanArg[]) =>
   return sqlState(saveCycle(db, { cycleId, version, timeZone: NOON, plans: changed }), `edit from ${from}`);
 };
 const doseChange = (from: string) => (plans: PlanArg[]) => void (plans[0].phases[0].dose_changes = [{ from, dose_mg: "2" }]);
+const skipDose = (o: Occurrence) =>
+  ok(
+    db.rpc("skip_dose", { p_request_key: randomUUID(), p_occurrence_key: o.key, p_seen_scheduled_at: o.scheduledAt, p_seen_dose_mg: o.doseMg }),
+    `skip ${o.localDate}`,
+  );
 
 describe("save_cycle with recorded doses", () => {
   it("won't remove a plan whose dose was confirmed early, before its first planned time", async () => {
@@ -110,6 +120,106 @@ describe("save_cycle with recorded doses", () => {
     }
     // The recorded doses keep their keys: today's A dose is still confirmed under the new revision.
     expect((await occurrenceOn(db, id, d(0))).actualAt).not.toBeNull();
+  });
+});
+
+describe("save_cycle and the app with skipped doses (V1)", () => {
+  /** A daily 20:00 plan from d-3 whose dose later today is skipped (it is about 12:00 now). */
+  async function skippedToday(peptideId = peptide.a) {
+    const id = await createCycle(db, { timeZone: NOON, plans: [plan(peptideId, [interval(d(-3), d(10), "1", 1, "20:00")])] });
+    const later = await occurrenceOn(db, id, d(0));
+    expect(Date.parse(later.scheduledAt)).toBeGreaterThan(Date.now());
+    return { id, later };
+  }
+
+  it("won't edit or retarget a skipped later-today dose; the app starts the edit tomorrow and the database takes it", async () => {
+    const { id, later } = await skippedToday();
+    const control = await skippedToday(peptide.b);
+    await skipDose(later);
+
+    // The skipped dose's dose and time can't change from today, nor can an unchanged plan take over today.
+    expect(await edit(id, d(0), doseChange(d(0))), "dose from today").toBe("AP009");
+    expect(await edit(id, d(0), (plans) => void (plans[0].phases[0].time_changes = [{ from: d(0), local_time: "21:00" }])), "time from today").toBe("AP009");
+    expect(await edit(id, d(0), () => {}), "unchanged from today").toBe("AP009");
+    // Without a skip the same edit from today is fine (today's dose is still ahead).
+    expect(await edit(control.id, d(0), doseChange(d(0))), "control").toBe("ok");
+
+    // The app, given the skip, starts from tomorrow; blind to it, it would pick today, which the database refuses.
+    const cycle = (await getCycle(db, id))!;
+    const confirmations = await cycleConfirmations(db, id);
+    expect(confirmations).toEqual([expect.objectContaining({ key: later.key, skipped: true })]);
+    const now = new Date();
+    const window = editWindow(cycle.revisions, now, confirmations);
+    expect([...window.effective.values()]).toEqual([d(1)]);
+    expect([...window.started]).toEqual([later.planId]);
+    expect([...editWindow(cycle.revisions, now).effective.values()]).toEqual([d(0)]);
+    const form = formOfCycle(cycle, window.effective, d(0));
+    form.plans[0].phases[0].time = "21:00";
+    const valid = validateCycle(form, await listCyclePeptides(db));
+    if (!valid.ok) throw new Error(valid.errors.join("; "));
+    const revision = reviseCycle(cycle.revisions, valid.value, now, confirmations);
+    if (!revision.ok) throw new Error(JSON.stringify(revision.issues));
+    expect(revision.plans.map((p) => p.effectiveFrom)).toEqual([d(1)]);
+    const blind = reviseCycle(cycle.revisions, valid.value, now);
+    if (!blind.ok) throw new Error(JSON.stringify(blind.issues));
+    expect(blind.plans.map((p) => p.effectiveFrom)).toEqual([d(0)]);
+    expect(await sqlState(db.rpc("save_cycle", saveArgs(cycle.version, id, blind.plans)), "blind")).toBe("AP009");
+    expect(await saveRevision(db, valid.value, revision.plans)).toEqual({ kind: "saved", id });
+
+    // The skip still describes the dose it was made for: same key, time and dose, still skipped.
+    const after = await occurrenceOn(db, id, d(0));
+    expect(after).toMatchObject({ key: later.key, scheduledAt: later.scheduledAt, doseMg: later.doseMg, skipped: true });
+    expect((await occurrenceOn(db, id, d(1))).localTime).toBe("21:00");
+  });
+
+  it("won't end a plan before its skipped later-today dose from today; ending it after that dose from tomorrow works", async () => {
+    const { id, later } = await skippedToday();
+    const control = await skippedToday(peptide.b);
+    await skipDose(later);
+    const endYesterday = (plans: PlanArg[]) => void (plans[0].phases[0].end_date = d(-1));
+    expect(await edit(id, d(0), endYesterday), "end before the skipped dose").toBe("AP009");
+    expect(await edit(control.id, d(0), endYesterday), "control").toBe("ok");
+
+    // The app offers tomorrow; ending today keeps the skipped dose.
+    const cycle = (await getCycle(db, id))!;
+    const confirmations = await cycleConfirmations(db, id);
+    const window = editWindow(cycle.revisions, new Date(), confirmations);
+    expect([...window.effective.values()]).toEqual([d(1)]);
+    const form = formOfCycle(cycle, window.effective, d(0));
+    form.plans[0].phases[0].end = d(0);
+    const valid = validateCycle(form, await listCyclePeptides(db));
+    if (!valid.ok) throw new Error(valid.errors.join("; "));
+    const revision = reviseCycle(cycle.revisions, valid.value, new Date(), confirmations);
+    if (!revision.ok) throw new Error(JSON.stringify(revision.issues));
+    expect(await saveRevision(db, valid.value, revision.plans)).toEqual({ kind: "saved", id });
+    const left = (await occurrencesOf(db, id)).filter((o) => o.localDate >= d(0));
+    expect(left.map((o) => [o.key, o.skipped])).toEqual([[later.key, true]]);
+  });
+
+  it("won't remove a plan whose only dose so far was skipped", async () => {
+    // A is due (08:00 passed). B starts today at 20:00, and that dose is skipped this morning.
+    const id = await createCycle(db, {
+      timeZone: NOON,
+      plans: [plan(peptide.a, [interval(d(-1), d(10), "1", 1, "08:00")]), plan(peptide.b, [interval(d(0), d(10), "1", 1, "20:00")])],
+    });
+    const bPlan = (await current(id, d(1))).plans[1].plan_id!;
+    const b = await occurrenceOn(db, id, d(0), bPlan);
+    const cycle = (await getCycle(db, id))!;
+    // Before the skip, B may go.
+    expect(editWindow(cycle.revisions, new Date(), await cycleConfirmations(db, id)).started.has(bPlan)).toBe(false);
+    await skipDose(b);
+    const confirmations = await cycleConfirmations(db, id);
+    const window = editWindow(cycle.revisions, new Date(), confirmations);
+    expect(window.started.has(bPlan)).toBe(true);
+
+    const form = formOfCycle(cycle, window.effective, d(0));
+    form.plans = form.plans.filter((p) => p.planId !== bPlan);
+    const valid = validateCycle(form, await listCyclePeptides(db));
+    if (!valid.ok) throw new Error(valid.errors.join("; "));
+    const revision = reviseCycle(cycle.revisions, valid.value, new Date(), confirmations);
+    expect(revision).toEqual({ ok: false, issues: [{ code: "plan-started", peptideId: peptide.b }] });
+    expect(await edit(id, d(1), (plans) => [plans[0]]), "remove B").toBe("AP009");
+    expect((await getCycle(db, id))!.revisions).toHaveLength(1);
   });
 });
 

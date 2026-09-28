@@ -81,7 +81,7 @@ test("Today confirms the due dose in one tap and the badge follows", async ({ pa
   // Today's doses on the day rail, unconfirmed doses newest first, then each plan's next dose.
   const today = page.locator('[data-testid="today-row"][data-kind="today"]');
   await expect(today.getByTestId("today-row-title")).toHaveText([new RegExp(`^${A} `), new RegExp(`^${B} `)]);
-  await expect(page.getByTestId("today-overdue")).toContainText([`${B} · 1 mgNot logged`, `${A} · 0.4 mgNot logged`]);
+  await expect(page.getByTestId("today-overdue")).toContainText([`${B} · 1 mgNot logged`, `${A} · 400 mcgNot logged`]);
   await expect(page.locator('[data-testid="today-row"][data-kind="next"]').getByTestId("today-row-title")).toHaveText([
     new RegExp(`^${B} `),
     new RegExp(`^${A} `),
@@ -91,7 +91,7 @@ test("Today confirms the due dose in one tap and the badge follows", async ({ pa
   await expect.poll(() => lastBadge(page)).toBe(4);
 
   await (await hydrated(hero.getByRole("button", { name: "Taken", exact: true }))).click();
-  await expect(page.getByRole("status").filter({ hasText: `${A} · 0.4 mg logged at ` })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: `${A} · 400 mcg logged at ` })).toBeVisible();
   await expect.poll(() => lastBadge(page)).toBe(3);
   // B's 09:00 dose leads now, in mg (no saved mixture); A's shows as taken today, at the suggested site.
   await expect(hero.getByTestId("hero-name")).toHaveText(B);
@@ -134,10 +134,11 @@ test("the sheet records an earlier time, the amount, a site and notes", async ({
   await expect(sheet.getByTestId("sheet-units")).toHaveText("= 8 units");
 
   await sheet.getByRole("button", { name: "Change the amount taken" }).click();
-  const amount = sheet.getByLabel(/^Amount taken \(mg\)/);
-  await amount.fill("0.35");
+  const amount = sheet.getByLabel(/^Amount taken \(mcg\)/);
+  await expect(amount).toHaveValue("400");
+  await amount.fill("350");
   await expect(sheet.getByTestId("sheet-units")).toHaveText("= 7 units · not on a line");
-  await amount.fill("0.3");
+  await amount.fill("300");
   await expect(sheet.getByTestId("sheet-units")).toHaveText("= 6 units");
   await sheet.getByRole("button", { name: "Earlier…" }).click();
   await expect(date).toHaveValue(d(-2));
@@ -162,7 +163,7 @@ test("the sheet records an earlier time, the amount, a site and notes", async ({
   await sheet.getByRole("button", { name: "Log at 7:40 AM" }).click();
 
   await expect(sheet).toBeHidden();
-  await expect(page.getByRole("status").filter({ hasText: `${A} · 0.3 mg logged at 7:40 AM` })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: `${A} · 300 mcg logged at 7:40 AM` })).toBeVisible();
   await expect.poll(() => lastBadge(page)).toBe(3);
   await expect(page.getByTestId("today-overdue").filter({ hasText: A })).toHaveCount(0);
 
@@ -195,9 +196,9 @@ test("a Taken from a screen whose mixture changed elsewhere is refused and shows
   await expect(hero.getByTestId("hero-units")).toHaveText("16");
   expect(await doses(cycleId)).toEqual([]);
 
-  await sheet.getByRole("button", { name: "Taken · 0.4 mg" }).click();
+  await sheet.getByRole("button", { name: "Taken · 400 mcg" }).click();
   await expect(sheet).toBeHidden();
-  await expect(page.getByRole("status").filter({ hasText: `${A} · 0.4 mg logged at ` })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: `${A} · 400 mcg logged at ` })).toBeVisible();
   expect(await doses(cycleId)).toHaveLength(1);
 });
 

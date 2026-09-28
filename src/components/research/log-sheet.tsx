@@ -10,8 +10,8 @@ import { SyringeRuler } from "@/components/alpha/gauges";
 import { Segmented } from "@/components/alpha/segmented";
 import { Sheet, SheetClose, SheetContent } from "@/components/alpha/sheet";
 import { SYRINGE_CAPACITIES, SYRINGE_LABEL, type SyringeCapacity } from "@/lib/calculator/calculator";
-import { Exact, formatAmount, formatRatio, parseDecimal } from "@/lib/calculator/decimal";
-import { clock12, wallWhen, weekdayOf } from "@/lib/alpha/format";
+import { Exact, formatRatio, parseDecimal } from "@/lib/calculator/decimal";
+import { clock12, inMassUnit, massLabel, massUnit, mgFromUnit, wallWhen, weekdayOf } from "@/lib/alpha/format";
 import {
   confirmFormError,
   daysBetween,
@@ -256,7 +256,11 @@ function LogForm({
   onSkip: () => void;
 }) {
   const late = detail.state === "open";
-  const [amount, setAmountValue] = useState(detail.doseMg);
+  // The amount is entered in the planned dose's unit (mcg under 1 mg) and
+  // kept as typed; what is calculated with and sent is always mg, exact.
+  const unit = massUnit(detail.doseMg);
+  const [amountText, setAmountValue] = useState(() => inMassUnit(detail.doseMg, unit));
+  const amount = mgFromUnit(amountText, unit);
   const [editAmount, setEditAmount] = useState(false);
   const [when, setWhenValue] = useState<TimeState>(() => ({
     mode: late ? "earlier" : "now",
@@ -291,6 +295,9 @@ function LogForm({
   const shownCapacity = capacity ?? setup?.syringe ?? 100;
   const draw = drawDisplay(setup, amount);
   const amountValue = parseDecimal(amount);
+  const amountLabel = amountText.trim() === "" ? "—" : amountValue ? massLabel(amountValue) : `${amountText} ${unit}`;
+  const plannedValue = parseDecimal(detail.doseMg);
+  const differs = !amountValue || !plannedValue || !amountValue.equals(plannedValue);
   const daysLate = isWall(time) ? daysBetween(time.slice(0, 10), now.slice(0, 10)) : 0;
   const shown = error ?? refused;
 
@@ -306,9 +313,9 @@ function LogForm({
   if (vial) {
     const after = amountValue ? new Exact(vial.remainingMg).minus(amountValue) : null;
     const low = after !== null && (after.isNegative() || (detail.vialNextMg !== null && after.lessThan(detail.vialNextMg)));
-    vialAfter = { text: after ? `${formatAmount(after)} mg` : "—", sub: `of ${formatAmount(new Exact(vial.strengthMg))} · vial ${vial.label}`, low };
+    vialAfter = { text: after ? massLabel(after) : "—", sub: `of ${massLabel(vial.strengthMg)} · vial ${vial.label}`, low };
   }
-  const primaryLabel = late && actual !== null && isWall(actual) ? `Log at ${clock12(actual.slice(11, 16))}` : `Taken · ${amount || "—"} mg`;
+  const primaryLabel = late && actual !== null && isWall(actual) ? `Log at ${clock12(actual.slice(11, 16))}` : `Taken · ${amountLabel}`;
 
   return (
     <SheetContent
@@ -371,8 +378,8 @@ function LogForm({
         ) : (
           <div className="mt-3">
             <div className="flex items-baseline gap-2">
-              <span className="text-[56px] leading-none font-semibold tracking-[-0.05em]">{amount || "—"}</span>
-              <span className="font-mono text-[19px] text-ink-3">mg</span>
+              <span className="text-[56px] leading-none font-semibold tracking-[-0.05em]">{amountText || "—"}</span>
+              <span className="font-mono text-[19px] text-ink-3">{unit}</span>
             </div>
             <p className="mt-2 flex gap-1.5 text-[13px] text-ink-2">
               <Info className="mt-0.5 size-[15px] shrink-0" aria-hidden />
@@ -395,7 +402,7 @@ function LogForm({
         <div className="min-w-0 px-3 py-2.5">
           <div className="text-[12px] font-semibold text-ink-3">Dose</div>
           <div className="mt-0.5 flex items-center gap-1">
-            <span className="truncate font-mono text-[15px] font-semibold">{amount || "—"} mg</span>
+            <span className="truncate font-mono text-[15px] font-semibold">{amountLabel}</span>
             <button
               type="button"
               aria-label="Change the amount taken"
@@ -409,7 +416,7 @@ function LogForm({
               <Pencil className="size-[15px]" aria-hidden />
             </button>
           </div>
-          {amount !== detail.doseMg ? <div className="truncate text-[12px] text-ink-3">planned {detail.doseMg} mg</div> : null}
+          {differs ? <div className="truncate text-[12px] text-ink-3">planned {massLabel(detail.doseMg)}</div> : null}
         </div>
         <div className="min-w-0 px-3 py-2.5">
           <div className="text-[12px] font-semibold text-ink-3">Mix</div>
@@ -438,8 +445,8 @@ function LogForm({
       </div>
 
       {editAmount ? (
-        <Field label="Amount taken (mg)" description={`Planned ${detail.doseMg} mg`} className="px-2">
-          <NumberInput ref={amountRef} unit="mg" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        <Field label={`Amount taken (${unit})`} description={`Planned ${massLabel(detail.doseMg)}`} className="px-2">
+          <NumberInput ref={amountRef} unit={unit} value={amountText} onChange={(e) => setAmount(e.target.value)} />
         </Field>
       ) : null}
 

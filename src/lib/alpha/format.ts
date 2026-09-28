@@ -2,6 +2,8 @@
 // §5 "Number formatting rules"). Pure and client-safe. The mocks use the
 // 12-hour clock ("7:30 AM"); dates in lists are "Thu, Sep 24". Times are
 // wall-clock times already resolved in the right zone ("HH:MM").
+import type Decimal from "decimal.js";
+import { Exact, formatAmount, parseDecimal, plain } from "@/lib/calculator/decimal";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -42,4 +44,45 @@ export function untilLabel(ms: number): string {
   const rest = minutes % 60;
   if (hours === 0) return `In ${rest} min`;
   return rest === 0 ? `In ${hours} h` : `In ${hours} h ${rest} min`;
+}
+
+// ── Peptide amounts (design v3: "BPC-157 · 250 mcg") ─────────────────────────
+
+/** The unit an amount of peptide is shown in. */
+export type MassUnit = "mcg" | "mg";
+
+const THOUSAND = new Exact(1000);
+const asExact = (mg: string | Decimal) => (typeof mg === "string" ? parseDecimal(mg) : new Exact(mg));
+
+/** mcg for an amount under 1 mg (other than 0), else mg. Stored values are always mg. */
+export function massUnit(mg: string | Decimal): MassUnit {
+  const value = asExact(mg);
+  return value && !value.isZero() && value.abs().lessThan(1) ? "mcg" : "mg";
+}
+
+/**
+ * An amount stored in mg as shown (COMPONENTS_AND_THEMING §5 units): under
+ * 1 mg in mcg ("0.25" → "250 mcg"), otherwise mg ("2.5 mg", "0 mg"). Only
+ * the unit changes: the value is the stored one times 1000, exact, shown by
+ * formatAmount's rule ("≈" only past 6 decimal places). Text that is not a
+ * decimal is shown as given, in mg.
+ */
+export function massLabel(mg: string | Decimal): string {
+  const value = asExact(mg);
+  if (!value) return `${String(mg)} mg`;
+  return massUnit(value) === "mcg" ? `${formatAmount(value.times(THOUSAND))} mcg` : `${formatAmount(value)} mg`;
+}
+
+/** A stored mg amount as a plain decimal in `unit`, exact ("0.25" → "250" in mcg): an input's starting text. */
+export function inMassUnit(mg: string, unit: MassUnit): string {
+  const value = parseDecimal(mg);
+  if (!value) return mg;
+  return plain(unit === "mcg" ? value.times(THOUSAND) : value);
+}
+
+/** Input text in `unit` as mg, exact ("250" mcg → "0.25"); text that is not a decimal comes back as typed (the form refuses it). */
+export function mgFromUnit(text: string, unit: MassUnit): string {
+  const value = parseDecimal(text);
+  if (!value) return text;
+  return plain(unit === "mcg" ? value.dividedBy(THOUSAND) : value);
 }

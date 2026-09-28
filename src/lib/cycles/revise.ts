@@ -163,9 +163,14 @@ function draftToEngine(planId: string | null, timeZone: string, phases: DraftPha
   };
 }
 
-/** Due (its time has come) or confirmed: an occurrence an edit may no longer change. */
+/**
+ * Due (its time has come), confirmed or skipped: an occurrence an edit may no
+ * longer change. A skip is settled history exactly like a confirmation (V1;
+ * save_cycle in 20260928100000_dose_skips_undo_sites.sql): a skipped
+ * later-today dose is never removed or retargeted by an edit from today.
+ */
 const settled = (o: Occurrence, now: Temporal.Instant) =>
-  o.actualAt !== null || Temporal.Instant.compare(Temporal.Instant.from(o.scheduledAt), now) <= 0;
+  o.actualAt !== null || o.skipped === true || Temporal.Instant.compare(Temporal.Instant.from(o.scheduledAt), now) <= 0;
 
 const atOrAfter = (o: Occurrence, seam: Temporal.Instant) => Temporal.Instant.compare(Temporal.Instant.from(o.scheduledAt), seam) >= 0;
 
@@ -179,9 +184,10 @@ const candidates = (today: LocalDate) => [0, 1, 2].map((day) => addDays(today, d
 /**
  * The next revision's plans from the cycle's revisions (oldest first; the
  * last is current) and the edited (and validated) plans, as of `now`.
- * `confirmations` are the cycle's recorded doses (S12); none exist before
- * S12. Plans left out of `edited.plans` are removed, which only a plan none
- * of whose doses is due or confirmed allows.
+ * `confirmations` are the cycle's recorded doses (S12) and skips (V1,
+ * `skipped: true`; settled like a dose taken). Plans left out of
+ * `edited.plans` are removed, which only a plan none of whose doses is due,
+ * confirmed or skipped allows.
  *
  * Per plan, the effective date E is the first candidate (today, tomorrow or
  * the day after, in the new zone) whose seam (its start in the new zone)
@@ -246,8 +252,8 @@ export type PhaseLock = "ended" | "started" | null;
  * For the builder: each plan's earliest effective date as of `now`, judged
  * on the plan so far alone (the first of today, tomorrow or the day after
  * whose seam, in the current zone, replaces only doses that are ahead and
- * unconfirmed), each stored phase's lock, and the plans that have started
- * (a dose due or confirmed: they can't be removed). The save re-checks with
+ * unconfirmed and not skipped), each stored phase's lock, and the plans
+ * that have started (a dose due, confirmed or skipped: they can't be removed). The save re-checks with
  * the edited plan (reviseCycle).
  */
 export function editWindow(

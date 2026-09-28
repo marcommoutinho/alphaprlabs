@@ -65,8 +65,8 @@ const as = (who: Name) =>
   `set local role authenticated;\nset local "request.jwt.claims" to '${JSON.stringify({ sub: id[who], role: "authenticated" })}';\n`;
 
 const deduction = (owner: Name, doseId: string, vialId: string) =>
-  `insert into public.personal_vial_deductions (owner_id, dose_id, vial_id, amount_mg, remaining_before_mg, remaining_after_mg, recorded_at)
-   values ('${id[owner]}', '${doseId}', '${vialId}', 0.4, 9.6, 9.2, now())`;
+  `insert into public.personal_vial_deductions (owner_id, dose_id, vial_id, amount_mg, remaining_before_mg, remaining_after_mg, recorded_at, vial_sequence)
+   values ('${id[owner]}', '${doseId}', '${vialId}', 0.4, 9.6, 9.2, now(), 1000)`;
 
 describe("composite keys keep supplies on one owner", () => {
   it("refuse another owner's mixture, another peptide's mixture, and a dose and vial of different owners", () => {

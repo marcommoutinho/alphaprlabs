@@ -25,7 +25,7 @@ export const AMOUNT_LIMIT = "100000";
 
 // ── Copy ────────────────────────────────────────────────────────────────────
 
-export const AMOUNT_REQUIRED = "Enter the amount actually taken, in mg.";
+export const AMOUNT_REQUIRED = "Enter the amount actually taken.";
 export const AMOUNT_TOO_LARGE = "The amount can be up to 100,000 mg.";
 export const TIME_REQUIRED = "Enter when you actually took it.";
 export const TIME_FUTURE = "The actual time can't be in the future.";

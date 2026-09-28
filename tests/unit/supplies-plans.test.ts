@@ -222,9 +222,9 @@ describe("two plans sharing one mixture", () => {
     });
     expect(stock).toEqual(
       new Map([
-        [P1, "Vial A-01 is low · 0.5 mg left (estimate)"],
-        [P2, "Vial A-01 is low · 0.5 mg left (estimate)"],
-        [P3, "Vial B-01 is low · 0.1 mg left (estimate)"],
+        [P1, "Vial A-01 is low · 500 mcg left (estimate)"],
+        [P2, "Vial A-01 is low · 500 mcg left (estimate)"],
+        [P3, "Vial B-01 is low · 100 mcg left (estimate)"],
       ]),
     );
     const today = todayView({
@@ -245,9 +245,9 @@ describe("two plans sharing one mixture", () => {
       now: NOON,
     });
     const noteOf = (planId: string) => [today.hero, ...today.rows].filter((r) => r?.key.startsWith(planId) && r.stockNote).map((r) => r!.stockNote);
-    expect(new Set(noteOf(P1))).toEqual(new Set(["Vial A-01 is low · 0.5 mg left (estimate)"]));
-    expect(new Set(noteOf(P2))).toEqual(new Set(["Vial A-01 is low · 0.5 mg left (estimate)"]));
-    expect(new Set(noteOf(P3))).toEqual(new Set(["Vial B-01 is low · 0.1 mg left (estimate)"]));
+    expect(new Set(noteOf(P1))).toEqual(new Set(["Vial A-01 is low · 500 mcg left (estimate)"]));
+    expect(new Set(noteOf(P2))).toEqual(new Set(["Vial A-01 is low · 500 mcg left (estimate)"]));
+    expect(new Set(noteOf(P3))).toEqual(new Set(["Vial B-01 is low · 100 mcg left (estimate)"]));
     // An estimate check: the same vial, same numbers.
     expect(vialEstimate(vA.strengthMg, [{ amountMg: "7.5" }]).remainingMg).toBe("0.5");
   });

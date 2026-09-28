@@ -40,7 +40,7 @@ test.describe("phone, light", () => {
     expect(await noSideScroll(page)).toBe(true);
 
     await (await hydrated(hero.getByRole("button", { name: "Taken", exact: true }))).click();
-    const toast = page.getByRole("status").filter({ hasText: `${A} · 0.4 mg logged at ` });
+    const toast = page.getByRole("status").filter({ hasText: `${A} · 400 mcg logged at ` });
     await expect(toast).toBeVisible();
     await expect(page.getByTestId("today-done")).toHaveText("1 of 3 done");
     await expect(hero.getByTestId("hero-name")).not.toHaveText(A);
@@ -57,7 +57,7 @@ test.describe("phone, light", () => {
 
     // A new Taken records it again (a new request).
     await hero.getByRole("button", { name: "Taken", exact: true }).click();
-    await expect(page.getByRole("status").filter({ hasText: `${A} · 0.4 mg logged at ` })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: `${A} · 400 mcg logged at ` })).toBeVisible();
     await expect.poll(async () => (await table("dose_records", cycleId)).length).toBe(1);
   });
 
@@ -88,7 +88,7 @@ test.describe("phone, dark", () => {
     const after = due.getByTestId("sheet-vial-after");
     await expect(after).toHaveAttribute("data-low", "true");
     await expect(after).toContainText("Vial after · low");
-    await expect(after).toContainText("0.2 mg");
+    await expect(after).toContainText("200 mcg");
     await expect(after).toContainText(`vial ${vialLabel}`);
     // The draw's syringe switch re-scales the ruler; the units stay.
     await due.getByRole("button", { name: "30", exact: true }).click();
@@ -110,7 +110,7 @@ test.describe("phone, dark", () => {
     await sheet.getByLabel("Time", { exact: true }).fill("10:15");
     await sheet.getByRole("button", { name: "Log at 10:15 AM" }).click();
     await expect(sheet).toBeHidden();
-    await expect(page.getByRole("status").filter({ hasText: `${A} · 0.4 mg logged at 10:15 AM` })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: `${A} · 400 mcg logged at 10:15 AM` })).toBeVisible();
 
     const [dose] = await table("dose_records", cycleId);
     expect(Date.parse(dose.actual_at as string)).toBe(Date.parse(noonZoneInstant(d(-2), "10:15")));
@@ -119,11 +119,11 @@ test.describe("phone, dark", () => {
     // No mixture then, so nothing was deducted: nothing is low yet. Today's Taken leaves 0.2 mg.
     await expect(page.getByTestId("today-low")).toHaveCount(0);
     await page.getByTestId("today-hero").getByRole("button", { name: "Taken", exact: true }).click();
-    await expect(page.getByRole("status").filter({ hasText: `${A} · 0.4 mg logged at ` })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: `${A} · 400 mcg logged at ` })).toBeVisible();
     // The vial is now low: the Supplies row says so and links to it.
     const low = page.getByTestId("today-low");
     await expect(low).toContainText(`vial ${vialLabel}`);
-    await expect(low).toContainText("Low · 0.2 mg left, less than the next 0.4 mg dose");
+    await expect(low).toContainText("Low · 200 mcg left, less than the next 400 mcg dose");
     await expect(low).toHaveAttribute("href", "/app/supplies");
     expect(await noSideScroll(page)).toBe(true);
   });
