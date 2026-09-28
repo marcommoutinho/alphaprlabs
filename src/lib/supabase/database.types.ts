@@ -290,18 +290,21 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          low_stock_threshold: number
           peptide_id: string
           strength_mg: number
         }
         Insert: {
           created_at?: string
           id?: string
+          low_stock_threshold?: number
           peptide_id: string
           strength_mg: number
         }
         Update: {
           created_at?: string
           id?: string
+          low_stock_threshold?: number
           peptide_id?: string
           strength_mg?: number
         }
@@ -311,6 +314,51 @@ export type Database = {
             columns: ["peptide_id"]
             isOneToOne: false
             referencedRelation: "peptides"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      business_stock_threshold_changes: {
+        Row: {
+          changed_at: string
+          changed_by: string
+          id: string
+          previous_threshold: number
+          request_key: string
+          stock_item_id: string
+          threshold: number
+        }
+        Insert: {
+          changed_at?: string
+          changed_by: string
+          id?: string
+          previous_threshold: number
+          request_key: string
+          stock_item_id: string
+          threshold: number
+        }
+        Update: {
+          changed_at?: string
+          changed_by?: string
+          id?: string
+          previous_threshold?: number
+          request_key?: string
+          stock_item_id?: string
+          threshold?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "business_stock_threshold_changes_changed_by_fkey"
+            columns: ["changed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "business_stock_threshold_changes_stock_item_id_fkey"
+            columns: ["stock_item_id"]
+            isOneToOne: false
+            referencedRelation: "business_stock_items"
             referencedColumns: ["id"]
           },
         ]
@@ -1799,11 +1847,55 @@ export type Database = {
           unit_cost: string
         }[]
       }
+      admin_business_months: {
+        Args: { p_from: string; p_to: string }
+        Returns: {
+          cost: string
+          gross_profit: string
+          month: string
+          purchase_orders: number
+          purchases: string
+          revenue: string
+          sales: number
+          vials: number
+        }[]
+      }
       admin_business_outside_buyers: {
         Args: { p_search?: string }
         Returns: {
           buyer_name: string
           last_sold: string
+          revenue: string
+          sales: number
+          vials: number
+        }[]
+      }
+      admin_business_purchase_suppliers: {
+        Args: { p_from: string; p_to: string }
+        Returns: {
+          currencies: string[]
+          orders: number
+          supplier_key: string
+          supplier_name: string
+          total: string
+        }[]
+      }
+      admin_business_sales_by_day: {
+        Args: { p_from: string; p_to: string }
+        Returns: {
+          cost: string
+          day: string
+          gross_profit: string
+          revenue: string
+          sales: number
+          vials: number
+        }[]
+      }
+      admin_business_sales_summary: {
+        Args: { p_from: string; p_to: string }
+        Returns: {
+          cost: string
+          gross_profit: string
           revenue: string
           sales: number
           vials: number
@@ -1846,6 +1938,22 @@ export type Database = {
           sold: number
           stock_item_id: string
           strength_mg: string
+        }[]
+      }
+      admin_business_stock_levels: {
+        Args: { p_today?: string }
+        Returns: {
+          low_stock_threshold: number
+          on_hand: number
+          peptide_available: boolean
+          peptide_id: string
+          peptide_name: string
+          sold_30d: number
+          stock_item_id: string
+          strength_mg: string
+          threshold_changed_at: string
+          threshold_changed_by_name: string
+          value_at_cost: string
         }[]
       }
       admin_cycle_template_usage: {
@@ -2363,6 +2471,18 @@ export type Database = {
             }
             Returns: Json
           }
+      set_business_stock_threshold: {
+        Args: {
+          p_request_key: string
+          p_stock_item_id: string
+          p_threshold: number
+        }
+        Returns: {
+          item_id: string
+          replayed: boolean
+          threshold: number
+        }[]
+      }
       set_supplement_tracking: {
         Args: { p_enabled: boolean }
         Returns: boolean

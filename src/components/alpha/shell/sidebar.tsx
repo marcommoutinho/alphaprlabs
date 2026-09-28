@@ -21,8 +21,8 @@ export type SidebarCount = { text: string; tone: "missed" | "low" };
  *
  * The right-aligned counters come from `counts` and from the screens that
  * load them (./nav-counts): Today's overdue doses in `missed` (V1), and
- * Supplies' "low" / "3 low" in `low` (V3, from Today and Supplies).
- * TODO(V5): "3 low" on Stock in `low`.
+ * Supplies' "low" / "3 low" in `low` (V3, from Today and Supplies), and
+ * Stock's "3 low" in `low` (V5, from Business and Stock).
  */
 export function Sidebar({
   identity,

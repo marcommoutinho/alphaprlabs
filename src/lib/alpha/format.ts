@@ -1,7 +1,9 @@
 // Design v3 display formatting for times and dates (COMPONENTS_AND_THEMING
 // §5 "Number formatting rules"). Pure and client-safe. The mocks use the
 // 12-hour clock ("7:30 AM"); dates in lists are "Thu, Sep 24". Times are
-// wall-clock times already resolved in the right zone ("HH:MM").
+// wall-clock times already resolved in the right zone ("HH:MM"). Money is
+// "$3,925.00" (CAD; negative "− $40.14").
+import DecimalJs from "decimal.js";
 import type Decimal from "decimal.js";
 import { Exact, formatAmount, parseDecimal, plain } from "@/lib/calculator/decimal";
 
@@ -85,4 +87,40 @@ export function mgFromUnit(text: string, unit: MassUnit): string {
   const value = parseDecimal(text);
   if (!value) return text;
   return plain(unit === "mcg" ? value.dividedBy(THOUSAND) : value);
+}
+
+// ── Money (design v3 §5: "$3,925.00"; negative "− $40.14", U+2212) ─────────────
+
+const MINUS = "−";
+
+/** "1234567" → "1,234,567" (digits only). */
+const grouped = (digits: string) => digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+/**
+ * A CAD amount as shown: "$3,925.00", or "− $40.14" when negative (the true
+ * minus sign and a space; never "−$0.00"). Exact: the decimal string (or
+ * Decimal) is rounded half-up to cents with decimal.js, never through a
+ * binary float. `places: 0` gives whole dollars ("$890", chart scales).
+ */
+export function money(amount: string | Decimal, places: 0 | 2 = 2): string {
+  const value = new DecimalJs(amount.toString());
+  const fixed = value.abs().toFixed(places, DecimalJs.ROUND_HALF_UP);
+  const [whole, cents] = fixed.split(".");
+  const text = `$${grouped(whole)}${cents !== undefined ? `.${cents}` : ""}`;
+  return value.isNegative() && !new DecimalJs(fixed).isZero() ? `${MINUS} ${text}` : text;
+}
+
+/** "89.1%": `part` as a share of `whole`, one decimal, half-up; null when `whole` is 0. A negative share keeps the minus sign. */
+export function percentOf(part: string | Decimal, whole: string | Decimal): string | null {
+  const total = new DecimalJs(whole.toString());
+  if (total.isZero()) return null;
+  const share = new DecimalJs(part.toString()).dividedBy(total).times(100).toDecimalPlaces(1, DecimalJs.ROUND_HALF_UP);
+  const text = `${share.abs().toFixed(1)}%`;
+  return share.isNegative() && !share.isZero() ? `${MINUS}${text}` : text;
+}
+
+/** "2026-09-24" → "Sep 24". */
+export function monthDay(date: string): string {
+  const p = parts(date);
+  return `${p.month} ${p.day}`;
 }

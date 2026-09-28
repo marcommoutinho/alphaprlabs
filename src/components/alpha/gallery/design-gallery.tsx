@@ -18,6 +18,9 @@ import { StatTile } from "../stat-tile";
 import { StateGlyph, type GlyphState } from "../state-glyph";
 import { Pill, Tag } from "../tag";
 import { useAlphaToast } from "../toast";
+import { LoadErrorPanel } from "@/components/business/stock-load-error";
+import { EmptyStockPanel } from "@/components/business/stock-screen";
+import { StockSkeletonRows } from "@/components/business/stock-skeleton";
 
 const SYRINGES = [
   { value: "100", label: "100" },
@@ -109,6 +112,7 @@ function Showcase() {
   const [shared, setShared] = useState(false);
   const [agreed, setAgreed] = useState(true);
   const [period, setPeriod] = useState("30");
+  const [retried, setRetried] = useState(0);
 
   return (
     <>
@@ -383,6 +387,20 @@ function Showcase() {
           </Skeleton>
           <Skeleton className="h-16 rounded-[18px]" />
         </SkeletonRegion>
+      </Section>
+
+      {/* V5 A6: the Stock states, which a working stock list never shows. */}
+      <Section title="Stock states">
+        <div className="flex flex-col gap-3" data-testid="gallery-stock-states">
+          <EmptyStockPanel />
+          <SkeletonRegion label="Loading stock">
+            <StockSkeletonRows />
+          </SkeletonRegion>
+          <LoadErrorPanel heading="Couldn't load stock" retry={() => setRetried((n) => n + 1)} />
+          <p className="px-2 font-mono text-[12px] text-ink-3" data-testid="gallery-retried">
+            Try again pressed {retried} {retried === 1 ? "time" : "times"}
+          </p>
+        </div>
       </Section>
     </>
   );

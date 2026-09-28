@@ -21,6 +21,7 @@
 @source not "../components/alpha";
 @source not "../components/app-shell";
 @source not "../components/auth";
+@source not "../components/business";
 @source not "../components/push";
 @source not "../components/research";
 

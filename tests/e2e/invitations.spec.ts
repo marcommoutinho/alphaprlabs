@@ -70,8 +70,9 @@ test("an admin invites an admin: confirm, accept from the email, and the new adm
 
   // The new admin opens the back office.
   await invitee.goto(`${APP_ORIGIN}/admin`);
-  await expect(invitee).toHaveURL(`${APP_ORIGIN}/admin/inventory`);
-  await expect(invitee.getByRole("heading", { level: 1 })).toHaveText("Inventory");
+  await expect(invitee).toHaveURL(`${APP_ORIGIN}/admin/business`);
+  // A desktop browser: A2 Overview.
+  await expect(invitee.getByRole("heading", { level: 1 })).toHaveText("Overview");
   expect((await serviceClient().from("profiles").select("role").eq("email", email)).data).toEqual([{ role: "admin" }]);
 
   // The used link can't be used again.

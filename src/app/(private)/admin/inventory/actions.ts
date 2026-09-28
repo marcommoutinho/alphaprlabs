@@ -45,6 +45,8 @@ import {
   type RecordedPurchase,
 } from "@/lib/inventory/service";
 import { createClient } from "@/lib/supabase/server";
+import { setStockThreshold } from "@/lib/business/service";
+import { parseThreshold } from "@/lib/business/stock";
 
 export type InventoryActionResult = {
   /** Inline error under the form. */
@@ -67,6 +69,7 @@ function revalidateStock(stockItemId: string) {
   revalidatePath(`/admin/inventory/${stockItemId}`);
   revalidatePath("/admin/inventory");
   revalidatePath("/admin/sales");
+  revalidatePath("/admin/business");
 }
 
 const SAVE_FAILED ="Could not save. Nothing was lost — your entry is still here. Try again.";
@@ -247,6 +250,8 @@ export async function linkSaleAction(input: unknown): Promise<LinkActionResult> 
       revalidatePath("/(private)/admin/inventory/[itemId]", "page");
       revalidatePath("/admin/sales");
       revalidatePath("/admin/sales/outside");
+      // Overview's recent sales name the buyer.
+      revalidatePath("/admin/business");
       refresh();
       const sale = await getSale(db, valid.value.saleId).catch(() => null);
       return { linked: true, toast: linkedToast(result.count, sale?.buyerName ?? "the account"), tone: "info" };
@@ -260,6 +265,52 @@ export async function linkSaleAction(input: unknown): Promise<LinkActionResult> 
       return { toast: SAVE_FAILED };
   }
 }
+
+export type ThresholdActionResult = { error?: string; saved?: boolean; threshold?: number };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const field = (input: unknown, name: string): unknown =>
+  typeof input === "object" && input !== null ? (input as Record<string, unknown>)[name] : undefined;
+
+/**
+ * A3 / D4: an item's reorder level (its low-stock threshold, default 10
+ * vials). Admins only: re-checked here and by set_business_stock_threshold,
+ * which records who set it and when. Idempotent by the request key the sheet
+ * made for this entry: a retry replays, the same key with another value is
+ * refused. Stock and the overview are refreshed.
+ */
+export async function setStockThresholdAction(input: unknown): Promise<ThresholdActionResult> {
+  const admin = await currentAdmin();
+  if (!admin) redirect(signInUrl({ next: "/admin/inventory" }));
+
+  const requestKey = field(input, "requestKey");
+  const stockItemId = field(input, "stockItemId");
+  if (typeof requestKey !== "string" || !UUID.test(requestKey) || typeof stockItemId !== "string" || !UUID.test(stockItemId)) {
+    return { error: THRESHOLD_SAVE_FAILED };
+  }
+  const threshold = parseThreshold(field(input, "threshold"));
+  if (!threshold.ok) return { error: threshold.error };
+
+  const db = await createClient();
+  const result = await setStockThreshold(db, { requestKey: requestKey.toLowerCase(), stockItemId, threshold: threshold.value });
+  switch (result.kind) {
+    case "saved":
+      revalidatePath("/admin/inventory");
+      revalidatePath("/admin/business");
+      return { saved: true, threshold: result.threshold };
+    case "unknown_item":
+      refresh();
+      return { error: ITEM_GONE };
+    case "conflict":
+      return { error: SUBMISSION_CONFLICT };
+    case "invalid":
+      return { error: "Enter a whole number of vials, 0 or more." };
+    default:
+      return { error: THRESHOLD_SAVE_FAILED };
+  }
+}
+
+const THRESHOLD_SAVE_FAILED = "Couldn't save. Your entry is still here. Try again.";
 
 /** The toast with the revenue and gross profit the database froze (not the preview's). */
 async function recordedSaleToast(db: Awaited<ReturnType<typeof createClient>>, saleId: string, quantity: number) {

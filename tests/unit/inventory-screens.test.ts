@@ -4,15 +4,17 @@
 // stock, so the "nothing yet" states can't be reached in a browser run).
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
-import { InventoryList, SalesReportView, StockItemView } from "@/components/admin/inventory-views";
+import { describe, expect, it, vi } from "vitest";
+import { SalesReportView, StockItemView } from "@/components/admin/inventory-views";
+import { StockScreen } from "@/components/business/stock-screen";
+
+vi.mock("@/app/(private)/admin/inventory/actions", () => ({ setStockThresholdAction: async () => ({}) }));
 import { allocateFifo, type FifoLot } from "@/lib/inventory/rules";
 import {
   accountMatches,
   allocationSummary,
   buyerLabel,
   businessToday,
-  INVENTORY_EMPTY,
   lotNote,
   NO_PURCHASES,
   NO_SALES,
@@ -168,11 +170,15 @@ const report = (hasPurchases: boolean, hasSales: boolean): SalesReport => ({
 });
 
 describe("designed empty states, rendered", () => {
-  it("A4 Inventory with no stock items", () => {
-    const page = html(createElement(InventoryList, { items: [] }));
-    expect(page).toContain(INVENTORY_EMPTY);
-    expect(page).not.toContain("Peptide · strength");
-    expect(page).toContain("Record purchase");
+  it("A6a Stock with no stock items: 0 vials, the designed words, and Record a purchase as the only action", () => {
+    const page = html(createElement(StockScreen, { items: [], initialFilter: "all" }));
+    const text = page.replace(/<[^>]+>/g, " ").replaceAll("&#x27;", "'").replace(/\s+/g, " ");
+    expect(text).toContain("0 vials");
+    expect(text).toContain("No stock recorded yet");
+    expect(text).toContain("Record a purchase to add the first peptide and vial strength. Sales can be recorded once there's stock.");
+    expect(page).toMatch(/<a[^>]*href="\/admin\/inventory\/purchase"[^>]*>Record a purchase<\/a>/);
+    expect(page).not.toContain("Record sale");
+    expect(page).not.toContain('data-testid="stock-table"');
   });
 
   it("A4 Stock item with no purchases and no sales; Record sale is disabled at 0 on hand", () => {

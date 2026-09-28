@@ -69,27 +69,26 @@ test("the handoff FIFO scenario: two purchases, a sale of 12, 8 left, 9 more blo
   await page.setViewportSize({ width: 1280, height: 900 });
   await signInAdmin(page);
 
-  // A4 Inventory
+  // A3 / D4 Stock (V5)
   await page.goto(`${APP_ORIGIN}/admin/inventory`);
-  await expect(h1(page)).toHaveText("Inventory");
-  await expect(
-    page.getByText("Whole vials on hand, counted per peptide and strength. Business stock only — never a researcher's personal supplies."),
-  ).toBeVisible();
-  await expect(activeNav(page)).toHaveText("Stock");
+  await expect(h1(page)).toHaveText("Stock");
+  await expect(page.getByTestId("stock-summary")).toHaveText(/^[\d,]+ vials? · \$[\d,]+\.\d{2} at cost$/);
+  await expect(activeNav(page)).toHaveText(/^Stock(\d+ low)?$/);
   // A7 and A4 are visited before anything is recorded: after each purchase and
   // sale they must show fresh data, never the client's copy of this visit.
   const nav = page.getByRole("navigation", { name: "Main" });
   await nav.getByRole("link", { name: "Ledger" }).click();
   await expect(h1(page)).toHaveText("Sales & gross profit");
   await nav.getByRole("link", { name: "Stock" }).click();
-  await expect(h1(page)).toHaveText("Inventory");
-  await expect(page.getByTestId("stock-row").filter({ hasText: peptide })).toHaveCount(0);
+  await expect(h1(page)).toHaveText("Stock");
+  await expect(page.getByTestId("stock-table-row").filter({ hasText: peptide })).toHaveCount(0);
   await page.getByRole("link", { name: "Record purchase" }).click();
 
   // A5, validation in the designed order.
   await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory/purchase`);
   await expect(h1(page)).toHaveText("Record purchase");
-  await expect(activeNav(page)).toHaveText("Stock");
+  // With Stock's low counter once loaded ("3 low").
+  await expect(activeNav(page)).toHaveText(/^Stock(\d+ low)?$/);
   const save = page.getByRole("button", { name: "Record purchase" });
   await hydrated(page.getByLabel("Vials", { exact: true }));
   await expect(page.getByLabel("Received")).toHaveValue(businessToday());
@@ -195,9 +194,10 @@ test("the handoff FIFO scenario: two purchases, a sale of 12, 8 left, 9 more blo
     "2 of 10 allocated to sales · cost locked",
   ]);
 
-  // A4 lists it: 8 on hand, 20 purchased, 12 sold.
-  await page.getByRole("link", { name: "‹ Inventory" }).click();
-  await expect(page.getByTestId("stock-row").filter({ hasText: peptide })).toHaveText(`${peptide} · 8 mg82012›`);
+  // Stock lists it: 8 on hand (low, under the default 10), the 8 left of the
+  // CAD 25.00 lot at cost, and the 12 sold today.
+  await page.getByRole("link", { name: "‹ Stock" }).click();
+  await expect(page.getByTestId("stock-table-row").filter({ hasText: peptide })).toHaveText(`${peptide} 8 mg8Low$200.00$25.0012`);
 
   // A7 for this item: totals match; last month has none of its sales.
   await nav.getByRole("link", { name: "Ledger" }).click();

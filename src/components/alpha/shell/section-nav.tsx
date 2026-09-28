@@ -12,17 +12,23 @@ import { useNavChoice } from "./nav-choice";
  * Links above a page that the tab bar and sidebar don't reach on their own:
  *
  * - Phone, admin area: the Business destinations (Overview, Stock, Ledger,
- *   Library, People), since the tab bar has one Business tab.
- *   TODO(V5): A1 Business links to Stock, Ledger and the rest from its own
- *   content; this row then goes.
+ *   Library, People), since the tab bar has one Business tab. A3 Stock (V5)
+ *   has its own "‹ Business" bar instead. A1 links to Stock and All sales
+ *   from its content, but Library and People have no other way in on a
+ *   phone yet.
+ *   TODO(V6 / V7): drop the row once Ledger, Library and People are
+ *   reachable from Business's own content.
  * - Both widths: the sections of a destination whose pages a later slice
  *   merges (Library: Peptides | Templates; People: Invitations | Support).
  *   TODO(V7): A8 / A11 replace these with their own controls.
  */
+/** Admin pages with their own back bar on the phone (A3 Stock's "‹ Business"). */
+const OWN_BACK_BAR = ["/admin/inventory"];
+
 export function SectionNav({ role }: { role: AppRole }) {
   const pathname = usePathname();
   const { chosen, choose } = useNavChoice();
-  const inBusiness = role === "admin" && isUnder(pathname, "/admin");
+  const inBusiness = role === "admin" && isUnder(pathname, "/admin") && !OWN_BACK_BAR.includes(pathname);
   const section = sectionNavFor(pathname);
   if (!inBusiness && !section) return null;
 

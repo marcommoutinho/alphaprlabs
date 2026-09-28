@@ -29,11 +29,11 @@ describe("app shell navigation (design v3)", () => {
       today: "/app/today",
       cycles: "/app/cycles",
       progress: "/app/progress",
-      business: "/admin/sales",
+      business: "/admin/business",
       me: "/app/me",
       library: "/app/library",
       supplies: "/app/supplies",
-      overview: "/admin/sales",
+      overview: "/admin/business",
       stock: "/admin/inventory",
       ledger: "/admin/sales",
       "admin-library": "/admin/library",
@@ -53,7 +53,7 @@ describe("app shell navigation (design v3)", () => {
     expect(activeKey(researcher, "/app/todays")).toBeNull();
 
     const admin = tabsFor("admin");
-    for (const path of ["/admin/sales", "/admin/inventory/purchase", "/admin/templates", "/admin/support/1"]) {
+    for (const path of ["/admin/business", "/admin/sales", "/admin/inventory/purchase", "/admin/templates", "/admin/support/1"]) {
       expect(activeKey(admin, path)).toBe("business");
     }
     expect(activeKey(admin, "/app/library")).toBeNull();
@@ -63,23 +63,25 @@ describe("app shell navigation (design v3)", () => {
     expect(activeKey(sidebarFor("researcher")[0].items, "/app/supplements")).toBe("supplies");
     expect(activeKey(sidebarFor("researcher")[0].items, "/app/me")).toBeNull();
     const business = businessItems();
-    expect(activeKey(business, "/admin/sales/outside")).toBe("overview");
+    expect(activeKey(business, "/admin/business")).toBe("overview");
+    expect(activeKey(business, "/admin/business/export")).toBe("overview");
+    expect(activeKey(business, "/admin/sales/outside")).toBe("ledger");
     expect(activeKey(business, "/admin/inventory/abc")).toBe("stock");
     expect(activeKey(business, "/admin/templates")).toBe("admin-library");
     expect(activeKey(business, "/admin/support/abc")).toBe("people");
     expect(activeKey(business, "/admin/design")).toBeNull();
   });
 
-  it("Overview and Ledger share Sales until V5 / V6: the one chosen is current, never both", () => {
+  it("Overview owns Business and Ledger owns Sales (V5): one current item, whatever was chosen", () => {
     const business = businessItems();
     const sidebar = sidebarFor("admin").flatMap((group) => group.items);
     for (const items of [business, sidebar]) {
-      expect(activeKey(items, "/admin/sales")).toBe("overview");
-      expect(activeKey(items, "/admin/sales", "ledger")).toBe("ledger");
-      expect(activeKey(items, "/admin/sales/outside", "ledger")).toBe("ledger");
-      expect(activeKey(items, "/admin/sales", "overview")).toBe("overview");
+      expect(activeKey(items, "/admin/business")).toBe("overview");
+      expect(activeKey(items, "/admin/business", "ledger")).toBe("overview");
+      expect(activeKey(items, "/admin/sales")).toBe("ledger");
+      expect(activeKey(items, "/admin/sales", "overview")).toBe("ledger");
+      expect(activeKey(items, "/admin/sales/outside")).toBe("ledger");
       // A choice that doesn't own the page is ignored.
-      expect(activeKey(items, "/admin/sales", "stock")).toBe("overview");
       expect(activeKey(items, "/admin/inventory", "ledger")).toBe("stock");
     }
   });

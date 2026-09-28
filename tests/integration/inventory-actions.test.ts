@@ -48,7 +48,7 @@ beforeEach(async () => {
 });
 
 /** The pages a recorded purchase or sale must never show from a cached copy. */
-const stockPages = (itemId: string) => [`/admin/inventory/${itemId}`, "/admin/inventory", "/admin/sales"];
+const stockPages = (itemId: string) => [`/admin/inventory/${itemId}`, "/admin/inventory", "/admin/sales", "/admin/business"];
 
 async function newPeptide(): Promise<string> {
   const name = `Compound S6 ${randomBytes(4).toString("hex")}`;
@@ -173,7 +173,7 @@ describe("A5 and A6 actions for an admin", () => {
       toast: "Linked 1 sale to Jordan Reyes.",
       tone: "info",
     });
-    expect(acting.revalidated).toEqual(["/(private)/admin/inventory/[itemId]", "/admin/sales", "/admin/sales/outside"]);
+    expect(acting.revalidated).toEqual(["/(private)/admin/inventory/[itemId]", "/admin/sales", "/admin/sales/outside", "/admin/business"]);
     // A second click: nothing more to link.
     expect(await linkSaleAction({ saleId: data!.id, profileId: jordanId })).toMatchObject({ linked: true, toast: "This sale was already linked to Jordan Reyes." });
     expect(await linkSaleAction({ saleId: data!.id, profileId: researcherId })).toEqual({ toast: LINK_NOT_LINKABLE });

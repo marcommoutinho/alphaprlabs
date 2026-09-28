@@ -88,19 +88,18 @@ const ME: NavItem = {
 const OVERVIEW: NavItem = {
   key: "overview",
   label: "Overview",
-  // TODO(V5): A1 / A2 Business overview. Closest today: Sales & gross profit.
-  href: "/admin/sales",
+  // A1 / A2 Business overview, A13 / D9 12 months (V5).
+  href: "/admin/business",
   icon: "overview",
-  match: ["/admin/sales"],
+  match: ["/admin/business"],
 };
 const STOCK: NavItem = { key: "stock", label: "Stock", href: "/admin/inventory", icon: "stock", match: ["/admin/inventory"] };
 const LEDGER: NavItem = {
   key: "ledger",
   label: "Ledger",
   // TODO(V6): A7 / A14 / D5 Ledger (sales and purchases by day or month).
-  // Closest today: the sales list on Sales & gross profit, which Overview
-  // also opens. Both own that page; the one the person chose is current
-  // there (see activeKey), Overview by default.
+  // Closest today: Sales & gross profit (every sale, filters and the
+  // per-seller totals), with its outside buyers.
   href: "/admin/sales",
   icon: "ledger",
   match: ["/admin/sales"],
@@ -150,11 +149,11 @@ export function businessItems(): readonly NavItem[] {
 }
 
 /**
- * The key of the item that owns `pathname`, or null. Until their slices build
- * them, two items can own the same page (Overview and Ledger both open Sales &
- * gross profit): then `chosen`, the item the person last picked, wins when it
- * is one of them, so exactly one item is current and it is the one they
- * clicked; otherwise the first owner.
+ * The key of the item that owns `pathname`, or null. Should two items ever
+ * own the same page (Overview and Ledger shared Sales & gross profit until
+ * V5), `chosen`, the item the person last picked, wins when it is one of
+ * them, so exactly one item is current and it is the one they clicked;
+ * otherwise the first owner.
  */
 export function activeKey(
   items: readonly { key: string; match: readonly string[] }[],

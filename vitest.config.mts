@@ -44,6 +44,10 @@ const EXCLUSIVE = [
   // business_sales and invitations columns) and tries the sale guard's one exception, always rolled back; it also
   // records 1,050 sales (committed, its own stock item) to prove the per-seller totals.
   "tests/integration/sellers-owner.test.ts",
+  // Owner-level psql records 1,210 sales (committed, in a past year no other test uses) to prove V5's Business
+  // aggregates, tries the stock guard's threshold exception, and re-applies the Business migration on recorded
+  // stock (dropping and re-adding a business_stock_items column), always rolled back.
+  "tests/integration/business-overview-owner.test.ts",
 ];
 
 export default defineConfig({

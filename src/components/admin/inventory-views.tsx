@@ -1,4 +1,5 @@
-// A4 Inventory, A4 Stock item and the A7 report body: server-rendered views
+// A4 Stock item and the A7 report body (the stock list is V5's A3 / D4:
+// src/components/business/stock-screen.tsx): server-rendered views
 // (no client state). Money arrives as exact decimal text from the service.
 import Link from "@/components/alpha/link";
 import { AppButton, EmptyState } from "@/components/app-shell/form";
@@ -6,8 +7,6 @@ import { formatCurrency, formatDate } from "@/lib/format";
 import {
   allocationSummary,
   buyerLabel,
-  INVENTORY_EMPTY,
-  INVENTORY_SUBTITLE,
   lotNote,
   NO_PURCHASES,
   NO_SALES,
@@ -23,7 +22,7 @@ import {
 } from "@/lib/inventory/screens";
 import { BY_SELLER_TITLE, OUTSIDE_LINK_NOTE, OUTSIDE_TITLE, sellerLine, sellerRowEmail, sellerRowLabel } from "@/lib/inventory/seller-screens";
 import type { SellerTotals } from "@/lib/inventory/sellers";
-import type { BuyerAccount, SaleRecord, SalesReport, StockItemDetail, StockItemSummary } from "@/lib/inventory/service";
+import type { BuyerAccount, SaleRecord, SalesReport, StockItemDetail } from "@/lib/inventory/service";
 import { LinkSale } from "./link-sale";
 import "@/styles/app/inventory.css";
 import "@/styles/app/sellers.css";
@@ -33,90 +32,13 @@ export const SALE_PATH = "/admin/inventory/sale";
 export const stockItemPath = (id: string) => `/admin/inventory/${id}`;
 const withItem = (path: string, id: string) => `${path}?item=${encodeURIComponent(id)}`;
 
-/** `Compound A` bold, then `· 8 mg` in text-3. */
-function ItemName({ item }: { item: Pick<StockItemSummary, "peptideName" | "strengthMg"> }) {
-  return (
-    <>
-      <b>{item.peptideName}</b> <span className="app-inv-muted">· {item.strengthMg} mg</span>
-    </>
-  );
-}
-
-/** A4 Inventory: whole vials per peptide and strength. */
-export function InventoryList({ items }: { items: StockItemSummary[] }) {
-  return (
-    <>
-      <div className="app-inv-head">
-        <div>
-          <h1 className="app-h1">Inventory</h1>
-          <p className="app-subtitle">{INVENTORY_SUBTITLE}</p>
-        </div>
-        <div className="app-inv-actions">
-          <Link href={PURCHASE_PATH} className="app-btn app-btn--secondary app-btn--sm">
-            Record purchase
-          </Link>
-          <Link href={SALE_PATH} className="app-btn app-btn--primary app-btn--sm">
-            Record sale
-          </Link>
-        </div>
-      </div>
-      {items.length === 0 ? (
-        <div className="app-inv-empty">
-          <EmptyState>{INVENTORY_EMPTY}</EmptyState>
-        </div>
-      ) : (
-        <div className="app-inv-table">
-          <div className="app-inv-grid app-inv-thead" aria-hidden="true">
-            <span>Peptide · strength</span>
-            <span className="app-inv-num">
-              On hand
-            </span>
-            <span className="app-inv-num">
-              Purchased
-            </span>
-            <span className="app-inv-num">
-              Sold
-            </span>
-            <span />
-          </div>
-          {items.map((item) => (
-            <Link
-              key={item.id}
-              href={stockItemPath(item.id)}
-              className="app-inv-grid app-inv-row"
-              data-testid="stock-row"
-              aria-label={`${item.label}: ${item.onHand} on hand, ${item.purchased} purchased, ${item.sold} sold`}
-            >
-              <span className="app-inv-name">
-                <ItemName item={item} />
-              </span>
-              <span className="app-inv-num app-inv-onhand" data-zero={item.onHand === 0 || undefined}>
-                {item.onHand}
-              </span>
-              <span className="app-inv-num app-inv-muted">
-                {item.purchased}
-              </span>
-              <span className="app-inv-num app-inv-muted">
-                {item.sold}
-              </span>
-              <span className="app-inv-chevron" aria-hidden="true">
-                ›
-              </span>
-            </Link>
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
-
 /** A4 Stock item: on hand, its purchase lots (FIFO order) and its sales (newest first). */
 export function StockItemView({ detail, linkAccounts }: { detail: StockItemDetail; linkAccounts?: BuyerAccount[] }) {
   const { item, lots, sales } = detail;
   return (
     <>
       <Link href="/admin/inventory" className="app-inv-back">
-        ‹ Inventory
+        ‹ Stock
       </Link>
       <div className="app-inv-head">
         <div>

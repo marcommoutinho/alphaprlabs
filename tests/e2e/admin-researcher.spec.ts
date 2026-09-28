@@ -67,7 +67,8 @@ test("an admin acknowledges, turns on reminders, uses the research side and swit
   // The admin's fourth tab, Business, switches to the back office; Today back.
   await expect(tabs.getByRole("link")).toHaveText(["Today", "Cycles", "Progress", "Business", "Me"]);
   await tabs.getByRole("link", { name: "Business" }).click();
-  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/sales`);
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/business`);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Business");
   await expect(tabs.locator('[aria-current="page"]')).toHaveText("Business");
   await expect(page.getByRole("navigation", { name: "Business" }).getByRole("link")).toHaveText([
     "Overview",

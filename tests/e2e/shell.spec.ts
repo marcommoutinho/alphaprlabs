@@ -197,8 +197,8 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(page.getByRole("navigation", { name: "Business" })).toHaveCount(0);
 
       await mainNav(page).getByRole("link", { name: "Business" }).click();
-      await expect(page).toHaveURL(`${APP_ORIGIN}/admin/sales`);
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sales & gross profit");
+      await expect(page).toHaveURL(`${APP_ORIGIN}/admin/business`);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Business");
       await expect(mainNav(page).locator('[aria-current="page"]')).toHaveText("Business");
       const business = page.getByRole("navigation", { name: "Business" });
       await expect(business.getByRole("link")).toHaveText(BUSINESS);
@@ -206,9 +206,13 @@ for (const scheme of ["light", "dark"] as const) {
 
       await business.getByRole("link", { name: "Stock" }).click();
       await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory`);
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Inventory");
-      await expect(business.locator('[aria-current="page"]')).toHaveText("Stock");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Stock");
       await expect(mainNav(page).locator('[aria-current="page"]')).toHaveText("Business");
+      // A3 Stock has its own bar back to Business in place of the Business links.
+      await expect(business).toHaveCount(0);
+      await page.getByTestId("stock").getByRole("link", { name: "Business", exact: true }).click();
+      await expect(page).toHaveURL(`${APP_ORIGIN}/admin/business`);
+      await expect(business.locator('[aria-current="page"]')).toHaveText("Overview");
 
       await business.getByRole("link", { name: "Library" }).click();
       await expect(page).toHaveURL(`${APP_ORIGIN}/admin/library`);
@@ -237,8 +241,9 @@ for (const scheme of ["light", "dark"] as const) {
 
       await mainNav(page).getByRole("link", { name: "Stock" }).click();
       await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory`);
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Inventory");
-      await expect(mainNav(page).locator('[aria-current="page"]')).toHaveText("Stock");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Stock");
+      // The item may carry its low counter ("3 low").
+      await expect(mainNav(page).locator('[aria-current="page"]')).toHaveText(/^Stock(\d+ low)?$/);
       await expect(page.getByRole("navigation", { name: "Business" })).toBeHidden();
       await expect(tabBar(page)).toBeHidden();
 
@@ -251,10 +256,12 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(mainNav(page).locator('[aria-current="page"]')).toHaveText("People");
 
       await mainNav(page).getByRole("link", { name: "Overview" }).click();
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sales & gross profit");
+      await expect(page).toHaveURL(`${APP_ORIGIN}/admin/business`);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Overview");
       await expect(mainNav(page).locator('[aria-current="page"]')).toHaveText("Overview");
-      // Ledger opens the same page until V6: it alone is then current.
+      // Ledger opens Sales & gross profit until V6: it alone is then current.
       await mainNav(page).getByRole("link", { name: "Ledger" }).click();
+      await expect(page).toHaveURL(`${APP_ORIGIN}/admin/sales`);
       await expect(mainNav(page).locator('[aria-current="page"]')).toHaveText("Ledger");
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sales & gross profit");
       await mainNav(page).getByRole("link", { name: "Overview" }).click();

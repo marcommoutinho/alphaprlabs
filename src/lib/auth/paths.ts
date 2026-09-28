@@ -9,8 +9,8 @@ import type { AppRole } from "@/lib/app/identity";
  */
 export const RESEARCH_HOME = "/app/today";
 
-/** Home of the admin back office, reached from the account menu's "Admin" item. */
-export const ADMIN_HOME = "/admin/inventory";
+/** Home of the admin back office (A1 / A2 Business overview), reached from the Business tab and "/admin". */
+export const ADMIN_HOME = "/admin/business";
 
 export const SIGN_IN_PATH = "/auth";
 export const RECOVER_PATH = "/auth/recover";

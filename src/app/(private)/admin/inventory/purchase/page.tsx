@@ -24,7 +24,7 @@ export default async function RecordPurchasePage({ searchParams }: { searchParam
   return (
     <AppPage width="form">
       <Link href="/admin/inventory" className="app-inv-back">
-        ‹ Inventory
+        ‹ Stock
       </Link>
       <h1 className="app-h1">Record purchase</h1>
       <p className="app-subtitle">{PURCHASE_SUBTITLE}</p>
