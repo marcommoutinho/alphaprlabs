@@ -126,6 +126,51 @@ for (const [device, viewport] of [
   }
 }
 
+test("a peptide withdrawn after it went into a cycle stays openable from that cycle for its owner", async ({ page }) => {
+  const s = await seed("owner-withdrawn");
+  // Withdrawn after the cycle started using it.
+  await ok(serviceClient().from("peptides").update({ available: false }).eq("id", s.aId).select("id"), "withdraw");
+  await page.setViewportSize(PHONE);
+  await signInAs(page, APP_ORIGIN, s.email);
+  await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
+
+  // Hidden from browsing.
+  await page.goto(`${APP_ORIGIN}/app/library`);
+  await (await hydrated(page.getByLabel("Search peptides"))).fill(s.t);
+  await expect(page.getByTestId("library-peptide")).toHaveCount(1);
+  await expect(page.getByTestId("library-peptide")).toContainText(s.names.B);
+
+  // Opened from the cycle: the plan's peptide name links to R12.
+  await page.goto(`${APP_ORIGIN}/app/cycles/${s.cycleId}`);
+  const link = page.getByTestId("cycle-plan-card").getByTestId("plan-peptide-link");
+  await expect(link).toHaveText(s.names.A);
+  await expect(page.getByTestId("cycle-plan-card")).toContainText("Not offered");
+  await link.click();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/app/library/peptides/${s.aId}`);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(s.names.A);
+  await expect(page.getByTestId("peptide-withdrawn")).toContainText("Not offered");
+  // Its company content and Your mix, as before it was withdrawn.
+  await expect(page.getByTestId("peptide-summary")).toContainText("Studied in animal models.");
+  await expect(page.getByTestId("peptide-cycling-off")).toContainText("Four weeks off.");
+  await expect(page.getByTestId("your-mix").locator("dd")).toHaveText(["5 mg/mL", "250 mcg", "5 units"]);
+  // It can't start a new cycle.
+  await expect(page.getByTestId("add-to-cycle")).toHaveCount(0);
+  await page.goto(`${APP_ORIGIN}/app/cycles/new?peptide=${s.aId}`);
+  await expect(page.getByTestId("builder-title")).toHaveText("New cycle");
+  await expect(page.getByTestId("selected-peptides").getByRole("checkbox")).toHaveCount(0);
+
+  // Another researcher, whose cycles don't use it: not found.
+  const otherEmail = uniqueEmail("v4-library-not-owner");
+  await ensureAccount({ email: otherEmail, name: "Other Researcher", role: "researcher" });
+  const other = await page.context().browser()!.newContext({ viewport: PHONE });
+  const otherPage = await other.newPage();
+  await signInAs(otherPage, APP_ORIGIN, otherEmail);
+  await expect(otherPage).toHaveURL(`${APP_ORIGIN}/app/today`);
+  await otherPage.goto(`${APP_ORIGIN}/app/library/peptides/${s.aId}`);
+  await expect(otherPage.getByText("This page could not be found.")).toBeVisible();
+  await other.close();
+});
+
 test("a withdrawn peptide's page isn't browsable, and another researcher's cycle never marks a peptide", async ({ page }) => {
   const s = await seed("others");
   const otherEmail = uniqueEmail("v4-library-other");

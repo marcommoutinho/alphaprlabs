@@ -58,6 +58,14 @@ export const APPEARANCE_NOTE: Record<Appearance, string> = {
   dark: "Always dark",
 };
 
+/**
+ * R8's Appearance row: what the account holds; before the account has a
+ * choice, what this device shows, marked as this device's own.
+ */
+export function appearanceRowLabel(account: Appearance | null, device: Appearance): string {
+  return account ? APPEARANCE_LABEL[account] : `${APPEARANCE_LABEL[device]} · this device`;
+}
+
 /** What a preference save changes: one or more of the three. */
 export type PreferencePatch = Partial<{ defaultSyringe: SyringeCapacity; weightUnit: WeightUnit; appearance: Appearance }>;
 

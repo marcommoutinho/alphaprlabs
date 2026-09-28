@@ -201,7 +201,13 @@ function PlanCard({ plan, todayPercent }: { plan: PlanView; todayPercent: number
     <article className="rounded-[24px] border border-line bg-surface p-4" data-testid="cycle-plan-card" aria-labelledby={`plan-${plan.planId}`}>
       <div className="flex items-baseline justify-between gap-3">
         <h3 id={`plan-${plan.planId}`} className="flex min-w-0 items-center gap-2 text-[18px] font-semibold">
-          <span className="truncate">{plan.name}</span>
+          {plan.peptideId ? (
+            <Link href={`/app/library/peptides/${plan.peptideId}`} className="truncate hover:underline" data-testid="plan-peptide-link">
+              {plan.name}
+            </Link>
+          ) : (
+            <span className="truncate">{plan.name}</span>
+          )}
           {plan.notOffered ? <Tag tone="outline">Not offered</Tag> : null}
         </h3>
         <span className="shrink-0 font-mono text-[13px] font-medium text-ink-2" data-slot="count" aria-label={`${plan.count} doses taken`}>

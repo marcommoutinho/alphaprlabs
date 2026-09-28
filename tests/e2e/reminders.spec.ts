@@ -36,10 +36,12 @@ const foreground = (page: Page) => page.evaluate(() => document.dispatchEvent(ne
 const deviceRow = async (endpoint: string) =>
   (await serviceClient().from("push_subscriptions").select("disabled_reason, device_label, last_seen_at").eq("endpoint", endpoint).single()).data!;
 const rememberedDevice = (page: Page) => page.evaluate(() => localStorage.getItem("apl.reminders.device"));
-const statusValue = (page: Page, label: string) => page.locator(".app-reminders-row", { hasText: label }).locator("b");
-/** The push permission prompt's status rows (design v3, V4). */
-const promptValue = (page: Page, label: string) =>
+/** A device fact on the prompt or on Me › Dose reminders (design v3, V4). */
+const statusValue = (page: Page, label: string) =>
   page.locator(`[data-testid="reminder-status"][data-label="${label}"]`).getByTestId("reminder-status-value");
+const promptValue = statusValue;
+/** The v3 toast. */
+const toast = (page: Page) => page.locator('[data-slot="toast"]');
 
 /**
  * Holds this page's next device save (the saveDevice server action) until
@@ -144,14 +146,14 @@ test("turn reminders on and off; turn off and sign out win over a pending re-syn
   await expect(page.getByRole("button", { name: "Install app" })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Turn on reminders" }).click();
-  await expect(page.locator(".app-toast")).toHaveText("Reminders on for this device.");
+  await expect(toast(page)).toHaveText("Reminders on for this device.");
   await expect(statusValue(page, "Permission on this device")).toHaveText("Enabled");
   expect(await deviceRow(endpoint)).toMatchObject({ disabled_reason: null, device_label: expect.stringContaining("Chrome") });
 
   // Turn off while a foreground re-sync's save is still pending: the disable
   // goes out only after it, and the device is not remembered again.
   await withPendingSync(page, () => page.getByRole("button", { name: "Turn off reminders" }).click());
-  await expect(page.locator(".app-toast")).toHaveText("Reminders off. Your schedule is unchanged.");
+  await expect(toast(page)).toHaveText("Reminders off. Your schedule is unchanged.");
   expect(await deviceRow(endpoint)).toMatchObject({ disabled_reason: "turned_off" });
   expect(await rememberedDevice(page)).toBeNull();
 
@@ -190,7 +192,7 @@ test("a re-sync pending in another tab can't switch the phone back on after turn
     await save.held;
     if (reason === "turned_off") {
       await tabA.getByRole("button", { name: "Turn off reminders" }).click();
-      await expect(tabA.locator(".app-toast")).toHaveText("Reminders off. Your schedule is unchanged.");
+      await expect(toast(tabA)).toHaveText("Reminders off. Your schedule is unchanged.");
     } else {
       // On a phone, sign out lives on the Me tab (client-side navigation).
       await tabA.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Me" }).click();
@@ -246,7 +248,7 @@ test("a refused re-sync answered after a new Turn on in another tab doesn't undo
   await tabB.goto(`${APP_ORIGIN}/app/notifications`);
   await arrived.wait;
   await tabA.getByRole("button", { name: "Turn off reminders" }).click();
-  await expect(tabA.locator(".app-toast")).toHaveText("Reminders off. Your schedule is unchanged.");
+  await expect(toast(tabA)).toHaveText("Reminders off. Your schedule is unchanged.");
   send.open();
   await fetched.wait;
   await tabA.getByRole("button", { name: "Turn on reminders" }).click();

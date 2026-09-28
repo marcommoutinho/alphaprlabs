@@ -3,10 +3,11 @@ import { notFound } from "next/navigation";
 import { buttonVariants } from "@/components/alpha/button-variants";
 import Link from "@/components/alpha/link";
 import { NowBlock } from "@/components/alpha/now-block";
+import { Tag } from "@/components/alpha/tag";
 import { LIBRARY_MAIN } from "@/components/research/library/library-screen";
 import { requireResearcher } from "@/lib/auth/session";
 import { listCycles } from "@/lib/cycles/service";
-import { getAvailablePeptide } from "@/lib/library/research";
+import { getPeptideForDetail } from "@/lib/library/research";
 import { type Reading, SECTION_EMPTY, updatedLabel, yourMix } from "@/lib/library/screen";
 import { listMixtures } from "@/lib/mixtures/service";
 import { createClient } from "@/lib/supabase/server";
@@ -16,17 +17,19 @@ type Params = Promise<{ peptideId: string }>;
 
 /**
  * R12 Peptide detail (design v3): company content for an entry still
- * offered (a withdrawn entry is not browsable, Marco 2026-09-26, so it is
- * not found here; cycles that use it still show it). "Your mix" shows only
- * when one of the caller's own current cycles uses the peptide: that
+ * offered, or for a withdrawn one when a cycle of the caller's own uses it
+ * (opened from that cycle; Marco 2026-09-28). Anyone else, a withdrawn entry
+ * is not found (it is not browsable, Marco 2026-09-26). "Your mix" shows
+ * only when one of the caller's own current cycles uses the peptide: that
  * plan's saved mixture and dose through the calculator. "Add to a cycle"
- * opens the builder with the peptide checked.
+ * opens the builder with the peptide checked; a withdrawn entry can't start
+ * a new cycle, so it has none.
  */
 export default async function PeptidePage({ params }: { params: Params }) {
   const { peptideId } = await params;
   const person = await requireResearcher(`/app/library/peptides/${encodeURIComponent(peptideId)}`);
   const db = await createClient();
-  const peptide = await getAvailablePeptide(db, peptideId);
+  const peptide = await getPeptideForDetail(db, person.id, peptideId);
   if (!peptide) notFound();
   const [cycles, mixtures] = await Promise.all([listCycles(db, person.id), listMixtures(db, person.id)]);
   const mine = yourMix(peptide.id, cycles, mixtures, new Date());
@@ -46,6 +49,12 @@ export default async function PeptidePage({ params }: { params: Params }) {
           </Link>
           <div className="font-mono text-[13px] font-medium text-ink-3 laptop:mt-1">{updatedLabel(peptide.updatedAt)}</div>
           <h1 className="mt-0.5 text-[34px] leading-[1.15] font-semibold tracking-[-0.03em] break-words">{peptide.name}</h1>
+          {peptide.available ? null : (
+            <p className="mt-2 flex flex-wrap items-center gap-2 text-[14px] text-ink-2" data-testid="peptide-withdrawn">
+              <Tag tone="outline">Not offered</Tag>
+              No longer in the library. It stays in the cycles that use it.
+            </p>
+          )}
         </header>
 
         {mine ? (
@@ -87,16 +96,18 @@ export default async function PeptidePage({ params }: { params: Params }) {
           </Section>
         </div>
 
-        <div className="mx-3 mt-6 laptop:mx-0">
-          <Link
-            href={`/app/cycles/new?peptide=${peptide.id}`}
-            className={cn(buttonVariants({ variant: "ink", size: "lg", block: true }), "laptop:w-auto")}
-            data-testid="add-to-cycle"
-          >
-            <Plus className="size-5" aria-hidden />
-            Add to a cycle
-          </Link>
-        </div>
+        {peptide.available ? (
+          <div className="mx-3 mt-6 laptop:mx-0">
+            <Link
+              href={`/app/cycles/new?peptide=${peptide.id}`}
+              className={cn(buttonVariants({ variant: "ink", size: "lg", block: true }), "laptop:w-auto")}
+              data-testid="add-to-cycle"
+            >
+              <Plus className="size-5" aria-hidden />
+              Add to a cycle
+            </Link>
+          </div>
+        ) : null}
       </div>
     </main>
   );

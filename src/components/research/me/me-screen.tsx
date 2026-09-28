@@ -18,6 +18,7 @@ import { SYRINGE_CAPACITIES, type SyringeCapacity } from "@/lib/calculator/calcu
 import {
   APPEARANCE_LABEL,
   APPEARANCE_NOTE,
+  appearanceRowLabel,
   type PreferencePatch,
   type Preferences,
   SYRINGE_CHOICE_LABEL,
@@ -50,8 +51,10 @@ export type MeView = {
   /** "3 routines" (while supplement tracking is on). */
   routines: string;
   preferences: Preferences;
-  /** The appearance this device shows (the account's, else its own). */
-  appearance: Appearance;
+  /** The account's appearance, or null: never chosen on the account. */
+  appearance: Appearance | null;
+  /** This device's own choice (its cookie; System without one), shown while the account has none. */
+  deviceAppearance: Appearance;
 };
 
 const SUPPLEMENTS_NOTE = "Track supplement routines with reminders and Taken, beside your doses. Turning it off keeps every routine and record.";
@@ -327,7 +330,7 @@ function PreferencesGroup({ view }: { view: MeView }) {
   const save = useSheetAction(savePreferencesAction);
   const request = useRequestKey();
   const [picking, setPicking] = useState<Picking>(null);
-  const [shown, setShown] = useState<{ syringe: SyringeCapacity; weight: WeightUnit; appearance: Appearance } | null>(null);
+  const [shown, setShown] = useState<{ syringe: SyringeCapacity; weight: WeightUnit; appearance: Appearance | null } | null>(null);
   const current = save.pending && shown ? shown : { syringe: view.preferences.defaultSyringe, weight: view.preferences.weightUnit, appearance: view.appearance };
 
   const pick = (patch: PreferencePatch, next: typeof current) => {
@@ -348,7 +351,7 @@ function PreferencesGroup({ view }: { view: MeView }) {
       <Group className="mx-3 laptop:mx-0">
         <SettingRow label="Default syringe" value={SYRINGE_CHOICE_LABEL[current.syringe]} mono onClick={() => setPicking("syringe")} testId="pref-syringe" />
         <SettingRow label="Weight unit" value={WEIGHT_UNIT_LABEL[current.weight]} mono onClick={() => setPicking("weight")} testId="pref-weight" />
-        <SettingRow label="Appearance" value={APPEARANCE_LABEL[current.appearance]} onClick={() => setPicking("appearance")} testId="pref-appearance" />
+        <SettingRow label="Appearance" value={appearanceRowLabel(current.appearance, view.deviceAppearance)} onClick={() => setPicking("appearance")} testId="pref-appearance" />
       </Group>
       <ChoiceSheet<SyringeCapacity>
         open={picking === "syringe"}
@@ -370,6 +373,7 @@ function PreferencesGroup({ view }: { view: MeView }) {
         onClose={() => setPicking(null)}
         testId="choices-weight"
       />
+      {/* Checked: the account's choice only. Before one, nothing is checked, so any pick (even this device's) is saved. */}
       <ChoiceSheet<Appearance>
         open={picking === "appearance"}
         title="Appearance"

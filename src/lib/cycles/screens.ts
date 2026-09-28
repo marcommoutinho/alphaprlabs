@@ -184,6 +184,8 @@ export type PhaseLine = {
 
 export type PlanView = {
   planId: string;
+  /** The plan's peptide, for R12 (its detail page); null when its entry can't be read. */
+  peptideId: string | null;
   name: string;
   notOffered: boolean;
   /** Supplied cycling-off guidance, if any. */
@@ -296,6 +298,7 @@ function planView(
   }
   return {
     planId: plan.planId,
+    peptideId: peptide ? plan.peptideId : null,
     name: nameOf(peptides, plan.peptideId),
     notOffered: Boolean(peptide && !peptide.available),
     guidance: peptide?.cyclingOff ?? "",

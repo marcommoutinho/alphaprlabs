@@ -5,7 +5,6 @@ import { initialsOf } from "@/lib/app/identity";
 import { requireResearcher } from "@/lib/auth/session";
 import { formatMonthYear } from "@/lib/format";
 import { getSupplyTracking } from "@/lib/mixtures/service";
-import { resolveAppearance } from "@/lib/preferences/rules";
 import { getSupplementTracking, listRoutines } from "@/lib/supplements/service";
 import { listShareHistory } from "@/lib/support/service";
 import { shareEvents, sharingSince, SUPPORT_TIME_ZONE, supplementsSummary } from "@/lib/support/view";
@@ -44,7 +43,8 @@ export default async function MePage() {
         supplementTracking,
         routines: supplementsSummary(supplementTracking, routines, new Date()),
         preferences: person.preferences,
-        appearance: resolveAppearance(person.preferences.appearance, parseAppearance(jar.get(APPEARANCE_COOKIE)?.value)),
+        appearance: person.preferences.appearance,
+        deviceAppearance: parseAppearance(jar.get(APPEARANCE_COOKIE)?.value),
       }}
     />
   );

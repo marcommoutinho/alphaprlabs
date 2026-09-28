@@ -129,7 +129,8 @@ export type Choice<V extends string | number> = { value: V; label: string; note:
 
 /**
  * One preference's choices (R8 Preferences rows): a radio list in a sheet.
- * Picking one saves it at once and closes the sheet.
+ * Picking one saves it at once and closes the sheet; picking the saved one
+ * (checked) just closes it.
  */
 export function ChoiceSheet<V extends string | number>({
   open,
@@ -143,7 +144,8 @@ export function ChoiceSheet<V extends string | number>({
 }: {
   open: boolean;
   title: string;
-  value: V;
+  /** The saved choice, checked; null when nothing is saved yet. */
+  value: V | null;
   choices: readonly Choice<V>[];
   pending: boolean;
   onPick: (value: V) => void;

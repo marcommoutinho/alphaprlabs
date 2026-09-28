@@ -100,12 +100,29 @@ export async function listAvailablePeptides(db: Db, sizes: ReadSizes = {}): Prom
   return rows.map(peptideOf).sort(byName);
 }
 
-/** One available entry (peptide detail), or null: withdrawn entries are not browsable. */
-export async function getAvailablePeptide(db: Db, id: string): Promise<ResearchPeptide | null> {
+/**
+ * R12's entry for this researcher, or null. An available entry for anyone;
+ * a withdrawn one only when one of `ownerId`'s own cycles uses it (Marco,
+ * 2026-09-28: it stays openable from the owner's cycle while hidden from
+ * browsing and new cycles). That rule is checked here against the caller's
+ * own cycle plans, not left to the table's policy, which also lets a
+ * withdrawn entry through for a saved mixture or a personal vial.
+ */
+export async function getPeptideForDetail(db: Db, ownerId: string, id: string): Promise<ResearchPeptide | null> {
   if (!UUID.test(id)) return null;
-  const { data, error } = await db.from("peptides").select(PEPTIDE_COLUMNS).eq("id", id.toLowerCase()).eq("available", true).maybeSingle();
+  const peptideId = id.toLowerCase();
+  const { data, error } = await db.from("peptides").select(PEPTIDE_COLUMNS).eq("id", peptideId).maybeSingle();
   if (error) throw new Error(`Could not load the peptide: ${error.message}`);
-  return data ? peptideOf(data) : null;
+  if (!data) return null;
+  if (data.available) return peptideOf(data);
+  const { data: plans, error: planError } = await db
+    .from("cycle_plans")
+    .select("id")
+    .eq("owner_id", ownerId)
+    .eq("peptide_id", peptideId)
+    .limit(1);
+  if (planError) throw new Error(`Could not load the peptide's cycles: ${planError.message}`);
+  return (plans ?? []).length > 0 ? peptideOf(data) : null;
 }
 
 /**

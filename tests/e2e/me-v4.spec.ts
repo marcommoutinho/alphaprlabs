@@ -64,7 +64,7 @@ for (const [device, viewport] of [
       // The defaults: a 100-unit syringe, kg, and the device's own appearance.
       await expect(page.getByTestId("pref-syringe-value")).toHaveText("100-unit");
       await expect(page.getByTestId("pref-weight-value")).toHaveText("kg");
-      await expect(page.getByTestId("pref-appearance-value")).toHaveText("System");
+      await expect(page.getByTestId("pref-appearance-value")).toHaveText("System · this device");
       await expect(page.getByText("Alpha PR Labs · research use only · v3.0")).toBeVisible();
       expect(await background(page)).toBe(PAPER[scheme]);
       expect(await noSideScroll(page)).toBe(true);
@@ -169,6 +169,47 @@ test("preferences persist with the account, follow it to another device, and cha
   await context.close();
 });
 
+test("choosing the appearance this device already shows still saves it to the account", async ({ browser }) => {
+  const me = await account("appearance-same");
+  // This device chose Dark on its own (its cookie); the account has no choice yet.
+  const context = await browser.newContext({ viewport: PHONE, colorScheme: "light" });
+  await context.addCookies([{ name: "alpha-appearance", value: "dark", url: APP_ORIGIN }]);
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await openMe(page, me.email);
+  await expect(page.locator("html")).toHaveClass(/\bdark\b/);
+  await expect(page.getByTestId("pref-appearance-value")).toHaveText("Dark · this device");
+  await (await hydrated(page.getByTestId("pref-appearance"))).click();
+  const dialog = page.getByRole("dialog", { name: "Appearance" });
+  // Nothing is checked: the account holds no choice.
+  await expect(dialog.getByRole("radio", { checked: true })).toHaveCount(0);
+  await dialog.getByRole("radio", { name: /^Dark/ }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByTestId("pref-appearance-value")).toHaveText("Dark");
+  const { data: stored } = await serviceClient().from("account_preferences").select("appearance").eq("owner_id", me.id).single();
+  expect(stored?.appearance).toBe("dark");
+  // Now the account's: checked, and picking it again just closes the sheet.
+  // (The page keeps working after the save's refresh: no React error from the theme-color tags.)
+  await page.getByTestId("pref-appearance").click();
+  await expect(dialog.getByRole("radio", { name: /^Dark/ })).toHaveAttribute("aria-checked", "true");
+  await dialog.getByRole("radio", { name: /^Dark/ }).click();
+  await expect(dialog).toBeHidden();
+  await page.getByTestId("pref-weight").click();
+  await expect(page.getByRole("dialog", { name: "Weight unit" })).toBeVisible();
+  expect(errors).toEqual([]);
+  await context.close();
+
+  // Another device with no cookie and a light OS renders the account's Dark.
+  const other = await browser.newContext({ viewport: LAPTOP, colorScheme: "light" });
+  const laptop = await other.newPage();
+  await openMe(laptop, me.email);
+  await expect(laptop.locator("html")).toHaveClass(/\bdark\b/);
+  expect(await background(laptop)).toBe(PAPER.dark);
+  await expect(laptop.getByTestId("pref-appearance-value")).toHaveText("Dark");
+  await other.close();
+});
+
 test("the grant history lists each share and stop, newest first, on a laptop", async ({ page }) => {
   const me = await account("history");
   const db = await signedInClient(me.email);
@@ -208,6 +249,34 @@ for (const scheme of ["light", "dark"] as const) {
     await expect(sheet.getByRole("button", { name: "Not now" })).toBeVisible();
     await page.waitForTimeout(400); // the sheet's slide-in
     await shot(page, `r17-phone-${scheme}`);
+    await context.close();
+  });
+}
+
+for (const [device, viewport, scheme] of [
+  ["phone", PHONE, "light"],
+  ["phone", PHONE, "dark"],
+  ["laptop", LAPTOP, "light"],
+] as const) {
+  test(`Me › Dose reminders in v3 on a ${device} in ${scheme}`, async ({ browser }) => {
+    const context = await browser.newContext({ viewport, colorScheme: scheme });
+    const page = await context.newPage();
+    const me = await account(`reminders-${device}-${scheme}`);
+    await openMe(page, me.email);
+    await (await hydrated(page.getByTestId("me-reminders"))).click();
+    await expect(page).toHaveURL(`${APP_ORIGIN}/app/notifications`);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Reminders on this phone");
+    await expect(page.getByTestId("reminder-status")).toHaveCount(3);
+    await expect(page.locator('[data-testid="reminder-status"][data-label="Push supported"]').getByTestId("reminder-status-value")).not.toHaveText("Checking…");
+    // The v3 page: the paper background, no legacy shell, and the way back to Me.
+    expect(await background(page)).toBe(PAPER[scheme]);
+    await expect(page.locator("[data-legacy-page]")).toHaveCount(0);
+    const back = device === "phone" ? page.getByRole("navigation", { name: "Dose reminders" }).getByRole("link", { name: "Me" }) : page.getByRole("link", { name: "‹ Me" });
+    await expect(back).toBeVisible();
+    expect(await noSideScroll(page)).toBe(true);
+    await shot(page, `reminders-${device}-${scheme}`);
+    await back.click();
+    await expect(page).toHaveURL(`${APP_ORIGIN}/app/me`);
     await context.close();
   });
 }

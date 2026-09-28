@@ -10,6 +10,7 @@ import type { CycleForm, CycleRecord, CycleRevision } from "@/lib/cycles/rules";
 import { filterRows, libraryMeta, libraryRows, oneLine, peptidesInCycles, updatedLabel, yourMix } from "@/lib/library/screen";
 import type { Mixture } from "@/lib/mixtures/rules";
 import {
+  appearanceRowLabel,
   convertWeight,
   DEFAULT_PREFERENCES,
   KG_PER_LB,
@@ -98,6 +99,13 @@ describe("preferences", () => {
     expect(resolveAppearance("dark", "light")).toBe("dark");
     expect(resolveAppearance(null, "light")).toBe("light");
     expect(resolveAppearance("system", "dark")).toBe("system");
+  });
+
+  it("R8's Appearance row shows the account's choice; before one, this device's, marked as such", () => {
+    expect(appearanceRowLabel("dark", "dark")).toBe("Dark");
+    expect(appearanceRowLabel("system", "dark")).toBe("System");
+    expect(appearanceRowLabel(null, "dark")).toBe("Dark · this device");
+    expect(appearanceRowLabel(null, "system")).toBe("System · this device");
   });
 
   it("takes a patch of known, valid values only", () => {

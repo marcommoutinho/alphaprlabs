@@ -4,18 +4,16 @@ import { useTransition } from "react";
 import Link from "@/components/alpha/link";
 import { useRouter } from "next/navigation";
 import { sendTestNotification } from "@/app/(private)/app/notifications/actions";
-import { Bell } from "lucide-react";
+import { Bell, ChevronLeft } from "lucide-react";
 import { Button } from "@/components/alpha/button";
 import { Group } from "@/components/alpha/list";
 import { useAlphaToast } from "@/components/alpha/toast";
-import { AppButton } from "@/components/app-shell/form";
 import { AuthActions } from "@/components/auth/auth-frame";
-import { useToast } from "@/components/app-shell/toast";
+import { CYCLES_MAIN } from "@/components/research/cycles/cycles-list";
 import { RESEARCH_HOME } from "@/lib/auth/paths";
 import { STATUS_LABEL, statusTone } from "@/lib/push/readiness";
 import { cn } from "@/lib/utils";
 import { readinessSeen, useReminders, type Reminders } from "./use-reminders";
-import "@/styles/app/reminders.css";
 
 // C2 copy is the prototype's, except "I've added it": installation is detected.
 const COPY = {
@@ -37,39 +35,36 @@ const COPY = {
 
 type Props = { userId: string; vapidPublicKey: string };
 
-function StatusRows({ reminders, labels }: { reminders: Reminders; labels: [string, string, string] }) {
-  const { checking, status, installed } = reminders;
-  const pushSupported = status !== "unsupported";
-  const value = (text: string, tone?: string) => (
-    <b className="app-reminders-value" data-tone={checking ? "checking" : tone}>
-      {checking ? "Checking…" : text}
-    </b>
-  );
-  return (
-    <div className="app-reminders-status">
-      <div className="app-reminders-row">
-        <span>{labels[0]}</span>
-        {value(pushSupported ? "Yes" : "No", pushSupported ? "good" : "warn")}
-      </div>
-      <div className="app-reminders-row">
-        <span>{labels[1]}</span>
-        {value(installed ? "Yes" : "Not yet")}
-      </div>
-      <div className="app-reminders-row">
-        <span>{labels[2]}</span>
-        {value(STATUS_LABEL[status], statusTone(status))}
-      </div>
-    </div>
-  );
-}
+type Tone = "good" | "bad" | "neutral";
 
-function useTurnOn(reminders: Reminders) {
-  const toast = useToast();
-  return async () => {
-    const outcome = await reminders.turnOn();
-    if (outcome === "enabled") toast(COPY.on);
-    else if (outcome === "failed") toast(COPY.failed, "error");
-  };
+/**
+ * The three device facts, as a group of rows (the prompt and Dose
+ * reminders). Each row: data-testid "reminder-status", its label in
+ * data-label, the value in "reminder-status-value".
+ */
+function StatusGroup({ reminders, labels }: { reminders: Reminders; labels: [string, string, string] }) {
+  const { checking, status, installed } = reminders;
+  const supported = status !== "unsupported";
+  const rows: [string, string, Tone][] = [
+    [labels[0], supported ? "Yes" : "No", supported ? "good" : "bad"],
+    [labels[1], installed ? "Yes" : "Not yet", "neutral"],
+    [labels[2], STATUS_LABEL[status], statusTone(status)],
+  ];
+  return (
+    <Group className="mx-3 mt-6 laptop:mx-0">
+      {rows.map(([label, value, tone]) => (
+        <div key={label} className="flex min-h-12 items-center justify-between gap-3 px-4 py-3 text-[15px]" data-testid="reminder-status" data-label={label}>
+          <span className="text-ink-2">{label}</span>
+          <b
+            className={cn("font-semibold", !checking && tone === "good" && "text-done", !checking && tone === "bad" && "text-missed")}
+            data-testid="reminder-status-value"
+          >
+            {checking ? "Checking…" : value}
+          </b>
+        </div>
+      ))}
+    </Group>
+  );
 }
 
 /**
@@ -81,7 +76,7 @@ export function RemindersStep({ userId, vapidPublicKey }: Props) {
   const reminders = useReminders(userId, vapidPublicKey);
   const toast = useAlphaToast();
   const router = useRouter();
-  const { checking, status, canInstall, installed } = reminders;
+  const { checking, status, canInstall } = reminders;
   const turnOn = async () => {
     const outcome = await reminders.turnOn();
     if (outcome === "enabled") toast.success({ message: COPY.on });
@@ -91,11 +86,6 @@ export function RemindersStep({ userId, vapidPublicKey }: Props) {
     readinessSeen.mark();
     router.push(RESEARCH_HOME);
   };
-  const rows: [string, string, "good" | "bad" | "neutral"][] = [
-    ["Push supported on this browser", status !== "unsupported" ? "Yes" : "No", status !== "unsupported" ? "good" : "bad"],
-    ["Installed to home screen", installed ? "Yes" : "Not yet", "neutral"],
-    ["Notification permission", STATUS_LABEL[status], statusTone(status)],
-  ];
   const note =
     status === "unsupported" ? COPY.unsupportedStep : status === "denied" ? COPY.deniedStep : status === "needs-install" ? COPY.installStep : null;
 
@@ -111,19 +101,7 @@ export function RemindersStep({ userId, vapidPublicKey }: Props) {
           yourself.
         </p>
       </div>
-      <Group className="mx-3 mt-6 laptop:mx-0">
-        {rows.map(([label, value, tone]) => (
-          <div key={label} className="flex min-h-12 items-center justify-between gap-3 px-4 py-3 text-[15px]" data-testid="reminder-status" data-label={label}>
-            <span className="text-ink-2">{label}</span>
-            <b
-              className={cn("font-semibold", !checking && tone === "good" && "text-done", !checking && tone === "bad" && "text-missed")}
-              data-testid="reminder-status-value"
-            >
-              {checking ? "Checking…" : value}
-            </b>
-          </div>
-        ))}
-      </Group>
+      <StatusGroup reminders={reminders} labels={["Push supported on this browser", "Installed to home screen", "Notification permission"]} />
       {note ? <p className="mx-5 mt-3 text-[14px] leading-[20px] text-ink-2 laptop:mx-0">{note}</p> : null}
       <AuthActions className="flex flex-col gap-2.5">
         {!checking && (status === "not-requested" || status === "failed") ? (
@@ -151,77 +129,93 @@ export function RemindersStep({ userId, vapidPublicKey }: Props) {
   );
 }
 
-/** C2 settings: "Reminders on this phone" (/app/notifications). */
+/**
+ * R8 Tracking › Dose reminders (/app/notifications): reminders on this
+ * device, in the v3 style of R8's pages. Turning them on asks the browser
+ * for permission; the device facts, and the ways out of a denied or
+ * unsupported state, as on the prompt. Per device: a new phone asks again.
+ */
 export function RemindersSettings({ userId, vapidPublicKey, testEnabled }: Props & { testEnabled: boolean }) {
   const reminders = useReminders(userId, vapidPublicKey);
-  const turnOn = useTurnOn(reminders);
-  const toast = useToast();
+  const toast = useAlphaToast();
   const [testing, startTest] = useTransition();
   const { checking, status, canInstall } = reminders;
 
+  const turnOn = async () => {
+    const outcome = await reminders.turnOn();
+    if (outcome === "enabled") toast.success({ message: COPY.on });
+    else if (outcome === "failed") toast.error({ message: COPY.failed });
+  };
   const turnOff = async () => {
-    if (await reminders.turnOff()) toast(COPY.off);
-    else toast(COPY.offFailed, "error");
+    if (await reminders.turnOff()) toast.success({ message: COPY.off });
+    else toast.error({ message: COPY.offFailed });
   };
   const sendTest = () =>
     startTest(async () => {
       try {
         const result = await sendTestNotification();
-        toast(result.toast, result.tone);
+        if (result.tone === "error") toast.error({ message: result.toast });
+        else toast.success({ message: result.toast });
       } catch {
-        toast("Could not send the test notification. Try again.", "error");
+        toast.error({ message: "Could not send the test notification. Try again." });
       }
     });
+  const warning = status === "denied" ? COPY.deniedSettings : status === "failed" ? COPY.failedSettings : null;
+  const note = status === "unsupported" ? COPY.unsupportedSettings : status === "needs-install" ? COPY.installSettings : null;
 
   return (
-    <>
-      <Link href="/app/me" className="app-reminders-back">
-        ‹ Me
-      </Link>
-      <h1 className="app-h1 app-reminders-title">Reminders on this phone</h1>
-      <StatusRows
-        reminders={reminders}
-        labels={["Push supported", "Installed to home screen", "Permission on this device"]}
-      />
-      <p className="app-reminders-explain">
-        Reminders name the peptide, planned mg and syringe units. Two follow-ups arrive 30 minutes and 2 hours after
-        an unconfirmed dose is due. A reminder never confirms a dose. Permission is per device — a new phone asks
-        again.
-      </p>
-      {status === "denied" ? (
-        <p className="app-reminders-box" data-tone="warn">
-          {COPY.deniedSettings}
-        </p>
-      ) : null}
-      {status === "failed" ? (
-        <p className="app-reminders-box" data-tone="error">
-          {COPY.failedSettings}
-        </p>
-      ) : null}
-      {status === "unsupported" ? <p className="app-reminders-note">{COPY.unsupportedSettings}</p> : null}
-      {status === "needs-install" ? <p className="app-reminders-note">{COPY.installSettings}</p> : null}
-      <div className="app-reminders-actions">
-        {!checking && (status === "not-requested" || status === "failed") ? (
-          <AppButton saving={reminders.busy === "on"} onClick={turnOn}>
-            Turn on reminders
-          </AppButton>
+    <main className={CYCLES_MAIN}>
+      <nav aria-label="Dose reminders" className="flex h-11 items-center pl-1.5 text-[17px] text-signal-ink laptop:hidden">
+        <Link href="/app/me" className="flex h-11 items-center gap-0.5">
+          <ChevronLeft className="size-[26px]" aria-hidden />
+          Me
+        </Link>
+      </nav>
+      <div className="laptop:max-w-[640px]">
+        <header className="px-5 pt-1 laptop:px-0 laptop:pt-0">
+          <Link href="/app/me" className="hidden text-[14px] text-signal-ink laptop:block">
+            ‹ Me
+          </Link>
+          <h1 className="mt-1 text-[34px] leading-[1.1] font-semibold tracking-[-0.03em] text-balance">Reminders on this phone</h1>
+          <p className="mt-2.5 text-[15px] leading-[1.5] text-ink-2">
+            Reminders name the peptide, planned mg and syringe units. Two follow-ups arrive 30 minutes and 2 hours after an unconfirmed dose is due. A
+            reminder never confirms a dose. Permission is per device — a new phone asks again.
+          </p>
+        </header>
+        <StatusGroup reminders={reminders} labels={["Push supported", "Installed to home screen", "Permission on this device"]} />
+        {warning ? (
+          <p
+            role={status === "failed" ? "alert" : undefined}
+            className="mx-3 mt-3 rounded-[16px] border border-line bg-surface px-4 py-3 text-[14px] leading-[20px] text-missed laptop:mx-0"
+            data-testid="reminders-warning"
+          >
+            {warning}
+          </p>
         ) : null}
-        {status === "enabled" ? (
-          <AppButton variant="secondary" saving={reminders.busy === "off"} onClick={turnOff}>
-            Turn off reminders
-          </AppButton>
-        ) : null}
-        {canInstall ? (
-          <AppButton variant="secondary" onClick={reminders.install}>
-            Install app
-          </AppButton>
-        ) : null}
-        {testEnabled ? (
-          <AppButton variant="secondary" saving={testing} savingLabel="Sending…" onClick={sendTest}>
-            Send test notification
-          </AppButton>
-        ) : null}
+        {note ? <p className="mx-5 mt-3 text-[14px] leading-[20px] text-ink-2 laptop:mx-0">{note}</p> : null}
+        <div className="mx-3 mt-6 flex flex-col gap-2.5 laptop:mx-0 laptop:flex-row laptop:flex-wrap">
+          {!checking && (status === "not-requested" || status === "failed") ? (
+            <Button variant="primary" size="lg" block saving={reminders.busy === "on"} savingLabel="Turning on…" onClick={turnOn} className="laptop:w-auto">
+              Turn on reminders
+            </Button>
+          ) : null}
+          {status === "enabled" ? (
+            <Button variant="outline" size="lg" block saving={reminders.busy === "off"} savingLabel="Turning off…" onClick={turnOff} className="laptop:w-auto">
+              Turn off reminders
+            </Button>
+          ) : null}
+          {canInstall ? (
+            <Button variant="outline" size="lg" block onClick={reminders.install} className="laptop:w-auto">
+              Install app
+            </Button>
+          ) : null}
+          {testEnabled ? (
+            <Button variant="outline" size="lg" block saving={testing} savingLabel="Sending…" onClick={sendTest} className="laptop:w-auto">
+              Send test notification
+            </Button>
+          ) : null}
+        </div>
       </div>
-    </>
+    </main>
   );
 }

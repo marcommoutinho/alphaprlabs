@@ -54,14 +54,14 @@ test("an admin acknowledges, turns on reminders, uses the research side and swit
   await page.getByTestId("me-reminders").click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Reminders on this phone");
   await (await hydrated(page.getByRole("button", { name: "Turn on reminders" }))).click();
-  await expect(page.locator(".app-toast")).toHaveText("Reminders on for this device.");
+  await expect(page.locator('[data-slot="toast"]')).toHaveText("Reminders on for this device.");
   expect(await deviceRow(endpoint)).toEqual({ profile_id: adminId, disabled_reason: null });
-  await expect(page.locator(".app-reminders-row", { hasText: "Permission on this device" }).locator("b")).toHaveText(
+  await expect(page.locator('[data-testid="reminder-status"][data-label="Permission on this device"]').getByTestId("reminder-status-value")).toHaveText(
     "Enabled",
   );
   await expect(page.getByRole("button", { name: "Turn off reminders" })).toBeVisible();
   // Me shows it on for this device.
-  await page.getByRole("link", { name: "‹ Me" }).click();
+  await page.getByRole("navigation", { name: "Dose reminders" }).getByRole("link", { name: "Me" }).click();
   await expect(page.getByTestId("me-reminders-value")).toHaveText("At dose time");
 
   // The admin's fourth tab, Business, switches to the back office; Today back.
