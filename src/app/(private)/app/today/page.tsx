@@ -6,6 +6,7 @@ import { todayView } from "@/lib/doses/today";
 import { getSupplyTracking, listPersonalVials, planMixtures } from "@/lib/mixtures/service";
 import { addDaysToDate } from "@/lib/doses/rules";
 import { shortDate } from "@/lib/alpha/format";
+import { shownMeasurement } from "@/lib/preferences/rules";
 import { checkInDay } from "@/lib/progress/rules";
 import { listCheckIns } from "@/lib/progress/service";
 import { SUPPLEMENT_TIME_ZONE } from "@/lib/supplements/rules";
@@ -96,16 +97,20 @@ export default async function TodayPage({ searchParams }: { searchParams: Search
     requestedKey: dose,
   });
 
-  // R6: today's check-in (one per America/Toronto day), and each measurement's last value.
+  // R6: today's check-in (one per America/Toronto day), and each measurement's last value (a weight in R8's unit).
+  const { weightUnit, defaultSyringe } = person.preferences;
   const last: TodayCheckIn["last"] = {};
   for (const entry of checkIns) {
-    if (entry.measurement) last[entry.measurement.name] = { value: entry.measurement.value, unit: entry.measurement.unit, day: shortDate(entry.day) };
+    if (!entry.measurement) continue;
+    const shown = shownMeasurement(entry.measurement, weightUnit);
+    last[entry.measurement.name] = { value: shown.value, unit: shown.unit, day: shortDate(entry.day) };
   }
   const checkIn: TodayCheckIn = {
     day: checkInToday,
     dayLabel: shortDate(checkInToday),
     done: checkIns.some((entry) => entry.day === checkInToday),
     last,
+    weightUnit,
   };
 
   return (
@@ -116,6 +121,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Search
       lowVials={supply.low}
       checkIn={checkIn}
       initials={initialsOf(person.name)}
+      defaultSyringe={defaultSyringe}
     />
   );
 }

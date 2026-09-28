@@ -124,3 +124,16 @@ export function formatDateTime(value: DateInput, options: DateFormatOptions = {}
   const p = toParts(value, options.timeZone);
   return `${WEEKDAYS[p.weekday]} ${MONTHS[p.month - 1]} ${p.day} · ${pad2(p.hour)}:${pad2(p.minute)}`;
 }
+
+/** `Aug 2026` (R8 "Researcher since Aug 2026") */
+export function formatMonthYear(value: DateInput, options: DateFormatOptions = {}): string {
+  const p = toParts(value, options.timeZone);
+  return `${MONTHS[p.month - 1]} ${p.year}`;
+}
+
+/** `Fri, Sep 11, 2026 · 7:30 AM` (design v3: 12-hour clock; R8's sharing history) */
+export function formatDateTime12(value: DateInput, options: DateFormatOptions = {}): string {
+  const p = toParts(value, options.timeZone);
+  const hour = p.hour % 12 === 0 ? 12 : p.hour % 12;
+  return `${WEEKDAYS[p.weekday]}, ${MONTHS[p.month - 1]} ${p.day}, ${p.year} · ${hour}:${pad2(p.minute)} ${p.hour < 12 ? "AM" : "PM"}`;
+}

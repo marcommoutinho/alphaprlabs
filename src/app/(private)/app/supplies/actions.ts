@@ -55,6 +55,8 @@ function revalidateSupplies() {
   revalidatePath(SUPPLIES);
   revalidatePath("/app/today");
   revalidatePath("/app/calculator");
+  // R8 Me: the Vials and supplies row's switch.
+  revalidatePath("/app/me");
 }
 
 /**

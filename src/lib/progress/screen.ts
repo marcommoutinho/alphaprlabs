@@ -20,6 +20,7 @@ import { planPeptides, type RecordedConfirmation, type ViewPeptides } from "@/li
 import { clock12, massLabel } from "@/lib/alpha/format";
 import { addDaysToDate, daysBetween, wallOf } from "@/lib/doses/rules";
 import { formatDay, formatMonthDay } from "@/lib/format";
+import { shownMeasurement, type WeightUnit } from "@/lib/preferences/rules";
 import { type InstantInput, toInstant } from "@/lib/schedule/zone";
 import { checkInDay, type Effect, effectLabel, FEELING_WORDS, formEffects, NONE, OTHER, PROGRESS_TIME_ZONE, SPARSE } from "./rules";
 import type { CheckIn } from "./service";
@@ -374,6 +375,12 @@ export type ProgressScreenInput = {
   confirmations: ReadonlyMap<string, readonly RecordedConfirmation[]>;
   peptides: ViewPeptides;
   now: InstantInput;
+  /**
+   * R8's weight unit: weights entered in kg or lb are shown in it (the
+   * weight card, the check-in rows), converted exactly; stored values keep
+   * their own unit. Kg when not given.
+   */
+  weightUnit?: WeightUnit;
 };
 
 const RANGE_LABEL: Record<ProgressRange, string> = { "7d": "7-day average", "30d": "30-day average", cycle: "cycle average" };
@@ -399,7 +406,10 @@ export function progressScreen(input: ProgressScreenInput): ProgressScreen {
   const { from, to, today, countFrom } = window;
   const days = daysOf(from, to);
   const counted = daysOf(countFrom, to);
-  const inRange = input.checkIns.filter((c) => c.day >= from && c.day <= to);
+  // Weights in the account's unit, for display (today's check-in is edited as stored).
+  const unit = input.weightUnit ?? "kg";
+  const shown = input.checkIns.map((c) => (c.measurement ? { ...c, measurement: shownMeasurement(c.measurement, unit) } : c));
+  const inRange = shown.filter((c) => c.day >= from && c.day <= to);
   const inCount = inRange.filter((c) => c.day >= countFrom);
   const byDay = new Map(inRange.map((c) => [c.day, c.feeling]));
   const span = cycle ? cycleSpan(current(cycle)) : null;
@@ -443,7 +453,7 @@ export function progressScreen(input: ProgressScreenInput): ProgressScreen {
     },
     tracks: cycle ? doseTracks(cycle, confirmations, input.peptides, days, input.now) : [],
     // Every check-in given: the baseline may be before the range.
-    measure: measureCard(input.checkIns, days, cycleStart),
+    measure: measureCard(shown, days, cycleStart),
     tiles: {
       adherence: stats ? { value: stats.percent === null ? "—" : String(stats.percent), unit: stats.percent === null ? "" : "%", context: adherenceCount(stats) } : null,
       checkIns: { value: String(inCount.length), context: `of ${counted.length} days` },

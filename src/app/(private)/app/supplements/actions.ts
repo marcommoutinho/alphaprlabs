@@ -65,6 +65,8 @@ async function signedIn(next: string) {
 function revalidateSupplements() {
   revalidatePath(SUPPLEMENTS);
   revalidatePath("/app/today");
+  // R8 Me: the Supplements row's switch and routine count.
+  revalidatePath("/app/me");
 }
 
 /** R10 "Track supplements" on or off; turning it off keeps every routine and record. */

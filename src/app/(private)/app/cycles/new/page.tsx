@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { CycleBuilder } from "@/components/research/cycles/builder/cycle-builder";
 import { requireResearcher } from "@/lib/auth/session";
-import { type BuilderMix, builderFromForm, mixFrom } from "@/lib/cycles/builder";
+import { blankMix, type BuilderMix, builderFromForm, mixFrom, newBuilderPlan, togglePlan } from "@/lib/cycles/builder";
 import { timeZoneOptions } from "@/lib/cycles/display";
 import { type CycleForm, type CyclePeptide, DATES_ZONE, formFromTemplate, tomorrowIn } from "@/lib/cycles/rules";
 import { getTemplateForCopy, listCyclePeptides } from "@/lib/cycles/service";
@@ -26,12 +26,17 @@ function templatesLine(names: readonly string[]): string | null {
  * researcher picks a start (it may be in the past); the copy is the
  * researcher's own, including any peptide the template names that is no
  * longer offered (Marco, 2026-09-26). A peptide the researcher already has a
- * saved mix for starts from it.
+ * saved mix for starts from it; any other starts on R8's default syringe.
+ * `?peptide=<id>` (R12 "Add to a cycle") starts a custom cycle with that
+ * peptide checked.
  */
 export default async function NewCyclePage({ searchParams }: { searchParams: SearchParams }) {
-  const { template: templateParam } = await searchParams;
+  const { template: templateParam, peptide: peptideParam } = await searchParams;
   const templateId = typeof templateParam === "string" ? templateParam : null;
-  const person = await requireResearcher(templateId ? `/app/cycles/new?template=${encodeURIComponent(templateId)}` : "/app/cycles/new");
+  const peptideId = !templateId && typeof peptideParam === "string" ? peptideParam.toLowerCase() : null;
+  const query = templateId ? `?template=${encodeURIComponent(templateId)}` : peptideId ? `?peptide=${encodeURIComponent(peptideId)}` : "";
+  const person = await requireResearcher(`/app/cycles/new${query}`);
+  const { defaultSyringe } = person.preferences;
   const db = await createClient();
   const [library, mixtures, templateNames] = await Promise.all([
     listCyclePeptides(db),
@@ -59,7 +64,11 @@ export default async function NewCyclePage({ searchParams }: { searchParams: Sea
     const known = new Set(peptides.map((peptide) => peptide.id));
     peptides = [...peptides, ...template.peptides.filter((peptide) => !known.has(peptide.id))];
   }
-  const initial = builderFromForm(form, start, { mixes: new Map(Object.entries(savedMixes)) });
+  let initial = builderFromForm(form, start, { mixes: new Map(Object.entries(savedMixes)), syringe: defaultSyringe });
+  // R12's "Add to a cycle": that peptide starts checked (one the library offers; anything else is ignored).
+  if (peptideId && library.some((peptide) => peptide.id === peptideId && peptide.available)) {
+    initial = togglePlan(initial, peptideId, () => newBuilderPlan(peptideId, savedMixes[peptideId] ?? blankMix(defaultSyringe)));
+  }
 
   return (
     <CycleBuilder
@@ -71,6 +80,7 @@ export default async function NewCyclePage({ searchParams }: { searchParams: Sea
       templateName={templateName}
       templates={templatesLine((templateNames.data ?? []).map((row) => row.name))}
       savedMixes={savedMixes}
+      defaultSyringe={defaultSyringe}
     />
   );
 }

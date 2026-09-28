@@ -46,21 +46,37 @@ export async function listShareHistory(db: Db, ownerId: string, options: PageOpt
     .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt) || b.id.localeCompare(a.id));
 }
 
-export type ShareResult = { kind: "shared" | "error" };
+export type ShareResult = { kind: "shared" | "error"; replayed?: boolean };
 
-/** share_with_team: an active share for the caller (an existing one counts). Refused (error) until acknowledged. */
-export async function shareWithTeam(db: Db): Promise<ShareResult> {
-  const { data, error } = await db.rpc("share_with_team");
-  return { kind: !error && data ? "shared" : "error" };
+/**
+ * share_with_team: an active share for the caller (an existing one counts).
+ * Refused (error) until acknowledged. With a request key (R8 / R17), a retry
+ * of the same key replays its first answer and never shares again, even
+ * after the researcher stopped meanwhile.
+ */
+export async function shareWithTeam(db: Db, requestKey?: string): Promise<ShareResult> {
+  if (requestKey === undefined) {
+    const { data, error } = await db.rpc("share_with_team");
+    return { kind: !error && data ? "shared" : "error" };
+  }
+  const { data, error } = await db.rpc("share_with_team", { p_request_key: requestKey });
+  const result = data as { share_id?: string; replayed?: boolean } | null;
+  return !error && result?.share_id ? { kind: "shared", replayed: result.replayed === true } : { kind: "error" };
 }
 
-export type StopResult = { kind: "stopped" | "not_sharing" | "error" };
+export type StopResult = { kind: "stopped" | "not_sharing" | "error"; replayed?: boolean };
 
-/** stop_sharing_with_team: ends the caller's active share at once, for every admin. */
-export async function stopSharing(db: Db): Promise<StopResult> {
-  const { data, error } = await db.rpc("stop_sharing_with_team");
-  if (error) return { kind: "error" };
-  return { kind: data ? "stopped" : "not_sharing" };
+/** stop_sharing_with_team: ends the caller's active share at once, for every admin. A request key replays as above. */
+export async function stopSharing(db: Db, requestKey?: string): Promise<StopResult> {
+  if (requestKey === undefined) {
+    const { data, error } = await db.rpc("stop_sharing_with_team");
+    if (error) return { kind: "error" };
+    return { kind: data ? "stopped" : "not_sharing" };
+  }
+  const { data, error } = await db.rpc("stop_sharing_with_team", { p_request_key: requestKey });
+  const result = data as { stopped?: boolean; replayed?: boolean } | null;
+  if (error || !result || typeof result.stopped !== "boolean") return { kind: "error" };
+  return { kind: result.stopped ? "stopped" : "not_sharing", replayed: result.replayed === true };
 }
 
 // ── A8: the admin's side ────────────────────────────────────────────────────

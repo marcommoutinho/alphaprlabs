@@ -46,10 +46,13 @@ export function SheetContent({
   contextTone = "default",
   size = "full",
   footer,
+  leading,
   className,
   children,
 }: {
   title: React.ReactNode;
+  /** Above the title: an icon well (R17's shield). */
+  leading?: React.ReactNode;
   /** Mono 13 line above the title ("Due 9:00 AM · Thu"), coloured by state. */
   context?: React.ReactNode;
   contextTone?: "default" | "signal" | "missed";
@@ -69,6 +72,7 @@ export function SheetContent({
           <div className="alpha-sheet-grabber" aria-hidden />
           <div className="flex items-start gap-3 px-5 pt-3 pb-2 laptop:items-center laptop:px-6 laptop:pt-5">
             <div className="min-w-0 flex-1">
+              {leading ? <div className="mb-3.5">{leading}</div> : null}
               {context ? (
                 <div
                   className={cn(

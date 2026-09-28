@@ -2,11 +2,9 @@
 
 import { ChevronLeft, Plus } from "lucide-react";
 import { unstable_rethrow } from "next/navigation";
-import { useId, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import Link from "@/components/alpha/link";
 import { Button } from "@/components/alpha/button";
-import { Switch } from "@/components/alpha/field";
-import { Group } from "@/components/alpha/list";
 import { SegmentedLinks } from "@/components/alpha/segmented";
 import { Skeleton, SkeletonRegion } from "@/components/alpha/skeleton";
 import { useAlphaToast } from "@/components/alpha/toast";
@@ -91,36 +89,25 @@ export function SuppliesLoading({ label, current }: { label: string; current: Su
   );
 }
 
-/** A tracking switch in its own group, with a line on what it does. */
-export function TrackingSwitch({
-  label,
-  on,
-  pending,
-  onChange,
-  note,
-  className,
-}: {
-  label: string;
-  on: boolean;
-  pending: boolean;
-  onChange: (on: boolean) => void;
-  note: string;
-  className?: string;
-}) {
-  // An id without spaces: aria-labelledby is a list of ids.
-  const labelId = useId();
+/**
+ * What tracking does, and where it is switched: the switches live on Me ›
+ * Tracking (R8); while on, this note links there.
+ */
+export function TrackingNote({ note, on, className }: { note: string; on: boolean; className?: string }) {
   return (
-    <section aria-label={label} className={cn("mt-7", className)}>
-      <Group className="mx-3 laptop:mx-0">
-        <div className="flex min-h-14 items-center gap-3 px-4 py-2">
-          <span className="min-w-0 flex-1 text-base" id={labelId}>
-            {label}
-          </span>
-          <Switch checked={on} disabled={pending} onCheckedChange={onChange} aria-labelledby={labelId} />
-        </div>
-      </Group>
-      <p className="mx-5 mt-2 text-[13px] leading-[19px] text-ink-3 laptop:mx-0">{note}</p>
-    </section>
+    <p className={cn("mx-5 mt-7 text-[13px] leading-[19px] text-ink-3 laptop:mx-0", className)} data-testid="tracking-note">
+      {note}
+      {on ? (
+        <>
+          {" "}
+          Turn it off in{" "}
+          <Link href="/app/me" className="font-semibold text-signal-ink">
+            Me › Tracking
+          </Link>
+          .
+        </>
+      ) : null}
+    </p>
   );
 }
 

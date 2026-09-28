@@ -10,7 +10,7 @@ import { Tag } from "@/components/alpha/tag";
 import { NEVER_ADDS, NO_VIALS, SUPPLIES_INTRO, TRACKING_OFF, VIALS_FOOTNOTE } from "@/lib/supplies/rules";
 import type { SuppliesView, UnopenedGroup, VialCard } from "@/lib/supplies/view";
 import { cn } from "@/lib/utils";
-import { SUPPLIES_MAIN, SuppliesHeader, TrackingOff, TrackingSwitch, useSheetAction } from "./supplies-shared";
+import { SUPPLIES_MAIN, SuppliesHeader, TrackingNote, TrackingOff, useSheetAction } from "./supplies-shared";
 import { AddVialSheet, UnopenedSheet, VialSheet } from "./vial-sheets";
 import { vialName } from "@/lib/supplies/name";
 
@@ -24,8 +24,6 @@ import { vialName } from "@/lib/supplies/name";
  */
 export function VialsScreen({ view }: { view: SuppliesView }) {
   const tracking = useSheetAction(setTrackingAction);
-  const [target, setTarget] = useState(view.tracking);
-  const on = tracking.pending ? target : view.tracking;
   const [adding, setAdding] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [group, setGroup] = useState<UnopenedGroup | null>(null);
@@ -33,10 +31,7 @@ export function VialsScreen({ view }: { view: SuppliesView }) {
   const open = all.find((v) => v.id === openId) ?? null;
   useNavCount("supplies", view.tracking ? lowCounter(view.lowCount) : null);
 
-  const toggle = (next: boolean) => {
-    setTarget(next);
-    tracking.run({ enabled: next });
-  };
+  const toggle = (next: boolean) => tracking.run({ enabled: next });
   const unopenedCount = view.unopened.reduce((sum, g) => sum + g.vials.length, 0);
 
   return (
@@ -119,14 +114,7 @@ export function VialsScreen({ view }: { view: SuppliesView }) {
         </div>
       )}
 
-      <TrackingSwitch
-        label="Track vials"
-        on={on}
-        pending={tracking.pending}
-        onChange={toggle}
-        note={`${SUPPLIES_INTRO} ${NEVER_ADDS}`}
-        className="laptop:max-w-[560px]"
-      />
+      <TrackingNote note={`${SUPPLIES_INTRO} ${NEVER_ADDS}`} on={view.tracking} className="laptop:max-w-[560px]" />
 
       <AddVialSheet open={adding} view={view} onClose={() => setAdding(false)} />
       <UnopenedSheet

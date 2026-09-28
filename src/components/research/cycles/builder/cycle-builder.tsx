@@ -8,9 +8,11 @@ import { saveCycleAction } from "@/app/(private)/app/cycles/actions";
 import { Button } from "@/components/alpha/button";
 import { useAlphaToast } from "@/components/alpha/toast";
 import { mgFromUnit } from "@/lib/alpha/format";
+import type { SyringeCapacity } from "@/lib/calculator/calculator";
 import { isPositiveDecimal } from "@/lib/calculator/decimal";
 import {
   blankMix,
+  DEFAULT_SYRINGE,
   type BuilderMix,
   type BuilderPhase,
   type BuilderPlan,
@@ -71,6 +73,7 @@ export function CycleBuilder({
   templateName = null,
   templates = null,
   savedMixes = {},
+  defaultSyringe = DEFAULT_SYRINGE,
   effective = {},
   startLocked = false,
 }: {
@@ -87,6 +90,8 @@ export function CycleBuilder({
   templates?: string | null;
   /** The researcher's saved mix per peptide, reused when a peptide is added. */
   savedMixes?: Record<string, BuilderMix>;
+  /** R8's default syringe, for a peptide added with no saved mix. */
+  defaultSyringe?: SyringeCapacity;
   /** While editing: each plan's first date changes apply from. */
   effective?: Record<string, string>;
   startLocked?: boolean;
@@ -148,7 +153,7 @@ export function CycleBuilder({
 
   function toggle(peptide: CyclePeptide) {
     setIssues([]);
-    setState((s) => togglePlan(s, peptide.id, () => newBuilderPlan(peptide.id, savedMixes[peptide.id] ?? blankMix())));
+    setState((s) => togglePlan(s, peptide.id, () => newBuilderPlan(peptide.id, savedMixes[peptide.id] ?? blankMix(defaultSyringe))));
   }
 
   function doseContinue() {

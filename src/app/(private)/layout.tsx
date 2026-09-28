@@ -13,16 +13,23 @@ import "@/styles/app/shell.css";
 import "@/styles/app/primitives.css";
 import type { Metadata, Viewport } from "next";
 import { cookies } from "next/headers";
+import { AppearanceSync } from "@/components/alpha/appearance-sync";
 import { AlphaRoot } from "@/components/alpha/root";
 import { AppRoot } from "@/components/app-shell/app-root";
 import { APPEARANCE_COOKIE, htmlClassFor, parseAppearance, themeColorFor } from "@/lib/alpha/appearance";
+import { getSessionPerson } from "@/lib/auth/session";
+import { resolveAppearance } from "@/lib/preferences/rules";
 
 // Root layout of the private area: /app (researchers), /admin, /auth, on the
 // design v3 tokens and fonts (src/styles/alpha). It is its own root layout
 // (the public site has another, see src/app/document.ts) so it can render the
-// Appearance choice on <html> from the alpha-appearance cookie: `.light` or
-// `.dark` forces a mode before first paint; no class follows the OS. Nothing
-// here renders or loads on the public site, which stays static.
+// Appearance choice on <html> before first paint: `.light` or `.dark` forces
+// a mode; no class follows the OS. The choice is the signed-in account's once
+// it was made on Me (R8: stored with the account, so it follows the person to
+// every device), else this device's alpha-appearance cookie. AppearanceSync
+// mirrors the account's choice into the cookie, so the signed-out screens on
+// this device keep it too. Nothing here renders or loads on the public site,
+// which stays static.
 //
 // Installable app (C2): only the private area links the web app manifest
 // (src/app/manifest.ts) and the app icons; the public site keeps its own.
@@ -39,14 +46,17 @@ export const metadata: Metadata = {
   appleWebApp: { capable: true, title: "Alpha PR Labs", statusBarStyle: "default" },
 };
 
+/** The appearance shown (the account's choice, else this device's) and the account's own (null: never chosen). */
 async function appearance() {
-  return parseAppearance((await cookies()).get(APPEARANCE_COOKIE)?.value);
+  const [jar, person] = await Promise.all([cookies(), getSessionPerson()]);
+  const account = person?.preferences.appearance ?? null;
+  return { shown: resolveAppearance(account, parseAppearance(jar.get(APPEARANCE_COOKIE)?.value)), account };
 }
 
 // viewport-fit=cover lets the shell pad itself with env(safe-area-inset-*).
 // theme-color is `paper` for each mode, or the forced mode's.
 export async function generateViewport(): Promise<Viewport> {
-  const colors = themeColorFor(await appearance());
+  const colors = themeColorFor((await appearance()).shown);
   return {
     width: "device-width",
     initialScale: 1,
@@ -56,12 +66,14 @@ export async function generateViewport(): Promise<Viewport> {
 }
 
 export default async function PrivateLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const forced = htmlClassFor(await appearance());
+  const { shown, account } = await appearance();
+  const forced = htmlClassFor(shown);
   return (
     <html lang="en" className={forced ? `${HTML_CLASS} ${forced}` : HTML_CLASS}>
       <body className={BODY_CLASS}>
         <AlphaRoot className={`${geist.variable} ${geistMono.variable}`}>
           <AppRoot>{children}</AppRoot>
+          <AppearanceSync account={account} />
         </AlphaRoot>
       </body>
     </html>

@@ -2,16 +2,26 @@ import "server-only";
 import { cache } from "react";
 import { notFound, redirect } from "next/navigation";
 import { hasResearchAccess, type AppIdentity } from "@/lib/app/identity";
+import { type Preferences, resolvePreferences } from "@/lib/preferences/rules";
 import { createClient } from "@/lib/supabase/server";
 import { ACKNOWLEDGE_PATH, RESEARCH_HOME, signInUrl } from "./paths";
 
-/** The verified signed-in person: Auth server user + their profile row. */
-export type SessionPerson = AppIdentity & { id: string; acknowledged: boolean };
+/** The verified signed-in person: Auth server user + their profile row and preferences. */
+export type SessionPerson = AppIdentity & {
+  id: string;
+  acknowledged: boolean;
+  /** When the account was created (R8 "Researcher since Aug 2026"). */
+  createdAt: string;
+  /** R8 Preferences (the defaults when none were saved). */
+  preferences: Preferences;
+};
 
 /**
  * Data access layer for "who is asking". Verifies the session with the Auth
  * server (getUser) and reads the role from `profiles` under RLS, never from
- * user-editable metadata. Memoized per request.
+ * user-editable metadata. The profile and the account's preferences come in
+ * one read (the private root layout needs the appearance before first
+ * paint). Memoized per request.
  */
 export const getSessionPerson = cache(async (): Promise<SessionPerson | null> => {
   const supabase = await createClient();
@@ -22,7 +32,7 @@ export const getSessionPerson = cache(async (): Promise<SessionPerson | null> =>
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("id, name, email, role, acknowledged_at")
+    .select("id, name, email, role, acknowledged_at, created_at, account_preferences(default_syringe, weight_unit, appearance)")
     .eq("id", user.id)
     .maybeSingle();
   if (!profile) return null;
@@ -33,6 +43,8 @@ export const getSessionPerson = cache(async (): Promise<SessionPerson | null> =>
     email: profile.email,
     role: profile.role,
     acknowledged: profile.acknowledged_at !== null,
+    createdAt: profile.created_at,
+    preferences: resolvePreferences(profile.account_preferences),
   };
 });
 

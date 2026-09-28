@@ -7,6 +7,7 @@ import { confirmationsByCycle, listDoseRecords, listDoseSkips } from "@/lib/dose
 import { cycleStartOf, progressScreen, progressSelection, readRange } from "@/lib/progress/screen";
 import { countCheckIns, listCheckIns } from "@/lib/progress/service";
 import { NO_CYCLE_PARAM } from "@/lib/progress/view";
+import { shownMeasurement } from "@/lib/preferences/rules";
 import { createClient } from "@/lib/supabase/server";
 
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
@@ -58,13 +59,16 @@ export default async function ProgressPage({ searchParams }: { searchParams: Sea
     confirmations: confirmationsByCycle(records, skips),
     peptides: new Map(library.map((peptide) => [peptide.id, peptide])),
     now,
+    weightUnit: person.preferences.weightUnit,
   });
 
-  // R6's "Last: …" beside the measurement: each kind's latest value before today.
+  // R6's "Last: …" beside the measurement: each kind's latest value before today (a weight in the account's unit).
   const last: Record<string, { value: string; unit: string; day: string }> = {};
   for (const entry of checkIns) {
-    if (entry.measurement && entry.day < window.today) last[entry.measurement.name] = { value: entry.measurement.value, unit: entry.measurement.unit, day: shortDate(entry.day) };
+    if (!entry.measurement || entry.day >= window.today) continue;
+    const shown = shownMeasurement(entry.measurement, person.preferences.weightUnit);
+    last[entry.measurement.name] = { value: shown.value, unit: shown.unit, day: shortDate(entry.day) };
   }
 
-  return <ProgressScreen screen={screen} checkIn={{ day: window.today, dayLabel: shortDate(window.today), last }} />;
+  return <ProgressScreen screen={screen} checkIn={{ day: window.today, dayLabel: shortDate(window.today), last, weightUnit: person.preferences.weightUnit }} />;
 }

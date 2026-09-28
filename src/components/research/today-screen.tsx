@@ -26,6 +26,7 @@ import { ENDED_NOTE, loggedToast, NO_MIXTURE_NOTE, skippedToast, UNDO_FAILED, un
 import type { DoseDetail, TodayDose, TodayView } from "@/lib/doses/today";
 import { type SupplementDetail, type SupplementRow, type SupplementToday, todayNotes } from "@/lib/supplements/view";
 import type { LowVialRow } from "@/lib/supplies/view";
+import type { SyringeCapacity } from "@/lib/calculator/calculator";
 import { cn } from "@/lib/utils";
 import { FEELING_WORDS } from "@/lib/progress/rules";
 import { CheckInSheet, type CheckInContext } from "./check-in-sheet";
@@ -44,6 +45,8 @@ type Props = {
   checkIn: TodayCheckIn;
   /** The avatar's initials (it opens Me). */
   initials: string;
+  /** R8's default syringe: the log sheet's syringe when no saved mixture says otherwise. */
+  defaultSyringe?: SyringeCapacity;
 };
 
 type Busy = { key: string; kind: "confirm" | "skip" } | null;
@@ -86,7 +89,7 @@ function useRequestKeys() {
  * and low vials. `?dose=<key>` (a reminder tap) opens that dose's sheet with
  * its current details.
  */
-export function TodayScreen({ view, supplements, lowVials, checkIn, initials }: Props) {
+export function TodayScreen({ view, supplements, lowVials, checkIn, initials, defaultSyringe = 100 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const toast = useAlphaToast();
@@ -473,6 +476,7 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials }: 
         open={sheetKey !== null}
         onOpenChange={(open) => (open ? null : closeSheet())}
         sites={view.sites}
+        defaultSyringe={defaultSyringe}
         pending={busy && sheetKey === busy.key ? busy.kind : null}
         error={sheetError}
         notice={sheetNotice}

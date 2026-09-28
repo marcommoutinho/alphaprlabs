@@ -249,7 +249,7 @@ export type CycleScreen = {
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** The active phase whose dose and time the card's line shows: today's, else the next, else the last. */
-function currentActive(phases: readonly Phase[], today: string): ActivePhase | null {
+export function currentActive(phases: readonly Phase[], today: string): ActivePhase | null {
   const active = phases.filter((phase): phase is ActivePhase => phase.kind === "active").sort((a, b) => a.start.localeCompare(b.start));
   return active.find((p) => p.start <= today && p.end >= today) ?? active.find((p) => p.start > today) ?? active[active.length - 1] ?? null;
 }

@@ -30,7 +30,7 @@ export default async function EditCyclePage({ params }: { params: Params }) {
   const current = cycle.revisions[cycle.revisions.length - 1];
   const now = new Date();
   // Recorded doses and skips: never replaced, and they count as started.
-  const { initial, savedMixes, effective, startLocked } = builderForEdit(cycle, confirmations, mixtures, now);
+  const { initial, savedMixes, effective, startLocked } = builderForEdit(cycle, confirmations, mixtures, now, person.preferences.defaultSyringe);
 
   return (
     <CycleBuilder
@@ -42,6 +42,7 @@ export default async function EditCyclePage({ params }: { params: Params }) {
       savedMixes={savedMixes}
       effective={effective}
       startLocked={startLocked}
+      defaultSyringe={person.preferences.defaultSyringe}
     />
   );
 }

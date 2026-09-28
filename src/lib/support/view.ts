@@ -12,7 +12,7 @@ import { SYRINGE_LABEL } from "@/lib/calculator/calculator";
 import type { CycleRecord } from "@/lib/cycles/rules";
 import { cycleOccurrences, cycleSpan, cycleStatus, type CycleStatus } from "@/lib/cycles/schedule";
 import { planPeptides } from "@/lib/cycles/views";
-import { formatDate, formatDateTime, formatDay, formatMonthDay } from "@/lib/format";
+import { formatDate, formatDateTime, formatDateTime12, formatDay, formatMonthDay } from "@/lib/format";
 import { type MixtureSetup, mixtureLabel } from "@/lib/mixtures/rules";
 import { effectsLine } from "@/lib/progress/rules";
 import type { Confirmation } from "@/lib/schedule/engine";
@@ -74,6 +74,48 @@ export function meSupport(shares: readonly ShareRow[]): MeSupport {
     sharedSince: active ? `Shared since ${when(active.startedAt)} · full profile history · until you stop` : null,
     past: past.length ? `Previously: ${past.map((s) => `shared ${dayOf(s.startedAt)} – ${dayOf(s.stoppedAt!)}`).join("; ")}` : "",
   };
+}
+
+// ── R8 Me · Support access and R17 (design v3) ──────────────────────────────
+// Marco's rules win over the design: the team is "Alpha PR Labs admins",
+// never a named admin, and stopping asks for confirmation first (the design
+// turns it off at once).
+
+export const R8_TITLE = "Let admins view my history";
+export const R8_COPY =
+  "Alpha PR Labs admins would see your cycles, logged doses and check-ins, read-only. You can turn this off at any time and it takes effect straight away.";
+export const R17_TITLE = "Let admins view your history?";
+export const R17_WHO = "Alpha PR Labs admins";
+export const R17_WHO_SUB = "Everyone with admin access to the app";
+export const R17_SEE = ["Cycles and schedules", "Logged doses and sites", "Check-ins and weight", "Vials and supplements"] as const;
+export const R17_CANT = ["Edit anything", "Log on your behalf", "See it after you turn this off"] as const;
+export const R17_ALLOW = "Allow read-only access";
+export const STOP_TITLE = "Stop sharing your history?";
+export const STOP_KEEP = "Keep sharing";
+
+/** One line of R8's sharing history: when sharing started or stopped. */
+export type ShareEvent = { key: string; kind: "shared" | "stopped"; at: string; label: string; time: string };
+
+/**
+ * R8's sharing history ("Keep a grant history"): every share's start and
+ * stop, newest first, from the caller's own shares. Names no admin.
+ */
+export function shareEvents(shares: readonly ShareRow[]): ShareEvent[] {
+  const events: ShareEvent[] = [];
+  for (const share of shares) {
+    events.push({ key: `${share.id}:shared`, kind: "shared", at: share.startedAt, label: "Shared with Alpha PR Labs admins", time: when12(share.startedAt) });
+    if (share.stoppedAt) events.push({ key: `${share.id}:stopped`, kind: "stopped", at: share.stoppedAt, label: "Stopped sharing", time: when12(share.stoppedAt) });
+  }
+  // A stop sorts after its own start at the same instant (newest first).
+  return events.sort((a, b) => Date.parse(b.at) - Date.parse(a.at) || (a.kind === b.kind ? b.key.localeCompare(a.key) : a.kind === "stopped" ? -1 : 1));
+}
+
+const when12 = (at: string) => formatDateTime12(at, { timeZone: SUPPORT_TIME_ZONE });
+
+/** R8's card line while sharing: "Shared since Fri, Sep 11, 2026 · 7:30 AM", or null when private. */
+export function sharingSince(shares: readonly ShareRow[]): string | null {
+  const active = shares.find((s) => s.stoppedAt === null);
+  return active ? `Shared since ${when12(active.startedAt)}` : null;
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;

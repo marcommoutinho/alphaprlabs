@@ -73,6 +73,15 @@ const rememberedDevice = {
   set: (value: RememberedDevice | null) => localFlag.set(DEVICE_KEY, value ? JSON.stringify(value) : null),
 };
 
+/**
+ * R8's "Dose reminders" row: this device has reminders on for `userId` (it
+ * turned them on here and notifications are allowed). Read locally only.
+ */
+export function rememberedReminders(userId: string): boolean {
+  const permission = "Notification" in window ? Notification.permission : "denied";
+  return permission === "granted" && rememberedDevice.get()?.userId === userId;
+}
+
 /** This browser's device id, created on first use. */
 function thisDeviceId(): string {
   const existing = localFlag.get(DEVICE_ID_KEY);

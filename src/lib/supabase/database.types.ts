@@ -9,6 +9,70 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      account_preference_requests: {
+        Row: {
+          created_at: string
+          owner_id: string
+          request_hash: string
+          request_key: string
+          result: Json
+        }
+        Insert: {
+          created_at?: string
+          owner_id: string
+          request_hash: string
+          request_key: string
+          result: Json
+        }
+        Update: {
+          created_at?: string
+          owner_id?: string
+          request_hash?: string
+          request_key?: string
+          result?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_preference_requests_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      account_preferences: {
+        Row: {
+          appearance: string | null
+          default_syringe: number
+          owner_id: string
+          updated_at: string
+          weight_unit: string
+        }
+        Insert: {
+          appearance?: string | null
+          default_syringe?: number
+          owner_id: string
+          updated_at?: string
+          weight_unit?: string
+        }
+        Update: {
+          appearance?: string | null
+          default_syringe?: number
+          owner_id?: string
+          updated_at?: string
+          weight_unit?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_preferences_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       business_purchases: {
         Row: {
           currency: string
@@ -1640,6 +1704,38 @@ export type Database = {
           },
         ]
       }
+      support_share_requests: {
+        Row: {
+          created_at: string
+          kind: string
+          request_key: string
+          researcher_id: string
+          result: Json
+        }
+        Insert: {
+          created_at?: string
+          kind: string
+          request_key: string
+          researcher_id: string
+          result: Json
+        }
+        Update: {
+          created_at?: string
+          kind?: string
+          request_key?: string
+          researcher_id?: string
+          result?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_share_requests_researcher_id_fkey"
+            columns: ["researcher_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       support_shares: {
         Row: {
           id: string
@@ -2133,6 +2229,16 @@ export type Database = {
           name: string
         }[]
       }
+      save_account_preferences: {
+        Args: {
+          p_appearance?: string
+          p_default_syringe?: number
+          p_request_hash: string
+          p_request_key: string
+          p_weight_unit?: string
+        }
+        Returns: Json
+      }
       save_check_in: {
         Args: {
           p_day: string
@@ -2262,7 +2368,9 @@ export type Database = {
         Returns: boolean
       }
       set_supply_tracking: { Args: { p_enabled: boolean }; Returns: boolean }
-      share_with_team: { Args: never; Returns: string }
+      share_with_team:
+        | { Args: never; Returns: string }
+        | { Args: { p_request_key: string }; Returns: Json }
       skip_dose: {
         Args: {
           p_occurrence_key: string
@@ -2272,7 +2380,9 @@ export type Database = {
         }
         Returns: Json
       }
-      stop_sharing_with_team: { Args: never; Returns: boolean }
+      stop_sharing_with_team:
+        | { Args: never; Returns: boolean }
+        | { Args: { p_request_key: string }; Returns: Json }
       store_fx_rates: {
         Args: { p_rates: Json }
         Returns: {
@@ -2317,6 +2427,10 @@ export type Database = {
           p_request_key: string
           p_uid: string
         }
+        Returns: Json
+      }
+      support_share_replay: {
+        Args: { p_kind: string; p_request_key: string; p_uid: string }
         Returns: Json
       }
       take_supplement: {

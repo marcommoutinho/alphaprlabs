@@ -10,8 +10,9 @@ import { Field, NumberInput, TextArea, TextInput } from "@/components/alpha/fiel
 import { Sheet, SheetContent } from "@/components/alpha/sheet";
 import { useAlphaToast } from "@/components/alpha/toast";
 import { SAVE_FAILED_MESSAGE } from "@/components/app-shell/toast";
-import { CHECK_IN_SAVED, type Effect, EFFECTS, FEELING_WORDS, FEELINGS, MEASUREMENTS, type MeasurementName, OTHER, toggleEffect, unitFor } from "@/lib/progress/rules";
+import { CHECK_IN_SAVED, type Effect, EFFECTS, FEELING_WORDS, FEELINGS, MEASUREMENTS, type MeasurementName, OTHER, toggleEffect, unitFor as suggestedUnit } from "@/lib/progress/rules";
 import type { FormStart } from "@/lib/progress/screen";
+import type { WeightUnit } from "@/lib/preferences/rules";
 import { cn } from "@/lib/utils";
 
 export type CheckInContext = {
@@ -20,6 +21,8 @@ export type CheckInContext = {
   dayLabel: string;
   /** Each measurement's last value, by name ("Last: 81.7 kg · Mon Sep 21"). */
   last: Record<string, { value: string; unit: string; day: string }>;
+  /** R8's weight unit: a new weight is entered in it (and stored with it). */
+  weightUnit?: WeightUnit;
 };
 
 /**
@@ -70,6 +73,7 @@ function CheckInBody({
   onClose: () => void;
 }) {
   const toast = useAlphaToast();
+  const unitFor = (name: string) => (name === "Weight" ? (context.weightUnit ?? suggestedUnit(name)) : suggestedUnit(name));
   const startName = (start?.measurement && MEASUREMENT_NAMES.includes(start.measurement.name) ? start.measurement.name : "Weight") as MeasurementName;
   const [feeling, setFeelingValue] = useState<number>(start?.feeling ?? initialFeeling ?? 0);
   const [effects, setEffectsValue] = useState<Effect[]>(start?.effects ?? []);

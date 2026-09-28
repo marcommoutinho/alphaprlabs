@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { SupplementSheet } from "../log-sheet";
 import { useTakeSupplement } from "../supplement-taken";
 import { RoutineSheet } from "./routine-sheet";
-import { SUPPLIES_MAIN, SuppliesHeader, TrackingOff, TrackingSwitch, useSheetAction } from "./supplies-shared";
+import { SUPPLIES_MAIN, SuppliesHeader, TrackingNote, TrackingOff, useSheetAction } from "./supplies-shared";
 
 /**
  * R13 Supplies · Supplements (design v3), and its laptop layout: today's
@@ -27,15 +27,10 @@ import { SUPPLIES_MAIN, SuppliesHeader, TrackingOff, TrackingSwitch, useSheetAct
 export function SupplementsScreen({ view }: { view: SupplementsView }) {
   const toast = useAlphaToast();
   const tracking = useSheetAction(setSupplementTrackingAction);
-  const [target, setTarget] = useState(view.tracking);
-  const on = tracking.pending ? target : view.tracking;
   const [editing, setEditing] = useState<RoutineCard | "new" | null>(null);
   const [another, setAnother] = useState<SupplementDetail | null>(null);
   const take = useTakeSupplement((message, tone) => (tone === "error" ? toast.error({ message }) : toast.success({ message })));
-  const toggle = (next: boolean) => {
-    setTarget(next);
-    tracking.run({ enabled: next });
-  };
+  const toggle = (next: boolean) => tracking.run({ enabled: next });
   const active = view.routines.filter((r) => !r.ended);
   const ended = view.routines.filter((r) => r.ended);
   const current = typeof editing === "object" && editing !== null ? (view.routines.find((r) => r.id === editing.id) ?? editing) : editing;
@@ -160,7 +155,7 @@ export function SupplementsScreen({ view }: { view: SupplementsView }) {
         <p className="mx-5 mt-2 text-[13px] text-ink-3 laptop:mx-0">{GUIDANCE_NOTE}</p>
       </section>
 
-      <TrackingSwitch label="Track supplements" on={on} pending={tracking.pending} onChange={toggle} note={SUPPLEMENTS_INTRO} className="laptop:max-w-[560px]" />
+      <TrackingNote note={SUPPLEMENTS_INTRO} on={view.tracking} className="laptop:max-w-[560px]" />
 
       <RoutineSheet routine={current} onClose={() => setEditing(null)} />
       <SupplementSheet

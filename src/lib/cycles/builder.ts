@@ -120,8 +120,8 @@ const whole = (text: string): number | null => (/^\s*\d{1,5}\s*$/.test(text) ? N
 /** The syringe the builder starts a fresh mix on. */
 export const DEFAULT_SYRINGE: SyringeCapacity = 100;
 
-export function blankMix(): BuilderMix {
-  return { mixtureId: null, version: null, vialMg: "", liquidMl: "", syringe: DEFAULT_SYRINGE, lineSpacing: DEFAULT_LINE_SPACING[DEFAULT_SYRINGE], base: null, linked: false };
+export function blankMix(syringe: SyringeCapacity = DEFAULT_SYRINGE): BuilderMix {
+  return { mixtureId: null, version: null, vialMg: "", liquidMl: "", syringe, lineSpacing: DEFAULT_LINE_SPACING[syringe], base: null, linked: false };
 }
 
 /** A saved mixture as the starting mix: the plan's own (`linked`), or one to reuse. */
@@ -149,7 +149,13 @@ const schedulePart = (phase: CyclePhaseForm): Pick<BuilderPhase, "frequency" | "
 export function builderFromForm(
   form: CycleForm,
   start: LocalDate,
-  options: { locks?: Readonly<Record<string, PhaseLock>>; started?: readonly string[]; mixes?: ReadonlyMap<string, BuilderMix> } = {},
+  options: {
+    locks?: Readonly<Record<string, PhaseLock>>;
+    started?: readonly string[];
+    mixes?: ReadonlyMap<string, BuilderMix>;
+    /** R8's default syringe, for a plan with no mix to start from. */
+    syringe?: SyringeCapacity;
+  } = {},
 ): BuilderState {
   const links: Record<string, MixLink> = {};
   for (const plan of form.plans) {
@@ -180,7 +186,7 @@ export function builderFromForm(
         unit,
         dose: reference ? inMassUnit(reference, unit) : "",
         started: plan.planId !== null && (options.started ?? []).includes(plan.planId),
-        mix: options.mixes?.get(plan.peptideId) ?? blankMix(),
+        mix: options.mixes?.get(plan.peptideId) ?? blankMix(options.syringe),
         phases: sorted.map((phase) => ({
           key: phase.id ?? newKey(),
           id: phase.id,
@@ -204,7 +210,13 @@ export function builderFromForm(
  * (newest first): each plan starts from the mixture it uses now, and a
  * peptide added reuses its newest saved one.
  */
-export function builderForEdit(cycle: CycleRecord, confirmations: readonly Confirmation[], mixtures: readonly Mixture[], now: Date) {
+export function builderForEdit(
+  cycle: CycleRecord,
+  confirmations: readonly Confirmation[],
+  mixtures: readonly Mixture[],
+  now: Date,
+  syringe: SyringeCapacity = DEFAULT_SYRINGE,
+) {
   const current = cycle.revisions[cycle.revisions.length - 1];
   const { effective, locks, started } = editWindow(cycle.revisions, now, confirmations);
   const form = formOfCycle(cycle, effective, localDateOf(now, current.timeZone));
@@ -216,7 +228,7 @@ export function builderForEdit(cycle: CycleRecord, confirmations: readonly Confi
     if (mixture) planMixes.set(plan.peptideId, mixFrom(mixture, true));
   }
   return {
-    initial: builderFromForm(form, cycleSpan(current).start, { locks: Object.fromEntries(locks), started: [...started], mixes: planMixes }),
+    initial: builderFromForm(form, cycleSpan(current).start, { locks: Object.fromEntries(locks), started: [...started], mixes: planMixes, syringe }),
     savedMixes,
     effective: Object.fromEntries(effective) as Record<string, LocalDate>,
     startLocked: [...locks.values()].some((lock) => lock !== null),

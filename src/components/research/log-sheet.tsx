@@ -31,6 +31,7 @@ import { type DoseDetail, setupForActual, type TodayView, vialForActual } from "
 import { resolveLocal } from "@/lib/schedule/zone";
 import type { SupplementDetail } from "@/lib/supplements/view";
 import { takenTimeError } from "@/lib/supplements/rules";
+import { resolveSyringe } from "@/lib/preferences/rules";
 import { cn } from "@/lib/utils";
 import { vialName } from "@/lib/supplies/name";
 
@@ -144,6 +145,8 @@ type LogSheetProps = {
   notice: string | null;
   onSubmit: (submission: SheetSubmission) => void;
   onSkip: () => void;
+  /** R8's default syringe, used when no saved mixture names one. */
+  defaultSyringe?: SyringeCapacity;
 };
 
 /**
@@ -168,7 +171,7 @@ export function LogSheet(props: LogSheetProps) {
   );
 }
 
-function LogBody({ detail, sites, pending, error: refused, notice, onSubmit, onSkip }: LogSheetProps & { detail: DoseDetail }) {
+function LogBody({ detail, sites, pending, error: refused, notice, onSubmit, onSkip, defaultSyringe = 100 }: LogSheetProps & { detail: DoseDetail }) {
   const now = useWallNow(detail.timeZone);
   const context = contextOf(detail, now);
 
@@ -223,7 +226,7 @@ function LogBody({ detail, sites, pending, error: refused, notice, onSubmit, onS
     );
   }
 
-  return <LogForm detail={detail} now={now} context={context} sites={sites} pending={pending} refused={refused} notice={notice} onSubmit={onSubmit} onSkip={onSkip} />;
+  return <LogForm detail={detail} now={now} context={context} sites={sites} pending={pending} refused={refused} notice={notice} onSubmit={onSubmit} onSkip={onSkip} defaultSyringe={defaultSyringe} />;
 }
 
 function RecordedRow({ term, children }: { term: string; children: React.ReactNode }) {
@@ -245,6 +248,7 @@ function LogForm({
   notice,
   onSubmit,
   onSkip,
+  defaultSyringe,
 }: {
   detail: DoseDetail;
   now: Wall;
@@ -255,6 +259,7 @@ function LogForm({
   notice: string | null;
   onSubmit: (submission: SheetSubmission) => void;
   onSkip: () => void;
+  defaultSyringe: SyringeCapacity;
 }) {
   const late = detail.state === "open";
   // The amount is entered in the planned dose's unit (mcg under 1 mg) and
@@ -293,7 +298,7 @@ function LogForm({
   const chosen = valid ? setupForActual(detail, at) : { setup: null, versionId: null, vialLabel: null };
   const vial = valid ? vialForActual(detail, at) : null;
   const { setup } = chosen;
-  const shownCapacity = capacity ?? setup?.syringe ?? 100;
+  const shownCapacity = capacity ?? resolveSyringe(setup?.syringe, defaultSyringe);
   const draw = drawDisplay(setup, amount);
   const amountValue = parseDecimal(amount);
   const amountLabel = amountText.trim() === "" ? "—" : amountValue ? massLabel(amountValue) : `${amountText} ${unit}`;
