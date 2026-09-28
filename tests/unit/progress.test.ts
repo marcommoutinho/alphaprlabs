@@ -600,13 +600,15 @@ describe("R5 Progress: dose tracks, adherence and the measurement", () => {
     const weight = (day: string, value: string, unit = "kg") => checkIn(day, { measurement: { name: "Weight", value, unit, measuredAt: `${day}T12:00:00Z` } });
     const checkIns = [weight("2026-09-01", "84"), weight("2026-09-09", "83.2"), weight("2026-09-15", "82.1"), weight("2026-09-18", "180", "lb"), weight("2026-09-21", "81.7")];
     const card = view({ checkIns })!.measure!;
-    // The last entry on or before the cycle's start (Sep 10) is the baseline; the lb entry is left out, not converted.
-    expect(card).toMatchObject({ name: "Weight", unit: "kg", latest: "81.7", latestDay: "2026-09-21", entries: "4 entries", max: "84 kg", min: "81.7 kg" });
+    // The last entry on or before the cycle's start (Sep 10) is the baseline; the lb entry is shown in
+    // R8's weight unit (kg by default), converted exactly (V4; V3 left it out).
+    expect(card).toMatchObject({ name: "Weight", unit: "kg", latest: "81.7", latestDay: "2026-09-21", entries: "5 entries", max: "84 kg", min: "81.6 kg" });
     expect(card.change).toEqual({ direction: "down", text: "Down 1.5 kg", since: "since Sep 9" });
     expect(card.points.map((p) => [p.day, p.value])).toEqual([
       ["2026-09-01", 84],
       ["2026-09-09", 83.2],
       ["2026-09-15", 82.1],
+      ["2026-09-18", 81.6],
       ["2026-09-21", 81.7],
     ]);
     expect(card.points[0].x).toBeCloseTo(9 / 29);
@@ -797,5 +799,25 @@ describe("phases across a change of time zone", () => {
     expect(phaseLine(cycle, "2026-10-01", peptides)).toBe("Compound A: 600 mcg");
     expect(phaseLine(cycle, "2026-10-02", peptides)).toBe("");
     everyDoseBesideItsPhase(cycle);
+  });
+});
+
+describe("R5 Progress in R8's weight unit", () => {
+  const weights = [
+    checkIn("2026-09-19", { measurement: { name: "Weight", value: "82", unit: "kg" } }),
+    checkIn("2026-09-20", { measurement: { name: "Weight", value: "180", unit: "lb" } }),
+    checkIn("2026-09-21", { measurement: { name: "Weight", value: "81.4", unit: "kg" } }),
+  ];
+
+  it("shows every weight in pounds, converted exactly from kg and as stored when entered in lb", () => {
+    const v = view({ checkIns: weights, total: 3, weightUnit: "lb" });
+    expect(v.measure).toMatchObject({ name: "Weight", unit: "lb", latest: "179.5", entries: "3 entries", max: "180.8 lb", min: "179.5 lb" });
+    expect(v.measure?.points.map((p) => p.value)).toEqual([180.8, 180, 179.5]);
+  });
+
+  it("keeps kg by default, converting a weight entered in lb", () => {
+    const v = view({ checkIns: weights, total: 3 });
+    expect(v.measure).toMatchObject({ unit: "kg", latest: "81.4", entries: "3 entries", max: "82 kg", min: "81.4 kg" });
+    expect(v.measure?.points.map((p) => p.value)).toEqual([82, 81.6, 81.4]);
   });
 });

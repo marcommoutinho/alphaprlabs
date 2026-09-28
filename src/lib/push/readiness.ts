@@ -30,6 +30,32 @@ export function isAppleMobile(userAgent: string, maxTouchPoints: number): boolea
   return /iPhone|iPad|iPod/.test(userAgent) || (/Macintosh/.test(userAgent) && maxTouchPoints > 1);
 }
 
+/** Other browsers on iPhone/iPad name themselves in the user agent; Safari doesn't. */
+const OTHER_APPLE_BROWSER = /CriOS|FxiOS|EdgiOS|OPiOS|OPT\/|GSA\/|YaBrowser|DuckDuckGo|Brave|FBAN|FBAV|Instagram|Line\//;
+
+/** Safari on iPhone / iPad (the only place R16's Share → Add to Home Screen steps apply). */
+export function isAppleSafari(userAgent: string, maxTouchPoints: number): boolean {
+  return isAppleMobile(userAgent, maxTouchPoints) && /Safari\//.test(userAgent) && !OTHER_APPLE_BROWSER.test(userAgent);
+}
+
+/**
+ * R16 Put Alpha on your Home Screen: shown in iPhone / iPad Safari only,
+ * and skipped when already running from the Home Screen.
+ */
+export function showsInstallStep(facts: Pick<DeviceFacts, "userAgent" | "maxTouchPoints" | "standalone">): boolean {
+  return !facts.standalone && isAppleSafari(facts.userAgent, facts.maxTouchPoints);
+}
+
+/**
+ * The push permission prompt opens by itself only on the first launch from
+ * the Home Screen (standalone), where push can work, this device isn't on
+ * yet and it wasn't refused; never in a browser tab, and never twice (`seen`). Me ›
+ * Dose reminders opens it on request.
+ */
+export function promptsOnLaunch(facts: DeviceFacts, device: { subscribed: boolean; seen: boolean }): boolean {
+  return facts.standalone && facts.pushApi && facts.permission !== "denied" && !device.subscribed && !device.seen;
+}
+
 /** iOS/iPadOS version from the user agent ("OS 17_4" or iPadOS's "Version/17.4"), or null. */
 export function appleOsVersion(userAgent: string): number | null {
   const match = /OS (\d+)_(\d+)/.exec(userAgent) ?? /Version\/(\d+)\.(\d+)/.exec(userAgent);

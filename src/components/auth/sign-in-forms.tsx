@@ -1,28 +1,34 @@
 "use client";
 
+import { MailCheck } from "lucide-react";
 import { useState } from "react";
-import Link from "@/components/alpha/link";
 import { confirmRecovery, requestRecovery, setNewPassword, signIn } from "@/app/(private)/auth/actions";
-import { AppButton, Field, InlineError } from "@/components/app-shell/form";
-import { useSubmit } from "@/components/app-shell/use-submit";
+import { Button, buttonVariants } from "@/components/alpha/button";
+import { Field, TextInput } from "@/components/alpha/field";
+import Link from "@/components/alpha/link";
 import { RECOVER_PATH, SIGN_IN_PATH } from "@/lib/auth/paths";
+import { cn } from "@/lib/utils";
+import { AuthActions, FormError, useAuthSubmit } from "./auth-frame";
+
+export const NEW_PASSWORD_LABEL = "New password · 8 characters or more";
 
 export function SignInForm({ next }: { next?: string }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const { pending, error, submit } = useSubmit(signIn);
+  const { pending, error, submit } = useAuthSubmit(signIn);
 
   return (
     <form
       noValidate
+      className="flex flex-1 flex-col"
       onSubmit={(event) => {
         event.preventDefault();
         submit({ email, password, next });
       }}
     >
-      <div className="app-auth-fields">
+      <div className="mx-4 mt-6 flex flex-col gap-3.5 laptop:mx-0">
         <Field label="Email">
-          <input
+          <TextInput
             name="email"
             type="email"
             autoComplete="username"
@@ -32,22 +38,20 @@ export function SignInForm({ next }: { next?: string }) {
           />
         </Field>
         <Field label="Password">
-          <input
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+          <TextInput name="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </Field>
-        <InlineError>{error}</InlineError>
+        <FormError>{error}</FormError>
       </div>
-      <AppButton type="submit" block saving={pending} className="app-auth-submit--signin">
-        Sign in
-      </AppButton>
-      <div className="app-auth-links">
-        <Link href={RECOVER_PATH}>Forgot password?</Link>
-      </div>
+      <AuthActions>
+        <Button type="submit" variant="ink" size="lg" block saving={pending} savingLabel="Signing in…">
+          Sign in
+        </Button>
+        <p className="mt-3 text-center text-[13px] text-ink-3">
+          <Link href={RECOVER_PATH} className="font-semibold text-ink">
+            Forgot password?
+          </Link>
+        </p>
+      </AuthActions>
     </form>
   );
 }
@@ -55,13 +59,22 @@ export function SignInForm({ next }: { next?: string }) {
 export function RecoverForm() {
   const [email, setEmail] = useState("");
   const [sentTo, setSentTo] = useState<string | null>(null);
-  const { pending, submit } = useSubmit(requestRecovery);
+  const { pending, submit } = useAuthSubmit(requestRecovery);
 
   if (sentTo) {
     return (
-      <div className="app-auth-sent" role="status">
-        Sent to <b>{sentTo}</b>. Check your inbox.
-        <Link href={SIGN_IN_PATH}>Back to sign in</Link>
+      <div className="flex flex-1 flex-col">
+        <div role="status" className="mx-4 mt-6 flex items-start gap-3 rounded-group border border-line bg-surface p-4 text-[15px] leading-[22px] laptop:mx-0">
+          <MailCheck className="mt-0.5 size-5 shrink-0 text-done" aria-hidden />
+          <span>
+            Sent to <b className="font-semibold break-all">{sentTo}</b>. Check your inbox.
+          </span>
+        </div>
+        <AuthActions>
+          <Link href={SIGN_IN_PATH} className={cn(buttonVariants({ variant: "outline", size: "lg", block: true }))}>
+            Back to sign in
+          </Link>
+        </AuthActions>
       </div>
     );
   }
@@ -69,6 +82,7 @@ export function RecoverForm() {
   return (
     <form
       noValidate
+      className="flex flex-1 flex-col"
       onSubmit={(event) => {
         event.preventDefault();
         submit({ email }, (result) => {
@@ -76,40 +90,41 @@ export function RecoverForm() {
         });
       }}
     >
-      <Field label="Email" className="app-auth-recover-field">
-        <input
-          name="email"
-          type="email"
-          autoComplete="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-      </Field>
-      <AppButton type="submit" block saving={pending} savingLabel="Sending…" className="app-auth-submit--tight">
-        Send recovery link
-      </AppButton>
-      <Link href={SIGN_IN_PATH} className="app-auth-back">
-        Back to sign in
-      </Link>
+      <div className="mx-4 mt-6 laptop:mx-0">
+        <Field label="Email">
+          <TextInput name="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </Field>
+      </div>
+      <AuthActions>
+        <Button type="submit" variant="ink" size="lg" block saving={pending} savingLabel="Sending…">
+          Send recovery link
+        </Button>
+        <p className="mt-3 text-center text-[13px] text-ink-3">
+          <Link href={SIGN_IN_PATH} className="font-semibold text-ink">
+            Back to sign in
+          </Link>
+        </p>
+      </AuthActions>
     </form>
   );
 }
 
 export function NewPasswordForm() {
   const [password, setPassword] = useState("");
-  const { pending, error, submit } = useSubmit(setNewPassword);
+  const { pending, error, submit } = useAuthSubmit(setNewPassword);
 
   return (
     <form
       noValidate
+      className="flex flex-1 flex-col"
       onSubmit={(event) => {
         event.preventDefault();
         submit({ password });
       }}
     >
-      <div className="app-auth-fields">
-        <Field label="New password · at least 8 characters">
-          <input
+      <div className="mx-4 mt-6 flex flex-col gap-3.5 laptop:mx-0">
+        <Field label={NEW_PASSWORD_LABEL}>
+          <TextInput
             name="password"
             type="password"
             autoComplete="new-password"
@@ -118,29 +133,34 @@ export function NewPasswordForm() {
             aria-invalid={error ? true : undefined}
           />
         </Field>
-        <InlineError>{error}</InlineError>
+        <FormError>{error}</FormError>
       </div>
-      <AppButton type="submit" block saving={pending} className="app-auth-submit">
-        Save password
-      </AppButton>
+      <AuthActions>
+        <Button type="submit" variant="ink" size="lg" block saving={pending}>
+          Save password
+        </Button>
+      </AuthActions>
     </form>
   );
 }
 
 /** The recovery link's button: only this POST verifies the one-time token. */
 export function ConfirmRecoveryForm({ tokenHash }: { tokenHash: string }) {
-  const { pending, submit } = useSubmit(confirmRecovery);
+  const { pending, submit } = useAuthSubmit(confirmRecovery);
 
   return (
     <form
+      className="flex flex-1 flex-col"
       onSubmit={(event) => {
         event.preventDefault();
         submit({ tokenHash });
       }}
     >
-      <AppButton type="submit" block saving={pending} savingLabel="Continuing…" className="app-auth-submit">
-        Continue to reset password
-      </AppButton>
+      <AuthActions>
+        <Button type="submit" variant="ink" size="lg" block saving={pending} savingLabel="Continuing…">
+          Continue to reset password
+        </Button>
+      </AuthActions>
     </form>
   );
 }

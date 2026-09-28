@@ -1,24 +1,24 @@
 import { notFound, redirect } from "next/navigation";
 import { AuthFrame } from "@/components/auth/auth-frame";
-import { RemindersStep } from "@/components/push/reminders-panel";
+import { InstallStep } from "@/components/auth/install-step";
 import { hasResearchAccess } from "@/lib/app/identity";
 import { ACKNOWLEDGE_PATH, signInUrl } from "@/lib/auth/paths";
 import { getSessionPerson } from "@/lib/auth/session";
 
 /**
- * The push permission prompt (design v3): opened once by itself on the first
- * launch from the Home Screen (PushSync), never in a browser tab by itself.
- * Researchers and admins (every admin is also a researcher).
+ * R16 Put Alpha on your Home Screen (step 3 of 3), right after R15. The page
+ * decides in the browser: iPhone / iPad Safari sees the steps; anything
+ * else goes on to Today.
  */
-export default async function RemindersReadinessPage() {
+export default async function InstallPage() {
   const person = await getSessionPerson();
   if (!person) redirect(signInUrl());
   if (!hasResearchAccess(person.role)) notFound();
   if (!person.acknowledged) redirect(ACKNOWLEDGE_PATH);
 
   return (
-    <AuthFrame>
-      <RemindersStep userId={person.id} vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? ""} />
+    <AuthFrame step={3}>
+      <InstallStep />
     </AuthFrame>
   );
 }

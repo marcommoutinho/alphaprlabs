@@ -1,33 +1,26 @@
 import { notFound, redirect } from "next/navigation";
-import { AuthCard } from "@/components/auth/auth-card";
+import { AuthFrame, AuthHeading } from "@/components/auth/auth-frame";
 import { AcknowledgementForm } from "@/components/auth/invite-forms";
 import { hasResearchAccess } from "@/lib/app/identity";
 import { RESEARCH_HOME, signInUrl } from "@/lib/auth/paths";
 import { getSessionPerson } from "@/lib/auth/session";
 
 /**
- * C1 step 2 of 3. Researchers and admins (every admin is also a researcher)
- * are routed here from the research side until they acknowledge.
+ * R15 For research use only (step 2 of 3). Researchers and admins (every
+ * admin is also a researcher) are routed here from the research side until
+ * they agree; the agreement is stored with its time and
+ * ACKNOWLEDGEMENT_VERSION. Reopened read-only from Me (/app/me/disclaimer).
  */
 export default async function AcknowledgePage() {
   const person = await getSessionPerson();
   if (!person) redirect(signInUrl());
   if (!hasResearchAccess(person.role)) notFound();
-  // Already done: step 3 is optional and reached right after acknowledging.
   if (person.acknowledged) redirect(RESEARCH_HOME);
 
   return (
-    <AuthCard width={520}>
-      <div className="app-auth-step">Step 2 of 3</div>
-      <h1 className="app-auth-title">Researcher acknowledgement</h1>
-      <div className="app-auth-disclaimer">
-        <div className="app-auth-disclaimer-tag">CONTENT PLACEHOLDER · FINAL WORDING TO BE SUPPLIED BY MARCO</div>
-        [Researcher disclaimer text. States that the account holder is a researcher, that peptide information,
-        templates and guidance in this app are supplied content and not recommendations, and that the researcher
-        is responsible for their own plans and records.]
-      </div>
+    <AuthFrame step={2}>
+      <AuthHeading title="For research use only" lead="Please read this once. It's recorded with your account." />
       <AcknowledgementForm />
-      <p className="app-auth-note">Required to use the app. Recorded with your account.</p>
-    </AuthCard>
+    </AuthFrame>
   );
 }

@@ -150,7 +150,8 @@ function useInstallState(): InstallState {
 }
 
 // ── Device facts and subscription ──────────────────────────────────────────
-function readFacts(): DeviceFacts {
+/** What this browser supports and how the app is running (client only). */
+export function readFacts(): DeviceFacts {
   const pushApi = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
   return {
     pushApi,

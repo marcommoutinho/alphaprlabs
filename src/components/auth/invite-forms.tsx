@@ -1,33 +1,59 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { acknowledge, createAccount } from "@/app/(private)/auth/actions";
-import { AppButton, Field, InlineError } from "@/components/app-shell/form";
-import { useSubmit } from "@/components/app-shell/use-submit";
+import { Button } from "@/components/alpha/button";
+import { Checkbox, Field, TextInput } from "@/components/alpha/field";
+import Link from "@/components/alpha/link";
+import { SIGN_IN_PATH } from "@/lib/auth/paths";
+import { AuthActions, FormError, useAuthSubmit } from "./auth-frame";
+import { DisclaimerBox } from "./disclaimer";
 
-/** C1 step 1: name (prefilled), email from the invitation (read-only), password. */
-export function AccountSetupForm({ token, name: invitedName, email }: { token: string; name: string; email: string }) {
+export const PASSWORD_LABEL = "Password · 8 characters or more";
+export const ACKNOWLEDGE_LABEL = "I've read this and I'm using the app as a researcher.";
+
+/**
+ * R14: name (prefilled from the invitation), the invitation's email
+ * (read-only) and a password; Continue, then "Valid until … · Already have
+ * an account? Sign in".
+ */
+export function AccountSetupForm({
+  token,
+  name: invitedName,
+  email,
+  validUntil,
+  note,
+}: {
+  token: string;
+  name: string;
+  email: string;
+  /** "Oct 14" */
+  validUntil: string;
+  /** The role note under the fields. */
+  note: string;
+}) {
   const [name, setName] = useState(invitedName);
   const [password, setPassword] = useState("");
-  const { pending, error, submit } = useSubmit(createAccount);
+  const { pending, error, submit } = useAuthSubmit(createAccount);
 
   return (
     <form
       noValidate
+      className="flex flex-1 flex-col"
       onSubmit={(event) => {
         event.preventDefault();
         submit({ token, name, password });
       }}
     >
-      <div className="app-auth-fields app-auth-fields--roomy">
+      <div className="mx-4 mt-6 flex flex-col gap-3.5 laptop:mx-0">
         <Field label="Name">
-          <input name="name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
+          <TextInput name="name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Field label="Email (from your invitation)">
-          <input name="email" type="email" autoComplete="username" value={email} readOnly />
+        <Field label="Email · from your invitation">
+          <TextInput name="email" type="email" autoComplete="username" value={email} readOnly mono className="text-[15px]" />
         </Field>
-        <Field label="Password · at least 8 characters">
-          <input
+        <Field label={PASSWORD_LABEL}>
+          <TextInput
             name="password"
             type="password"
             autoComplete="new-password"
@@ -36,36 +62,55 @@ export function AccountSetupForm({ token, name: invitedName, email }: { token: s
             aria-invalid={error ? true : undefined}
           />
         </Field>
-        <InlineError>{error}</InlineError>
+        <FormError>{error}</FormError>
+        <p className="text-[13px] leading-[18px] text-ink-3" data-testid="invite-role-note">
+          {note}
+        </p>
       </div>
-      <AppButton type="submit" block saving={pending} className="app-auth-submit">
-        Continue
-      </AppButton>
+      <AuthActions>
+        <Button type="submit" variant="ink" size="lg" block saving={pending}>
+          Continue
+        </Button>
+        <p className="mt-3 text-center text-[13px] text-ink-3">
+          Valid until {validUntil} · Already have an account?{" "}
+          <Link href={SIGN_IN_PATH} className="font-semibold text-ink">
+            Sign in
+          </Link>
+        </p>
+      </AuthActions>
     </form>
   );
 }
 
-/** C1 step 2: the required researcher acknowledgement. */
+/**
+ * R15: the disclaimer in its scroll box, the checkbox, and "Agree and
+ * continue", disabled until the box is ticked (the server checks it too).
+ */
 export function AcknowledgementForm() {
   const [accepted, setAccepted] = useState(false);
-  const { pending, error, submit } = useSubmit(acknowledge);
+  const { pending, error, submit } = useAuthSubmit(acknowledge);
+  const labelId = useId();
 
   return (
     <form
       noValidate
+      className="flex flex-1 flex-col"
       onSubmit={(event) => {
         event.preventDefault();
-        submit({ accepted });
+        if (accepted) submit({ accepted });
       }}
     >
-      <label className="app-auth-check">
-        <input type="checkbox" name="accepted" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} />
-        <span>I have read the acknowledgement and confirm I am a researcher.</span>
+      <DisclaimerBox className="mx-3 mt-5 h-[330px] laptop:mx-0" />
+      <label className="mx-4 mt-4 flex cursor-pointer items-start gap-3 text-[15px] leading-[1.45] laptop:mx-0">
+        <Checkbox checked={accepted} onCheckedChange={setAccepted} aria-labelledby={labelId} />
+        <span id={labelId}>{ACKNOWLEDGE_LABEL}</span>
       </label>
-      <InlineError>{error}</InlineError>
-      <AppButton type="submit" block saving={pending} className="app-auth-submit">
-        Continue
-      </AppButton>
+      <FormError className="mx-4 mt-3 laptop:mx-0">{error}</FormError>
+      <AuthActions>
+        <Button type="submit" variant="ink" size="lg" block saving={pending} disabled={!accepted} data-testid="agree">
+          Agree and continue
+        </Button>
+      </AuthActions>
     </form>
   );
 }

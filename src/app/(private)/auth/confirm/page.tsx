@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { AuthCard } from "@/components/auth/auth-card";
+import { AuthFrame, AuthHeading } from "@/components/auth/auth-frame";
 import { ConfirmRecoveryForm } from "@/components/auth/sign-in-forms";
 import { RECOVER_PATH } from "@/lib/auth/paths";
 
@@ -19,10 +19,9 @@ export default async function ConfirmRecoveryPage({ searchParams }: { searchPara
   if (typeof tokenHash !== "string" || !tokenHash || type !== "recovery") redirect(`${RECOVER_PATH}?link=invalid`);
 
   return (
-    <AuthCard>
-      <h1 className="app-auth-title">Recover access</h1>
-      <p className="app-auth-lead">Continue to choose a new password for your account.</p>
+    <AuthFrame>
+      <AuthHeading logo title="Recover access" lead="Continue to choose a new password for your account." />
       <ConfirmRecoveryForm tokenHash={tokenHash} />
-    </AuthCard>
+    </AuthFrame>
   );
 }

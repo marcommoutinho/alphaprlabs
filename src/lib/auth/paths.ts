@@ -20,14 +20,22 @@ export const ACKNOWLEDGE_PATH = "/auth/acknowledge";
 /** Version of the researcher disclaimer text shown at ACKNOWLEDGE_PATH. */
 export const ACKNOWLEDGEMENT_VERSION = "2026-09-placeholder";
 
-/** C2 step 3 of 3 (optional): reminders on this phone, then Today. Researchers and admins. */
+/**
+ * The push permission prompt ("Turn on dose reminders"): shown once, on the
+ * first standalone (home screen) launch, and on request from Me. Researchers
+ * and admins.
+ */
 export const REMINDERS_READINESS_PATH = "/auth/reminders";
 
 /**
- * Where a researcher goes right after acknowledging the disclaimer (end of
- * account setup): step 3, which continues to Today.
+ * R16 Put Alpha on your Home Screen (step 3 of 3): iPhone / iPad Safari
+ * only; anywhere else (or already running from the Home Screen) it goes
+ * straight on to Today.
  */
-export const AFTER_ACKNOWLEDGEMENT_PATH = REMINDERS_READINESS_PATH;
+export const INSTALL_PATH = "/auth/install";
+
+/** Where a researcher goes right after agreeing to R15 (end of joining): R16. */
+export const AFTER_ACKNOWLEDGEMENT_PATH = INSTALL_PATH;
 
 /**
  * A same-site return path from `?next=`, or null. Only paths inside /app or

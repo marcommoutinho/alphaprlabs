@@ -3,6 +3,8 @@ import { cache } from "react";
 import { notFound, redirect } from "next/navigation";
 import { hasResearchAccess, type AppIdentity } from "@/lib/app/identity";
 import { type Preferences, resolvePreferences } from "@/lib/preferences/rules";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 import { ACKNOWLEDGE_PATH, RESEARCH_HOME, signInUrl } from "./paths";
 
@@ -29,11 +31,15 @@ export const getSessionPerson = cache(async (): Promise<SessionPerson | null> =>
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return null;
+  return readSessionPerson(supabase, user.id);
+});
 
+/** The profile and its preferences in one read, through the caller's own client (RLS: own row). */
+export async function readSessionPerson(supabase: SupabaseClient<Database>, userId: string): Promise<SessionPerson | null> {
   const { data: profile } = await supabase
     .from("profiles")
     .select("id, name, email, role, acknowledged_at, created_at, account_preferences(default_syringe, weight_unit, appearance)")
-    .eq("id", user.id)
+    .eq("id", userId)
     .maybeSingle();
   if (!profile) return null;
 
@@ -46,7 +52,7 @@ export const getSessionPerson = cache(async (): Promise<SessionPerson | null> =>
     createdAt: profile.created_at,
     preferences: resolvePreferences(profile.account_preferences),
   };
-});
+}
 
 /**
  * For research-side layouts and pages (/app): the signed-in researcher or
