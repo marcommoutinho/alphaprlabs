@@ -1,5 +1,5 @@
-// R8 Personal supplies: what the screen shows (the prototype's supplies view),
-// and Today's low-stock notes. Pure: built from the researcher's vials,
+// R8 Personal supplies: what the screen shows (design v3 R7: vials in use,
+// unopened and finished), and Today's low-stock notes. Pure: built from the researcher's vials,
 // mixtures, deductions, cycles and recorded doses. See ./estimate for the
 // estimate and the low-stock rule.
 import { massLabel } from "@/lib/alpha/format";
@@ -7,21 +7,22 @@ import { Exact } from "@/lib/calculator/decimal";
 import type { CycleRecord } from "@/lib/cycles/rules";
 import { cycleOccurrences } from "@/lib/cycles/schedule";
 import { occurrenceWhen } from "@/lib/cycles/views";
-import { formatDate, formatDateTime } from "@/lib/format";
-import { type Mixture, mixtureLabel } from "@/lib/mixtures/rules";
+import { formatDate, formatDateTime, formatDay, formatMonthDay } from "@/lib/format";
+import { concentrationOf, type Mixture, mixtureLabel } from "@/lib/mixtures/rules";
 import type { PersonalVial } from "@/lib/mixtures/service";
 import type { Confirmation } from "@/lib/schedule/engine";
 import type { InstantInput } from "@/lib/schedule/zone";
 import {
-  mgLabel,
   OVER_STATE,
   outlookFor,
   outlookLine,
   type PlannedDose,
   remainingLabel,
+  type StockOutlook,
   todayStockNote,
   upcomingByPlan,
   vialEstimate,
+  type VialEstimate,
   vialState,
 } from "./estimate";
 import { ESTIMATE_NOTE, MIXTURE_DELETED_LINE, NOT_MIXED_LINE } from "./rules";
@@ -29,12 +30,19 @@ import { ESTIMATE_NOTE, MIXTURE_DELETED_LINE, NOT_MIXED_LINE } from "./rules";
 /** A deduction as the screen needs it (src/lib/supplies/service VialDeduction). */
 export type DeductionInput = {
   id: string;
-  doseId: string;
+  /** A dose, or a correction the researcher made (R7); absent means a dose. */
+  kind?: "dose" | "correction";
+  /** The recorded dose; null for a correction. */
+  doseId: string | null;
   vialId: string;
+  /** Its position on its vial (the order the estimate is counted in); absent in older fixtures. */
+  sequence?: number;
   amountMg: string;
   remainingBeforeMg: string;
   remainingAfterMg: string;
   stockDiscrepancy: boolean;
+  /** When it was recorded (a correction's date). */
+  recordedAt?: string;
 };
 
 /** The recorded dose behind a deduction. */
@@ -42,17 +50,23 @@ export type DoseInput = { id: string; cycleId: string; occurrenceKey: string; ac
 
 export type HistoryEntry = {
   id: string;
+  kind: "dose" | "correction";
   /** "Sat Sep 26 · 08:05" in the dose's cycle zone, or "" when the dose isn't readable. */
   when: string;
   cycleName: string;
-  /** "0.4 mg" */
+  /** "400 mcg" (what a dose took, or how far a correction moved the estimate). */
   amount: string;
-  /** "7.6 mg left", or "0.2 mg over" past the vial's contents. */
+  /** "−400 mcg" for a dose; "Corrected −300 mcg" / "Corrected +1 mg" for a correction. */
+  change: string;
+  /** "7.6 mg left", or "200 mcg over" past the vial's contents. */
   after: string;
   discrepancy: boolean;
   /** The dose's sheet on Today, which shows what was recorded. */
   href: string | null;
 };
+
+/** The R7 tag beside a vial that needs attention. */
+export type VialTag = "Low" | "Empty" | "Over";
 
 export type VialCard = {
   id: string;
@@ -68,6 +82,7 @@ export type VialCard = {
   tone: "quiet" | "warn" | "alert";
   /** Bar width, 0–100. */
   percent: number;
+  /** "7.2 mg · 1.8 mL" (the mL at the mixture's concentration). */
   remaining: string;
   /** "3 confirmed doses deducted" */
   uses: string;
@@ -77,9 +92,22 @@ export type VialCard = {
   outlook: string | null;
   /** Newest first. */
   history: HistoryEntry[];
+  // ── Design v3 R7 ──
+  /** "BPC-157 · 10 mg" */
+  title: string;
+  /** "Vial 3 · mixed Sep 17 · 5 mg/mL" */
+  meta: string;
+  /** "1.5 mg left", "0 mg left", "200 mcg over" */
+  left: string;
+  tag: VialTag | null;
+  /** "6 doses · to Mon Sep 28", "Less than the next 400 mcg dose", or why it can't be judged; null when finished. */
+  forecast: string | null;
+  /** The estimate the screen shows, exact (negative when over): "Correct remaining" sends it back as what was seen. */
+  remainingMg: string;
 };
 
-export type VialGroup = { peptideId: string; name: string; vials: VialCard[] };
+/** Unopened vials of one peptide and strength (R7 "BPC-157 · 10 mg  × 2"). */
+export type UnopenedGroup = { key: string; title: string; peptideId: string; strengthMg: string; vials: VialCard[] };
 
 /** A saved mixture offered in the vial forms. */
 export type MixtureOption = {
@@ -94,7 +122,14 @@ export type MixtureOption = {
 
 export type SuppliesView = {
   tracking: boolean;
-  groups: VialGroup[];
+  /** Open vials that are mixed or have been used, by peptide name. */
+  inUse: VialCard[];
+  /** Open vials never mixed nor used, grouped by peptide and strength. */
+  unopened: UnopenedGroup[];
+  /** Finished vials, the most recently finished first. */
+  finished: VialCard[];
+  /** Open vials tagged Low, Empty or Over (the sidebar's "N low"). */
+  lowCount: number;
   hasVials: boolean;
   mixtures: MixtureOption[];
   /** Peptides a "Not mixed yet" vial may be added for: offered ones, and those in the researcher's own mixtures or vials. */
@@ -124,7 +159,14 @@ const whenOf = (dose: PlannedDose) => occurrenceWhen(dose);
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-/** Deductions by vial, in the order they were taken: each one's "before" is the one before's "after". */
+/** "Vial 3" as is; a label of the researcher's own ("A-02") as "Vial A-02". */
+export const vialName = (label: string) => (/^vial\b/i.test(label) ? label : `Vial ${label}`);
+
+/**
+ * Deductions by vial, in the order they were counted: each one's "before" is
+ * the one before's "after". The vial's sequence is that order; rows without
+ * one (older fixtures) fall back to the estimate going down.
+ */
 function deductionsByVial(deductions: readonly DeductionInput[]): Map<string, DeductionInput[]> {
   const byVial = new Map<string, DeductionInput[]>();
   for (const d of deductions) {
@@ -132,11 +174,33 @@ function deductionsByVial(deductions: readonly DeductionInput[]): Map<string, De
     if (list) list.push(d);
     else byVial.set(d.vialId, [d]);
   }
-  for (const list of byVial.values()) list.sort((a, b) => new Exact(b.remainingBeforeMg).comparedTo(a.remainingBeforeMg) || a.id.localeCompare(b.id));
+  for (const list of byVial.values())
+    list.sort((a, b) =>
+      a.sequence !== undefined && b.sequence !== undefined
+        ? a.sequence - b.sequence
+        : new Exact(b.remainingBeforeMg).comparedTo(a.remainingBeforeMg) || a.id.localeCompare(b.id),
+    );
   return byVial;
 }
 
-/** Everything R8 shows as of `now`. */
+/** "200 mcg over" or "7.6 mg left" for a stored remaining amount. */
+const afterLabel = (remainingMg: string) =>
+  remainingMg.startsWith("-") ? `${massLabel(remainingMg.slice(1))} over` : `${massLabel(remainingMg)} left`;
+
+/** R7's forecast under the meter. */
+function forecastLine(outlook: StockOutlook, estimateState: VialEstimate["state"], mixed: boolean): string {
+  if (estimateState === "over") return "More recorded than the vial held";
+  if (estimateState === "empty") return "Nothing left by the estimate";
+  if (outlook.kind === "unknown") {
+    if (!mixed) return "Not mixed yet";
+    return outlook.reason === "no-plan" ? "No cycle uses this mixture" : "No dose planned ahead";
+  }
+  if (outlook.low) return `Less than the next ${massLabel(outlook.next.doseMg)} dose`;
+  const last = outlook.lastCovered ? ` · to ${formatDay(outlook.lastCovered.localDate)}` : "";
+  return `${plural(outlook.dosesLeft, "dose")}${last}${outlook.coversAll ? " · every planned dose" : ""}`;
+}
+
+/** Everything R7 shows as of `now`. */
 export function suppliesView(input: SuppliesInput): SuppliesView {
   const mixtures = new Map(input.mixtures.map((m) => [m.id, m]));
   const cycles = new Map(input.cycles.map((c) => [c.id, c]));
@@ -160,22 +224,38 @@ export function suppliesView(input: SuppliesInput): SuppliesView {
   };
 
   const history = (d: DeductionInput): HistoryEntry => {
-    const dose = doses.get(d.doseId);
+    if (d.kind === "correction") {
+      const moved = new Exact(d.amountMg);
+      return {
+        id: d.id,
+        kind: "correction",
+        when: d.recordedAt ? formatDateTime(d.recordedAt, { timeZone: zone }) : "",
+        cycleName: "",
+        amount: massLabel(moved.abs().toFixed()),
+        // The amount is what the estimate went down by; negative means more was found.
+        change: `Corrected ${moved.isNegative() ? "+" : "−"}${massLabel(moved.abs().toFixed())}`,
+        after: afterLabel(d.remainingAfterMg),
+        discrepancy: false,
+        href: null,
+      };
+    }
+    const dose = d.doseId ? doses.get(d.doseId) : undefined;
     const cycle = dose ? cycles.get(dose.cycleId) : undefined;
     const timeZone = (dose && zoneOf(dose.cycleId, dose.occurrenceKey)) ?? cycle?.revisions.at(-1)?.timeZone ?? zone;
-    const after = d.remainingAfterMg.startsWith("-") ? `${mgLabel(d.remainingAfterMg.slice(1))} over` : `${mgLabel(d.remainingAfterMg)} left`;
     return {
       id: d.id,
+      kind: "dose",
       when: dose ? formatDateTime(dose.actualAt, { timeZone }) : "",
       cycleName: cycle?.name ?? "",
-      amount: mgLabel(d.amountMg),
-      after,
+      amount: massLabel(d.amountMg),
+      change: `−${massLabel(d.amountMg)}`,
+      after: afterLabel(d.remainingAfterMg),
       discrepancy: d.stockDiscrepancy,
       href: dose ? `/app/today?dose=${encodeURIComponent(dose.occurrenceKey)}` : null,
     };
   };
 
-  const card = (vial: PersonalVial): VialCard => {
+  const card = (vial: PersonalVial): VialCard & { used: boolean } => {
     const deductions = byVial.get(vial.id) ?? [];
     const estimate = vialEstimate(vial.strengthMg, deductions);
     const mixture = vial.mixtureId ? (mixtures.get(vial.mixtureId) ?? null) : null;
@@ -189,6 +269,21 @@ export function suppliesView(input: SuppliesInput): SuppliesView {
         : vial.mixtureId
           ? MIXTURE_DELETED_LINE
           : NOT_MIXED_LINE;
+    const tag: VialTag | null = !open
+      ? null
+      : estimate.state === "over"
+        ? "Over"
+        : estimate.state === "empty"
+          ? "Empty"
+          : outlook.kind === "known" && outlook.low
+            ? "Low"
+            : null;
+    const when = vial.finishedAt
+      ? `finished ${formatMonthDay(vial.finishedAt, { timeZone: zone })}`
+      : vial.mixedAt
+        ? `mixed ${formatMonthDay(vial.mixedAt, { timeZone: zone })}`
+        : `added ${formatMonthDay(vial.createdAt, { timeZone: zone })}`;
+    const concentration = mixture ? `${concentrationOf(mixture.setup)} mg/mL` : null;
     return {
       id: vial.id,
       label: vial.label,
@@ -206,23 +301,42 @@ export function suppliesView(input: SuppliesInput): SuppliesView {
       mixLine,
       outlook: open && mixture ? outlookLine(outlook, whenOf) : null,
       history: deductions.map(history).reverse(),
+      title: `${nameOf(vial.peptideId)} · ${massLabel(vial.strengthMg)}`,
+      meta: [vialName(vial.label), when, open ? concentration : null].filter(Boolean).join(" · "),
+      left: estimate.state === "over" ? `${massLabel(estimate.overMg!)} over` : `${massLabel(estimate.remainingMg)} left`,
+      tag,
+      forecast: open ? forecastLine(outlook, estimate.state, mixture !== null) : null,
+      remainingMg: estimate.remainingMg,
+      used: deductions.length > 0 || vial.mixedAt !== null || vial.mixtureId !== null,
     };
   };
 
-  const groups = new Map<string, VialGroup>();
-  // Open vials first, then finished ones, each oldest first (listPersonalVials' order).
-  const ordered = [...input.vials.filter((v) => v.finishedAt === null), ...input.vials.filter((v) => v.finishedAt !== null)];
-  for (const vial of ordered) {
-    const group = groups.get(vial.peptideId) ?? { peptideId: vial.peptideId, name: nameOf(vial.peptideId), vials: [] };
-    group.vials.push(card(vial));
-    groups.set(vial.peptideId, group);
+  const byName = (a: VialCard, b: VialCard) => a.peptideName.localeCompare(b.peptideName) || a.peptideId.localeCompare(b.peptideId);
+  const inUse: VialCard[] = [];
+  const unopened = new Map<string, UnopenedGroup>();
+  const finished: { card: VialCard; at: string }[] = [];
+  // listPersonalVials' order (oldest first) within each group.
+  for (const vial of input.vials) {
+    const { used, ...view } = card(vial);
+    if (!view.open) finished.push({ card: view, at: vial.finishedAt! });
+    else if (used) inUse.push(view);
+    else {
+      const key = `${vial.peptideId}:${vial.strengthMg}`;
+      const group = unopened.get(key) ?? { key, title: view.title, peptideId: vial.peptideId, strengthMg: vial.strengthMg, vials: [] };
+      group.vials.push(view);
+      unopened.set(key, group);
+    }
   }
 
   const openVial = new Map(input.vials.filter((v) => v.mixtureId && v.finishedAt === null).map((v) => [v.mixtureId!, v.label]));
   const own = new Set([...input.mixtures.map((m) => m.peptideId), ...input.vials.map((v) => v.peptideId)]);
+  const sortedInUse = inUse.sort(byName);
   return {
     tracking: input.tracking,
-    groups: [...groups.values()].sort((a, b) => a.name.localeCompare(b.name) || a.peptideId.localeCompare(b.peptideId)),
+    inUse: sortedInUse,
+    unopened: [...unopened.values()].sort((a, b) => a.title.localeCompare(b.title) || a.key.localeCompare(b.key)),
+    finished: finished.sort((a, b) => b.at.localeCompare(a.at)).map((f) => f.card),
+    lowCount: sortedInUse.filter((v) => v.tag !== null).length,
     hasVials: input.vials.length > 0,
     mixtures: input.mixtures.map((m) => ({
       id: m.id,

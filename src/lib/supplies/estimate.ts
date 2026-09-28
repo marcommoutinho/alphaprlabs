@@ -26,7 +26,11 @@ import type { Confirmation, Occurrence } from "@/lib/schedule/engine";
 import { type InstantInput, localDateOf, toInstant } from "@/lib/schedule/zone";
 
 /** One recorded deduction's amount (a stored decimal string). */
-export type DeductionAmount = { amountMg: string };
+export type DeductionAmount = {
+  amountMg: string;
+  /** A correction (R7) moves the estimate by its (signed) amount without being a dose; absent means a dose. */
+  kind?: "dose" | "correction";
+};
 
 export type VialEstimate = {
   /** Sum of the deductions (exact decimal string). */
@@ -59,7 +63,7 @@ export function vialEstimate(strengthMg: string, deductions: readonly DeductionA
     state,
     overMg: remaining.isNegative() ? remaining.negated().toFixed() : null,
     percentLeft: percent,
-    uses: deductions.length,
+    uses: deductions.filter((d) => d.kind !== "correction").length,
   };
 }
 
@@ -80,6 +84,8 @@ export type StockOutlook =
       low: boolean;
       /** Planned doses ahead, in order, that the estimate covers in full. */
       dosesLeft: number;
+      /** The last of those (R7: "2 doses · to Mon Sep 28"), or null when none is covered. */
+      lastCovered: PlannedDose | null;
       /** The estimate covers every planned dose ahead. */
       coversAll: boolean;
       /** Planned doses ahead in all. */
@@ -95,17 +101,20 @@ export function stockOutlook(remainingMg: string, upcoming: readonly PlannedDose
   const ordered = [...upcoming].sort(byTime);
   let left = new Exact(remainingMg);
   let covered = 0;
+  let lastCovered: PlannedDose | null = null;
   for (const dose of ordered) {
     const amount = new Exact(dose.doseMg);
     if (left.lessThan(amount)) break;
     left = left.minus(amount);
     covered += 1;
+    lastCovered = dose;
   }
   return {
     kind: "known",
     next: ordered[0],
     low: new Exact(remainingMg).lessThan(new Exact(ordered[0].doseMg)),
     dosesLeft: covered,
+    lastCovered,
     coversAll: covered === ordered.length,
     planned: ordered.length,
   };
@@ -160,11 +169,12 @@ export const mgLabel = (mg: string) => `${formatAmount(new Exact(mg))} mg`;
 /**
  * "Estimated remaining" as shown: "7.6 mg · 1.9 mL" (the mL at the mixture's
  * concentration, when there is one and something is left), "0 mg", or
- * "0 mg · 0.2 mg over" when the deductions exceed the vial.
+ * "0 mg · 200 mcg over" when the deductions exceed the vial (design v3
+ * units: under 1 mg in mcg).
  */
 export function remainingLabel(estimate: VialEstimate, mixture: { vialMg: string; liquidMl: string } | null): string {
-  if (estimate.state === "over") return `0 mg · ${mgLabel(estimate.overMg!)} over`;
-  const mg = mgLabel(estimate.remainingMg);
+  if (estimate.state === "over") return `0 mg · ${massLabel(estimate.overMg!)} over`;
+  const mg = massLabel(estimate.remainingMg);
   if (!mixture || !new Exact(estimate.remainingMg).greaterThan(0)) return mg;
   const ml = formatRatio(new Exact(estimate.remainingMg).times(mixture.liquidMl), mixture.vialMg);
   return `${mg} · ${ml} mL`;
@@ -198,7 +208,7 @@ export function outlookLine(outlook: StockOutlook, when: (dose: PlannedDose) => 
     if (outlook.reason === "no-upcoming") return "No dose is planned ahead, so low stock isn't judged.";
     return null;
   }
-  const next = `${outlook.next.doseMg} mg, ${when(outlook.next)}`;
+  const next = `${massLabel(outlook.next.doseMg)}, ${when(outlook.next)}`;
   if (outlook.low) return `Less than the next planned dose (${next}).`;
   if (outlook.coversAll) return `Enough for the ${doses(outlook.planned)} planned ahead. Next: ${next}.`;
   return `About ${doses(outlook.dosesLeft)} left at the planned amounts. Next: ${next}.`;

@@ -14,10 +14,16 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { addDays } from "@/lib/cycles/rules";
 import { checkInDay } from "@/lib/progress/rules";
 import { occurrenceOn } from "@/lib/supplements/schedule";
-import { getSupplementTracking, listDueSupplements, listRoutines, listTaken, saveRoutine, takeSupplement } from "@/lib/supplements/service";
+import type { ValidRoutine } from "@/lib/supplements/rules";
+import { getSupplementTracking, listDueSupplements, listRoutines, listTaken, saveRoutine as saveKeyedRoutine, takeSupplement } from "@/lib/supplements/service";
 import { type Client, createCycle, createPeptide, interval, plan, tag } from "../support/cycles";
 import { confirmArgsSeen, d, NOON, occurrenceOn as doseOn } from "../support/doses";
 import { anonClient, ensureAccount, ok, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
+
+/** The service's keyed save with a fresh request each time (20260928130000_supplies_v3.sql), dates left as they are. */
+const saveRoutine = (client: Client, routine: Omit<ValidRoutine, "startDate" | "endDate"> & Partial<Pick<ValidRoutine, "startDate" | "endDate">>) =>
+  saveKeyedRoutine(client, { startDate: null, endDate: null, ...routine }, { key: randomUUID(), hash: randomUUID().replaceAll("-", "").padEnd(64, "0") });
+
 
 const people = {
   alex: { email: uniqueEmail("s16-alex"), name: "Alex Supplements", role: "researcher" },
@@ -265,7 +271,7 @@ describe("edits and End", () => {
     const before = await takenRows(routineId);
 
     const edit = await saveRoutine(db.dev, { id: routineId, version: 1, name: "Vitamin C (buffered)", amount: "1000.50", unit: "mg", time: "07:15" });
-    expect(edit).toEqual({ kind: "saved", id: routineId, version: 2 });
+    expect(edit).toEqual({ kind: "saved", id: routineId, version: 2, replayed: false });
     expect(await routineRow(routineId)).toMatchObject({ name: "Vitamin C (buffered)", amount: "1000.5", time_of_day: "07:15", version: 2, schedule_version: 2 });
     // The Taken record keeps the routine as it was.
     expect(await takenRows(routineId)).toEqual(before);

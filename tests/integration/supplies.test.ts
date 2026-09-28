@@ -247,12 +247,12 @@ describe("the estimate as the screen reads it", () => {
       confirmations: confirmationsByCycle(records),
       now: new Date(),
     });
-    const card = view.groups.flatMap((g) => g.vials).find((v) => v.id === cara.vialId)!;
-    expect(card).toMatchObject({ state: "Estimate exceeds vial — check your records", remaining: "0 mg · 0.2 mg over", uses: "3 confirmed doses deducted" });
+    const card = [...view.inUse, ...view.finished].find((v) => v.id === cara.vialId)!;
+    expect(card).toMatchObject({ state: "Estimate exceeds vial — check your records", remaining: "0 mg · 200 mcg over", uses: "3 confirmed doses deducted" });
     expect(card.history.map((h) => [h.after, h.discrepancy])).toEqual([
-      ["0.2 mg over", true],
-      ["0.2 mg left", false],
-      ["0.6 mg left", false],
+      ["200 mcg over", true],
+      ["200 mcg left", false],
+      ["600 mcg left", false],
     ]);
     expect(card.history[0].href).toContain(`/app/today?dose=${encodeURIComponent(records.at(-1)!.occurrenceKey)}`);
   });

@@ -50,6 +50,8 @@ export const MEASUREMENTS = [
 export type MeasurementName = (typeof MEASUREMENTS)[number]["name"];
 
 export const FEELINGS = [1, 2, 3, 4, 5] as const;
+/** R1's check-in card, R5 and R6: the five feelings, 1 (rough) to 5 (great). */
+export const FEELING_WORDS: Record<number, string> = { 1: "Rough", 2: "Low", 3: "OK", 4: "Good", 5: "Great" };
 export const NOTE_LIMIT = 1000;
 export const UNIT_LIMIT = 20;
 export const VALUE_DECIMALS = 6;
@@ -73,7 +75,6 @@ export const NO_CYCLE_SELECTED = "Check-ins only. Pick a cycle to see them besid
 export const ONE_ENTRY = "One entry covers all active peptides";
 export const NOT_EVIDENCE = "Shown together for your own comparison — not evidence that a peptide caused a change";
 export const SPARSE = "Sparse history so far — that's fine. Gaps stay gaps.";
-export const NO_CHECK_IN = "No check-in — not a zero";
 export const NO_DOSES = "No doses recorded this day";
 // Not in the prototype: limits, and the server's refusals.
 export const VALUE_NEGATIVE = "Measurement can't be below 0.";

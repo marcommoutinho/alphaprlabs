@@ -258,8 +258,10 @@ export function historyView(input: HistoryInput): HistoryView {
       ? "Supplies tracking is on but no vials are recorded."
       : "Personal supplies: optional feature not used.";
 
+  // A planned end still ahead (R13) reads as one.
+  const supportToday = todayIn(input.now, SUPPORT_TIME_ZONE);
   const routine = (r: HistoryInput["routines"][number]) =>
-    `${r.name} ${r.amount} ${r.unit} daily ${r.time}${r.endDate ? ` (ended ${formatDate(r.endDate)})` : ""}`;
+    `${r.name} ${r.amount} ${r.unit} daily ${r.time}${r.endDate ? ` (${r.endDate > supportToday ? "ends" : "ended"} ${formatDate(r.endDate)})` : ""}`;
   const supplements = input.routines.length
     ? `${input.supplementTracking ? "Supplement routines" : "Supplement tracking is off. Routines kept"}: ${input.routines.map(routine).join("; ")}`
     : input.supplementTracking

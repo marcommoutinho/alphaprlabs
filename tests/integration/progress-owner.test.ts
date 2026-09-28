@@ -11,9 +11,11 @@ import { addDays } from "@/lib/cycles/rules";
 import { listCycles, listCyclePeptides } from "@/lib/cycles/service";
 import { checkInDay } from "@/lib/progress/rules";
 import { countCheckIns, listCheckIns } from "@/lib/progress/service";
-import { progressView, progressWindow } from "@/lib/progress/view";
+import { CSV_HEADER } from "@/lib/progress/csv";
+import { exportOwnCheckIns } from "@/lib/progress/export";
+import { progressScreen, progressSelection } from "@/lib/progress/screen";
 import { type Client, createCycle, createPeptide, interval, plan, tag } from "../support/cycles";
-import { ensureAccount, ok, signedInClient, uniqueEmail } from "../support/local-supabase";
+import { anonClient, ensureAccount, ok, signedInClient, uniqueEmail } from "../support/local-supabase";
 import { psql, quote } from "../support/psql";
 
 const people = {
@@ -75,25 +77,50 @@ describe("check-in reads are complete, a page at a time", () => {
     expect(await listCheckIns(db.noah, id.alex, {}, 4)).toHaveLength(DAYS);
   });
 
-  it("builds the last 14 days from them, today still open", async () => {
+  it("builds R5's last 30 days from them, today still open", async () => {
     const now = new Date();
-    const window = progressWindow(now);
-    expect(window).toEqual({ from: addDays(today, -13), to: today });
-    const view = progressView({
-      cycles: await listCycles(db.alex, id.alex),
+    const cycles = await listCycles(db.alex, id.alex);
+    const { cycle, window } = progressSelection(cycles, null, null, now);
+    expect(window).toEqual({ range: "30d", from: addDays(today, -29), to: today, countFrom: addDays(today, -29), today });
+    const screen = progressScreen({
+      cycles,
       selectedId: null,
-      checkIns: await listCheckIns(db.alex, id.alex, window, 5),
+      range: null,
+      checkIns: await listCheckIns(db.alex, id.alex, { from: window.from, to: window.to }, 5),
       total: await countCheckIns(db.alex, id.alex),
       confirmations: new Map(),
       peptides: new Map((await listCyclePeptides(db.alex)).map((p) => [p.id, p])),
       now,
     });
-    expect(view.cycle?.name).toBe("Month");
-    expect(view.rows.map((r) => r.day)).toEqual(Array.from({ length: 14 }, (_, i) => addDays(today, -i)));
-    expect(view.rows.filter((r) => r.feeling !== null)).toHaveLength(13);
-    expect(view.rows[0]).toMatchObject({ label: "Today", feeling: null });
-    expect(view.rows[1]).toMatchObject({ day: addDays(today, -1), note: "Day 29", feelLabel: "5/5" });
-    expect([view.form.day, view.form.start, view.sparse]).toEqual([today, null, ""]);
+    expect([cycle?.name, screen.header.includes("Month")]).toEqual(["Month", true]);
+    // days[1] … days[29] fall in the 30 days; today has no check-in yet.
+    expect(screen.rows.map((r) => r.day)).toEqual(days.slice(1).reverse());
+    expect(screen.rows[0]).toMatchObject({ day: addDays(today, -1), note: "Day 29", feelingText: "5 · Great", today: false });
+    expect(screen.tiles.checkIns).toEqual({ value: "29", context: "of 30 days" });
+    // Weight every third day: the latest is day 27's.
+    expect(screen.measure).toMatchObject({ name: "Weight", latest: "82.7", latestDay: addDays(today, -3), entries: "9 entries" });
+    expect([screen.todayCheckIn, screen.sparse, screen.exportHref]).toEqual([null, "", `/app/progress/export?from=${window.from}&to=${window.to}`]);
+  });
+});
+
+describe("D3 Export CSV is owner-only", () => {
+  it("exports the signed-in person's own check-ins for the range, never a shared researcher's", async () => {
+    const range = { from: addDays(today, -29), to: today };
+    const own = await exportOwnCheckIns(db.alex, range);
+    expect(own).toMatchObject({ rows: 29, filename: `alpha-check-ins_${range.from}_to_${range.to}.csv` });
+    const lines = own!.csv.split("\r\n");
+    expect(lines[0]).toBe(`\uFEFF${CSV_HEADER.join(",")}`);
+    expect(lines[1].startsWith(`${days[1]},2,Low,`)).toBe(true);
+    expect(lines.at(-2)).toBe(`${days[29]},5,Great,,,,,Day 29`);
+    // Grace can read Alex's check-ins (support share), and Noah as any admin while Alex shares with the team,
+    // but each export holds only their own: none.
+    expect((await listCheckIns(db.grace, id.alex, range)).length).toBe(29);
+    for (const who of ["grace", "noah"] as const) {
+      const theirs = await exportOwnCheckIns(db[who], range);
+      expect(theirs, who).toMatchObject({ rows: 0, csv: `\uFEFF${CSV_HEADER.join(",")}\r\n` });
+    }
+    // Signed out: nothing.
+    expect(await exportOwnCheckIns(anonClient(), range)).toBeNull();
   });
 });
 

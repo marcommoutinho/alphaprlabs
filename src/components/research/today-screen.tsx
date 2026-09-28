@@ -16,7 +16,7 @@ import { SyringeRuler } from "@/components/alpha/gauges";
 import { StatusRow } from "@/components/alpha/list";
 import { NowActions, NowBlock, NowHeader, NowReading } from "@/components/alpha/now-block";
 import { StateGlyph, type GlyphState } from "@/components/alpha/state-glyph";
-import { useNavCount } from "@/components/alpha/shell/nav-counts";
+import { lowCounter, useNavCount } from "@/components/alpha/shell/nav-counts";
 import { useAlphaToast } from "@/components/alpha/toast";
 import { SAVE_FAILED_MESSAGE } from "@/components/app-shell/toast";
 import { AppBadge } from "@/components/push/app-badge";
@@ -27,7 +27,8 @@ import type { DoseDetail, TodayDose, TodayView } from "@/lib/doses/today";
 import { type SupplementDetail, type SupplementRow, type SupplementToday, todayNotes } from "@/lib/supplements/view";
 import type { LowVialRow } from "@/lib/supplies/view";
 import { cn } from "@/lib/utils";
-import { CheckInSheet, type CheckInContext, FEELING_WORDS } from "./check-in-sheet";
+import { FEELING_WORDS } from "@/lib/progress/rules";
+import { CheckInSheet, type CheckInContext } from "./check-in-sheet";
 import { LogSheet, type SheetSubmission, SupplementSheet } from "./log-sheet";
 import { useTakeSupplement } from "./supplement-taken";
 import { rememberLoaded } from "./today-loaded";
@@ -294,6 +295,7 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials }: 
   const rail = dayRail(view.items, supplements.rows);
   // D1: the sidebar's Today counter shows the overdue doses.
   useNavCount("today", overdue.length ? { text: String(overdue.length), tone: "missed" } : null);
+  useNavCount("supplies", lowCounter(lowVials.length));
   const next = view.items.filter((item) => item.kind === "next");
   const sheetDetail = sheetKey ? (view.doses[sheetKey] ?? null) : null;
   const disabled = busy !== null || supplement.pending;

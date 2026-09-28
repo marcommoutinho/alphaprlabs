@@ -29,6 +29,8 @@ import {
   validateRoutine,
 } from "@/lib/supplements/rules";
 import { endRoutine, saveRoutine, setSupplementTracking, takeSupplement } from "@/lib/supplements/service";
+import { todayIn } from "@/lib/supplements/schedule";
+import { saveRequestHash } from "@/lib/request-hash";
 import { createClient } from "@/lib/supabase/server";
 
 const SUPPLEMENTS = "/app/supplements";
@@ -80,16 +82,24 @@ export async function setSupplementTrackingAction(input: unknown): Promise<Suppl
   return { saved: true };
 }
 
+/** The request key the screen made for this submission (sent again on a retry), or null. */
+const requestKeyOf = (input: unknown): string | null =>
+  uuidOf(typeof input === "object" && input !== null ? (input as Record<string, unknown>).requestKey : null);
+
 /**
- * R10 "Create routine" (no id) or a routine's edit (from the version shown).
- * An edit changes the routine from now on; Taken records keep what was taken.
+ * R13 "Add routine" (no id; from its start, today by default, with an
+ * optional planned end) or a routine's edit (from the version shown). An
+ * edit changes the routine from now on; Taken records keep what was taken.
+ * Idempotent: the same request key and details return the first save.
  */
 export async function saveRoutineAction(input: unknown): Promise<SupplementActionResult> {
   await signedIn(SUPPLEMENTS);
-  const valid = validateRoutine(input);
+  const requestKey = requestKeyOf(input);
+  if (!requestKey) return { error: ROUTINE_INVALID };
+  const valid = validateRoutine(input, todayIn(new Date(), SUPPLEMENT_TIME_ZONE));
   if (!valid.ok) return { error: valid.error };
   const db = await createClient();
-  const result = await saveRoutine(db, valid.value);
+  const result = await saveRoutine(db, valid.value, { key: requestKey, hash: saveRequestHash(valid.value) });
   switch (result.kind) {
     case "saved":
       revalidateSupplements();
@@ -109,15 +119,16 @@ export async function saveRoutineAction(input: unknown): Promise<SupplementActio
   }
 }
 
-/** R10 "End routine": it runs through today and stops; its history is kept. */
+/** R13 "End routine": it runs through today and stops (one not started yet never runs); its history is kept. */
 export async function endRoutineAction(input: unknown): Promise<SupplementActionResult> {
   await signedIn(SUPPLEMENTS);
   const raw = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
   const id = uuidOf(raw.id);
   const version = raw.version;
-  if (!id || typeof version !== "number" || !Number.isInteger(version) || version < 1) return { error: ROUTINE_INVALID };
+  const requestKey = requestKeyOf(input);
+  if (!id || !requestKey || typeof version !== "number" || !Number.isInteger(version) || version < 1) return { error: ROUTINE_INVALID };
   const db = await createClient();
-  const result = await endRoutine(db, id, version);
+  const result = await endRoutine(db, id, version, { key: requestKey, hash: saveRequestHash({ id, version }) });
   switch (result.kind) {
     case "done":
       revalidateSupplements();

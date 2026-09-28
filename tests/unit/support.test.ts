@@ -182,6 +182,8 @@ describe("A8 Researcher history", () => {
     routines: [
       { id: uuid(600), name: "Vitamin D3", amount: "2000", unit: "IU", time: "08:00", endDate: null },
       { id: uuid(601), name: "Magnesium", amount: "200", unit: "mg", time: "21:00", endDate: "2026-09-12" },
+      // R13: a planned end still ahead.
+      { id: uuid(602), name: "Zinc", amount: "15", unit: "mg", time: "07:00", endDate: "2026-10-30" },
     ],
     taken: [{ id: uuid(700), name: "Vitamin D3", amount: "2000", unit: "IU", actualAt: "2026-09-20T12:10:00Z" }],
     peptides: new Map([
@@ -249,7 +251,7 @@ describe("A8 Researcher history", () => {
         versions: [{ id: uuid(301), line: "Setup 1 · 10 mg / 2 mL · 1 mL syringe · from Tue Sep 1 · 08:00" }],
       },
     ]);
-    expect(view.supplements).toBe("Supplement routines: Vitamin D3 2000 IU daily 08:00; Magnesium 200 mg daily 21:00 (ended Sep 12, 2026)");
+    expect(view.supplements).toBe("Supplement routines: Vitamin D3 2000 IU daily 08:00; Magnesium 200 mg daily 21:00 (ended Sep 12, 2026); Zinc 15 mg daily 07:00 (ends Oct 30, 2026)");
     expect(view.taken).toEqual([{ id: uuid(700), line: "Vitamin D3 · 2000 IU", time: "Sun Sep 20 · 08:10" }]);
   });
 

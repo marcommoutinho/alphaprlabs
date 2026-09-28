@@ -5,25 +5,32 @@ import { redirect } from "next/navigation";
 import { SAVE_FAILED_MESSAGE, type ToastTone } from "@/components/app-shell/toast";
 import { signInUrl } from "@/lib/auth/paths";
 import { currentResearcher } from "@/lib/auth/session";
+import { massLabel } from "@/lib/alpha/format";
 import { finishPersonalVial, listPersonalVials, savePersonalVial, setSupplyTracking } from "@/lib/mixtures/service";
 import {
   addedToast,
+  CORRECTION_CHANGED,
+  CORRECTION_INVALID,
+  correctedToast,
   defaultVialLabel,
   finishedToast,
   LABEL_REQUIRED,
   MIXTURE_HAS_VIAL,
   PEPTIDE_UNAVAILABLE,
+  readCorrection,
   reopenedToast,
+  requestKeyOf,
   savedToast,
   STRENGTH_MISMATCH,
   TRACKING_REQUIRED,
+  unchangedToast,
   unlinkedToast,
   validateVialForm,
   VIAL_GONE,
   VIAL_INVALID,
   vialIdOf,
 } from "@/lib/supplies/rules";
-import { reopenPersonalVial } from "@/lib/supplies/service";
+import { addPersonalVial, correctPersonalVial, reopenPersonalVial } from "@/lib/supplies/service";
 import { createClient } from "@/lib/supabase/server";
 
 const SUPPLIES = "/app/supplies";
@@ -70,17 +77,21 @@ export async function setTrackingAction(input: unknown): Promise<SuppliesActionR
 }
 
 /**
- * R8 "Add vial" (no id) or a vial's edit (its label and saved mixture). A
- * vial on a saved mixture takes the mixture's peptide and vial strength; a
- * blank label becomes "Vial N". save_personal_vial() re-checks ownership,
- * tracking, the mixture (the caller's, same peptide and strength) and that
- * the mixture has no other open vial.
+ * R7's round + "Add vial" (no id) or a vial's edit (its label and saved
+ * mixture). A vial on a saved mixture takes the mixture's peptide and vial
+ * strength; a blank label becomes "Vial N". Adding is idempotent: the
+ * request key the sheet made returns the same vial on a retry
+ * (add_personal_vial). save_personal_vial() re-checks ownership, tracking,
+ * the mixture (the caller's, same peptide and strength) and that the
+ * mixture has no other open vial.
  */
 export async function saveVialAction(input: unknown): Promise<SuppliesActionResult> {
   const person = await signedIn();
   const valid = validateVialForm(input);
   if (!valid.ok) return { error: valid.error };
   const form = valid.value;
+  const requestKey = requestKeyOf(input);
+  if (!form.id && !requestKey) return { error: VIAL_INVALID };
 
   const db = await createClient();
   let label = form.label;
@@ -93,13 +104,10 @@ export async function saveVialAction(input: unknown): Promise<SuppliesActionResu
     }
   }
 
-  const result = await savePersonalVial(db, {
-    ...(form.id ? { id: form.id } : {}),
-    label,
-    peptideId: form.peptideId,
-    strengthMg: form.strengthMg,
-    mixtureId: form.mixtureId,
-  });
+  const vial = { label, peptideId: form.peptideId, strengthMg: form.strengthMg, mixtureId: form.mixtureId };
+  const result = form.id
+    ? await savePersonalVial(db, { id: form.id, ...vial })
+    : await addPersonalVial(db, { requestKey: requestKey!, ...vial }).then((added) => (added.kind === "added" ? { kind: "saved" as const } : added));
   switch (result.kind) {
     case "saved":
       revalidateSupplies();
@@ -116,6 +124,40 @@ export async function saveVialAction(input: unknown): Promise<SuppliesActionResu
       return { toast: VIAL_GONE, tone: "error" };
     case "invalid":
       return { error: form.id ? VIAL_GONE : VIAL_INVALID };
+    default:
+      return { toast: SAVE_FAILED_MESSAGE, tone: "error" };
+  }
+}
+
+/**
+ * R7 "Correct remaining": the vial's estimate set to what the researcher
+ * found, from the estimate they were shown (a dose recorded meanwhile makes
+ * them look again: AP035). Recorded as a correction in the vial's history;
+ * the same request key returns it again.
+ */
+export async function correctVialAction(input: unknown): Promise<SuppliesActionResult> {
+  await signedIn();
+  const read = readCorrection(input);
+  if (!read) return { toast: VIAL_INVALID, tone: "error" };
+  if (!read.ok) return { error: read.error };
+  const label = labelOf(input);
+  const db = await createClient();
+  const result = await correctPersonalVial(db, read.value);
+  switch (result.kind) {
+    case "corrected":
+      revalidateSupplies();
+      return { saved: true, toast: correctedToast(label, massLabel(result.remainingMg)), tone: "info" };
+    case "unchanged":
+      return { saved: true, toast: unchangedToast(label), tone: "info" };
+    case "changed":
+      revalidateSupplies();
+      return { error: CORRECTION_CHANGED };
+    case "invalid":
+      return { error: CORRECTION_INVALID };
+    case "tracking_off":
+      return { error: TRACKING_REQUIRED };
+    case "not_found":
+      return { toast: VIAL_GONE, tone: "error" };
     default:
       return { toast: SAVE_FAILED_MESSAGE, tone: "error" };
   }

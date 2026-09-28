@@ -294,6 +294,8 @@ export type PersonalVial = {
   /** The saved mixture it was mixed to; null while "Not mixed yet". */
   mixtureId: string | null;
   createdAt: string;
+  /** When it was first linked to a saved mixture (R7's "mixed Sep 17"); null while never mixed. */
+  mixedAt: string | null;
   /** Set once finished; finished vials stay for history. */
   finishedAt: string | null;
 };
@@ -318,6 +320,7 @@ type VialRow = {
   strength_mg: string;
   mixture_id: string | null;
   created_at: string;
+  mixed_at: string | null;
   finished_at: string | null;
 };
 
@@ -325,7 +328,7 @@ type VialRow = {
 export async function listPersonalVials(db: Db, ownerId: string, options: PageOptions = {}): Promise<PersonalVial[]> {
   const rows = await keysetRows<VialRow>(
     (after, limit) => {
-      const query = db.from("personal_vials").select("id, peptide_id, label, strength_mg::text, mixture_id, created_at, finished_at").eq("owner_id", ownerId);
+      const query = db.from("personal_vials").select("id, peptide_id, label, strength_mg::text, mixture_id, created_at, mixed_at, finished_at").eq("owner_id", ownerId);
       return (after ? query.gt("id", after.id) : query).order("id").limit(limit) as unknown as PromiseLike<{
         data: VialRow[] | null;
         error: { message: string } | null;
@@ -342,6 +345,7 @@ export async function listPersonalVials(db: Db, ownerId: string, options: PageOp
     strengthMg: row.strength_mg,
     mixtureId: row.mixture_id,
     createdAt: row.created_at,
+    mixedAt: row.mixed_at,
     finishedAt: row.finished_at,
   }));
 }

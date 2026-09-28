@@ -184,33 +184,45 @@ export async function setSupplementTracking(db: Db, enabled: boolean): Promise<v
   if (error) throw new Error(`Could not save supplement tracking: ${error.message}`);
 }
 
-export type SaveRoutineResult = { kind: "saved"; id: string; version: number } | { kind: Refusal };
+/**
+ * A keyed write (20260928130000_supplies_v3.sql): `key` is made once by the
+ * screen and sent again on a retry; `hash` is saveRequestHash of what was
+ * sent. The same key and hash return the first result ("replayed").
+ */
+export type RoutineRequest = { key: string; hash: string };
 
-/** save_supplement_routine: create (no id) or edit in place from the version shown. */
-export async function saveRoutine(db: Db, routine: ValidRoutine): Promise<SaveRoutineResult> {
+export type SaveRoutineResult = { kind: "saved"; id: string; version: number; replayed: boolean } | { kind: Refusal };
+
+/** save_supplement_routine: create (no id; from its start, today by default) or edit from today on, from the version shown. */
+export async function saveRoutine(db: Db, routine: ValidRoutine, request: RoutineRequest): Promise<SaveRoutineResult> {
   const { data, error } = await db.rpc("save_supplement_routine", {
-    // null creates (the generated type has no null for uuid and integer arguments).
+    p_request_key: request.key,
+    p_request_hash: request.hash,
+    // null creates, and null dates mean today / kept / no end (the generated type has no null for these arguments).
     p_id: routine.id as string,
     p_version: routine.version as number,
     p_name: routine.name,
     p_amount: routine.amount,
     p_unit: routine.unit,
     p_time: routine.time,
+    p_start_date: routine.startDate as string,
+    p_end_date: routine.endDate as string,
   });
   if (error) return { kind: ROUTINE_REFUSALS[error.code] ?? "error" };
   if (!data) return { kind: "not_found" };
-  const json = data as unknown as { id: string; version: number };
-  return { kind: "saved", id: json.id, version: json.version };
+  const json = data as unknown as { id: string; version: number; replayed: boolean };
+  return { kind: "saved", id: json.id, version: json.version, replayed: json.replayed };
 }
 
-export type EndRoutineResult = { kind: "done"; endDate: string } | { kind: Refusal };
+export type EndRoutineResult = { kind: "done"; endDate: string; replayed: boolean } | { kind: Refusal };
 
-/** end_supplement_routine: the routine ends today (its zone), from the version shown. */
-export async function endRoutine(db: Db, id: string, version: number): Promise<EndRoutineResult> {
-  const { data, error } = await db.rpc("end_supplement_routine", { p_id: id, p_version: version });
+/** end_supplement_routine: the routine ends today (its zone; before its start when that is still ahead), from the version shown. */
+export async function endRoutine(db: Db, id: string, version: number, request: RoutineRequest): Promise<EndRoutineResult> {
+  const { data, error } = await db.rpc("end_supplement_routine", { p_request_key: request.key, p_request_hash: request.hash, p_id: id, p_version: version });
   if (error) return { kind: ROUTINE_REFUSALS[error.code] ?? "error" };
   if (!data) return { kind: "not_found" };
-  return { kind: "done", endDate: (data as unknown as { end_date: string }).end_date };
+  const json = data as unknown as { end_date: string; replayed: boolean };
+  return { kind: "done", endDate: json.end_date, replayed: json.replayed };
 }
 
 export type TakeSupplementInput = {

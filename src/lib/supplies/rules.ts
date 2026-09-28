@@ -8,7 +8,9 @@ export const VIAL_LIMITS = { label: 40, strengthMg: "100000" } as const;
 export const SUPPLIES_INTRO = "Optional. Your own vials, separate from any business inventory. Nothing is added here automatically.";
 export const TRACKING_OFF =
   "Tracking is off. Saved mixtures still work for syringe units; no estimates are kept and nothing is deducted when you confirm a dose.";
-export const NO_VIALS = "No vials yet. Add one below and link it to a saved mixture so confirmed doses reduce the estimate.";
+export const NO_VIALS = "No vials yet. Tap + to add one, and link it to a saved mixture so confirmed doses reduce the estimate.";
+/** R7's footnote. */
+export const VIALS_FOOTNOTE = "Remaining is estimated from the doses you log. Tap a vial to correct it or mark it finished.";
 export const ESTIMATE_NOTE = "An estimate from confirmed doses, not a measurement of the vial.";
 export const NOT_MIXED_LINE = "Not mixed yet · link it to a saved mixture so confirmed doses reduce the estimate.";
 export const MIXTURE_DELETED_LINE = "Its saved mixture was deleted · link it to another so confirmed doses reduce the estimate.";
@@ -25,6 +27,12 @@ export const TRACKING_REQUIRED = "Turn on Track supplies first.";
 export const VIAL_GONE = "This vial no longer exists, or it was finished elsewhere. Reload the page.";
 export const VIAL_INVALID = "This vial could not be saved. Reload the page and try again.";
 export const PEPTIDE_UNAVAILABLE = "This peptide is no longer offered. Choose a saved mixture instead.";
+
+// Design v3 R7 "Correct remaining" (correct_personal_vial).
+export const CORRECTION_INVALID = "Enter what's left: from 0 up to the vial's strength, at most 6 decimal places.";
+export const CORRECTION_CHANGED = "A dose changed this vial's estimate since you opened it. Check the new estimate and correct it again.";
+export const correctedToast = (label: string, left: string) => `Vial ${label} set to ${left} left.`;
+export const unchangedToast = (label: string) => `Vial ${label} already shows that amount.`;
 
 export const addedToast = (label: string) => `Vial ${label} added.`;
 export const savedToast = (label: string) => `Vial ${label} saved.`;
@@ -77,6 +85,28 @@ export function validateVialForm(input: unknown): { ok: true; value: ValidVialFo
   if (!strength || !strength.greaterThan(0)) return { ok: false, error: STRENGTH_REQUIRED };
   if (strength.greaterThan(VIAL_LIMITS.strengthMg)) return { ok: false, error: STRENGTH_TOO_LARGE };
   return { ok: true, value: { id, label, mixtureId, peptideId, strengthMg: plain(strength) } };
+}
+
+/** A request key (a UUID) from an action's input, or null. */
+export const requestKeyOf = (input: unknown): string | null =>
+  uuidOf((typeof input === "object" && input !== null ? (input as Record<string, unknown>).requestKey : null) ?? null);
+
+/**
+ * "Correct remaining": what the researcher says is left (mg, exact) and the
+ * estimate they were shown. Null when the input isn't one; the error when
+ * the amount can't be.
+ */
+export function readCorrection(
+  input: unknown,
+): { ok: true; value: { requestKey: string; vialId: string; seenRemainingMg: string; remainingMg: string } } | { ok: false; error: string } | null {
+  const raw = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
+  const id = uuidOf(raw.id);
+  const requestKey = requestKeyOf(input);
+  const seen = parseDecimal(raw.seenRemainingMg);
+  if (!id || !requestKey || !seen) return null;
+  const remaining = parseDecimal(raw.remainingMg);
+  if (!remaining || remaining.isNegative() || remaining.decimalPlaces() > 6 || remaining.greaterThan(VIAL_LIMITS.strengthMg)) return { ok: false, error: CORRECTION_INVALID };
+  return { ok: true, value: { requestKey, vialId: id, seenRemainingMg: plain(seen), remainingMg: plain(remaining) } };
 }
 
 /** A vial id from an action's input, or null. */

@@ -71,8 +71,8 @@ const SUPPLIES: NavItem = {
   label: "Supplies",
   href: "/app/supplies",
   icon: "supplies",
-  // TODO(V3): R7 / R13 make Supplies one page with a Vials | Supplements
-  // control. Until then the supplement routines page is grouped here.
+  // R7 / R13: Supplies is Vials (/app/supplies) and Supplements
+  // (/app/supplements), joined by a Vials | Supplements control.
   match: ["/app/supplies", "/app/supplements"],
 };
 /** The researcher's own pages: highlight Me on the phone. */

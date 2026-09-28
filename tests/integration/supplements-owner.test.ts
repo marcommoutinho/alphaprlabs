@@ -14,15 +14,22 @@
 // across America/Toronto's daylight-saving changes, are tried in
 // transactions that are rolled back. Runs in the integration-exclusive
 // project.
+import { randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 import { addDays } from "@/lib/cycles/rules";
 import { checkInDay } from "@/lib/progress/rules";
 import { occurrenceOn, supplementKey } from "@/lib/supplements/schedule";
-import { type DueSupplement, listDueSupplements, listRoutines, listTaken, saveRoutine } from "@/lib/supplements/service";
+import type { ValidRoutine } from "@/lib/supplements/rules";
+import { type DueSupplement, listDueSupplements, listRoutines, listTaken, saveRoutine as saveKeyedRoutine } from "@/lib/supplements/service";
 import { supplementsView } from "@/lib/supplements/view";
 import type { Client } from "../support/cycles";
 import { ensureAccount, ok, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
 import { micros, psql, quote, sqlMicros } from "../support/psql";
+
+/** The service's keyed save with a fresh request each time (20260928130000_supplies_v3.sql), dates left as they are. */
+const saveRoutine = (client: Client, routine: Omit<ValidRoutine, "startDate" | "endDate"> & Partial<Pick<ValidRoutine, "startDate" | "endDate">>) =>
+  saveKeyedRoutine(client, { startDate: null, endDate: null, ...routine }, { key: randomUUID(), hash: randomUUID().replaceAll("-", "").padEnd(64, "0") });
+
 
 /** The instant of a Toronto wall-clock time, as the app computes it. */
 const at = (date: string, time: string) => occurrenceOn({ id: "x", time, timeZone: TORONTO, definitionFrom: date, endDate: null }, date)!.scheduledAt;
@@ -145,9 +152,13 @@ describe("the tables' own checks", () => {
       long_unit: routine({ unit: `'${"u".repeat(21)}'` }),
       bad_time: routine({ time_of_day: "'24:00'" }),
       other_zone: routine({ time_zone: "'UTC'" }),
-      end_before_start: routine({ end_date: `'${addDays(today, -1)}'` }),
+      // V3 (20260928130000_supplies_v3.sql): ended before it started is the day before its start (End on a routine
+      // not started yet), never earlier.
+      ended_before_start: routine({ end_date: `'${addDays(today, -1)}'` }),
+      end_before_start: routine({ end_date: `'${addDays(today, -2)}'` }),
       definition_before_start: routine({ definition_from: `'${addDays(today, -1)}'` }),
-      end_before_definition: routine({ start_date: `'${addDays(today, -2)}'`, end_date: `'${addDays(today, -1)}'` }),
+      ended_before_definition: routine({ start_date: `'${addDays(today, -2)}'`, end_date: `'${addDays(today, -1)}'` }),
+      end_before_definition: routine({ start_date: `'${addDays(today, -3)}'`, end_date: `'${addDays(today, -2)}'` }),
       taken_ok: taken({}),
       key_mismatch: taken({ key: quote(`${routineId}:${addDays(today, -1)}`) }),
       recorded_before_actual: taken({ actual: "now()", recorded: "now() - interval '1 minute'" }),
@@ -168,8 +179,10 @@ describe("the tables' own checks", () => {
       long_unit: "23514",
       bad_time: "23514",
       other_zone: "23514",
+      ended_before_start: "ok",
       end_before_start: "23514",
       definition_before_start: "23514",
+      ended_before_definition: "ok",
       end_before_definition: "23514",
       taken_ok: "ok",
       key_mismatch: "23514",

@@ -24,11 +24,20 @@ const CHUNK = 100;
 /** Page and chunk sizes; tests lower them to prove paging. */
 export type ReadSizes = { pageSize?: number; chunkSize?: number };
 
-/** One estimate a recorded dose took from a tracked vial (personal_vial_deductions). */
+/**
+ * One row of a tracked vial's estimate (personal_vial_deductions): what a
+ * recorded dose took from it, or a correction the researcher made (R7;
+ * 20260928130000_supplies_v3.sql), whose amount is what the estimate moved
+ * by (negative when they found more than estimated).
+ */
 export type VialDeduction = {
   id: string;
-  doseId: string;
+  kind: "dose" | "correction";
+  /** The recorded dose; null for a correction. */
+  doseId: string | null;
   vialId: string;
+  /** Its position on its vial (the order the estimate is counted in). */
+  sequence: number;
   amountMg: string;
   remainingBeforeMg: string;
   remainingAfterMg: string;
@@ -39,8 +48,10 @@ export type VialDeduction = {
 
 type Row = {
   id: string;
-  dose_id: string;
+  kind: string;
+  dose_id: string | null;
   vial_id: string;
+  vial_sequence: number;
   amount_mg: string;
   remaining_before_mg: string;
   remaining_after_mg: string;
@@ -48,7 +59,7 @@ type Row = {
   recorded_at: string;
 };
 
-const COLUMNS = "id, dose_id, vial_id, amount_mg::text, remaining_before_mg::text, remaining_after_mg::text, stock_discrepancy, recorded_at";
+const COLUMNS = "id, kind, dose_id, vial_id, vial_sequence, amount_mg::text, remaining_before_mg::text, remaining_after_mg::text, stock_discrepancy, recorded_at";
 
 type Page = PromiseLike<{ data: Row[] | null; error: { message: string } | null }>;
 
@@ -66,8 +77,10 @@ async function keysetRows(page: (after: string | null, limit: number) => Page, p
 
 const deductionOf = (row: Row): VialDeduction => ({
   id: row.id,
+  kind: row.kind === "correction" ? "correction" : "dose",
   doseId: row.dose_id,
   vialId: row.vial_id,
+  sequence: row.vial_sequence,
   amountMg: row.amount_mg,
   remainingBeforeMg: row.remaining_before_mg,
   remainingAfterMg: row.remaining_after_mg,
@@ -103,7 +116,65 @@ export async function deductionsOfVials(db: Db, vialIds: readonly string[], size
   return parts.flat().map(deductionOf).sort(byRecorded);
 }
 
-export type ReopenVialResult = { kind: "reopened" | "unlinked" | "not_found" | "tracking_off" | "error" };
+export type CorrectVialResult =
+  | { kind: "corrected" | "unchanged"; remainingMg: string }
+  | { kind: "not_found" | "tracking_off" | "changed" | "invalid" | "error" };
+
+const CORRECT_REFUSALS: Record<string, "tracking_off" | "changed" | "invalid"> = { AP016: "tracking_off", AP035: "changed", "22023": "invalid" };
+
+/**
+ * R7 "Correct remaining" (correct_personal_vial): the vial's estimate set to
+ * what the researcher measured, from the estimate they were shown. The same
+ * request key again returns the recorded correction.
+ */
+export async function correctPersonalVial(
+  db: Db,
+  input: { requestKey: string; vialId: string; seenRemainingMg: string; remainingMg: string },
+): Promise<CorrectVialResult> {
+  const { data, error } = await db.rpc("correct_personal_vial", {
+    p_request_key: input.requestKey,
+    p_vial_id: input.vialId,
+    p_seen_remaining_mg: input.seenRemainingMg,
+    p_remaining_mg: input.remainingMg,
+  });
+  if (error) return { kind: CORRECT_REFUSALS[error.code] ?? "error" };
+  if (!data) return { kind: "not_found" };
+  const json = data as { remaining_mg: string; unchanged: boolean };
+  return { kind: json.unchanged ? "unchanged" : "corrected", remainingMg: json.remaining_mg };
+}
+
+export type AddVialResult =
+  | { kind: "added"; id: string; label: string; replayed: boolean }
+  | { kind: "tracking_off" | "strength" | "mixture_has_vial" | "unavailable" | "invalid" | "error" };
+
+const ADD_REFUSALS: Record<string, Exclude<AddVialResult["kind"], "added">> = {
+  AP003: "unavailable",
+  AP007: "unavailable",
+  AP014: "strength",
+  AP015: "mixture_has_vial",
+  AP016: "tracking_off",
+  "22023": "invalid",
+};
+
+/** R7's round + (add_personal_vial): a new vial, once per request key. */
+export async function addPersonalVial(
+  db: Db,
+  vial: { requestKey: string; label: string; peptideId: string; strengthMg: string; mixtureId: string | null },
+): Promise<AddVialResult> {
+  const { data, error } = await db.rpc("add_personal_vial", {
+    p_request_key: vial.requestKey,
+    p_label: vial.label,
+    p_peptide_id: vial.peptideId,
+    p_strength_mg: vial.strengthMg,
+    ...(vial.mixtureId ? { p_mixture_id: vial.mixtureId } : {}),
+  });
+  if (error) return { kind: ADD_REFUSALS[error.code] ?? "error" };
+  if (!data) return { kind: "error" };
+  const json = data as { id: string; label: string; replayed: boolean };
+  return { kind: "added", id: json.id, label: json.label, replayed: json.replayed };
+}
+
+export type ReopenVialResult ={ kind: "reopened" | "unlinked" | "not_found" | "tracking_off" | "error" };
 
 /** reopen_personal_vial: a finished vial open again (see the migration for when it keeps its mixture). */
 export async function reopenPersonalVial(db: Db, vialId: string): Promise<ReopenVialResult> {

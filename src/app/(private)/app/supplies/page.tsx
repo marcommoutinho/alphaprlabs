@@ -1,6 +1,4 @@
-import Link from "@/components/alpha/link";
-import { AppPage } from "@/components/app-shell/app-shell";
-import { SuppliesScreen } from "@/components/research/supplies-screen";
+import { VialsScreen } from "@/components/research/supplies/vials-screen";
 import { requireResearcher } from "@/lib/auth/session";
 import { listCycles, listCyclePeptides } from "@/lib/cycles/service";
 import { confirmationsByCycle, listDoseRecords, listDoseSkips } from "@/lib/doses/service";
@@ -8,14 +6,14 @@ import { getSupplyTracking, listMixtures, listPersonalVials } from "@/lib/mixtur
 import { listDeductions } from "@/lib/supplies/service";
 import { suppliesView } from "@/lib/supplies/view";
 import { createClient } from "@/lib/supabase/server";
-import "@/styles/app/supplies.css";
 
 /**
- * R8 Personal supplies, for the signed-in researcher's own vials only (a
+ * R7 Supplies · Vials, for the signed-in researcher's own vials only (a
  * granted admin reads other people's supplies in A8, S17, never here).
- * Optional: "Track supplies" turns it on. Each vial's estimated remaining is
- * its strength minus the confirmed doses deducted from it; low stock is
- * judged against the next planned dose of the plans using its mixture.
+ * Optional: "Track vials" turns it on. Each vial's estimated remaining is
+ * its strength minus the confirmed doses (and corrections) recorded on it;
+ * low stock is judged against the next planned dose of the plans using its
+ * mixture.
  */
 export default async function SuppliesPage() {
   const person = await requireResearcher("/app/supplies");
@@ -43,12 +41,5 @@ export default async function SuppliesPage() {
     now: new Date(),
   });
 
-  return (
-    <AppPage width="narrow">
-      <Link href="/app/me" className="app-sup-back">
-        ‹ Me
-      </Link>
-      <SuppliesScreen view={view} />
-    </AppPage>
-  );
+  return <VialsScreen view={view} />;
 }

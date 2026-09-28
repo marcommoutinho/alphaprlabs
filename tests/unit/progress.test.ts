@@ -2,11 +2,15 @@
 // measurement's decimals with the app's comma rules, lengths in characters
 // as PostgreSQL counts them), the check-in's day (always America/Toronto,
 // across midnight and daylight-saving changes), phases across revisions, and
-// the history view with and without a cycle. Pure, no database.
+// design v3 R5 / D3 (the range, the feeling with its gaps, the dose tracks,
+// adherence, the measurement, the check-in rows) with and without a cycle.
+// Pure, no database.
 // Sep 21, 2026 is a Monday.
 import { describe, expect, it } from "vitest";
+import { massLabel } from "@/lib/alpha/format";
 import type { CycleRecord, CycleRevision } from "@/lib/cycles/rules";
-import { cycleOccurrences, phasesDuring } from "@/lib/cycles/schedule";
+import { adherence } from "@/lib/cycles/adherence";
+import { cycleOccurrences, phasesDuring, planOccurrences } from "@/lib/cycles/schedule";
 import type { RecordedConfirmation, ViewPeptides } from "@/lib/cycles/views";
 import {
   CHECK_IN_INVALID,
@@ -17,7 +21,6 @@ import {
   FEELING_REQUIRED,
   formEffects,
   measurementValue,
-  NO_CHECK_IN,
   NO_DOSES,
   NOTE_TOO_LONG,
   OTHER_REQUIRED,
@@ -34,7 +37,21 @@ import {
   VALUE_TOO_PRECISE,
 } from "@/lib/progress/rules";
 import type { CheckIn } from "@/lib/progress/service";
-import { NO_CYCLE_PARAM, phaseLine, progressView, progressWindow, selectedCycle } from "@/lib/progress/view";
+import {
+  daysOf,
+  effectRows,
+  feelingAverage,
+  feelingChange,
+  feelingPoints,
+  measureCard,
+  preCycleFraction,
+  progressScreen,
+  type ProgressScreenInput,
+  rangeWindow,
+  readRange,
+  reportedEffects,
+} from "@/lib/progress/screen";
+import { NO_CYCLE_PARAM, phaseLine, selectedCycle } from "@/lib/progress/view";
 import type { ActivePhase } from "@/lib/schedule/engine";
 import { localDateOf } from "@/lib/schedule/zone";
 
@@ -196,8 +213,8 @@ describe("a check-in's day is the America/Toronto calendar day", () => {
     expect(PROGRESS_TIME_ZONE).toBe(TORONTO);
     // 23:30 in Toronto is already the next day in Tokyo and in UTC; the check-in is Toronto's day.
     expect(checkInDay("2026-09-22T03:30:00Z")).toBe("2026-09-21");
-    expect(progressWindow("2026-09-22T03:30:00Z")).toEqual({ from: "2026-09-08", to: "2026-09-21" });
-    expect(progressWindow("2026-09-22T04:00:00Z")).toEqual({ from: "2026-09-09", to: "2026-09-22" });
+    expect(rangeWindow(null, "30d", "2026-09-22T03:30:00Z")).toMatchObject({ from: "2026-08-23", to: "2026-09-21" });
+    expect(rangeWindow(null, "30d", "2026-09-22T04:00:00Z")).toMatchObject({ from: "2026-08-24", to: "2026-09-22" });
   });
 
   it("turns at Toronto midnight on both sides of its daylight-saving changes", () => {
@@ -328,10 +345,11 @@ const checkIn = (day: string, overrides: Partial<CheckIn> = {}): CheckIn => ({
   ...overrides,
 });
 
-const view = (overrides: Partial<Parameters<typeof progressView>[0]> = {}) =>
-  progressView({
+const view = (overrides: Partial<ProgressScreenInput> = {}) =>
+  progressScreen({
     cycles: [ended, recomp],
     selectedId: null,
+    range: null,
     checkIns: [],
     total: 0,
     confirmations: new Map([[recomp.id, [lateA, mondayB]]]),
@@ -340,7 +358,7 @@ const view = (overrides: Partial<Parameters<typeof progressView>[0]> = {}) =>
     ...overrides,
   });
 
-describe("R9 Progress view", () => {
+describe("R5 Progress: the cycle and the range", () => {
   it("shows the cycle asked for, none for ?cycle=none, else the newest current one, else none", () => {
     expect(selectedCycle([ended, recomp], null, NOW)?.id).toBe(recomp.id);
     expect(selectedCycle([ended, recomp], ended.id, NOW)?.id).toBe(ended.id);
@@ -355,121 +373,237 @@ describe("R9 Progress view", () => {
       { id: ended.id, name: "Summer" },
       { id: recomp.id, name: "Recomp" },
     ]);
-    expect(v.cycle).toEqual({
-      id: recomp.id,
-      name: "Recomp",
-      goal: "Body composition",
-      baseline: "82.4 kg",
-      hasBaseline: true,
-      status: "Active",
-      dates: "Sep 10 – Oct 9, 2026",
-      editHref: `/app/cycles/${recomp.id}/edit`,
-    });
-    const summer = view({ selectedId: ended.id }).cycle!;
-    expect([summer.baseline, summer.hasBaseline, summer.status]).toEqual(["not set yet", false, "Ended"]);
+    // Recomp started Sep 10: Mon Sep 21 is its day 12.
+    expect([v.cycleId, v.header, v.ranges]).toEqual([recomp.id, "Recomp · day 12", ["7d", "30d", "cycle"]]);
+    expect(view({ selectedId: ended.id }).header).toBe("Summer · ended Aug 20");
+    const none = view({ selectedId: NO_CYCLE_PARAM });
+    expect([none.cycleId, none.header, none.ranges, none.tracks, none.tiles.adherence]).toEqual([null, "Check-ins only", ["7d", "30d"], [], null]);
   });
 
-  it("lists the last 14 Toronto days, today first, each with the cycle's phases and the doses actually recorded", () => {
-    const v = view();
-    expect(v.rows).toHaveLength(14);
-    expect(v.rows[0].day).toBe("2026-09-21");
-    expect(v.rows.at(-1)?.day).toBe("2026-09-08");
-    expect(v.rows.slice(0, 3).map((r) => [r.label, r.today])).toEqual([
-      ["Today", true],
-      ["Sun Sep 20", false],
-      ["Sat Sep 19", false],
+  it("covers the last 30 Toronto days by default, 7 on asking, or the cycle with the week before it", () => {
+    expect(rangeWindow(recomp, null, NOW)).toEqual({ range: "30d", from: "2026-08-23", to: "2026-09-21", countFrom: "2026-08-23", today: "2026-09-21" });
+    expect(rangeWindow(recomp, "7d", NOW)).toMatchObject({ from: "2026-09-15", to: "2026-09-21" });
+    expect(rangeWindow(recomp, "cycle", NOW)).toEqual({ range: "cycle", from: "2026-09-03", to: "2026-09-21", countFrom: "2026-09-10", today: "2026-09-21" });
+    // An ended cycle: up to its last day. No cycle (or one not started): 30 days.
+    expect(rangeWindow(ended, "cycle", NOW)).toMatchObject({ from: "2026-07-25", to: "2026-08-20", countFrom: "2026-08-01" });
+    expect(rangeWindow(null, "cycle", NOW)).toMatchObject({ range: "30d", from: "2026-08-23" });
+    expect(readRange("cycle")).toBe("cycle");
+    expect(readRange("90d")).toBeNull();
+    // Toronto's day: 23:30 on Sep 21 is already Sep 22 in UTC.
+    expect(rangeWindow(null, "7d", "2026-09-22T03:30:00Z")).toMatchObject({ from: "2026-09-15", to: "2026-09-21" });
+    expect(rangeWindow(null, "7d", "2026-09-22T04:00:00Z")).toMatchObject({ from: "2026-09-16", to: "2026-09-22" });
+
+    const cycle = view({ range: "cycle" });
+    expect(cycle.feeling.label).toBe("Feeling · cycle average");
+    expect(cycle.feeling.rangeLabel).toBe("Sep 10 – Sep 21");
+    // 19 days (Sep 3–21); the cycle starts on the 8th: hatched up to 7/18 of the chart.
+    expect(cycle.feeling.points).toHaveLength(19);
+    expect(cycle.feeling.preCycle).toBeCloseTo(7 / 18);
+    expect(cycle.feeling.axis.map((a) => [a.text, a.wide])).toEqual([
+      ["Sep 3", "Sep 3 · before cycle"],
+      ["Sep 10", "Sep 10 start"],
+      ["Today", "Today"],
     ]);
-    const on = (day: string) => v.rows.find((r) => r.day === day)!;
-    // A's dose change from Sep 21; B starts Sep 14; nothing before Sep 10.
-    expect(on("2026-09-21").phase).toBe("Compound A: 0.5 mg · Compound B: 1 mg");
-    expect(on("2026-09-20").phase).toBe("Compound A: 0.4 mg · Compound B: 1 mg");
-    expect(on("2026-09-12").phase).toBe("Compound A: 0.4 mg");
-    expect(on("2026-09-09").phase).toBe("");
-    // Each dose on the Toronto day of its actual time, with the amount recorded.
-    expect(on("2026-09-21").doses).toBe("Doses: Compound B 1 mg");
-    expect(on("2026-09-20").doses).toBe("Doses: Compound A 0.45 mg");
-    expect(on("2026-09-18").doses).toBe(NO_DOSES);
-    // No check-ins yet: gaps, not zeros.
-    expect(v.rows.every((r) => r.feeling === null && r.feelLabel === NO_CHECK_IN && !r.effects && !r.note && !r.measure)).toBe(true);
-    expect(v.sparse).toBe(SPARSE);
+    expect(cycle.exportHref).toBe("/app/progress/export?from=2026-09-03&to=2026-09-21");
+    // 30 days start before the cycle too; 7 days are all inside it.
+    expect(view().feeling.preCycle).toBeCloseTo(18 / 29);
+    expect(view({ range: "7d" }).feeling.preCycle).toBeNull();
   });
+});
 
-  it("shows each check-in on its day, and today's as the form's starting point", () => {
-    const today = checkIn("2026-09-21", {
-      feeling: 4,
+describe("R5 Progress: feeling, gaps and the check-in rows", () => {
+  const checkIns = [
+    checkIn("2026-08-24", { feeling: 2 }),
+    checkIn("2026-08-25", { feeling: 3 }),
+    checkIn("2026-09-19", { effects: ["None noticed"], feeling: 2 }),
+    checkIn("2026-09-20", { effects: ["Site redness", "Other"], effectsOther: "dizzy", feeling: 4 }),
+    checkIn("2026-09-21", {
+      feeling: 5,
       effects: ["Mild headache", "Nausea"],
       note: "Slept better.",
       measurement: { name: "Weight", value: "82.4", unit: "kg", measuredAt: "2026-09-21T12:00:00Z" },
       version: 2,
       updatedAt: "2026-09-21T13:05:00Z",
-    });
-    // Stored with the earlier chips (they stay valid): shown and edited under the v3 names.
-    const v = view({
-      checkIns: [
-        checkIn("2026-09-19", { effects: ["None noticed"], feeling: 2 }),
-        checkIn("2026-09-20", { effects: ["Site redness", "Other"], effectsOther: "dizzy", feeling: 3 }),
-        today,
-      ],
-      total: 3,
-    });
-    expect(v.rows[1]).toMatchObject({ day: "2026-09-20", effects: "Site redness, Other: dizzy" });
+    }),
+  ];
+
+  it("keeps gaps as gaps: a day without a check-in has no point and no zero", () => {
+    const v = view({ checkIns, total: 5 });
+    const points = v.feeling.points;
+    expect(points).toHaveLength(30);
+    expect(points[0]).toEqual({ day: "2026-08-23", x: 0, feeling: null });
+    expect(points[1]).toMatchObject({ day: "2026-08-24", feeling: 2 });
+    expect(points.at(-1)).toEqual({ day: "2026-09-21", x: 1, feeling: 5 });
+    expect(points.filter((p) => p.feeling !== null)).toHaveLength(5);
+    // (2 + 3 + 2 + 4 + 5) / 5, from the check-ins only.
+    expect(v.feeling.average).toBe("3.2");
+    // First week (Aug 23–29): 2.5; last week (Sep 15–21): 11 / 3.
+    expect(v.feeling.change).toEqual({ direction: "up", text: "Up 1.2", caption: "first week to last" });
+    expect(v.tiles.checkIns).toEqual({ value: "5", context: "of 30 days" });
+    expect(v.tiles.effects).toEqual({ value: "2", context: "days reported" });
+    expect(v.sparse).toBe("");
+  });
+
+  it("compares the first days to the last in a short range, and says nothing when either side has no check-in", () => {
+    const byDay = new Map([
+      ["2026-09-15", 3],
+      ["2026-09-21", 4],
+    ]);
+    const week = ["2026-09-15", "2026-09-16", "2026-09-17", "2026-09-18", "2026-09-19", "2026-09-20", "2026-09-21"];
+    expect(feelingChange(byDay, week)).toEqual({ direction: "up", text: "Up 1.0", caption: "first 3 days to last" });
+    expect(feelingChange(new Map([["2026-09-21", 4]]), week)).toBeNull();
+    expect(feelingChange(new Map([["2026-09-15", 4], ["2026-09-21", 4]]), week)).toMatchObject({ direction: "flat", text: "No change" });
+    expect(feelingChange(new Map([["2026-09-15", 5], ["2026-09-21", 1]]), week)).toMatchObject({ direction: "down", text: "Down 4.0" });
+    expect(feelingAverage(new Map(), week)).toBeNull();
+    expect(feelingAverage(byDay, week)).toBe("3.5");
+    expect(feelingPoints(byDay, ["2026-09-21"])).toEqual([{ day: "2026-09-21", x: 0.5, feeling: 4 }]);
+    expect(preCycleFraction(week, null)).toBeNull();
+    expect(preCycleFraction(week, "2026-09-15")).toBeNull();
+    expect(preCycleFraction(week, "2026-09-18")).toBe(0.5);
+    // A cycle that starts after the range: all of it is before.
+    expect(preCycleFraction(week, "2026-10-01")).toBe(1);
+  });
+
+  it("lists each check-in newest first beside the cycle's phases and doses, and today's as the sheet's start", () => {
+    const v = view({ checkIns, total: 5 });
+    expect(v.rows.map((r) => r.day)).toEqual(["2026-09-21", "2026-09-20", "2026-09-19", "2026-08-25", "2026-08-24"]);
     expect(v.rows[0]).toMatchObject({
-      feeling: 4,
-      feelLabel: "4/5",
+      date: "Mon Sep 21",
+      today: true,
+      feeling: 5,
+      feelingText: "5 · Great",
+      // Stored with the earlier chips (they stay valid): shown under the v3 names.
       effects: "Headache, Nausea",
       note: "Slept better.",
       measure: "Weight 82.4 kg",
-      doses: "Doses: Compound B 1 mg",
+      measureName: "Weight",
+      measureValue: "82.4 kg",
+      phase: "Compound A: 500 mcg · Compound B: 1 mg",
+      doses: "Compound B 1 mg",
     });
-    // "None noticed" alone is no line of its own.
-    expect(v.rows[2]).toMatchObject({ day: "2026-09-19", feeling: 2, feelLabel: "2/5", effects: "", measure: "" });
-    expect(v.sparse).toBe("");
-    expect(v.form).toEqual({
-      day: "2026-09-21",
-      title: "Today's check-in · saved 09:05",
-      saveLabel: "Update today's check-in",
-      start: {
-        version: 2,
-        feeling: 4,
-        effects: ["Nausea", "Headache"],
-        effectsOther: "",
-        note: "Slept better.",
-        measurement: { name: "Weight", value: "82.4", unit: "kg" },
-      },
+    // A's 20:00 Sunday dose taken at 23:30 Toronto (Monday in UTC) is Sunday's.
+    expect(v.rows[1]).toMatchObject({ feelingText: "4 · Good", effects: "Site redness, Other: dizzy", phase: "Compound A: 400 mcg · Compound B: 1 mg", doses: "Compound A 450 mcg" });
+    // "None noticed" alone is no effect; a day without a dose says so.
+    expect(v.rows[2]).toMatchObject({ feelingText: "2 · Low", effects: "", measure: "", doses: NO_DOSES });
+    expect(v.rows[4]).toMatchObject({ phase: "", doses: NO_DOSES });
+    expect(v.todayCheckIn).toEqual({
+      version: 2,
+      feeling: 5,
+      effects: ["Nausea", "Headache"],
+      effectsOther: "",
+      note: "Slept better.",
+      measurement: { name: "Weight", value: "82.4", unit: "kg" },
     });
-    const fresh = view().form;
-    expect([fresh.title, fresh.saveLabel, fresh.start]).toEqual(["Today's check-in", "Save check-in", null]);
+    const fresh = view();
+    expect([fresh.todayCheckIn, fresh.rows, fresh.sparse, fresh.feeling.average, fresh.feeling.change]).toEqual([null, [], SPARSE, null, null]);
   });
 
-  it("shows check-ins only, without a cycle: none exists, none is current, or none is picked", () => {
-    const checkIns = [checkIn("2026-09-21", { feeling: 5, note: "Between cycles." }), checkIn("2026-09-15", { feeling: 2 })];
+  it("groups the unwanted effects reported, with how many days and when", () => {
+    const many = ["2026-09-01", "2026-09-05", "2026-09-10", "2026-09-15"].map((day) => checkIn(day, { effects: ["Headache"] }));
+    const v = view({ checkIns: [...checkIns, ...many], total: 9 });
+    expect(v.effects).toEqual([
+      { label: "Headache", days: 5, count: "5 days", dates: "Sep 1 – Sep 21" },
+      { label: "Nausea", days: 1, count: "1 day", dates: "Sep 21" },
+      { label: "Other: dizzy", days: 1, count: "1 day", dates: "Sep 20" },
+      { label: "Site redness", days: 1, count: "1 day", dates: "Sep 20" },
+    ]);
+    expect(effectRows([checkIn("2026-09-15", { effects: ["Nausea"] }), checkIn("2026-09-18", { effects: ["Nausea"] })])[0].dates).toBe("Sep 15 · Sep 18");
+    expect(reportedEffects(checkIn("2026-09-15", { effects: ["None"] }))).toEqual([]);
+  });
+
+  it("shows check-ins only without a cycle: none exists, none is current, or none is picked", () => {
+    const only = [checkIn("2026-09-21", { feeling: 5, note: "Between cycles." }), checkIn("2026-09-15", { feeling: 2 })];
     for (const [label, overrides] of [
       ["no cycles", { cycles: [] }],
       ["between cycles", { cycles: [ended] }],
       ["picked none", { selectedId: NO_CYCLE_PARAM }],
     ] as const) {
-      const v = view({ ...overrides, checkIns, total: 2 });
-      expect(v.cycle, label).toBeNull();
-      expect(v.rows.map((r) => r.day), label).toEqual(Array.from({ length: 14 }, (_, i) => `2026-09-${String(21 - i).padStart(2, "0")}`));
-      expect(v.rows[0], label).toMatchObject({ feelLabel: "5/5", note: "Between cycles.", phase: "", doses: null });
-      expect(v.rows.find((r) => r.day === "2026-09-15"), label).toMatchObject({ feelLabel: "2/5", doses: null });
-      expect(v.form.day, label).toBe("2026-09-21");
+      const v = view({ ...overrides, checkIns: only, total: 2 });
+      expect(v.cycleId, label).toBeNull();
+      expect(v.rows.map((r) => [r.day, r.feelingText, r.note, r.phase, r.doses]), label).toEqual([
+        ["2026-09-21", "5 · Great", "Between cycles.", "", null],
+        ["2026-09-15", "2 · Low", "", "", null],
+      ]);
+      expect([v.tracks, v.tiles.adherence, v.feeling.preCycle, v.sparse], label).toEqual([[], null, null, SPARSE]);
+      expect(v.feeling.axis.map((a) => a.wide), label).toEqual(["Aug 23", "Today"]);
     }
-    expect(view({ cycles: [] }).cycles).toEqual([]);
   });
 
   it("keeps one Toronto axis for a cycle in another zone: its doses fall on their Toronto day", () => {
     const tokyo = cycleOf(502, "Tokyo", [{ ...revision, id: uuid(120), timeZone: "Asia/Tokyo" }]);
-    // Tokyo's Tue Sep 22 07:40 is Mon Sep 21 18:40 in Toronto.
-    const tuesdayB = record(`${PLAN_B}:${B1}:2026-09-22`, "2026-09-21T22:40:00Z", "1");
-    const v = view({ cycles: [tokyo], selectedId: tokyo.id, confirmations: new Map([[tokyo.id, [tuesdayB]]]), checkIns: [checkIn("2026-09-21", { feeling: 5 })] });
-    expect([v.form.day, v.rows[0].day, v.rows[0].feelLabel, v.rows[0].doses]).toEqual(["2026-09-21", "2026-09-21", "5/5", "Doses: Compound B 1 mg"]);
+    // B is Mon, Wed, Fri: Tokyo's Wed Sep 23 07:40 is Tue Sep 22 18:40 in Toronto.
+    const wednesdayB = record(`${PLAN_B}:${B1}:2026-09-23`, "2026-09-22T22:40:00Z", "1");
+    // Tokyo's Mon Sep 21 07:40 is Sun Sep 20 18:40 in Toronto.
+    const mondayB = record(`${PLAN_B}:${B1}:2026-09-21`, "2026-09-20T22:40:00Z", "1");
+    // Seen at 10 PM Toronto on Tuesday, after that dose was taken.
+    const v = view({ now: "2026-09-23T02:00:00Z", cycles: [tokyo], selectedId: tokyo.id, confirmations: new Map([[tokyo.id, [mondayB, wednesdayB]]]), checkIns: [checkIn("2026-09-22", { feeling: 5 })], range: "7d" });
+    expect([v.today, v.rows[0].day, v.rows[0].feelingText, v.rows[0].doses]).toEqual(["2026-09-22", "2026-09-22", "5 · Great", "Compound B 1 mg"]);
+    const [b] = v.tracks.filter((t) => t.name === "Compound B");
+    // Sunday 18:40 on the 5th of 7 days (Sep 16–22); Tuesday's, past the last day's centre, sits at the right edge.
+    expect(b.dots.map((d) => [d.pending, d.label])).toEqual([
+      [false, "Compound B · 1 mg · Sep 20 6:40 PM"],
+      [false, "Compound B · 1 mg · Sep 22 6:40 PM"],
+    ]);
+    expect(b.dots[0].x).toBeCloseTo((4 + (18 * 60 + 40) / 1440 - 0.5) / 6);
+    expect(b.dots[1].x).toBe(1);
   });
 
   it("shows a break as a break", () => {
-    const v = view({ now: "2026-10-03T16:00:00Z" });
+    const v = view({ now: "2026-10-03T16:00:00Z", checkIns: [checkIn("2026-10-03")] });
     expect(v.rows[0].phase).toBe("Compound A: break · Compound B: 1 mg");
-    expect(v.cycle?.status).toBe("Active");
+    expect(v.header).toBe("Recomp · day 24");
+  });
+});
+
+describe("R5 Progress: dose tracks, adherence and the measurement", () => {
+  it("draws each dose at its Toronto time, and today's still to take hollow", () => {
+    const v = view({ range: "7d" });
+    const [a, b] = v.tracks;
+    expect([a.name, b.name]).toEqual(["Compound A", "Compound B"]);
+    // A: Sunday 23:30 (day 6 of 7); B: Monday 07:40 (day 7).
+    expect(a.dots).toEqual([{ x: expect.closeTo((5 + 1410 / 1440 - 0.5) / 6, 5), pending: false, label: "Compound A · 450 mcg · Sep 20 11:30 PM" }]);
+    expect(b.dots).toEqual([{ x: expect.closeTo((6 + 460 / 1440 - 0.5) / 6, 5), pending: false, label: "Compound B · 1 mg · Sep 21 7:40 AM" }]);
+    // Tuesday: A is due at 20:00 and not taken yet; B has no dose that day.
+    const tuesday = view({ range: "7d", now: "2026-09-22T16:00:00Z" });
+    // (The engine re-anchors every-2-days doses on the last one taken: Sunday's 23:30 makes Tuesday's 23:30.)
+    expect(tuesday.tracks[0].dots.at(-1)).toMatchObject({ pending: true, x: 1, label: "Compound A · 500 mcg · due 11:30 PM" });
+    // A skipped dose is not drawn at all.
+    const skipped = view({ range: "7d", now: "2026-09-22T16:00:00Z", confirmations: new Map([[recomp.id, [lateA, mondayB, { key: `${PLAN_A}:${A1}:6`, actualAt: null, recordedAt: "2026-09-22T13:00:00Z", skipped: true } as unknown as RecordedConfirmation]]]) });
+    expect(skipped.tracks[0].dots.some((d) => d.pending)).toBe(false);
+  });
+
+  it("counts adherence as V2 does, over the cycle's doses in the range", () => {
+    // Sep 10–21: A's six doses (Sep 20 taken), B's four (Sep 21 taken).
+    const v = view();
+    const all = [...planOccurrences(recomp.revisions, [lateA, mondayB]).values()].flat();
+    expect(adherence(all, NOW)).toMatchObject({ taken: 2, missed: 8, percent: 20 });
+    expect(v.tiles.adherence).toEqual({ value: "20", unit: "%", context: "2 of 10 doses" });
+    // The last 7 days only: Sep 15–21.
+    expect(view({ range: "7d" }).tiles.adherence).toEqual({ value: "33", unit: "%", context: "2 of 6 doses" });
+  });
+
+  it("charts the measurement from its baseline, in its own unit, and is absent without one", () => {
+    const weight = (day: string, value: string, unit = "kg") => checkIn(day, { measurement: { name: "Weight", value, unit, measuredAt: `${day}T12:00:00Z` } });
+    const checkIns = [weight("2026-09-01", "84"), weight("2026-09-09", "83.2"), weight("2026-09-15", "82.1"), weight("2026-09-18", "180", "lb"), weight("2026-09-21", "81.7")];
+    const card = view({ checkIns })!.measure!;
+    // The last entry on or before the cycle's start (Sep 10) is the baseline; the lb entry is left out, not converted.
+    expect(card).toMatchObject({ name: "Weight", unit: "kg", latest: "81.7", latestDay: "2026-09-21", entries: "4 entries", max: "84 kg", min: "81.7 kg" });
+    expect(card.change).toEqual({ direction: "down", text: "Down 1.5 kg", since: "since Sep 9" });
+    expect(card.points.map((p) => [p.day, p.value])).toEqual([
+      ["2026-09-01", 84],
+      ["2026-09-09", 83.2],
+      ["2026-09-15", 82.1],
+      ["2026-09-21", 81.7],
+    ]);
+    expect(card.points[0].x).toBeCloseTo(9 / 29);
+    // Without a cycle, from the first entry in the range.
+    expect(measureCard(checkIns, daysOf("2026-08-23", "2026-09-21"), null)?.change).toMatchObject({ text: "Down 2.3 kg", since: "since Sep 1" });
+    // One entry: no change. Weight wins over another kind; with none, the latest kind.
+    expect(measureCard([weight("2026-09-21", "81.7")], daysOf("2026-09-15", "2026-09-21"), null)).toMatchObject({ entries: "1 entry", change: null });
+    const waist = checkIn("2026-09-20", { measurement: { name: "Waist", value: "80", unit: "cm", measuredAt: "2026-09-20T12:00:00Z" } });
+    expect(measureCard([waist, weight("2026-09-16", "82")], daysOf("2026-09-15", "2026-09-21"), null)?.name).toBe("Weight");
+    expect(measureCard([waist], daysOf("2026-09-15", "2026-09-21"), null)?.name).toBe("Waist");
+    expect(view().measure).toBeNull();
   });
 });
 
@@ -508,24 +642,24 @@ describe("phases across revisions", () => {
   const cycle = cycleOf(503, "Edited", [withC, edited]);
 
   it("keeps a removed plan on its earlier days, through the day it was removed", () => {
-    expect(phaseLine(cycle, "2026-09-12", peptides)).toBe("Compound A: 0.4 mg · Compound C: break");
-    expect(phaseLine(cycle, "2026-09-16", peptides)).toBe("Compound A: 0.4 mg · Compound B: 1 mg · Compound C: break");
-    expect(phaseLine(cycle, "2026-09-17", peptides)).toBe("Compound A: 0.4 mg · Compound B: 1 mg");
+    expect(phaseLine(cycle, "2026-09-12", peptides)).toBe("Compound A: 400 mcg · Compound C: break");
+    expect(phaseLine(cycle, "2026-09-16", peptides)).toBe("Compound A: 400 mcg · Compound B: 1 mg · Compound C: break");
+    expect(phaseLine(cycle, "2026-09-17", peptides)).toBe("Compound A: 400 mcg · Compound B: 1 mg");
     // C's active phase never came: it was removed first.
-    expect(phaseLine(cycle, "2026-09-20", peptides)).toBe("Compound A: 0.6 mg · Compound B: 1 mg");
+    expect(phaseLine(cycle, "2026-09-20", peptides)).toBe("Compound A: 600 mcg · Compound B: 1 mg");
     expect(phasesDuring(cycle.revisions, "2026-09-19", TORONTO).map((p) => p.planId)).toEqual([PLAN_A, PLAN_B]);
     // Only the current revision would have lost C's earlier days.
     expect(phaseLine(cycleOf(504, "Current only", [{ ...edited, number: 1, plans: edited.plans.map((p) => ({ ...p, effectiveFrom: null })) }]), "2026-09-12", peptides)).toBe(
-      "Compound A: 0.4 mg",
+      "Compound A: 400 mcg",
     );
-    const v = view({ cycles: [cycle], now: NOW });
-    expect(v.rows.find((r) => r.day === "2026-09-14")?.phase).toBe("Compound A: 0.4 mg · Compound B: 1 mg · Compound C: break");
+    const v = view({ cycles: [cycle], now: NOW, checkIns: [checkIn("2026-09-14")] });
+    expect(v.rows.find((r) => r.day === "2026-09-14")?.phase).toBe("Compound A: 400 mcg · Compound B: 1 mg · Compound C: break");
   });
 
   it("uses each revision from its effective date: earlier days keep the plan as it was (a same-zone seam, the control)", () => {
     // The seam is Toronto's midnight: no Toronto day straddles it.
-    expect(phaseLine(cycle, "2026-09-17", peptides)).toBe("Compound A: 0.4 mg · Compound B: 1 mg");
-    expect(phaseLine(cycle, "2026-09-18", peptides)).toBe("Compound A: 0.6 mg · Compound B: 1 mg");
+    expect(phaseLine(cycle, "2026-09-17", peptides)).toBe("Compound A: 400 mcg · Compound B: 1 mg");
+    expect(phaseLine(cycle, "2026-09-18", peptides)).toBe("Compound A: 600 mcg · Compound B: 1 mg");
     expect(phaseLine(cycle, "2026-10-02", peptides)).toBe("Compound A: break · Compound B: 1 mg");
     expect(phasesDuring(cycle.revisions, "2026-09-17", TORONTO)[0].parts.map((p) => p.date)).toEqual(["2026-09-17"]);
     everyDoseBesideItsPhase(cycle);
@@ -549,8 +683,8 @@ describe("phases across revisions", () => {
     };
     const later = { ...edited, plans: edited.plans.map((p) => ({ ...p, effectiveFrom: "2026-09-25" })) };
     const cut = cycleOf(505, "Cut", [revision, later, third]);
-    expect(phaseLine(cut, "2026-09-19", peptides)).toBe("Compound A: 0.4 mg · Compound B: 1 mg");
-    expect(phaseLine(cut, "2026-09-26", peptides)).toBe("Compound A: 0.7 mg · Compound B: 1 mg");
+    expect(phaseLine(cut, "2026-09-19", peptides)).toBe("Compound A: 400 mcg · Compound B: 1 mg");
+    expect(phaseLine(cut, "2026-09-26", peptides)).toBe("Compound A: 700 mcg · Compound B: 1 mg");
     everyDoseBesideItsPhase(cut);
   });
 });
@@ -563,7 +697,7 @@ function everyDoseBesideItsPhase(cycle: CycleRecord) {
     const day = localDateOf(o.scheduledAt, TORONTO);
     const name = peptides.get(cycle.revisions[0].plans.find((p) => p.planId === o.planId)?.peptideId ?? "")?.name;
     const line = phaseLine(cycle, day, peptides).split(" · ").find((part) => part.startsWith(`${name}: `)) ?? "";
-    expect(line.slice(`${name}: `.length).split(" → "), `${o.key} at ${o.scheduledAt} (${day})`).toContain(`${o.doseMg} mg`);
+    expect(line.slice(`${name}: `.length).split(" → "), `${o.key} at ${o.scheduledAt} (${day})`).toContain(massLabel(o.doseMg));
   }
 }
 
@@ -603,23 +737,23 @@ describe("phases across a change of time zone", () => {
     // The new 0.6 mg dose at Sep 18 08:00 Tokyo is Sep 17 19:00 in Toronto.
     const first = cycleOccurrences(cycle.revisions).find((o) => o.doseMg === "0.6")!;
     expect([first.scheduledAt, first.timeZone, localDateOf(first.scheduledAt, TORONTO)]).toEqual(["2026-09-17T23:00:00Z", "Asia/Tokyo", "2026-09-17"]);
-    expect(phaseLine(cycle, "2026-09-16", peptides)).toBe("Compound A: 0.4 mg");
-    expect(phaseLine(cycle, "2026-09-17", peptides)).toBe("Compound A: 0.4 mg → 0.6 mg");
+    expect(phaseLine(cycle, "2026-09-16", peptides)).toBe("Compound A: 400 mcg");
+    expect(phaseLine(cycle, "2026-09-17", peptides)).toBe("Compound A: 400 mcg → 600 mcg");
     expect(phasesDuring(cycle.revisions, "2026-09-17", TORONTO)[0].parts.map((p) => p.date)).toEqual(["2026-09-17", "2026-09-18"]);
-    expect(phaseLine(cycle, "2026-09-18", peptides)).toBe("Compound A: 0.6 mg");
+    expect(phaseLine(cycle, "2026-09-18", peptides)).toBe("Compound A: 600 mcg");
     // Tokyo's last day (Sep 30) ends at Sep 30 11:00 in Toronto.
-    expect(phaseLine(cycle, "2026-09-30", peptides)).toBe("Compound A: 0.6 mg");
+    expect(phaseLine(cycle, "2026-09-30", peptides)).toBe("Compound A: 600 mcg");
     expect(phaseLine(cycle, "2026-10-01", peptides)).toBe("");
     everyDoseBesideItsPhase(cycle);
   });
 
   it("Toronto to Vancouver: the seam (Sep 18 00:00 Vancouver) is Sep 18 03:00 in Toronto, so Sep 18 shows both", () => {
     const cycle = cycleOf(511, "To Vancouver", [toronto, moved("America/Vancouver")]);
-    expect(phaseLine(cycle, "2026-09-17", peptides)).toBe("Compound A: 0.4 mg");
-    expect(phaseLine(cycle, "2026-09-18", peptides)).toBe("Compound A: 0.4 mg → 0.6 mg");
-    expect(phaseLine(cycle, "2026-09-19", peptides)).toBe("Compound A: 0.6 mg");
+    expect(phaseLine(cycle, "2026-09-17", peptides)).toBe("Compound A: 400 mcg");
+    expect(phaseLine(cycle, "2026-09-18", peptides)).toBe("Compound A: 400 mcg → 600 mcg");
+    expect(phaseLine(cycle, "2026-09-19", peptides)).toBe("Compound A: 600 mcg");
     // Vancouver's Sep 30 runs to Oct 1 03:00 in Toronto.
-    expect(phaseLine(cycle, "2026-10-01", peptides)).toBe("Compound A: 0.6 mg");
+    expect(phaseLine(cycle, "2026-10-01", peptides)).toBe("Compound A: 600 mcg");
     expect(phaseLine(cycle, "2026-10-02", peptides)).toBe("");
     everyDoseBesideItsPhase(cycle);
   });

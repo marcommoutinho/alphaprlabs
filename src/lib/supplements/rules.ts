@@ -44,6 +44,10 @@ export const ROUTINE_ENDED = "This routine has ended. Its history is kept; creat
 export const ROUTINE_GONE = "This routine no longer exists. Reload the page.";
 export const ROUTINE_INVALID = "This routine could not be saved. Reload the page and try again.";
 export const TRACKING_REQUIRED = "Turn on Track supplements first.";
+// Design v3 R13: a chosen start and an optional planned end (20260928130000_supplies_v3.sql).
+export const START_INVALID = "Choose a start date from today up to a year ahead.";
+export const END_BEFORE_START = "The end can't be before the start.";
+export const END_PAST = "The end can't be before today. To stop it now, use End routine.";
 
 export const TAKEN_CHANGED = "This routine changed since you opened it. The details are current now — check them and tap Taken again.";
 export const TAKEN_GONE = "This day is not part of the routine any more. Nothing was recorded.";
@@ -70,15 +74,38 @@ export type RoutineForm = {
   unit: string;
   /** "HH:MM" */
   time: string;
+  /** Its first day (creating only; null: today). An edit keeps the start. */
+  startDate?: string | null;
+  /** Its last day, or null to run on. */
+  endDate?: string | null;
 };
 
 /** A routine ready to save: trimmed text and a canonical exact amount ("1.5"). */
-export type ValidRoutine = { id: string | null; version: number | null; name: string; amount: string; unit: string; time: string };
+export type ValidRoutine = {
+  id: string | null;
+  version: number | null;
+  name: string;
+  amount: string;
+  unit: string;
+  time: string;
+  /** null: today (create) or kept (edit). */
+  startDate: string | null;
+  endDate: string | null;
+};
 
 export type RoutineValidation = { ok: true; value: ValidRoutine } | { ok: false; error: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+/** A real calendar date "YYYY-MM-DD", else null. */
+const dateOf = (value: unknown): string | null => {
+  if (typeof value !== "string" || !DATE.test(value)) return null;
+  const d = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value ? value : null;
+};
+/** `date` plus `days` ("YYYY-MM-DD"). */
+const plusDays = (date: string, days: number) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 export const uuidOf = (value: unknown): string | null => (typeof value === "string" && UUID.test(value) ? value.toLowerCase() : null);
 const isVersion = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 1;
 
@@ -95,8 +122,13 @@ export function routineAmount(text: unknown): { ok: true; value: string } | { ok
   return { ok: true, value: plain(parsed) };
 }
 
-/** The first problem in the prototype's order (name, amount and unit, time), else the routine to save. */
-export function validateRoutine(input: unknown): RoutineValidation {
+/**
+ * The first problem in the prototype's order (name, amount and unit, time,
+ * then the dates), else the routine to save. `today` (Toronto,
+ * "YYYY-MM-DD") checks the dates as the database will: a new routine starts
+ * today to a year ahead; an end is never before the start, nor before today.
+ */
+export function validateRoutine(input: unknown, today?: string): RoutineValidation {
   if (typeof input !== "object" || input === null) return { ok: false, error: ROUTINE_INVALID };
   const raw = input as Record<string, unknown>;
   const text = (value: unknown) => (typeof value === "string" ? value : "");
@@ -115,7 +147,18 @@ export function validateRoutine(input: unknown): RoutineValidation {
   if (characters(unit) > ROUTINE_LIMITS.unit) return { ok: false, error: UNIT_TOO_LONG };
   const time = text(raw.time);
   if (!TIME.test(time)) return { ok: false, error: TIME_REQUIRED };
-  return { ok: true, value: { id, version: version as number | null, name, amount: amount.value, unit, time } };
+
+  const blank = (value: unknown) => value === null || value === undefined || value === "";
+  // An edit keeps its start: anything sent for it is ignored.
+  const startDate = id !== null || blank(raw.startDate) ? null : dateOf(raw.startDate);
+  if (id === null && !blank(raw.startDate) && !startDate) return { ok: false, error: START_INVALID };
+  const endDate = blank(raw.endDate) ? null : dateOf(raw.endDate);
+  if (!blank(raw.endDate) && !endDate) return { ok: false, error: END_BEFORE_START };
+  if (id === null && startDate && today && (startDate < today || startDate > plusDays(today, 366))) return { ok: false, error: START_INVALID };
+  const first = startDate ?? (id === null ? today : undefined);
+  if (endDate && first && endDate < first) return { ok: false, error: END_BEFORE_START };
+  if (endDate && today && endDate < today) return { ok: false, error: END_PAST };
+  return { ok: true, value: { id, version: version as number | null, name, amount: amount.value, unit, time, startDate: id === null ? startDate : null, endDate } };
 }
 
 // ── The Taken form ──────────────────────────────────────────────────────────

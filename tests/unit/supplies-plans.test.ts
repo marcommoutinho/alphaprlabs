@@ -76,6 +76,7 @@ const vial = (id: number, label: string, m: Mixture, strengthMg = m.setup.vialMg
   strengthMg,
   mixtureId: m.id,
   createdAt: "2026-09-01T12:00:00Z",
+  mixedAt: "2026-09-01T12:00:00Z",
   finishedAt: null,
 });
 /** One deduction leaving `leftMg` of an 8 mg vial. */
@@ -146,9 +147,9 @@ describe("a cycle that moves time zones", () => {
       cycles: [cycle],
       confirmations: none,
       now: "2026-09-27T16:00:00Z",
-    }).groups[0].vials[0];
+    }).inUse[0];
     // Sunday: the next dose is Monday 08:00 in Vancouver, not 08:00 Toronto.
-    expect(card).toMatchObject({ state: "Low (estimate)", outlook: "Less than the next planned dose (0.4 mg, Mon Sep 28 · 08:00)." });
+    expect(card).toMatchObject({ state: "Low (estimate)", outlook: "Less than the next planned dose (400 mcg, Mon Sep 28 · 08:00)." });
   });
 
   it("shows each deduction in its dose's zone, as the cycle's history does, not in the cycle's latest zone", () => {
@@ -160,8 +161,8 @@ describe("a cycle that moves time zones", () => {
     const m = mixture(700, PA, [P1]);
     const deductions = [used(uuid(800), "0.4", "7.6", 1), used(uuid(800), "0.4", "7.2", 2)];
     const doses = [
-      { id: deductions[0].doseId, cycleId: cycle.id, occurrenceKey: key(2), actualAt: "2026-09-24T12:05:00Z" },
-      { id: deductions[1].doseId, cycleId: cycle.id, occurrenceKey: key(4), actualAt: "2026-09-28T15:05:00Z" },
+      { id: deductions[0].doseId!, cycleId: cycle.id, occurrenceKey: key(2), actualAt: "2026-09-24T12:05:00Z" },
+      { id: deductions[1].doseId!, cycleId: cycle.id, occurrenceKey: key(4), actualAt: "2026-09-28T15:05:00Z" },
     ];
     const card = suppliesView({
       tracking: true,
@@ -173,7 +174,7 @@ describe("a cycle that moves time zones", () => {
       cycles: [cycle],
       confirmations: new Map([[cycle.id, confirmations]]),
       now: "2026-09-28T18:00:00Z",
-    }).groups[0].vials[0];
+    }).inUse[0];
     expect(card.history.map((h) => h.when)).toEqual(["Mon Sep 28 · 08:05", "Thu Sep 24 · 08:05"]);
     // The same as R4's "Actual" column for those doses.
     const history = cycleDetail(cycle, peptides, "2026-09-28T18:00:00Z", confirmations).history;

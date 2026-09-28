@@ -1,5 +1,6 @@
 import "server-only";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
+import { saveRequestHash as requestHash } from "@/lib/request-hash";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { Temporal } from "@js-temporal/polyfill";
 import { afterPair, chunks, keysetRows, type PageOptions } from "@/lib/keyset";
@@ -346,7 +347,7 @@ const REFUSALS: Record<string, Exclude<SaveCycleResult["kind"], "saved">> = {
  */
 export async function saveCycle(db: Db, cycle: ValidCycle, revised?: readonly RevisedPlan[]): Promise<SaveCycleResult> {
   const key = randomUUID();
-  const result = await saveCycleWithMixes(db, cycle, revised, [], { key, hash: saveRequestHash({ key }) });
+  const result = await saveCycleWithMixes(db, cycle, revised, [], { key, hash: requestHash({ key }) });
   switch (result.kind) {
     case "mixture_stale":
     case "vial_strength":
@@ -377,22 +378,7 @@ export type CycleMix =
  */
 export type SaveRequest = { key: string; hash: string };
 
-/** The JSON of a value with object keys sorted (undefined members dropped), so a submission always reads the same. */
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item ?? null)).join(",")}]`;
-  if (value !== null && typeof value === "object") {
-    const members = Object.entries(value)
-      .filter(([, member]) => member !== undefined)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-    return `{${members.map(([name, member]) => `${JSON.stringify(name)}:${canonicalJson(member)}`).join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
-}
-
-/** SHA-256 (hex) of a submission's canonical JSON. */
-export function saveRequestHash(submission: unknown): string {
-  return createHash("sha256").update(canonicalJson(submission)).digest("hex");
-}
+export { saveRequestHash } from "@/lib/request-hash";
 
 export type SaveReplay = { kind: "new" } | { kind: "saved"; id: string } | { kind: "used" | "error" };
 

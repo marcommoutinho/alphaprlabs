@@ -1,20 +1,17 @@
-import Link from "@/components/alpha/link";
-import { AppPage } from "@/components/app-shell/app-shell";
-import { SupplementsScreen } from "@/components/research/supplements-screen";
+import { SupplementsScreen } from "@/components/research/supplies/supplements-screen";
 import { requireResearcher } from "@/lib/auth/session";
 import { listAvailablePeptides } from "@/lib/library/research";
 import { getSupplementTracking, listRoutines, listTaken } from "@/lib/supplements/service";
 import { supplementsView } from "@/lib/supplements/view";
 import { createClient } from "@/lib/supabase/server";
-import "@/styles/app/supplements.css";
-import "@/styles/app/today.css";
 
 /**
- * R10 Supplement routines, for the signed-in researcher's own routines only
- * (a granted admin reads other people's in A8, S17, never here). Shows the
- * supplement guidance admins supplied in the library (offered peptides only,
- * as library browsing does); nothing is tracked until "Track supplements" is
- * on and a routine (name, amount, unit, daily time) is created.
+ * R13 Supplies · Supplements, for the signed-in researcher's own routines
+ * only (a granted admin reads other people's in A8, S17, never here). Shows
+ * the supplement guidance admins supplied in the library (offered peptides
+ * only, as library browsing does); nothing is tracked until "Track
+ * supplements" is on and a routine (name, amount, unit, daily time, start,
+ * optional end) is added.
  */
 export default async function SupplementsPage() {
   const person = await requireResearcher("/app/supplements");
@@ -34,12 +31,5 @@ export default async function SupplementsPage() {
     now: new Date(),
   });
 
-  return (
-    <AppPage width="narrow">
-      <Link href="/app/me" className="app-supp-back">
-        ‹ Me
-      </Link>
-      <SupplementsScreen view={view} />
-    </AppPage>
-  );
+  return <SupplementsScreen view={view} />;
 }

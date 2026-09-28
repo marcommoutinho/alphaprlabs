@@ -10,11 +10,9 @@ import { Field, NumberInput, TextArea, TextInput } from "@/components/alpha/fiel
 import { Sheet, SheetContent } from "@/components/alpha/sheet";
 import { useAlphaToast } from "@/components/alpha/toast";
 import { SAVE_FAILED_MESSAGE } from "@/components/app-shell/toast";
-import { CHECK_IN_SAVED, type Effect, EFFECTS, FEELINGS, MEASUREMENTS, type MeasurementName, OTHER, toggleEffect, unitFor } from "@/lib/progress/rules";
+import { CHECK_IN_SAVED, type Effect, EFFECTS, FEELING_WORDS, FEELINGS, MEASUREMENTS, type MeasurementName, OTHER, toggleEffect, unitFor } from "@/lib/progress/rules";
+import type { FormStart } from "@/lib/progress/screen";
 import { cn } from "@/lib/utils";
-
-/** R1's check-in card and R6: the five feelings, 1 (rough) to 5 (great). */
-export const FEELING_WORDS: Record<number, string> = { 1: "Rough", 2: "Low", 3: "OK", 4: "Good", 5: "Great" };
 
 export type CheckInContext = {
   /** Today's check-in day (America/Toronto, YYYY-MM-DD) and "Thu, Sep 24". */
@@ -30,37 +28,57 @@ export type CheckInContext = {
  * "+ Other" asks for its text), one
  * optional measurement and a note. One per America/Toronto day, for today
  * only: save_check_in re-checks the day. Opened from Today's card with the
- * tapped feeling preselected.
+ * tapped feeling preselected, or from Progress (R5), where today's saved
+ * check-in opens as it is (`start`) and saves from the version shown, so a
+ * change made on another device is never overwritten (CHECK_IN_CHANGED).
  */
 export function CheckInSheet({
   open,
   feeling,
+  start = null,
   context,
   onClose,
 }: {
   open: boolean;
   /** The feeling tapped on the card. */
   feeling: number | null;
+  /** Today's saved check-in, to edit; null to create it. */
+  start?: FormStart | null;
   context: CheckInContext;
   onClose: () => void;
 }) {
   return (
     <Sheet open={open} onOpenChange={(next) => (next ? null : onClose())}>
-      {open ? <CheckInBody key={`${context.day}/${feeling}`} initialFeeling={feeling} context={context} onClose={onClose} /> : null}
+      {open ? (
+        <CheckInBody key={`${context.day}/${feeling}/${start?.version ?? 0}`} initialFeeling={feeling} start={start} context={context} onClose={onClose} />
+      ) : null}
     </Sheet>
   );
 }
 
-function CheckInBody({ initialFeeling, context, onClose }: { initialFeeling: number | null; context: CheckInContext; onClose: () => void }) {
+const MEASUREMENT_NAMES: readonly string[] = MEASUREMENTS.map((m) => m.name);
+
+function CheckInBody({
+  initialFeeling,
+  start,
+  context,
+  onClose,
+}: {
+  initialFeeling: number | null;
+  start: FormStart | null;
+  context: CheckInContext;
+  onClose: () => void;
+}) {
   const toast = useAlphaToast();
-  const [feeling, setFeelingValue] = useState<number>(initialFeeling ?? 0);
-  const [effects, setEffectsValue] = useState<Effect[]>([]);
-  const [other, setOtherValue] = useState("");
+  const startName = (start?.measurement && MEASUREMENT_NAMES.includes(start.measurement.name) ? start.measurement.name : "Weight") as MeasurementName;
+  const [feeling, setFeelingValue] = useState<number>(start?.feeling ?? initialFeeling ?? 0);
+  const [effects, setEffectsValue] = useState<Effect[]>(start?.effects ?? []);
+  const [other, setOtherValue] = useState(start?.effectsOther ?? "");
   const otherRef = useRef<HTMLInputElement>(null);
-  const [measurementName, setNameValue] = useState<MeasurementName>("Weight");
-  const [measurementValue, setValueValue] = useState("");
-  const [measurementUnit, setUnitValue] = useState<string>(unitFor("Weight"));
-  const [note, setNoteValue] = useState("");
+  const [measurementName, setNameValue] = useState<MeasurementName>(startName);
+  const [measurementValue, setValueValue] = useState(start?.measurement?.value ?? "");
+  const [measurementUnit, setUnitValue] = useState<string>(start?.measurement?.unit ?? unitFor(startName));
+  const [note, setNoteValue] = useState(start?.note ?? "");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const edited =
@@ -85,7 +103,7 @@ function CheckInBody({ initialFeeling, context, onClose }: { initialFeeling: num
       try {
         const result = await saveCheckInAction({
           day: context.day,
-          version: null,
+          version: start?.version ?? null,
           feeling,
           effects,
           effectsOther: effects.includes(OTHER) ? other : "",
@@ -110,11 +128,11 @@ function CheckInBody({ initialFeeling, context, onClose }: { initialFeeling: num
 
   return (
     <SheetContent
-      title="Daily check-in"
+      title={start ? "Today's check-in" : "Daily check-in"}
       context={context.dayLabel}
       footer={
         <Button size="lg" block onClick={save} saving={pending}>
-          Save check-in
+          {start ? "Update check-in" : "Save check-in"}
         </Button>
       }
     >

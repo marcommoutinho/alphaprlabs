@@ -10,8 +10,11 @@ import {
   AMOUNT_TOO_LARGE,
   AMOUNT_TOO_PRECISE,
   NAME_REQUIRED,
+  END_BEFORE_START,
+  END_PAST,
   NAME_TOO_LONG,
   readTakenForm,
+  START_INVALID,
   ROUTINE_INVALID,
   routineAmount,
   takenTimeError,
@@ -22,7 +25,17 @@ import {
 } from "@/lib/supplements/rules";
 import { occurrenceOn, occurrencesBetween, parseSupplementKey, runsOn, supplementKey } from "@/lib/supplements/schedule";
 import type { Routine, TakenRecord } from "@/lib/supplements/service";
-import { mergeTodayRows, NO_CYCLES_BODY, NO_CYCLES_BODY_SUPPLEMENTS, supplementsToday, supplementsView, todayNotes } from "@/lib/supplements/view";
+import {
+  mergeTodayRows,
+  NO_CYCLES_BODY,
+  NO_CYCLES_BODY_SUPPLEMENTS,
+  routineEnded,
+  supplementsToday,
+  supplementsTodayList,
+  supplementsView,
+  todayNotes,
+  weekGrid,
+} from "@/lib/supplements/view";
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const TORONTO = "America/Toronto";
@@ -83,8 +96,29 @@ describe("the routine form", () => {
     }
     expect(validateRoutine(form({ name: "  Magnesium ", amount: "1,5", unit: " capsules ", time: "21:30" }))).toEqual({
       ok: true,
-      value: { id: null, version: null, name: "Magnesium", amount: "1.5", unit: "capsules", time: "21:30" },
+      value: { id: null, version: null, name: "Magnesium", amount: "1.5", unit: "capsules", time: "21:30", startDate: null, endDate: null },
     });
+  });
+
+  it("checks R13's start and optional end as the database does: start today to a year ahead, end never before the start or today", () => {
+    const today = "2026-09-27";
+    const ok = (overrides: Record<string, unknown>) => validateRoutine(form(overrides), today);
+    expect(ok({ startDate: "2026-09-27", endDate: "" })).toMatchObject({ ok: true, value: { startDate: "2026-09-27", endDate: null } });
+    expect(ok({ startDate: "2026-10-01", endDate: "2026-10-01" })).toMatchObject({ ok: true, value: { startDate: "2026-10-01", endDate: "2026-10-01" } });
+    expect(ok({ startDate: "2027-09-28" })).toMatchObject({ ok: true });
+    for (const start of ["2026-09-26", "2027-09-29", "2026-02-30", "Sep 30"]) {
+      expect(ok({ startDate: start }), start).toEqual({ ok: false, error: START_INVALID });
+    }
+    expect(ok({ startDate: "2026-10-01", endDate: "2026-09-30" })).toEqual({ ok: false, error: END_BEFORE_START });
+    // No start: a new routine starts today.
+    expect(ok({ endDate: "2026-09-26" })).toEqual({ ok: false, error: END_BEFORE_START });
+    expect(ok({ endDate: "2026-09-27" })).toMatchObject({ ok: true, value: { startDate: null, endDate: "2026-09-27" } });
+    // Editing: the start stays (never sent), the end can move but not into the past.
+    const edit = { id: uuid(1), version: 2 };
+    expect(ok({ ...edit, startDate: "2026-12-01", endDate: "2026-10-10" })).toMatchObject({ ok: true, value: { startDate: null, endDate: "2026-10-10" } });
+    expect(ok({ ...edit, endDate: "2026-09-20" })).toEqual({ ok: false, error: END_PAST });
+    // Names first, then dates.
+    expect(ok({ name: "", startDate: "2020-01-01" })).toEqual({ ok: false, error: NAME_REQUIRED });
   });
 
   it("counts lengths in characters (code points), as the database does", () => {
@@ -312,5 +346,79 @@ describe("R10 routine cards", () => {
     const off = supplementsView({ tracking: false, routines: [d3], taken: [], guidance, now: NOW });
     expect(off.routines).toEqual([]);
     expect(off.guidance.length).toBe(2);
+  });
+});
+
+describe("R13 Supplements (design v3)", () => {
+  const NOW = "2026-09-27T14:00:00Z"; // Sunday, 10:00 in Toronto
+  const d3 = routine({ startDate: "2026-09-01", definitionFrom: "2026-09-01" });
+  const zinc = routine({ id: uuid(2), name: "Zinc", time: "07:00", startDate: "2026-09-20", endDate: "2026-09-22" });
+  const mag = routine({ id: uuid(3), name: "Magnesium", amount: "1.5", unit: "capsules", time: "21:30", startDate: "2026-09-25" });
+  const later = routine({ id: uuid(4), name: "Creatine", startDate: "2026-10-01", endDate: "2026-10-30" });
+  const neverRan = routine({ id: uuid(5), name: "Iron", startDate: "2026-10-01", endDate: "2026-09-27" });
+
+  it("says when a routine has ended: its last day is today or past, or it ended before it started", () => {
+    expect(routineEnded(d3, "2026-09-27")).toBe(false);
+    expect(routineEnded({ ...d3, endDate: "2026-09-28" }, "2026-09-27")).toBe(false);
+    expect(routineEnded({ ...d3, endDate: "2026-09-27" }, "2026-09-27")).toBe(true);
+    expect(routineEnded(zinc, "2026-09-27")).toBe(true);
+    expect(routineEnded(later, "2026-09-27")).toBe(false);
+    expect(routineEnded(neverRan, "2026-09-27")).toBe(true);
+  });
+
+  it("draws the last 7 days, today last: taken, missed, still to take today, or not a day it ran", () => {
+    const records = [
+      taken(d3, "2026-09-22", "2026-09-22T12:05:00Z"),
+      taken(d3, "2026-09-24", "2026-09-24T12:05:00Z"),
+      taken(d3, "2026-09-27", "2026-09-27T12:05:00Z"),
+      taken(zinc, "2026-09-22", "2026-09-22T11:00:00Z"),
+      taken(mag, "2026-09-26", "2026-09-26T01:40:00Z"),
+      // Before the week: not drawn.
+      taken(d3, "2026-09-20", "2026-09-20T12:00:00Z"),
+    ];
+    const grid = weekGrid([mag, later, d3, neverRan, zinc], records, NOW);
+    expect(grid.days.map((d) => d.date)).toEqual(["2026-09-21", "2026-09-22", "2026-09-23", "2026-09-24", "2026-09-25", "2026-09-26", "2026-09-27"]);
+    expect(grid.days.map((d) => d.letter).join("")).toBe("MTWTFSS");
+    expect(grid.days.map((d) => d.today)).toEqual([false, false, false, false, false, false, true]);
+    // By time; a routine that hasn't started, or never ran, has no row.
+    expect(grid.rows.map((r) => [r.name, r.cells.join(" ")])).toEqual([
+      ["Zinc", "missed taken none none none none none"],
+      ["Vitamin D3", "missed taken missed taken missed missed taken"],
+      ["Magnesium", "none none none none missed taken later"],
+    ]);
+    // The Toronto day: at 23:30 on Sunday it's still Sunday's column.
+    expect(weekGrid([d3], [], "2026-09-28T03:30:00Z").days.at(-1)?.date).toBe("2026-09-27");
+    expect(weekGrid([], [], NOW).rows).toEqual([]);
+  });
+
+  it("lists today's supplements as N of M, the first still to take marked next", () => {
+    const morning = routine({ id: uuid(6), name: "Omega-3", time: "07:00", startDate: "2026-09-01" });
+    const list = supplementsTodayList(supplementsToday({ tracking: true, routines: [mag, d3, morning], taken: [taken(d3, "2026-09-27", "2026-09-27T12:05:00Z")], now: NOW }));
+    expect([list.taken, list.total]).toEqual([1, 3]);
+    expect(list.rows.map((r) => [r.title, r.state, r.next])).toEqual([
+      ["Omega-3", "due", true],
+      ["Vitamin D3", "taken", false],
+      ["Magnesium", "later", false],
+    ]);
+    const done = supplementsTodayList(supplementsToday({ tracking: true, routines: [d3], taken: [taken(d3, "2026-09-27", "2026-09-27T12:05:00Z")], now: NOW }));
+    expect([done.taken, done.total, done.rows[0].next]).toEqual([1, 1, false]);
+    expect(supplementsTodayList({ rows: [] })).toEqual({ rows: [], taken: 0, total: 0 });
+  });
+
+  it("words each routine card: title, daily time, its dates and state, upcoming and ended ones", () => {
+    const view = supplementsView({ tracking: true, routines: [neverRan, zinc, later, { ...d3, endDate: "2026-10-30" }], taken: [], guidance: [], now: NOW });
+    expect(view.routines.map((r) => [r.title, r.schedule, r.dates, r.state, r.ended, r.upcoming])).toEqual([
+      // Active ones by time (an upcoming one among them), then by name.
+      ["Creatine · 2000 IU", "Daily · 8:00 AM", "Starts Oct 1 · ends Oct 30", "Starts Oct 1", false, true],
+      ["Vitamin D3 · 2000 IU", "Daily · 8:00 AM", "Since Sep 1 · ends Oct 30", "Due today", false, false],
+      // Ended ones, most recently ended first.
+      ["Iron · 2000 IU", "Daily · 8:00 AM", "Planned for Oct 1 · never ran", "Ended before it started", true, false],
+      ["Zinc · 2000 IU", "Daily · 7:00 AM", "Sep 20 – Sep 22", "Ended Sep 22", true, false],
+    ]);
+    expect(view.today.total).toBe(1);
+    expect(view.grid.rows.map((r) => r.name)).toEqual(["Zinc", "Vitamin D3"]);
+    // Tracking off: no list, no grid rows.
+    const off = supplementsView({ tracking: false, routines: [d3], taken: [], guidance: [], now: NOW });
+    expect([off.today.total, off.grid.rows.length, off.grid.days.length]).toEqual([0, 0, 7]);
   });
 });

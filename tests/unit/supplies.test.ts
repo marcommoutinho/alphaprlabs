@@ -20,9 +20,11 @@ import {
   vialState,
 } from "@/lib/supplies/estimate";
 import {
+  CORRECTION_INVALID,
   defaultVialLabel,
   LABEL_TOO_LONG,
   PEPTIDE_REQUIRED,
+  readCorrection,
   STRENGTH_REQUIRED,
   STRENGTH_TOO_LARGE,
   validateVialForm,
@@ -102,6 +104,7 @@ const vial = (overrides: Partial<PersonalVial> = {}): PersonalVial => ({
   strengthMg: "8",
   mixtureId: mixtureA.id,
   createdAt: "2026-09-01T12:00:00Z",
+  mixedAt: null,
   finishedAt: null,
   ...overrides,
 });
@@ -133,7 +136,7 @@ describe("the estimate", () => {
   it("never goes silently below zero: more recorded than the vial held is 'over'", () => {
     const over = vialEstimate("1", [{ amountMg: "0.4" }, { amountMg: "0.4" }, { amountMg: "0.4" }]);
     expect(over).toMatchObject({ remainingMg: "-0.2", state: "over", overMg: "0.2", percentLeft: 0 });
-    expect(remainingLabel(over, mixtureA.setup)).toBe("0 mg · 0.2 mg over");
+    expect(remainingLabel(over, mixtureA.setup)).toBe("0 mg · 200 mcg over");
     expect(vialState(over, stockOutlook(over.remainingMg, [planned("0.4", 2)]), true)).toEqual({ text: "Estimate exceeds vial — check your records", tone: "alert" });
   });
 
@@ -163,9 +166,9 @@ describe("low stock", () => {
     expect(stockOutlook("1.4", ahead)).toMatchObject({ dosesLeft: 3, coversAll: true });
     expect(stockOutlook("1", ahead)).toMatchObject({ dosesLeft: 2 });
     const line = (remaining: string) => outlookLine(stockOutlook(remaining, ahead), (d) => d.localDate);
-    expect(line("1")).toBe("About 2 doses left at the planned amounts. Next: 0.4 mg, 2026-10-02.");
-    expect(line("1.4")).toBe("Enough for the 3 doses planned ahead. Next: 0.4 mg, 2026-10-02.");
-    expect(line("0.1")).toBe("Less than the next planned dose (0.4 mg, 2026-10-02).");
+    expect(line("1")).toBe("About 2 doses left at the planned amounts. Next: 400 mcg, 2026-10-02.");
+    expect(line("1.4")).toBe("Enough for the 3 doses planned ahead. Next: 400 mcg, 2026-10-02.");
+    expect(line("0.1")).toBe("Less than the next planned dose (400 mcg, 2026-10-02).");
   });
 
   it("guesses nothing when the plan is incomplete: not mixed, no plan, nothing planned ahead", () => {
@@ -220,13 +223,13 @@ describe("the supplies screen", () => {
       mixtures,
       peptides,
       deductions,
-      doses: deductions.map((d, n) => ({ id: d.doseId, cycleId: cycle.id, occurrenceKey: keyA(n), actualAt: `2026-09-2${n}T12:05:00Z` })),
+      doses: deductions.map((d, n) => ({ id: d.doseId!, cycleId: cycle.id, occurrenceKey: keyA(n), actualAt: `2026-09-2${n}T12:05:00Z` })),
       cycles: [cycle],
       confirmations: none,
       now: NOON,
     });
 
-  it("groups vials by peptide, open ones first, with the estimate, the outlook and the history newest first", () => {
+  it("puts open vials in use or unopened and finished ones last, with the estimate, the outlook and the history newest first", () => {
     const view = build(
       [
         vial({ id: uuid(801), label: "A-00", finishedAt: "2026-09-10T12:00:00Z", mixtureId: mixtureA.id }),
@@ -236,11 +239,11 @@ describe("the supplies screen", () => {
       // Given in any order: the one from 8 mg came first.
       [deduction(2, "0.4", "7.6"), deduction(1, "0.4", "8"), deduction(3, "5", "5", uuid(801))],
     );
-    expect(view.groups.map((g) => [g.name, g.vials.map((v) => v.label)])).toEqual([
-      ["Compound A", ["A-01", "A-00"]],
-      ["Compound B", ["B-01"]],
-    ]);
-    const [open, finished] = view.groups[0].vials;
+    // A-01 is mixed and used; B-01 was never mixed nor used; A-00 is finished.
+    expect(view.inUse.map((v) => v.label)).toEqual(["A-01"]);
+    expect(view.unopened.map((g) => [g.title, g.vials.map((v) => v.label)])).toEqual([["Compound B · 5 mg", ["B-01"]]]);
+    expect(view.finished.map((v) => v.label)).toEqual(["A-00"]);
+    const [open, finished] = [view.inUse[0], view.finished[0]];
     expect(open).toMatchObject({
       open: true,
       state: "In use",
@@ -249,16 +252,24 @@ describe("the supplies screen", () => {
       uses: "2 confirmed doses deducted",
       mixLine: "Mixture 8 mg / 2 mL · An estimate from confirmed doses, not a measurement of the vial.",
       // 7.2 mg covers A's 8 doses ahead (0.4 × 4 + 0.5 × 4).
-      outlook: "Enough for the 8 doses planned ahead. Next: 0.4 mg, Sat Sep 26 · 08:00.",
+      outlook: "Enough for the 8 doses planned ahead. Next: 400 mcg, Sat Sep 26 · 08:00.",
+      // R7: title, meta, what's left and how far it goes.
+      title: "Compound A · 8 mg",
+      meta: "Vial A-01 · added Sep 1 · 4 mg/mL",
+      left: "7.2 mg left",
+      tag: null,
+      forecast: "8 doses · to Sat Oct 10 · every planned dose",
+      remainingMg: "7.2",
     });
-    expect(open.history.map((h) => [h.amount, h.after, h.discrepancy])).toEqual([
-      ["0.4 mg", "7.2 mg left", false],
-      ["0.4 mg", "7.6 mg left", false],
+    expect(open.history.map((h) => [h.amount, h.change, h.after, h.discrepancy])).toEqual([
+      ["400 mcg", "−400 mcg", "7.2 mg left", false],
+      ["400 mcg", "−400 mcg", "7.6 mg left", false],
     ]);
     expect(open.history[0].href).toBe(`/app/today?dose=${encodeURIComponent(keyA(0))}`);
     expect(open.history[0]).toMatchObject({ when: "Sun Sep 20 · 08:05", cycleName: "Recomp Fall 26" });
-    expect(finished).toMatchObject({ open: false, state: "Finished", finished: "Finished Sep 10, 2026", remaining: "3 mg", outlook: null });
-    expect(view.groups[1].vials[0]).toMatchObject({ state: "Not mixed yet", outlook: null, mixLine: expect.stringContaining("Not mixed yet") });
+    expect(finished).toMatchObject({ open: false, state: "Finished", finished: "Finished Sep 10, 2026", remaining: "3 mg", outlook: null, forecast: null, tag: null, meta: "Vial A-00 · finished Sep 10" });
+    expect(view.unopened[0].vials[0]).toMatchObject({ state: "Not mixed yet", outlook: null, forecast: "Not mixed yet", mixLine: expect.stringContaining("Not mixed yet") });
+    expect(view.lowCount).toBe(0);
     expect(view.mixtures).toEqual([{ id: mixtureA.id, peptideId: PA, label: "Compound A · 8 mg / 2 mL · 1 mL", strengthMg: "8", openVial: "A-01" }]);
     // Offered peptides plus the researcher's own (B is in a vial; C is neither).
     expect(view.peptides.map((p) => p.name)).toEqual(["Compound A", "Compound B"]);
@@ -266,19 +277,79 @@ describe("the supplies screen", () => {
   });
 
   it("flags low stock, an empty vial and a recorded discrepancy", () => {
-    const low = build([vial()], [deduction(1, "7.7", "8")]).groups[0].vials[0];
-    expect(low).toMatchObject({ state: "Low (estimate)", tone: "warn", remaining: "0.3 mg · 0.075 mL" });
-    expect(low.outlook).toBe("Less than the next planned dose (0.4 mg, Sat Sep 26 · 08:00).");
-    const empty = build([vial()], [deduction(1, "8", "8")]).groups[0].vials[0];
+    const lowView = build([vial()], [deduction(1, "7.7", "8")]);
+    const low = lowView.inUse[0];
+    expect(low).toMatchObject({ state: "Low (estimate)", tone: "warn", remaining: "300 mcg · 0.075 mL", tag: "Low", left: "300 mcg left" });
+    expect(low.outlook).toBe("Less than the next planned dose (400 mcg, Sat Sep 26 · 08:00).");
+    expect(low.forecast).toBe("Less than the next 400 mcg dose");
+    expect(lowView.lowCount).toBe(1);
+    const empty = build([vial()], [deduction(1, "8", "8")]).inUse[0];
     expect(empty).toMatchObject({ state: "Empty (estimate)", tone: "alert", remaining: "0 mg" });
-    const over = build([vial()], [deduction(1, "7.8", "8"), deduction(2, "0.4", "0.2")]).groups[0].vials[0];
-    expect(over).toMatchObject({ state: "Estimate exceeds vial — check your records", tone: "alert", remaining: "0 mg · 0.2 mg over" });
-    expect(over.history[0]).toMatchObject({ after: "0.2 mg over", discrepancy: true });
+    expect(empty).toMatchObject({ tag: "Empty", left: "0 mg left" });
+    const over = build([vial()], [deduction(1, "7.8", "8"), deduction(2, "0.4", "0.2")]).inUse[0];
+    expect(over).toMatchObject({ state: "Estimate exceeds vial — check your records", tone: "alert", remaining: "0 mg · 200 mcg over", tag: "Over", left: "200 mcg over", remainingMg: "-0.2" });
+    expect(over.history[0]).toMatchObject({ after: "200 mcg over", discrepancy: true });
   });
 
   it("says when a vial's mixture was deleted, and hides nothing it can't judge", () => {
     const view = build([vial()], [], true, []);
-    expect(view.groups[0].vials[0]).toMatchObject({ state: "Not mixed yet", outlook: null, mixLine: expect.stringContaining("was deleted") });
+    // Still linked to a mixture id (it was deleted): in use, not unopened.
+    expect(view.inUse[0]).toMatchObject({ state: "Not mixed yet", outlook: null, mixLine: expect.stringContaining("was deleted") });
+  });
+
+  it("counts R7's corrections in the estimate, in the vial's order, and lists them in the history without a dose", () => {
+    const correction = (n: number, amountMg: string, beforeMg: string, afterMg: string, sequence: number): DeductionInput => ({
+      id: uuid(3100 + n),
+      kind: "correction",
+      doseId: null,
+      vialId: uuid(800),
+      sequence,
+      amountMg,
+      remainingBeforeMg: beforeMg,
+      remainingAfterMg: afterMg,
+      stockDiscrepancy: false,
+      recordedAt: `2026-09-2${n}T15:00:00Z`,
+    });
+    // 8 mg: a 400 mcg dose, corrected down to 5 mg, another 400 mcg dose, then corrected up by 1 mg. Given in any order.
+    const view = build(
+      [vial()],
+      [
+        correction(4, "-1", "4.6", "5.6", 4),
+        { ...deduction(1, "0.4", "8"), sequence: 1 },
+        { ...deduction(3, "0.4", "5"), sequence: 3 },
+        correction(2, "2.6", "7.6", "5", 2),
+      ],
+    );
+    const [card] = view.inUse;
+    expect(card).toMatchObject({ remaining: "5.6 mg · 1.4 mL", left: "5.6 mg left", uses: "2 confirmed doses deducted", remainingMg: "5.6", tag: null });
+    expect(card.history.map((h) => [h.kind, h.change, h.after, h.href === null])).toEqual([
+      ["correction", "Corrected +1 mg", "5.6 mg left", true],
+      ["dose", "−400 mcg", "4.6 mg left", false],
+      ["correction", "Corrected −2.6 mg", "5 mg left", true],
+      ["dose", "−400 mcg", "7.6 mg left", false],
+    ]);
+    expect(card.history[0]).toMatchObject({ when: "Thu Sep 24 · 11:00", cycleName: "", amount: "1 mg" });
+  });
+});
+
+describe("R7's correct remaining input", () => {
+  const input = { requestKey: uuid(9), id: uuid(800), seenRemainingMg: "7.2", remainingMg: "5,5" };
+
+  it("reads the vial, the estimate it was shown and the new amount, exactly", () => {
+    expect(readCorrection(input)).toEqual({ ok: true, value: { requestKey: uuid(9), vialId: uuid(800), seenRemainingMg: "7.2", remainingMg: "5.5" } });
+    // An estimate past the vial's contents is negative; nothing left is 0.
+    expect(readCorrection({ ...input, seenRemainingMg: "-0.2", remainingMg: "0" })).toMatchObject({ ok: true, value: { seenRemainingMg: "-0.2", remainingMg: "0" } });
+    expect(readCorrection({ ...input, remainingMg: "0.000001" })).toMatchObject({ ok: true, value: { remainingMg: "0.000001" } });
+  });
+
+  it("refuses an amount the database would, and anything that isn't a correction", () => {
+    for (const bad of ["", "-1", "abc", "1,000", "0.0000001", "100001"]) {
+      expect(readCorrection({ ...input, remainingMg: bad }), bad).toEqual({ ok: false, error: CORRECTION_INVALID });
+    }
+    for (const bad of [{ id: "nope" }, { requestKey: "x" }, { requestKey: undefined }, { seenRemainingMg: "" }]) {
+      expect(readCorrection({ ...input, ...bad }), JSON.stringify(bad)).toBeNull();
+    }
+    expect(readCorrection(null)).toBeNull();
   });
 });
 

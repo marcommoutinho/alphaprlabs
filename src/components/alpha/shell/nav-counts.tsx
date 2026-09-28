@@ -3,6 +3,9 @@
 import { createContext, useContext, useEffect, useState } from "react";
 
 export type NavCount = { text: string; tone: "missed" | "low" };
+
+/** A "low" counter (§7.14, Supplies): "low" for one, "3 low" for more, none for 0. */
+export const lowCounter = (count: number): NavCount | null => (count > 0 ? { text: count === 1 ? "low" : `${count} low`, tone: "low" } : null);
 type NavCounts = { counts: Readonly<Record<string, NavCount>>; set: (key: string, count: NavCount | null) => void };
 
 const NavCountsContext = createContext<NavCounts>({ counts: {}, set: () => {} });

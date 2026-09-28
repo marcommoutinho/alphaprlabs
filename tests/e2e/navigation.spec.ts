@@ -81,7 +81,7 @@ for (const { device, viewport } of [
         await expect(heading(page)).toHaveText(name);
         // The fifth tab: Me on a phone, Supplies in the sidebar.
         if (device === "phone") await follow(page, tab("Me"), `${APP_ORIGIN}/app/me`, `Nav ${device}`);
-        else await follow(page, tab("Supplies"), `${APP_ORIGIN}/app/supplies`, "Personal supplies");
+        else await follow(page, tab("Supplies"), `${APP_ORIGIN}/app/supplies`, "Supplies");
         await follow(page, tab("Today"), `${APP_ORIGIN}/app/today`, "Today");
       }
       expect(prefetches).toEqual([]);

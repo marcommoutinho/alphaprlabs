@@ -1136,36 +1136,42 @@ export type Database = {
       personal_vial_deductions: {
         Row: {
           amount_mg: number
-          dose_id: string
+          dose_id: string | null
           id: string
+          kind: string
           owner_id: string
           recorded_at: string
           remaining_after_mg: number
           remaining_before_mg: number
+          request_key: string | null
           stock_discrepancy: boolean | null
           vial_id: string
           vial_sequence: number
         }
         Insert: {
           amount_mg: number
-          dose_id: string
+          dose_id?: string | null
           id?: string
+          kind?: string
           owner_id: string
           recorded_at: string
           remaining_after_mg: number
           remaining_before_mg: number
+          request_key?: string | null
           stock_discrepancy?: boolean | null
           vial_id: string
           vial_sequence: number
         }
         Update: {
           amount_mg?: number
-          dose_id?: string
+          dose_id?: string | null
           id?: string
+          kind?: string
           owner_id?: string
           recorded_at?: string
           remaining_after_mg?: number
           remaining_before_mg?: number
+          request_key?: string | null
           stock_discrepancy?: boolean | null
           vial_id?: string
           vial_sequence?: number
@@ -1193,9 +1199,11 @@ export type Database = {
           finished_at: string | null
           id: string
           label: string
+          mixed_at: string | null
           mixture_id: string | null
           owner_id: string
           peptide_id: string
+          request_key: string | null
           strength_mg: number
           updated_at: string
         }
@@ -1204,9 +1212,11 @@ export type Database = {
           finished_at?: string | null
           id?: string
           label: string
+          mixed_at?: string | null
           mixture_id?: string | null
           owner_id: string
           peptide_id: string
+          request_key?: string | null
           strength_mg: number
           updated_at?: string
         }
@@ -1215,9 +1225,11 @@ export type Database = {
           finished_at?: string | null
           id?: string
           label?: string
+          mixed_at?: string | null
           mixture_id?: string | null
           owner_id?: string
           peptide_id?: string
+          request_key?: string | null
           strength_mg?: number
           updated_at?: string
         }
@@ -1551,6 +1563,41 @@ export type Database = {
           },
         ]
       }
+      supplement_write_requests: {
+        Row: {
+          created_at: string
+          kind: string
+          owner_id: string
+          request_hash: string
+          request_key: string
+          result: Json
+        }
+        Insert: {
+          created_at?: string
+          kind: string
+          owner_id: string
+          request_hash: string
+          request_key: string
+          result: Json
+        }
+        Update: {
+          created_at?: string
+          kind?: string
+          owner_id?: string
+          request_hash?: string
+          request_key?: string
+          result?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplement_write_requests_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       support_grants: {
         Row: {
           admin_id: string
@@ -1624,6 +1671,16 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      add_personal_vial: {
+        Args: {
+          p_label: string
+          p_mixture_id?: string
+          p_peptide_id: string
+          p_request_key: string
+          p_strength_mg: string
+        }
+        Returns: Json
+      }
       admin_business_lots: {
         Args: { p_stock_item_id: string }
         Returns: {
@@ -1783,6 +1840,15 @@ export type Database = {
         }
         Returns: Json
       }
+      correct_personal_vial: {
+        Args: {
+          p_remaining_mg: string
+          p_request_key: string
+          p_seen_remaining_mg: string
+          p_vial_id: string
+        }
+        Returns: Json
+      }
       cycle_dose_changes_valid: {
         Args: {
           p_end: string
@@ -1927,10 +1993,17 @@ export type Database = {
           unit: string
         }[]
       }
-      end_supplement_routine: {
-        Args: { p_id: string; p_version: number }
-        Returns: Json
-      }
+      end_supplement_routine:
+        | { Args: { p_id: string; p_version: number }; Returns: Json }
+        | {
+            Args: {
+              p_id: string
+              p_request_hash: string
+              p_request_key: string
+              p_version: number
+            }
+            Returns: Json
+          }
       finish_personal_vial: { Args: { p_vial_id: string }; Returns: boolean }
       has_research_access: { Args: never; Returns: boolean }
       invite_researcher: {
@@ -2153,17 +2226,33 @@ export type Database = {
         }
         Returns: string
       }
-      save_supplement_routine: {
-        Args: {
-          p_amount: string
-          p_id: string
-          p_name: string
-          p_time: string
-          p_unit: string
-          p_version: number
-        }
-        Returns: Json
-      }
+      save_supplement_routine:
+        | {
+            Args: {
+              p_amount: string
+              p_id: string
+              p_name: string
+              p_time: string
+              p_unit: string
+              p_version: number
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_amount: string
+              p_end_date: string
+              p_id: string
+              p_name: string
+              p_request_hash: string
+              p_request_key: string
+              p_start_date: string
+              p_time: string
+              p_unit: string
+              p_version: number
+            }
+            Returns: Json
+          }
       set_supplement_tracking: {
         Args: { p_enabled: boolean }
         Returns: boolean
@@ -2190,11 +2279,42 @@ export type Database = {
         }[]
       }
       supplement_decimal: { Args: { p_text: string }; Returns: number }
+      supplement_routine_end: {
+        Args: { p_id: string; p_uid: string; p_version: number }
+        Returns: Json
+      }
+      supplement_routine_ended: {
+        Args: { p_definition_from: string; p_end_date: string; p_today: string }
+        Returns: boolean
+      }
+      supplement_routine_save: {
+        Args: {
+          p_amount: string
+          p_end_date: string
+          p_id: string
+          p_name: string
+          p_start_date: string
+          p_time: string
+          p_uid: string
+          p_unit: string
+          p_version: number
+        }
+        Returns: Json
+      }
       supplement_taken_result: {
         Args: { p_id: string; p_replayed: boolean }
         Returns: Json
       }
       supplement_tracking_of: { Args: { p_owner: string }; Returns: boolean }
+      supplement_write_replay: {
+        Args: {
+          p_kind: string
+          p_request_hash: string
+          p_request_key: string
+          p_uid: string
+        }
+        Returns: Json
+      }
       take_supplement: {
         Args: {
           p_actual_at?: string
@@ -2218,6 +2338,10 @@ export type Database = {
       trim_whitespace: { Args: { p_text: string }; Returns: string }
       undo_dose: {
         Args: { p_entry_id: string; p_request_key: string }
+        Returns: Json
+      }
+      vial_correction_result: {
+        Args: { p_id: string; p_replayed: boolean }
         Returns: Json
       }
     }
