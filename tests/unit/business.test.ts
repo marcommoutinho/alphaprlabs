@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { money, percentOf } from "@/lib/alpha/format";
 import {
   bestDayLine,
+  bestMonthLine,
+  marginLine,
   buyerShort,
   changeOf,
   changeWords,
@@ -31,6 +33,7 @@ import {
 } from "@/lib/business/period";
 import type { MonthTotals, StockLevel, Totals } from "@/lib/business/service";
 import {
+  attemptFor,
   avgCost,
   DEFAULT_SORT,
   isLow,
@@ -230,6 +233,29 @@ describe("business overview (overview.ts)", () => {
     expect(none.margin).toBeNull();
     expect(none.profitShare).toBeNull();
     expect(none.avgPrice).toBeNull();
+    expect(marginLine(none)).toBe("No sales in this period");
+    expect(marginLine(loss)).toBe("−67.1% of revenue");
+  });
+
+  it("a period whose only sale is a free sample: sold, no revenue, a negative gross profit, no margin", () => {
+    const sample = { sales: 1, vials: 1, revenue: "0.00", cost: "4.05", grossProfit: "-4.05" };
+    const view = periodOverview({
+      period: { kind: "custom", from: "2026-09-10", to: "2026-09-11" },
+      today: TODAY,
+      totals: sample,
+      days: [{ day: "2026-09-10", ...sample }],
+    });
+    expect(view.negative).toBe(true);
+    expect(money(view.totals.grossProfit)).toBe("− $4.05");
+    // No share of no revenue: the margin is not a number, never a division by zero.
+    expect(view.margin).toBeNull();
+    expect(marginLine(view)).toBe("— of revenue");
+    // All cost: the split bar draws no profit.
+    expect(view.profitShare).toBe(0);
+    expect(view.avgPrice).toBe("0.00");
+    expect(view.best).toBeNull();
+    expect(bestDayLine(view)).toBe("no revenue");
+    expect(view.days.map((day) => day.height)).toEqual([0, 0]);
   });
 
   const month = (month: string, fields: Partial<MonthTotals> = {}): MonthTotals => ({
@@ -319,6 +345,19 @@ describe("business overview (overview.ts)", () => {
       suppliers: [],
     });
     expect(quiet.best).toBeNull();
+    expect(bestMonthLine(quiet)).toBe("no sales yet");
+    // Only free samples this month: sold, but no revenue.
+    const samples = twelveMonths({
+      months: Array.from({ length: 12 }, (_, index) =>
+        month(monthStart(TODAY, index - 11), index === 11 ? { sales: 2, vials: 2, cost: "8.10", grossProfit: "-8.10" } : {}),
+      ),
+      sameDays: { previous: NO_SALES, window: sameDaysWindow(TODAY).previous },
+      suppliers: [],
+    });
+    expect(samples.best).toBeNull();
+    expect(bestMonthLine(samples)).toBe("no revenue yet");
+    expect(samples.current).toMatchObject({ grossProfit: "-8.10", negative: true, change: { direction: "down", amount: "8.10" } });
+    expect(samples.months[11]).toMatchObject({ margin: null, costShare: 1, barHeight: 1 });
     expect(quiet.months.every((m) => m.barHeight === 0 && m.change.direction === "flat" && m.margin === null)).toBe(true);
     expect(quiet.suppliers).toEqual([]);
   });
@@ -431,6 +470,20 @@ describe("business stock (stock.ts)", () => {
     // Nothing on hand has no average cost: it sorts below every cost.
     expect(labels(sortStock(items, { key: "avgCost", direction: "asc" }))[0]).toBe("TB-500 · 5 mg");
     expect(labels(sortStock(items, { key: "avgCost", direction: "desc" }))[0]).toBe("Retatrutide · 10 mg");
+  });
+
+  it("a reorder-level submission keeps its request key until answered; another value is a new edit", () => {
+    let n = 0;
+    const newKey = () => `key-${++n}`;
+    const first = attemptFor(null, 5, newKey);
+    expect(first).toEqual({ key: "key-1", value: 5 });
+    // Retry, or Save again, with no answer yet: the same key (the server replays it if it was saved).
+    expect(attemptFor(first, 5, newKey)).toBe(first);
+    // A different value is a new edit.
+    const second = attemptFor(first, 6, newKey);
+    expect(second).toEqual({ key: "key-2", value: 6 });
+    // Back to the first value after editing: still a new edit, never the old key for a newer intent.
+    expect(attemptFor(second, 5, newKey)).toEqual({ key: "key-3", value: 5 });
   });
 
   it("parses a threshold: a whole number of vials, 0 to 100,000", () => {

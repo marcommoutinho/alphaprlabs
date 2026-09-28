@@ -48,6 +48,8 @@ const EXCLUSIVE = [
   // aggregates, tries the stock guard's threshold exception, and re-applies the Business migration on recorded
   // stock (dropping and re-adding a business_stock_items column), always rolled back.
   "tests/integration/business-overview-owner.test.ts",
+  // Read-only owner SQL through psql (the catalog: anon holds no public table privilege), plus one rolled-back table.
+  "tests/integration/anon-privileges.test.ts",
 ];
 
 export default defineConfig({

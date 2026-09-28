@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, ChevronLeft, Plus, Search } from "lucide-react";
 import Link from "@/components/alpha/link";
@@ -17,6 +17,7 @@ import { setStockThresholdAction } from "@/app/(private)/admin/inventory/actions
 import { money } from "@/lib/alpha/format";
 import type { StockLevel } from "@/lib/business/service";
 import {
+  attemptFor,
   avgCost,
   byName,
   DEFAULT_SORT,
@@ -29,6 +30,7 @@ import {
   vialCount,
   type StockSort,
   type StockSortKey,
+  type ThresholdAttempt,
 } from "@/lib/business/stock";
 import { cn } from "@/lib/utils";
 import { BUSINESS_MAIN, BUSINESS_PATH, PURCHASE_HREF, SALE_HREF } from "./frame";
@@ -336,37 +338,47 @@ function ThresholdContent({ item, onClose }: { item: StockLevel; onClose: () => 
   const [text, setText] = useState(String(item.threshold));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  // One request key per entry: a retry of the same entry sends it again; an edit makes a new one.
-  const [request, setRequest] = useState(() => ({ key: crypto.randomUUID(), text: String(item.threshold) }));
+  // The submission still waiting for an answer: Retry and a repeated Save of
+  // the same value reuse its request key (lib/business/stock.ts attemptFor).
+  // A ref, not state, so a Retry from an earlier render's toast sees it too.
+  const pending = useRef<ThresholdAttempt | null>(null);
   const average = avgCost(item);
 
-  const save = async () => {
+  const send = async (attempt: ThresholdAttempt) => {
+    setSaving(true);
+    try {
+      const result = await setStockThresholdAction({ requestKey: attempt.key, stockItemId: item.id, threshold: attempt.value });
+      // An answer arrived: the next submission is a new edit.
+      if (pending.current === attempt) pending.current = null;
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      toast.success({
+        message: result.replayed
+          ? `${item.label}: this change was already saved. The list shows the current level.`
+          : `${item.label}: reorder at ${vialCount(result.threshold ?? attempt.value)}`,
+      });
+      router.refresh();
+      onClose();
+    } catch {
+      // No answer (the connection dropped): it may have been saved. Retry sends the same attempt.
+      toast.error({ message: THRESHOLD_FAILED, action: { label: "Retry", onAction: () => void send(attempt) } });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const save = () => {
     const parsed = parseThreshold(text);
     if (!parsed.ok) {
       setError(parsed.error);
       return;
     }
     setError(null);
-    let key = request.key;
-    if (request.text !== text) {
-      key = crypto.randomUUID();
-      setRequest({ key, text });
-    }
-    setSaving(true);
-    try {
-      const result = await setStockThresholdAction({ requestKey: key, stockItemId: item.id, threshold: parsed.value });
-      if (result.error) {
-        setError(result.error);
-        return;
-      }
-      toast.success({ message: `${item.label}: reorder at ${vialCount(result.threshold ?? parsed.value)}` });
-      router.refresh();
-      onClose();
-    } catch {
-      toast.error({ message: THRESHOLD_FAILED, action: { label: "Retry", onAction: () => void save() } });
-    } finally {
-      setSaving(false);
-    }
+    const attempt = attemptFor(pending.current, parsed.value, () => crypto.randomUUID());
+    pending.current = attempt;
+    void send(attempt);
   };
 
   return (

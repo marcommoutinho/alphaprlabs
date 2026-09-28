@@ -8,7 +8,9 @@ import { initialsOf } from "@/lib/app/identity";
 import type { OverviewData } from "@/lib/business/load";
 import {
   bestDayLine,
+  bestMonthLine,
   buyerShort,
+  marginLine,
   changeWords,
   ordersLabel,
   sellerFirst,
@@ -26,6 +28,7 @@ import type { SellerTotals } from "@/lib/inventory/sellers";
 import type { SaleRecord } from "@/lib/inventory/service";
 import { cn } from "@/lib/utils";
 import { DayBars, MonthAxis, MonthBars, MonthLegend, PurchaseBars, ShareBar, SplitBar, Swatch } from "./charts";
+import { Fit, longest } from "./fit";
 import { BUSINESS_MAIN, PURCHASE_HREF, SALE_HREF, SALES_HREF, STOCK_HREF } from "./frame";
 import { MonthByMonth } from "./month-by-month";
 import { PeriodControl } from "./period-control";
@@ -151,21 +154,18 @@ function NowRows({ overview }: { overview: PeriodOverview }) {
   );
 }
 
-function marginLine(overview: PeriodOverview) {
-  return overview.margin ? `${overview.margin} of revenue` : "No sales in this period";
+/** The Display reading (52 / 56, stepping down to fit) with its mono "CAD". */
+function BigMoney({ amount, size, className }: { amount: string; size: number; className?: string }) {
+  return (
+    <Fit text={money(amount)} max={size} reserve={48} className={cn("flex items-baseline gap-2", className)}>
+      <Money amount={amount} onInk className="leading-none font-semibold tracking-[-0.045em]" />
+      <span className="font-mono text-[15px] text-on-ink-2">CAD</span>
+    </Fit>
+  );
 }
 
 function GrossReading({ overview, size }: { overview: PeriodOverview; size: 52 | 56 }) {
-  return (
-    <div className="mt-2.5 flex items-baseline gap-2">
-      <Money
-        amount={overview.totals.grossProfit}
-        onInk
-        className={cn("leading-none font-semibold tracking-[-0.045em]", size === 52 ? "text-[52px]" : "text-[56px]")}
-      />
-      <span className="font-mono text-[15px] text-on-ink-2">CAD</span>
-    </div>
-  );
+  return <BigMoney amount={overview.totals.grossProfit} size={size} className="mt-2.5" />;
 }
 
 function PeriodPhone({
@@ -210,10 +210,17 @@ function PeriodPhone({
       </div>
 
       <div className="mx-3 mt-3 grid grid-cols-2 gap-2">
-        <Tile label="Stock value" value={money(held.value)} context={`${vialCount(held.vials)} at cost`} testId="tile-stock" />
+        <Tile
+          label="Stock value"
+          value={money(held.value)}
+          sizeAs={longest([money(held.value), t.vials.toLocaleString("en-CA")])}
+          context={`${vialCount(held.vials)} at cost`}
+          testId="tile-stock"
+        />
         <Tile
           label="Vials sold"
           value={t.vials.toLocaleString("en-CA")}
+          sizeAs={longest([money(held.value), t.vials.toLocaleString("en-CA")])}
           context={overview.avgPrice ? `avg ${money(overview.avgPrice)} each` : "none sold"}
           testId="tile-sold"
         />
@@ -242,7 +249,7 @@ function PeriodPhone({
           <div key={sale.id} className="flex items-center gap-3 py-3" data-testid="recent-sale">
             <span className="min-w-0 flex-1">
               <span className="block text-[15px] font-semibold">
-                {labels.get(sale.stockItemId) ?? "Stock item"} × {sale.quantity}
+                {labels.get(sale.stockItemId) ?? "Stock item"} × {sale.quantity.toLocaleString("en-CA")}
               </span>
               <span className="mt-0.5 block truncate font-mono text-[12px] text-ink-3">
                 {monthDayLabel(sale.soldOn)} · {sellerShort(sale.sellerName)} → {sale.buyerName}
@@ -258,14 +265,29 @@ function PeriodPhone({
   );
 }
 
-function Tile({ label, value, context, testId, tone }: { label: string; value: string; context: string; testId?: string; tone?: "low" }) {
+function Tile({
+  label,
+  value,
+  context,
+  testId,
+  tone,
+  sizeAs,
+}: {
+  label: string;
+  value: string;
+  context: string;
+  testId?: string;
+  tone?: "low";
+  /** The longest value of the tiles beside it: they share one reading size. */
+  sizeAs?: string;
+}) {
   return (
     <div
       data-testid={testId}
       className={cn("rounded-group px-4 py-3.5", tone === "low" ? "bg-low-tint" : "border border-line bg-surface")}
     >
       <div className={cn("text-[13px]", tone === "low" ? "font-semibold text-low" : "font-medium text-ink-2")}>{label}</div>
-      <div className="mt-2 text-[24px] leading-tight font-semibold tracking-[-0.025em] laptop:text-[23px]">{value}</div>
+      <Fit text={value} sizeAs={sizeAs} max={24} laptopMax={23} className="mt-2 leading-tight font-semibold tracking-[-0.025em]" />
       <div className={cn("mt-0.5 text-[12px] laptop:text-[13px]", tone === "low" ? "text-low" : "text-ink-3")}>{context}</div>
     </div>
   );
@@ -372,35 +394,43 @@ function PeriodLaptop({
   const held = stockTotals(stock);
   const labels = new Map(stock.map((item) => [item.id, item.label]));
   const smallest = low.reduce((min, item) => Math.min(min, item.threshold), Infinity);
+  const lowValue = `${low.length} ${low.length === 1 ? "item" : "items"}`;
+  // Figures side by side share one size: the Now block's three, and the four tiles.
+  const nowRow = longest([money(t.revenue), money(t.cost), money(t.grossProfit)]);
+  const tiles = longest([money(t.revenue), money(t.cost), money(held.value), lowValue]);
   return (
     <div className="mt-5 hidden grid-cols-12 gap-4 laptop:grid" data-testid="period-laptop">
       <NowBlock className="col-span-8 grid grid-cols-[minmax(0,1fr)_210px] gap-7 px-6 py-[22px]" aria-label="Gross profit">
-        <div className="flex flex-col">
+        <div className="flex min-w-0 flex-col">
           <span className="text-[13px] text-on-ink-2">Gross profit</span>
           <GrossReading overview={overview} size={56} />
-          <div className="mt-1.5 text-[14px] text-on-ink-2">
+          <div className="mt-1.5 text-[14px] text-on-ink-2" data-testid="margin-laptop">
             {marginLine(overview)} · {vialCount(t.vials)} sold
           </div>
           <SplitBar profitShare={overview.profitShare} className="mt-auto pt-0" />
           <div className="mt-3.5 grid grid-cols-3 gap-3 text-[14px]">
-            <span>
+            <span className="min-w-0">
               <span className="block text-[13px] text-on-ink-2">Revenue</span>
-              <b className="text-[17px] font-semibold">{money(t.revenue)}</b>
+              <Fit text={money(t.revenue)} sizeAs={nowRow} max={17} className="font-semibold" />
             </span>
-            <span>
+            <span className="min-w-0">
               <span className="block text-[13px] text-on-ink-2">Cost of stock</span>
-              <b className="text-[17px] font-semibold">{money(t.cost)}</b>
+              <Fit text={money(t.cost)} sizeAs={nowRow} max={17} className="font-semibold" />
             </span>
-            <span>
+            <span className="min-w-0">
               <span className="block text-[13px] text-on-ink-2">Gross profit</span>
-              <Money amount={t.grossProfit} onInk className="text-[17px] font-semibold" />
+              <Fit text={money(t.grossProfit)} sizeAs={nowRow} max={17} className="font-semibold">
+                <Money amount={t.grossProfit} onInk />
+              </Fit>
             </span>
           </div>
         </div>
         <div className="flex flex-col">
           <div className="flex justify-between text-[13px] text-on-ink-2">
             <span>Revenue by day</span>
-            <span className="font-mono text-[12px]">{overview.best ? `max ${money(overview.max, 0)}` : "no sales"}</span>
+            <span className="font-mono text-[12px]">
+              {overview.best ? `max ${money(overview.max, 0)}` : t.sales > 0 ? "no revenue" : "no sales"}
+            </span>
           </div>
           <DayBars days={overview.days} onInk label={`Revenue by day, ${bestDayLine(overview)}`} className="mt-3 min-h-[150px] flex-1" />
           <div className="mt-1.5 flex justify-between font-mono text-[12px] font-medium text-on-ink-2">
@@ -414,19 +444,27 @@ function PeriodLaptop({
         <Tile
           label="Revenue"
           value={money(t.revenue)}
+          sizeAs={tiles}
           context={overview.avgPrice ? `${vialCount(t.vials)} · avg ${money(overview.avgPrice)}` : "no vials sold"}
         />
-        <Tile label="Cost of stock sold" value={money(t.cost)} context="oldest stock first" />
-        <Tile label="Stock value" value={money(held.value)} context={`${vialCount(held.vials)} at cost`} testId="tile-stock-laptop" />
+        <Tile label="Cost of stock sold" value={money(t.cost)} sizeAs={tiles} context="oldest stock first" />
+        <Tile
+          label="Stock value"
+          value={money(held.value)}
+          sizeAs={tiles}
+          context={`${vialCount(held.vials)} at cost`}
+          testId="tile-stock-laptop"
+        />
         {low.length > 0 ? (
           <Tile
             label="Low stock"
-            value={`${low.length} ${low.length === 1 ? "item" : "items"}`}
+            value={lowValue}
+            sizeAs={tiles}
             context={low.every((item) => item.threshold === smallest) ? `under ${smallest} vials each` : "under their reorder levels"}
             tone="low"
           />
         ) : (
-          <Tile label="Low stock" value="0 items" context="all at reorder level or above" />
+          <Tile label="Low stock" value={lowValue} sizeAs={tiles} context="all at reorder level or above" />
         )}
       </div>
 
@@ -476,10 +514,10 @@ function PeriodLaptop({
             <tr className="border-b border-line text-[12px] text-ink-3">
               <th className="w-[60px] pb-1.5 text-left font-normal">Date</th>
               <th className="pb-1.5 text-left font-normal">Item</th>
-              <th className="w-[40px] pb-1.5 text-right font-normal">Qty</th>
+              <th className="w-[64px] pb-1.5 text-right font-normal">Qty</th>
               <th className="pb-1.5 pl-2 text-left font-normal">Seller → buyer</th>
-              <th className="w-[90px] pb-1.5 text-right font-normal">Revenue</th>
-              <th className="w-[100px] pb-1.5 text-right font-normal">Gross profit</th>
+              <th className="w-[120px] pb-1.5 text-right font-normal">Revenue</th>
+              <th className="w-[124px] pb-1.5 text-right font-normal">Gross profit</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -494,7 +532,7 @@ function PeriodLaptop({
               <tr key={sale.id}>
                 <td className="py-[11px] font-mono text-[13px] text-ink-2">{monthDayLabel(sale.soldOn)}</td>
                 <td className="truncate py-[11px] font-semibold">{labels.get(sale.stockItemId) ?? "Stock item"}</td>
-                <td className="py-[11px] text-right">{sale.quantity}</td>
+                <td className="py-[11px] text-right">{sale.quantity.toLocaleString("en-CA")}</td>
                 <td className="truncate py-[11px] pl-2 text-ink-2">
                   {sellerFirst(sale.sellerName)} → {buyerShort(sale.buyerName)}
                 </td>
@@ -525,7 +563,7 @@ function PeriodLaptop({
               {sellers.map((row) => (
                 <tr key={row.sellerId ?? "none"}>
                   <td className={cn("py-[11px] font-semibold", !row.sellerName && "text-ink-2")}>{row.sellerName ?? NO_SELLER}</td>
-                  <td className="py-[11px] text-right">{row.vials}</td>
+                  <td className="py-[11px] text-right">{row.vials.toLocaleString("en-CA")}</td>
                   <td className="py-[11px] text-right">{money(row.revenue)}</td>
                   <td className="py-[11px] text-right text-ink-2">{money(row.cost)}</td>
                   <td className="py-[11px] text-right font-semibold">
@@ -558,14 +596,7 @@ function TwelveNow({ view, laptop }: { view: TwelveMonths; laptop: boolean }) {
         <span>Gross profit · {c.name} to date</span>
         {laptop ? null : <span className="font-mono text-[12px] font-medium">{vialCount(c.vials)}</span>}
       </div>
-      <div className="mt-2.5 flex items-baseline gap-2">
-        <Money
-          amount={c.grossProfit}
-          onInk
-          className={cn("leading-none font-semibold tracking-[-0.045em]", laptop ? "text-[46px]" : "text-[52px]")}
-        />
-        <span className="font-mono text-[15px] text-on-ink-2">CAD</span>
-      </div>
+      <BigMoney amount={c.grossProfit} size={laptop ? 46 : 52} className="mt-2.5" />
       <div className="mt-2.5 flex items-center gap-1.5 text-[15px] font-semibold" data-testid="same-days-change">
         <ChangeArrow change={c.change} className="size-4" />
         {changeWords(c.change)}
@@ -590,13 +621,15 @@ function TwelvePhone({ view }: { view: TwelveMonths }) {
       <NowBlock className="mx-3 mt-4 pb-[18px]" aria-label={`Gross profit, ${view.current.name} to date`} data-testid="now">
         <TwelveNow view={view} laptop={false} />
         <div className={cn("mt-4 grid grid-cols-2 gap-3 border-t pt-3.5 text-[14px]", ON_INK_LINE)}>
-          <span>
+          <span className="min-w-0">
             <span className="block text-[12px] text-on-ink-2">12-month gross profit</span>
-            <Money amount={view.totals.grossProfit} onInk className="text-[18px] font-semibold" />
+            <Fit text={money(view.totals.grossProfit)} max={18} className="font-semibold">
+              <Money amount={view.totals.grossProfit} onInk />
+            </Fit>
           </span>
-          <span>
+          <span className="min-w-0">
             <span className="block text-[12px] text-on-ink-2">12-month purchases</span>
-            <b className="text-[18px] font-semibold">{money(view.totals.purchases)}</b>
+            <Fit text={money(view.totals.purchases)} max={18} className="font-semibold" />
           </span>
         </div>
       </NowBlock>
@@ -604,7 +637,7 @@ function TwelvePhone({ view }: { view: TwelveMonths }) {
       <section className="mx-3 mt-3 rounded-group border border-line bg-surface px-4 py-3.5" aria-label="Sales by month">
         <div className="flex justify-between text-[13px] font-medium text-ink-2">
           <h2>Sales by month</h2>
-          <span className="font-mono text-[12px] text-ink-3">{view.best ? `best ${view.best.label} · ${money(view.best.revenue)}` : "no sales yet"}</span>
+          <span className="font-mono text-[12px] text-ink-3">{bestMonthLine(view)}</span>
         </div>
         <MonthBars months={view.months} gap={5} className="mt-3 h-[120px]" />
         <MonthAxis months={view.months} style="initial" />
@@ -737,7 +770,7 @@ function TwelveLaptop({ view }: { view: TwelveMonths }) {
                 <td className="py-[9px] font-semibold">
                   {m.label} {m.current ? <span className="text-[12px] font-normal text-ink-3">to date</span> : null}
                 </td>
-                <td className="py-[9px] text-right">{m.vials}</td>
+                <td className="py-[9px] text-right">{m.vials.toLocaleString("en-CA")}</td>
                 <td className="py-[9px] text-right">{money(m.revenue)}</td>
                 <td className="py-[9px] text-right text-ink-2">{money(m.cost)}</td>
                 <td className="py-[9px] text-right font-semibold">

@@ -42,8 +42,44 @@ async function signInAdmin(page: Page) {
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
 }
 
-/** A new stock item of a new peptide: `quantity` vials at CAD 5.00, received today. */
-async function newItem(quantity: number) {
+/** Another purchase of an item, received today. */
+async function buyMore(itemId: string, quantity: number, unitCost: string) {
+  const { error } = await (await signedInClient(ADMIN.email))
+    .rpc("record_business_purchase", {
+      p_idempotency_key: randomUUID(),
+      p_received_on: businessToday(),
+      p_quantity: quantity,
+      p_unit_cost: unitCost,
+      p_stock_item_id: itemId,
+    })
+    .single();
+  if (error) throw error;
+}
+
+/** A sale recorded as Priya (`seller` defaults to her), to an outside buyer unless a profile is given. */
+async function sell(
+  itemId: string,
+  soldOn: string,
+  quantity: number,
+  price: string,
+  seller = id.admin,
+  buyer: { profile?: string; name?: string } = { name: "Walk-in V5" },
+) {
+  const { error } = await (await signedInClient(ADMIN.email)).rpc("record_business_sale", {
+    p_idempotency_key: randomUUID(),
+    p_stock_item_id: itemId,
+    p_sold_on: soldOn,
+    p_quantity: quantity,
+    p_unit_price: price,
+    p_buyer_profile_id: buyer.profile,
+    p_buyer_name: buyer.name,
+    p_seller_id: seller,
+  });
+  if (error) throw error;
+}
+
+/** A new stock item of a new peptide: `quantity` vials at `unitCost` (CAD 5.00), received today. */
+async function newItem(quantity: number, unitCost = "5") {
   const name = `Compound V5 ${randomBytes(3).toString("hex")}`;
   const { data: peptide, error } = await serviceClient()
     .from("peptides")
@@ -58,7 +94,7 @@ async function newItem(quantity: number) {
       // Today: 12 months always has a supplier purchase to show.
       p_received_on: businessToday(),
       p_quantity: quantity,
-      p_unit_cost: "5",
+      p_unit_cost: unitCost,
       p_peptide_id: peptide.id,
       p_strength_mg: "10",
     })
@@ -90,23 +126,9 @@ async function freeDays(): Promise<[string, string]> {
 async function seedPeriod() {
   const item = await newItem(12);
   const [day, next] = await freeDays();
-  const db = await signedInClient(ADMIN.email);
-  const sell = async (soldOn: string, quantity: number, price: string, seller: string, buyer: { profile?: string; name?: string }) => {
-    const { error } = await db.rpc("record_business_sale", {
-      p_idempotency_key: randomUUID(),
-      p_stock_item_id: item.id,
-      p_sold_on: soldOn,
-      p_quantity: quantity,
-      p_unit_price: price,
-      p_buyer_profile_id: buyer.profile,
-      p_buyer_name: buyer.name,
-      p_seller_id: seller,
-    });
-    if (error) throw error;
-  };
-  await sell(day, 3, "9", id.admin, { name: "Walk-in V5" });
-  await sell(day, 1, "8", id.second, { profile: id.buyer });
-  await sell(next, 1, "2", id.admin, { name: "Walk-in V5" });
+  await sell(item.id, day, 3, "9");
+  await sell(item.id, day, 1, "8", id.second, { profile: id.buyer });
+  await sell(item.id, next, 1, "2");
   return { item, day, next };
 }
 
@@ -371,6 +393,136 @@ test.describe("Stock", () => {
     await page.getByRole("button", { name: /^All \d+$/ }).click();
     await expect(row).toHaveText(`${item.name} 10 mg7$35.00$5.000`);
   });
+});
+
+const thresholdOf = async (itemId: string) =>
+  (await serviceClient().from("business_stock_items").select("low_stock_threshold").eq("id", itemId).single()).data!.low_stock_threshold;
+
+test("Stock: a Retry after a saved change lost its answer replays it, and never overwrites a newer change", async ({ page }) => {
+  const item = await newItem(7);
+  await page.setViewportSize(LAPTOP);
+  await signInAdmin(page);
+  await page.goto(`${APP_ORIGIN}/admin/inventory`);
+  await (await hydrated(page.getByRole("searchbox", { name: "Search stock" }))).fill(item.name);
+  await page.getByTestId("stock-table-row").getByRole("button", { name: `${item.name} 10 mg` }).click();
+  const sheet = page.getByRole("dialog", { name: item.label });
+
+  // The first save reaches the server and is saved, but its answer never arrives.
+  let lost = 0;
+  await page.route(
+    (url) => url.pathname.startsWith("/admin/inventory"),
+    async (route) => {
+      const request = route.request();
+      if (lost === 0 && request.method() === "POST" && request.headers()["next-action"]) {
+        lost++;
+        const url = new URL(request.url());
+        await route.fetch({ url: request.url().replace(url.hostname, "127.0.0.1"), headers: { ...request.headers(), host: url.host } });
+        await route.abort("connectionreset");
+        return;
+      }
+      await route.continue();
+    },
+  );
+  await sheet.getByLabel("Reorder at").fill("5");
+  await sheet.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Couldn't save. Your entry is still here.")).toBeVisible();
+  await expect.poll(() => thresholdOf(item.id)).toBe(5);
+
+  // Meanwhile another admin sets 8.
+  const other = await (await signedInClient(SECOND.email))
+    .rpc("set_business_stock_threshold", { p_request_key: randomUUID(), p_stock_item_id: item.id, p_threshold: 8 })
+    .single();
+  expect(other.error).toBeNull();
+
+  // Retry sends the same request key: the server replays the saved change and 8 stays.
+  await page.getByRole("button", { name: "Retry" }).click();
+  // Answered (the sheet closes on any saved answer): the other admin's 8 is still the level.
+  await expect(sheet).toBeHidden();
+  expect(await thresholdOf(item.id)).toBe(8);
+  await expect(page.getByText(`${item.label}: this change was already saved. The list shows the current level.`)).toBeVisible();
+  const changes = await serviceClient()
+    .from("business_stock_threshold_changes")
+    .select("threshold, changed_by")
+    .eq("stock_item_id", item.id)
+    .order("changed_at");
+  expect(changes.data).toEqual([
+    { threshold: 5, changed_by: id.admin },
+    { threshold: 8, changed_by: id.second },
+  ]);
+  await expect(sheet).toBeHidden();
+  await page.getByTestId("stock-table-row").getByRole("button", { name: `${item.name} 10 mg` }).click();
+  await expect(sheet.getByLabel("Reorder at")).toHaveValue("8");
+  await expect(sheet.getByTestId("threshold-changed")).toContainText(`Set by ${SECOND.name}`);
+});
+
+test("a period with only a free sample: sold, no revenue, the loss in missed with its minus sign, no margin", async ({ page }) => {
+  const item = await newItem(3);
+  const [day] = await freeDays();
+  await sell(item.id, day, 1, "0");
+  await signInAdmin(page);
+
+  await page.setViewportSize(PHONE);
+  await page.goto(`${APP_ORIGIN}/admin/business?from=${day}&to=${day}`);
+  const phone = page.getByTestId("period-phone");
+  const now = phone.getByTestId("now");
+  await expect(now).toContainText("1 vial sold");
+  await expect(now).toContainText("− $5.00CAD");
+  await expect(phone.getByTestId("margin")).toHaveText("— of revenue");
+  await expect(phone.getByTestId("now-rows")).toHaveText("Revenue$0.00Cost of stock sold− $5.00Gross profit− $5.00");
+  await expect(phone.getByTestId("best-day")).toHaveText("no revenue");
+  await expect(phone.getByTestId("tile-sold")).toContainText("avg $0.00 each");
+  await expect(page.getByText("No sales in this period")).toHaveCount(0);
+  const [loss, plain] = await Promise.all([
+    now.locator('[data-negative="true"]').first().evaluate((el) => getComputedStyle(el).color),
+    now.evaluate((el) => getComputedStyle(el).color),
+  ]);
+  expect(loss).not.toBe(plain);
+
+  await page.setViewportSize(LAPTOP);
+  const laptop = page.getByTestId("period-laptop");
+  await expect(laptop.getByTestId("margin-laptop")).toHaveText("— of revenue · 1 vial sold");
+  await expect(laptop.getByRole("region", { name: "Gross profit" })).toContainText("no revenue");
+  await expect(laptop.getByRole("region", { name: "Gross profit" })).toContainText("Revenue$0.00Cost of stock$5.00Gross profit− $5.00");
+});
+
+test("7-figure amounts fit every tile and Now-block figure, on a phone and a laptop", async ({ page }) => {
+  // Stock value past $1.3M; this month a sale of $1.6M; a past day with a $1,050,000 loss (free samples).
+  const item = await newItem(90_000, "15");
+  await buyMore(item.id, 90_000, "15");
+  const [day] = await freeDays();
+  await sell(item.id, day, 70_000, "0");
+  await sell(item.id, businessToday(), 20_000, "80");
+  await signInAdmin(page);
+
+  const overflowing = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>("[data-fit]")]
+        .filter((el) => el.offsetParent !== null)
+        .filter((el) => el.scrollWidth > el.clientWidth + 0.5 || el.parentElement!.scrollWidth > el.parentElement!.clientWidth + 0.5)
+        .map((el) => el.title),
+    );
+  const fitted = () =>
+    page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-fit]")].filter((el) => el.offsetParent !== null).map((el) => el.title));
+
+  for (const size of [PHONE, LAPTOP]) {
+    await page.setViewportSize(size);
+    for (const query of ["", `?from=${day}&to=${day}`, "?range=12m"]) {
+      await page.goto(`${APP_ORIGIN}/admin/business${query}`);
+      await expect(page.getByTestId("business")).toBeVisible();
+      const figures = await fitted();
+      expect(figures.length, `${size.width} ${query}`).toBeGreaterThan(0);
+      if (query.startsWith("?from")) expect(figures).toContain("− $1,050,000.00");
+      else expect(figures.some((text) => /^\$\d,\d{3},\d{3}\.\d{2}$/.test(text)), `${size.width} ${query}: ${figures}`).toBe(true);
+      expect(await overflowing(), `${size.width} ${query}`).toEqual([]);
+    }
+  }
+  await page.goto(`${APP_ORIGIN}/admin/business`);
+  await expect(page.getByTestId("period-laptop")).toBeVisible();
+  await shot(page, "overview-laptop-fixed");
+  await page.setViewportSize(PHONE);
+  await page.goto(`${APP_ORIGIN}/admin/business?from=${day}&to=${day}`);
+  await expect(page.getByTestId("period-phone")).toBeVisible();
+  await shot(page, "business-7-figures-phone");
 });
 
 test("the A6 states in light and dark: empty, loading, and couldn't load (recording paused)", async ({ page }) => {

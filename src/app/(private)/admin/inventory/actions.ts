@@ -266,7 +266,7 @@ export async function linkSaleAction(input: unknown): Promise<LinkActionResult> 
   }
 }
 
-export type ThresholdActionResult = { error?: string; saved?: boolean; threshold?: number };
+export type ThresholdActionResult = { error?: string; saved?: boolean; threshold?: number; /** The request key was already saved: nothing changed now. */ replayed?: boolean };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const field = (input: unknown, name: string): unknown =>
@@ -297,7 +297,7 @@ export async function setStockThresholdAction(input: unknown): Promise<Threshold
     case "saved":
       revalidatePath("/admin/inventory");
       revalidatePath("/admin/business");
-      return { saved: true, threshold: result.threshold };
+      return { saved: true, threshold: result.threshold, replayed: result.replayed };
     case "unknown_item":
       refresh();
       return { error: ITEM_GONE };

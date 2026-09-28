@@ -22,10 +22,13 @@ const { setStockThresholdAction } = await import("@/app/(private)/admin/inventor
 
 const admin = { email: uniqueEmail("v5-admin"), name: "Priya Sandhu" };
 const researcher = { email: uniqueEmail("v5-researcher"), name: "V5 Researcher" };
+const other = { email: uniqueEmail("v5-other-admin"), name: "Owen Marchetti" };
 let adminId: string;
+let otherId: string;
 
 beforeAll(async () => {
   adminId = await ensureAccount({ ...admin, role: "admin" });
+  otherId = await ensureAccount({ ...other, role: "admin" });
   await ensureAccount({ ...researcher, role: "researcher" });
 });
 
@@ -214,14 +217,32 @@ describe("A3 / D4 setStockThresholdAction", () => {
   it("saves the typed value and refreshes Stock and Business; a retry of the same entry replays", async () => {
     const itemId = await newItem();
     const entry = { requestKey: randomUUID(), stockItemId: itemId, threshold: " 12 " };
-    expect(await setStockThresholdAction(entry)).toEqual({ saved: true, threshold: 12 });
+    expect(await setStockThresholdAction(entry)).toEqual({ saved: true, threshold: 12, replayed: false });
     expect(acting.revalidated).toEqual(["/admin/inventory", "/admin/business"]);
-    expect(await setStockThresholdAction(entry)).toEqual({ saved: true, threshold: 12 });
+    expect(await setStockThresholdAction(entry)).toEqual({ saved: true, threshold: 12, replayed: true });
     expect((await changesOf(itemId)).map((row) => row.threshold)).toEqual([12]);
     expect(await setStockThresholdAction({ ...entry, threshold: "13" })).toEqual({
       error: expect.stringContaining("already"),
     });
     expect((await levelOf(itemId)).threshold).toBe(12);
+  });
+
+  it("a retry of a saved entry after another admin's change replays and leaves their newer value", async () => {
+    const itemId = await newItem();
+    const entry = { requestKey: randomUUID(), stockItemId: itemId, threshold: "5" };
+    // Saved, but (in the browser) its answer was lost.
+    expect(await setStockThresholdAction(entry)).toEqual({ saved: true, threshold: 5, replayed: false });
+    // Another admin sets 8 meanwhile.
+    expect(
+      await setStockThreshold(await signedInClient(other.email), { requestKey: randomUUID(), stockItemId: itemId, threshold: 8 }),
+    ).toMatchObject({ kind: "saved", replayed: false });
+    // Retry sends the same entry (the same request key): a replay, nothing changes.
+    expect(await setStockThresholdAction(entry)).toEqual({ saved: true, threshold: 5, replayed: true });
+    expect((await levelOf(itemId)).threshold).toBe(8);
+    expect(await changesOf(itemId)).toEqual([
+      { previous_threshold: 10, threshold: 5, request_key: entry.requestKey, changed_by: adminId },
+      { previous_threshold: 5, threshold: 8, request_key: expect.any(String), changed_by: otherId },
+    ]);
   });
 
   it("returns the message for an invalid value or request, and refreshes when the item is gone", async () => {

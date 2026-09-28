@@ -111,7 +111,8 @@ export function periodOverview(input: { period: Period; today: string; totals: T
     totals,
     negative: gross.isNegative(),
     margin: percentOf(totals.grossProfit, totals.revenue),
-    profitShare: revenue.isZero() ? null : Decimal.max(0, Decimal.min(1, gross.dividedBy(revenue))).toNumber(),
+    // Without revenue there is no share of it; sales at no price (free samples) are all cost.
+    profitShare: revenue.isZero() ? (totals.sales > 0 ? 0 : null) : Decimal.max(0, Decimal.min(1, gross.dividedBy(revenue))).toNumber(),
     avgPrice: totals.vials > 0 ? revenue.dividedBy(totals.vials).toFixed(2, Decimal.ROUND_HALF_UP) : null,
     days: revenues.map((row) => ({
       day: row.day,
@@ -125,9 +126,24 @@ export function periodOverview(input: { period: Period; today: string; totals: T
   };
 }
 
-/** "best Sep 21 · $890.00", or "no sales yet" for a period without revenue. */
-export const bestDayLine = (overview: Pick<PeriodOverview, "best">) =>
-  overview.best ? `best ${monthDayLabel(overview.best.day)} · ${money(overview.best.revenue)}` : "no sales yet";
+/**
+ * "best Sep 21 · $890.00"; "no revenue" when every sale in the period was at
+ * no price (free samples); "no sales yet" only when nothing was sold.
+ */
+export function bestDayLine(overview: Pick<PeriodOverview, "best" | "totals">): string {
+  if (overview.best) return `best ${monthDayLabel(overview.best.day)} · ${money(overview.best.revenue)}`;
+  return overview.totals.sales > 0 ? "no revenue" : "no sales yet";
+}
+
+/**
+ * The line under the gross profit: "89.1% of revenue"; "— of revenue" when
+ * there were sales but no revenue (no share of nothing is shown); "No sales
+ * in this period" only when nothing was sold.
+ */
+export function marginLine(overview: Pick<PeriodOverview, "margin" | "totals">): string {
+  if (overview.totals.sales === 0) return "No sales in this period";
+  return `${overview.margin ?? "—"} of revenue`;
+}
 
 // ── A13 / D9: 12 months ─────────────────────────────────────────────────────
 
@@ -270,6 +286,12 @@ export function twelveMonths(input: {
     noPurchases: empty.length === 0 ? null : empty.length <= 4 ? `none in ${empty.join(", ")}` : `none in ${empty.length} months`,
     suppliers,
   };
+}
+
+/** "best Aug · $4,463.76"; "no revenue yet" when the only sales were at no price; "no sales yet". */
+export function bestMonthLine(view: Pick<TwelveMonths, "best" | "months">): string {
+  if (view.best) return `best ${view.best.label} · ${money(view.best.revenue)}`;
+  return view.months.some((m) => m.sales > 0) ? "no revenue yet" : "no sales yet";
 }
 
 /** "14 orders" · "1 order" (an order is one recorded purchase). */

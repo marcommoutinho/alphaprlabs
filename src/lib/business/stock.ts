@@ -96,6 +96,19 @@ export function parseThreshold(value: unknown): { ok: true; value: number } | { 
   return { ok: true, value: number };
 }
 
+/** One reorder-level submission: its request key and the value it asks for. */
+export type ThresholdAttempt = { key: string; value: number };
+
+/**
+ * The attempt a Save or Retry sends. Until an answer arrives for `pending`,
+ * submitting its value again (Retry, or Save pressed again) reuses its key,
+ * so a request that was saved but whose answer was lost replays instead of
+ * saving again over a newer change; another value is a new edit, with a new
+ * key.
+ */
+export const attemptFor = (pending: ThresholdAttempt | null, value: number, newKey: () => string): ThresholdAttempt =>
+  pending && pending.value === value ? pending : { key: newKey(), value };
+
 /** "4 vials" · "1 vial" */
 export const vialCount = (count: number) => `${count.toLocaleString("en-CA")} vial${count === 1 ? "" : "s"}`;
 

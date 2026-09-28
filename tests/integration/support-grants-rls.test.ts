@@ -88,6 +88,9 @@ create table ${T} (
   body text not null default ''
 );
 alter table ${T} enable row level security;
+-- As every real table does: Supabase's default privileges grant anon (and
+-- authenticated) everything on new public tables, so revoke them first.
+revoke all on ${T} from public, anon, authenticated;
 grant select, insert, update, delete on ${T} to authenticated;
 create policy fixture_select on ${T} for select to authenticated using (public.can_read_researcher(owner_id));
 create policy fixture_insert on ${T} for insert to authenticated with check (public.can_write_researcher(owner_id));
