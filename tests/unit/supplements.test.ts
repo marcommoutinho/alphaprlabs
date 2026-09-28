@@ -63,7 +63,8 @@ const taken = (r: Routine, date: string, actualAt: string, overrides: Partial<Ta
   routineId: r.id,
   occurrenceKey: supplementKey(r.id, date),
   localDate: date,
-  scheduledAt: occurrenceOn(r, date)!.scheduledAt,
+  // A Taken from before an edit keeps its own time (no longer an occurrence): pass it in overrides.
+  scheduledAt: overrides.scheduledAt ?? occurrenceOn(r, date)!.scheduledAt,
   name: r.name,
   amount: r.amount,
   unit: r.unit,
@@ -389,6 +390,42 @@ describe("R13 Supplements (design v3)", () => {
     // The Toronto day: at 23:30 on Sunday it's still Sunday's column.
     expect(weekGrid([d3], [], "2026-09-28T03:30:00Z").days.at(-1)?.date).toBe("2026-09-27");
     expect(weekGrid([], [], NOW).rows).toEqual([]);
+  });
+
+  it("draws an edited routine from its edit on: earlier untaken days blank, earlier Taken kept, then scheduled as usual", () => {
+    // Started six days ago (Sep 21), taken Sep 22 and Sep 24, edited today (Sep 27) to 09:00.
+    const edited = routine({ startDate: "2026-09-21", definitionFrom: "2026-09-27", time: "09:00", version: 2 });
+    const before = (date: string, actualAt: string) => taken(edited, date, actualAt, { scheduledAt: `${date}T12:00:00Z`, amount: "1000" });
+    const records = [before("2026-09-22", "2026-09-22T12:05:00Z"), before("2026-09-24", "2026-09-24T12:05:00Z")];
+    expect(weekGrid([edited], records, NOW).rows.map((r) => r.cells.join(" "))).toEqual(["none taken none taken none none later"]);
+    // Taken today too.
+    const today = [...records, taken(edited, "2026-09-27", "2026-09-27T13:10:00Z")];
+    expect(weekGrid([edited], today, NOW).rows[0].cells.join(" ")).toBe("none taken none taken none none taken");
+    // Edited three days ago (Sep 24): missed from the edit on, blank before it.
+    const earlier = { ...edited, definitionFrom: "2026-09-24" };
+    expect(weekGrid([earlier], records, NOW).rows[0].cells.join(" ")).toBe("none taken none taken missed missed later");
+    // Edited today with nothing taken this week: only today is drawn.
+    expect(weekGrid([edited], [], NOW).rows[0].cells.join(" ")).toBe("none none none none none none later");
+    // The schedule agrees: none of the earlier days is an occurrence any more.
+    for (const date of ["2026-09-21", "2026-09-22", "2026-09-26"]) expect(occurrenceOn(edited, date)).toBeNull();
+    expect(occurrenceOn(edited, "2026-09-27")).not.toBeNull();
+  });
+
+  it("draws an ended routine to its last day, and nothing for one that ended before its edit took effect", () => {
+    // Ran Sep 20 to Sep 25 (edited Sep 23): taken Sep 22 before the edit, Sep 24 after it.
+    const ended = routine({ startDate: "2026-09-20", definitionFrom: "2026-09-23", endDate: "2026-09-25", version: 3 });
+    const records = [
+      taken(ended, "2026-09-22", "2026-09-22T12:05:00Z", { scheduledAt: "2026-09-22T12:00:00Z" }),
+      taken(ended, "2026-09-24", "2026-09-24T12:05:00Z"),
+    ];
+    expect(weekGrid([ended], records, NOW).rows[0].cells.join(" ")).toBe("none taken missed taken missed none none");
+    // Ended today: today is its last day, still to take.
+    const endsToday = routine({ startDate: "2026-09-25", endDate: "2026-09-27" });
+    expect(weekGrid([endsToday], [], NOW).rows[0].cells.join(" ")).toBe("none none none none missed missed later");
+    // Ended the day before its edit took effect (end = definitionFrom - 1): no occurrences, only its Taken.
+    const stopped = routine({ startDate: "2026-09-20", definitionFrom: "2026-09-24", endDate: "2026-09-23", version: 2 });
+    expect(weekGrid([stopped], [records[0]], NOW).rows.map((r) => r.cells.join(" "))).toEqual(["none taken none none none none none"]);
+    expect(weekGrid([stopped], [], NOW).rows).toEqual([]);
   });
 
   it("lists today's supplements as N of M, the first still to take marked next", () => {

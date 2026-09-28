@@ -16,7 +16,7 @@ import type { TodayRow, TodayView } from "@/lib/doses/today";
 import { addDaysToDate, type Wall, wallOf } from "@/lib/doses/rules";
 import { type InstantInput, toInstant } from "@/lib/schedule/zone";
 import { HISTORY_WINDOW_DAYS, SUPPLEMENT_TIME_ZONE } from "./rules";
-import { occurrenceOn, type SupplementOccurrence, todayIn } from "./schedule";
+import { occurrenceOn, runsOn, type SupplementOccurrence, todayIn } from "./schedule";
 import type { Routine, TakenRecord } from "./service";
 
 /** Everything a Taken needs for one occurrence, as shown now. Serializable. */
@@ -159,18 +159,18 @@ const byTime = (a: Routine, b: Routine) => a.time.localeCompare(b.time) || a.nam
 export const routineEnded = (routine: Pick<Routine, "endDate" | "definitionFrom">, today: string) =>
   routine.endDate !== null && (routine.endDate <= today || routine.endDate < routine.definitionFrom);
 
-/** The days it ran or runs: its start to its end, none when it ended before it started. */
-const scheduledOn = (routine: Pick<Routine, "startDate" | "endDate">, date: string) =>
-  date >= routine.startDate && (routine.endDate === null || date <= routine.endDate);
-
 const WEEKDAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
 const letterOf = (date: string) => WEEKDAY_LETTERS[new Date(`${date}T00:00:00Z`).getUTCDay()];
 
 /**
  * R13's "Last 7 days", today last: a day with a Taken record is taken; a
- * past day it ran without one is missed; today's untaken occurrence is still
- * to take ("Later today"); any other day is blank. Each routine that ran, or
- * was taken, in the week gets a row, by time.
+ * past occurrence without one is missed; today's untaken occurrence is still
+ * to take ("Later today"); any other day is blank. Occurrences are the
+ * schedule's (runsOn, ./schedule): from definitionFrom to the end date, so
+ * after an edit the days before it are no longer occurrences and stay blank
+ * unless a Taken was recorded then (edits apply from now on; past Taken
+ * records keep what was recorded). Each routine with an occurrence or a
+ * Taken in the week gets a row, by time.
  */
 export function weekGrid(routines: readonly Routine[], taken: readonly TakenRecord[], now: InstantInput): WeekGrid {
   const today = todayIn(now, SUPPLEMENT_TIME_ZONE);
@@ -181,7 +181,7 @@ export function weekGrid(routines: readonly Routine[], taken: readonly TakenReco
     const routineToday = todayIn(now, routine.timeZone);
     const cells = dates.map((date): GridCell => {
       if (takenKeys.has(`${routine.id}:${date}`)) return "taken";
-      if (!scheduledOn(routine, date)) return "none";
+      if (!runsOn(routine, date)) return "none";
       if (date < routineToday) return "missed";
       return date === routineToday ? "later" : "none";
     });
