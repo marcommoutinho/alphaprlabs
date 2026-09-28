@@ -847,6 +847,13 @@ states. Standard Slipstream loop per slice; one maker at a time.
 
 Deploys: after V4 (researcher side complete) and after the close.
 
+- V0–V4 merged (V4 last at `2cbdb93`) and deployed to production on
+  2026-09-28: migrations 20260928100000–20260928140000 pushed, `main` at
+  `2cbdb93`. Gate before deploy: build, typecheck, lint clean; vitest 799/799
+  (one local gateway 502 re-run green); Playwright 123/123. Production checks:
+  public site unchanged, app and auth redirects, v3 sign-in page, cron 401
+  without the secret and ok with it.
+
 ## Technical references
 
 - [Supabase tracked migrations and local development](https://supabase.com/docs/guides/local-development/database-migrations)
