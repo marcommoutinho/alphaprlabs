@@ -454,7 +454,7 @@ test.describe("editing a cycle: mixes, peptides and ending a phase", () => {
     expect(await links()).toEqual(before);
   });
 
-  test("End it now on a one-phase cycle ends it, with its history kept", async ({ page }) => {
+  test("End it now ends the whole plan, later phases included, and the cycle stays Ended with its history", async ({ page }) => {
     const t = tag();
     const email = uniqueEmail("v2-end-now");
     await ensureAccount({ email, name: "End Now", role: "researcher" });
@@ -462,12 +462,22 @@ test.describe("editing a cycle: mixes, peptides and ending a phase", () => {
     const aId = await seedPeptide(A);
     const db = await signedInClient(email);
     // Daily at 20:00 in a zone where it is about noon: today's dose is still ahead, so the edit applies from today.
-    const name = `One phase ${t}`;
-    const cycleId = await createCycle(db, { name, goal: "Recovery", timeZone: NOON, plans: [plan(aId, [interval(d(-3), d(20), "0.25", 1, "20:00")])] });
-    const [phase] = await ok(
-      serviceClient().from("cycle_revision_phases").select("plan_id, phase_id, cycle_revision_plans!inner(cycle_id)").eq("cycle_revision_plans.cycle_id", cycleId),
+    // Then a break and a later phase.
+    const name = `Phases ${t}`;
+    const cycleId = await createCycle(db, {
+      name,
+      goal: "Recovery",
+      timeZone: NOON,
+      plans: [plan(aId, [interval(d(-3), d(10), "0.25", 1, "20:00"), pause(d(11), d(17)), interval(d(18), d(30), "0.5", 1, "20:00")])],
+    });
+    const rows = await ok(
+      serviceClient()
+        .from("cycle_revision_phases")
+        .select("plan_id, phase_id, start_date, cycle_revision_plans!inner(cycle_id)")
+        .eq("cycle_revision_plans.cycle_id", cycleId),
       "phase",
     );
+    const phase = rows.find((row) => row.start_date === d(-3))!;
     await ok(
       db.rpc("confirm_dose", {
         p_request_key: randomUUID(),
@@ -486,7 +496,9 @@ test.describe("editing a cycle: mixes, peptides and ending a phase", () => {
     await page.goto(`${APP_ORIGIN}/app/cycles/${cycleId}/edit`);
     await (await hydrated(page.getByRole("button", { name: "Continue with 1 peptide" }))).click();
     await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await expect(page.getByTestId("builder-phase")).toHaveCount(3);
     await page.getByTestId("phase-editor").getByRole("button", { name: "End it now" }).click();
+    // The break and the later phase go with it: nothing is planned after.
     await expect(page.getByTestId("builder-phase")).toHaveCount(1);
     await expect(page.getByTestId("builder-phase").locator("[data-slot=ending]")).toHaveText(/^Ends /);
     await page.getByRole("button", { name: "Review cycle" }).click();
@@ -498,10 +510,10 @@ test.describe("editing a cycle: mixes, peptides and ending a phase", () => {
       serviceClient().from("cycle_revision_phases").select("start_date, end_date, cycle_revision_plans!inner(cycle_id, revision_id)").eq("cycle_revision_plans.cycle_id", cycleId),
       "phases",
     );
-    expect(phases.map((p) => [p.start_date, p.end_date]).sort()).toEqual([
-      [d(-3), d(-1)],
-      [d(-3), d(20)],
-    ]);
+    // Revision 1's three phases, and revision 2's one, ending yesterday.
+    expect(phases.map((p) => `${p.start_date} ${p.end_date}`).sort()).toEqual(
+      [`${d(-3)} ${d(-1)}`, `${d(-3)} ${d(10)}`, `${d(11)} ${d(17)}`, `${d(18)} ${d(30)}`].sort(),
+    );
     const doses = await ok(serviceClient().from("dose_records").select("occurrence_key").eq("cycle_id", cycleId), "doses");
     expect(doses).toEqual([{ occurrence_key: `${phase.plan_id}:${phase.phase_id}:0` }]);
     await page.goto(`${APP_ORIGIN}/app/cycles`);

@@ -18,7 +18,7 @@ import {
   blankMix,
   type BuilderState,
   builderForEdit,
-  endBefore,
+  endPlanNow,
   formFromBuilder,
   mixEntry,
   newBuilderPlan,
@@ -30,7 +30,7 @@ import { cycleOccurrences, cycleStatus } from "@/lib/cycles/schedule";
 import { getCycle } from "@/lib/cycles/service";
 import { cycleConfirmations } from "@/lib/doses/service";
 import { getMixture, listMixtures, mixtureHistory } from "@/lib/mixtures/service";
-import { type Client, createCycle, createPeptide, interval, plan, tag } from "../support/cycles";
+import { type Client, createCycle, createPeptide, interval, pause, plan, tag } from "../support/cycles";
 import { ensureAccount, ok, serviceClient, signedInClient, uniqueEmail } from "../support/local-supabase";
 import { d, NOON, noonZoneInstant } from "../support/noon";
 
@@ -149,7 +149,7 @@ describe("unchecking and checking an upcoming peptide again", () => {
   });
 });
 
-describe("End it now on the only phase under way", () => {
+describe("End it now on a phase under way", () => {
   /** Taken three days ago, skipped two days ago, missed yesterday: settled history. */
   async function settle(cycleId: string, peptideId: string, time: string) {
     const cycle = (await getCycle(db, cycleId))!;
@@ -184,21 +184,17 @@ describe("End it now on the only phase under way", () => {
   }
 
   /** "End it now" on the peptide's phase under way, as the schedule step does. */
+  /** "End it now" on the peptide's phase under way, as the schedule step does (endPlanNow). */
   function endNow(opened: Awaited<ReturnType<typeof open>>, peptideId: string): BuilderState {
     const { initial, effective } = opened;
     return {
       ...initial,
       plans: initial.plans.map((p) => {
         if (p.peptideId !== peptideId) return p;
-        return {
-          ...p,
-          phases: p.phases.map((phase) => {
-            if (phase.lock !== "started") return phase;
-            const ending = endBefore(phase, initial.start, effective[p.planId!] ?? null);
-            if (!ending) throw new Error("the phase can't end now");
-            return { ...phase, ...ending };
-          }),
-        };
+        const running = p.phases.find((phase) => phase.lock === "started");
+        const ended = running ? endPlanNow(p, running.key, initial.start, effective[p.planId!] ?? null) : null;
+        if (!ended) throw new Error("the plan can't end now");
+        return ended;
       }),
     };
   }
@@ -225,12 +221,38 @@ describe("End it now on the only phase under way", () => {
     expect(await history(cycleId, d(0))).toEqual(settled);
   });
 
-  it("one peptide of two: it ends today (its dose today is already due); the other goes on", async () => {
-    // A daily at 08:00 (today's is due, so the edit applies from tomorrow); B daily at 20:00.
+  it("with a break and a later phase planned: the whole plan ends, and a one-plan cycle stays Ended", async () => {
+    const cycleId = await createCycle(db, {
+      name: `End with later ${tag()}`,
+      timeZone: NOON,
+      plans: [plan(peptide.a, [interval(d(-3), d(10), "0.25", 1, "20:00"), pause(d(11), d(17)), interval(d(18), d(30), "0.5", 1, "20:00")])],
+    });
+    const planId = await settle(cycleId, peptide.a, "20:00");
+    const settled = await history(cycleId, d(0));
+    const opened = await open(cycleId);
+    expect(opened.effective[planId]).toBe(d(0));
+    const ended = endNow(opened, peptide.a);
+    expect(ended.plans[0].phases).toHaveLength(1);
+
+    expect(await save(ended)).toMatchObject({ saved: true, cycleId });
+    const cycle = (await getCycle(db, cycleId))!;
+    const current = cycle.revisions[cycle.revisions.length - 1];
+    expect(current.plans[0].phases.map((p) => [p.kind, p.start, p.end])).toEqual([["active", d(-3), d(-1)]]);
+    expect(cycleStatus(current, new Date())).toBe("Ended");
+    // Not even the later phase's doses, weeks ahead.
+    expect(cycleOccurrences(cycle.revisions).filter((o) => o.localDate >= d(0))).toEqual([]);
+    expect(await history(cycleId, d(0))).toEqual(settled);
+  });
+
+  it("one peptide of two: it ends today (its dose today is already due), its later phases too; the other goes on", async () => {
+    // A daily at 08:00 (today's is due, so the edit applies from tomorrow), then a break and a later phase; B daily at 20:00.
     const cycleId = await createCycle(db, {
       name: `End one of two ${tag()}`,
       timeZone: NOON,
-      plans: [plan(peptide.a, [interval(d(-3), d(20), "0.25", 1, "08:00")]), plan(peptide.b, [interval(d(-3), d(20), "0.25", 1, "20:00")])],
+      plans: [
+        plan(peptide.a, [interval(d(-3), d(10), "0.25", 1, "08:00"), pause(d(11), d(17)), interval(d(18), d(30), "0.5", 1, "08:00")]),
+        plan(peptide.b, [interval(d(-3), d(20), "0.25", 1, "20:00")]),
+      ],
     });
     const planId = await settle(cycleId, peptide.a, "08:00");
     const settled = await history(cycleId, d(1));

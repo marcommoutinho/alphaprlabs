@@ -330,6 +330,22 @@ export function endBefore(phase: Pick<BuilderPhase, "day">, start: LocalDate, ef
   return length >= 1 ? { length: String(length) } : null;
 }
 
+/**
+ * "End it now" (an edit): the peptide's schedule ends the day before
+ * `effective`. The phase under way (`key`) is shortened to end then
+ * (endBefore), and every phase and break of the plan after it is removed:
+ * none has started, so nothing recorded goes, and nothing is planned after
+ * that day. Phases that have ended stay. Null when the phase can't end there.
+ */
+export function endPlanNow(plan: BuilderPlan, key: string, start: LocalDate, effective: LocalDate | null): BuilderPlan | null {
+  const phase = plan.phases.find((p) => p.key === key);
+  if (!phase || phase.lock !== "started") return null;
+  const ending = endBefore(phase, start, effective);
+  if (!ending) return null;
+  // Every phase not yet started (stored or added here) comes after it.
+  return { ...plan, phases: plan.phases.filter((p) => p.lock !== null).map((p) => (p.key === key ? { ...p, ...ending } : p)) };
+}
+
 /** The phase ends the day before `effective` (as "End it now" leaves it). */
 export function endsBefore(phase: Pick<BuilderPhase, "day" | "length">, start: LocalDate, effective: LocalDate | null): boolean {
   const ending = endBefore(phase, start, effective);

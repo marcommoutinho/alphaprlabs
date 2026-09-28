@@ -11,6 +11,7 @@ import {
   cycleDays,
   endBefore,
   endsBefore,
+  endPlanNow,
   exactSyringes,
   firstIssue,
   formFromBuilder,
@@ -264,6 +265,31 @@ describe("the mix", () => {
     expect(endsBefore({ day: "3", length: "8" }, "2026-10-01", "2026-10-10")).toBe(false);
     expect(endBefore({ day: "10" }, "2026-10-01", "2026-10-10")).toBeNull();
     expect(endBefore({ day: "3" }, "2026-10-01", null)).toBeNull();
+  });
+
+  it("End it now ends the whole plan: the phase under way shortened, every later phase and break removed", () => {
+    const base = newBuilderPlan(PA);
+    const phase = (key: string, kind: "active" | "break", day: string, length: string, lock: "ended" | "started" | null) => ({
+      ...base.phases[0],
+      key,
+      id: key,
+      kind,
+      day,
+      length,
+      lock,
+    });
+    const plan: BuilderPlan = {
+      ...base,
+      phases: [phase("p0", "active", "1", "5", "ended"), phase("p1", "active", "6", "20", "started"), phase("b", "break", "26", "7", null), phase("p2", "active", "33", "10", null)],
+    };
+    // From Oct 1, phase 1 runs from Oct 6; the edit applies from Oct 10: it ends Oct 9.
+    const ended = endPlanNow(plan, "p1", "2026-10-01", "2026-10-10")!;
+    expect(ended.phases.map((p) => [p.key, p.day, p.length])).toEqual([
+      ["p0", "1", "5"],
+      ["p1", "6", "4"],
+    ]);
+    expect(endPlanNow(plan, "b", "2026-10-01", "2026-10-10")).toBeNull();
+    expect(endPlanNow(plan, "p1", "2026-10-01", null)).toBeNull();
   });
 
   it("a saved mix to reuse links it; a change makes the next setup of the same mixture", () => {

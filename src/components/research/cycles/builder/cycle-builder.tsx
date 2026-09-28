@@ -16,7 +16,7 @@ import {
   type BuilderPlan,
   type BuilderState,
   cycleDays,
-  endBefore,
+  endPlanNow,
   mixEntry,
   mixIssues,
   newBuilderPlan,
@@ -277,13 +277,12 @@ export function CycleBuilder({
               }}
               onPhase={patchPhase}
               onRemove={(key) => {
-                // "End it now" on a phase under way: it ends the day before the
-                // edit applies and stays, with its history; others are removed.
-                const phase = plan.phases.find((p) => p.key === key);
-                const ending =
-                  phase?.lock === "started" ? endBefore(phase, state.start, plan.planId ? (effective[plan.planId] ?? null) : null) : null;
-                if (ending) {
-                  patchPhase(key, ending);
+                // "End it now" on a phase under way: the peptide's schedule ends
+                // the day before the edit applies (the phase stays, with its
+                // history; its later phases go). Other phases are removed.
+                const ended = endPlanNow(plan, key, state.start, plan.planId ? (effective[plan.planId] ?? null) : null);
+                if (ended) {
+                  updatePlan(current, () => ended);
                   setExpanded(null);
                   return;
                 }
