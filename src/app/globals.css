@@ -1,72 +1,16 @@
 @import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
-/* Design v3 bindings for the private app (values: src/styles/alpha/tokens.css). */
-@import "../styles/alpha/theme.css";
+@import "../styles/tailwind-config.css";
+/* The design v3 components (and the v3-only shell and 404 files) have their
+   own stylesheet, loaded by the private root layout only
+   (src/styles/alpha/app.css), so the public site never ships their
+   utilities. */
+@source not "../components/alpha";
+@source not "../components/app-shell/app-shell.tsx";
+@source not "./(private)/not-found.tsx";
 
-/* `dark:` = inside `.dark`, as before. In the private app it matches the v3
-   tokens (src/styles/alpha/tokens.css): it also follows the OS when no
-   `.light`/`.dark` class forces a mode, and a subtree pinned with
-   data-alpha-theme (the component gallery) wins. The public site never has
-   .alpha or data-alpha-theme, so for it this is unchanged. */
-@custom-variant dark {
-  &:is(.dark *, [data-alpha-theme="dark"] *):not([data-alpha-theme="light"] *) {
-    @slot;
-  }
-  @media (prefers-color-scheme: dark) {
-    &:is(:root:not(.light, .dark):has(> body > .alpha) *):not([data-alpha-theme="light"] *) {
-      @slot;
-    }
-  }
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
-  --color-card: var(--card);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
-  --color-brand: #60a5fa;
-  --color-brand-light: #93c5fd;
-  --color-brand-dark: #3b82f6;
-  --color-navy: #050505;
-}
+/* The public site's (and shadcn's) `dark:`: inside `.dark`. The design v3
+   components use their own, in src/styles/alpha/app.css. */
+@custom-variant dark (&:is(.dark *));
 
 :root {
   --background: oklch(1 0 0);

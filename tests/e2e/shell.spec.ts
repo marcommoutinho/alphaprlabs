@@ -58,7 +58,7 @@ test.describe("public site (regression control)", () => {
   for (const path of ["/", "/peptides/semaglutide"]) {
     test(`${path} keeps the public header, footer and look`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: "dark" });
-      await page.goto(`${PUBLIC_ORIGIN}${path}`);
+      const response = await page.goto(`${PUBLIC_ORIGIN}${path}`);
       await expect(page.getByRole("banner").getByRole("link", { name: "Peptide Library" })).toBeVisible();
       await expect(page.getByRole("contentinfo")).toBeVisible();
       await expect(page.locator(".app-root, .alpha")).toHaveCount(0);
@@ -74,6 +74,40 @@ test.describe("public site (regression control)", () => {
       expect(look.body).toBe("lab(100 0 0)"); // shadcn's oklch(1 0 0) white, as before
       expect(look.font).toMatch(/Inter/);
       await expect(page.locator('meta[name="theme-color"]')).toHaveCount(0);
+
+      // Fonts: Inter only. No Geist @font-face in the page's CSS, and every
+      // preloaded font file (in the HTML or a Link header) is one of Inter's.
+      const fileName = (url: string) => url.split("/").pop()!.replace(/[)"'].*$/, "");
+      const fonts = await page.evaluate(() => {
+        const faces: { family: string; src: string }[] = [];
+        for (const sheet of Array.from(document.styleSheets)) {
+          for (const rule of Array.from(sheet.cssRules)) {
+            if (rule instanceof CSSFontFaceRule) {
+              faces.push({ family: rule.style.getPropertyValue("font-family"), src: rule.style.getPropertyValue("src") });
+            }
+          }
+        }
+        const preloads = Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="preload"][as="font"]')).map(
+          (link) => link.href,
+        );
+        return { faces, preloads };
+      });
+      const headerPreloads = [...(response?.headers()["link"] ?? "").matchAll(/<([^>]+\.woff2)>/g)].map((match) => match[1]);
+      const preloaded = [...fonts.preloads, ...headerPreloads].map(fileName);
+      expect(fonts.faces.length).toBeGreaterThan(0);
+      expect(fonts.faces.filter((face) => /geist/i.test(face.family))).toEqual([]);
+      expect(preloaded.length).toBeGreaterThan(0);
+      const interFiles = fonts.faces.filter((face) => /Inter/.test(face.family)).map((face) => face.src);
+      for (const file of preloaded) {
+        expect(interFiles.some((src) => src.includes(file)), `${file} is an Inter font`).toBe(true);
+      }
+      // No design v3 utilities in the public CSS.
+      const v3Rules = await page.evaluate(() =>
+        Array.from(document.styleSheets)
+          .flatMap((sheet) => Array.from(sheet.cssRules).map((rule) => rule.cssText))
+          .filter((text) => /\.(bg-paper|text-ink|rounded-btn|laptop\\:)/.test(text)).length,
+      );
+      expect(v3Rules).toBe(0);
     });
   }
 });

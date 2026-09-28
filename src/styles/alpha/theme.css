@@ -1,7 +1,8 @@
 /*
  * Alpha Research design v3: Tailwind 4 theme bindings (docs/design/research-app-v3/tokens.css).
- * Imported by src/app/globals.css so the utilities exist (bg-paper, text-ink-2,
- * border-line, bg-signal, text-missed, rounded-group …).
+ * Imported by src/styles/alpha/app.css, the private app's own utility
+ * stylesheet, so the utilities exist there (bg-paper, text-ink-2, border-line,
+ * bg-signal, text-missed, rounded-group …) and never on the public site.
  *
  * Only the bindings live here. The values they point to (--paper, --ink …)
  * are defined for the private app alone in src/styles/alpha/tokens.css, so the

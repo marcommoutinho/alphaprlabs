@@ -1,0 +1,36 @@
+/*
+ * Design v3 utilities for the private app: a second Tailwind stylesheet,
+ * imported by the private root layout (src/app/(private)/layout.tsx) after
+ * src/app/globals.css, and never by the public site.
+ *
+ * - Theme and utilities only: no preflight, which globals.css already applies
+ *   (a second one would reset its base rules).
+ * - It scans only the v3 sources (globals.css skips src/components/alpha), so
+ *   every class a v3 element uses is generated here, in Tailwind's order,
+ *   after the shared stylesheet.
+ * - The same shared configuration as globals.css (fonts, dark variant, shadcn
+ *   bindings), plus the v3 bindings and the laptop / phone variants.
+ */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@import "../tailwind-config.css";
+@import "./theme.css";
+
+/* `dark:` follows the v3 tokens (tokens.css): `.dark` on <html>, or the OS
+   when no `.light`/`.dark` class forces a mode; a subtree pinned with
+   data-alpha-theme (the component gallery) wins. */
+@custom-variant dark {
+  &:is(.dark *, [data-alpha-theme="dark"] *):not([data-alpha-theme="light"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:is(:root:not(.light, .dark):has(> body > .alpha) *):not([data-alpha-theme="light"] *) {
+      @slot;
+    }
+  }
+}
+
+@source "../../components/alpha";
+@source "../../components/app-shell/app-shell.tsx";
+@source "../../app/(private)/not-found.tsx";

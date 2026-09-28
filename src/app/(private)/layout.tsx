@@ -1,16 +1,21 @@
+// The CSS shared with the public site (Inter, globals.css) comes first, in the
+// public layout's order; the private CSS follows, and the v3 fonts come last,
+// between private stylesheets, so the build's CSS chunking never merges them
+// into the chunk the public site loads (which would preload Geist there).
+import { BODY_CLASS, HTML_CLASS } from "../document";
+import "../globals.css";
+import "@/styles/alpha/app.css";
+import "@/styles/alpha/tokens.css";
+import "@/styles/alpha/components.css";
+import { geist, geistMono } from "./fonts";
+import "@/styles/app/tokens.css";
+import "@/styles/app/shell.css";
+import "@/styles/app/primitives.css";
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import { cookies } from "next/headers";
 import { AlphaRoot } from "@/components/alpha/root";
 import { AppRoot } from "@/components/app-shell/app-root";
 import { APPEARANCE_COOKIE, htmlClassFor, parseAppearance, themeColorFor } from "@/lib/alpha/appearance";
-import { BODY_CLASS, HTML_CLASS } from "../document";
-import "../globals.css";
-import "@/styles/alpha/tokens.css";
-import "@/styles/alpha/components.css";
-import "@/styles/app/tokens.css";
-import "@/styles/app/shell.css";
-import "@/styles/app/primitives.css";
 
 // Root layout of the private area: /app (researchers), /admin, /auth, on the
 // design v3 tokens and fonts (src/styles/alpha). It is its own root layout
@@ -21,9 +26,6 @@ import "@/styles/app/primitives.css";
 //
 // Installable app (C2): only the private area links the web app manifest
 // (src/app/manifest.ts) and the app icons; the public site keeps its own.
-
-const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
-const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
 
 export const metadata: Metadata = {
   title: "Alpha PR Labs",
