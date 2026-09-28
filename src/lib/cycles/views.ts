@@ -72,7 +72,13 @@ const timeIn = (at: InstantInput, timeZone: string) => formatLocalTime(wallClock
 export const occurrenceWhen = (o: Pick<Occurrence, "localDate" | "localTime">) => `${formatDay(o.localDate)} · ${o.localTime}`;
 
 /** The handoff's dose state labels. */
-export const STATE_LABEL: Record<OccurrenceState, string> = { taken: "Taken", due: "Due", open: "Unconfirmed", planned: "Planned" };
+export const STATE_LABEL: Record<OccurrenceState, string> = {
+  taken: "Taken",
+  due: "Due",
+  open: "Unconfirmed",
+  planned: "Planned",
+  skipped: "Skipped",
+};
 
 /** `every 5 days · 08:00` or `Mon · Wed · Fri · 07:30`, with the time in effect on `date`. */
 export function scheduleLabel(phase: ActivePhase, date: LocalDate): string {
@@ -114,7 +120,7 @@ export function cycleRow(
 ): CycleRow {
   const at = toInstant(now).epochMilliseconds;
   const byPlan = planPeptides(cycle);
-  const next = occurrences.find((o) => !o.actualAt && Date.parse(o.scheduledAt) >= at);
+  const next = occurrences.find((o) => !o.actualAt && !o.skipped && Date.parse(o.scheduledAt) >= at);
   const taken = occurrences.filter((o) => o.actualAt);
   const last = taken.reduce<Occurrence | null>((a, o) => (!a || Date.parse(o.actualAt!) > Date.parse(a.actualAt!) ? o : a), null);
   let nextLine = "No doses recorded yet";

@@ -152,6 +152,7 @@ export function dosesByDay(
   for (const cycle of cycles) {
     const planOf = planPeptides(cycle);
     for (const record of confirmations.get(cycle.id) ?? []) {
+      if (record.skipped) continue;
       const at = toInstant(record.actualAt);
       const day = checkInDay(at.toString(), PROGRESS_TIME_ZONE);
       if (day < days.from || day > days.to) continue;

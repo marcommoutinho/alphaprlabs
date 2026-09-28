@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { refresh, revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { SAVE_FAILED_MESSAGE, type ToastTone } from "@/components/app-shell/toast";
 import { signInUrl } from "@/lib/auth/paths";
@@ -36,6 +36,9 @@ export async function saveCheckInAction(input: unknown): Promise<CheckInActionRe
   switch (result.kind) {
     case "saved":
       revalidatePath(PROGRESS);
+      // Today's check-in card (V1) hides once today's check-in is saved.
+      revalidatePath("/app/today");
+      refresh();
       return { saved: true, toast: CHECK_IN_SAVED, tone: "info" };
     case "changed":
       return { error: CHECK_IN_CHANGED };

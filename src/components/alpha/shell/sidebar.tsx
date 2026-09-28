@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import type { AppIdentity } from "@/lib/app/identity";
 import { activeKey, sidebarFor } from "@/lib/alpha/nav";
 import { useNavChoice } from "./nav-choice";
+import { useNavCounts } from "./nav-counts";
 import { cn } from "@/lib/utils";
 import { NavIcon } from "./nav-icon";
 import { UserMenu } from "./user-menu";
@@ -18,19 +19,21 @@ export type SidebarCount = { text: string; tone: "missed" | "low" };
  * radius 10, 18 px icon and 15 px label; the current item is `surface` with a
  * `line` border at 600. The signed-in person sits at the bottom.
  *
- * TODO(V1, V3, V5): the right-aligned counters (overdue doses on Today in
- * `missed`, "low" on Supplies, "3 low" on Stock in `low`) arrive with the
- * slices that load those numbers; `counts` already draws them.
+ * The right-aligned counters come from `counts` and from the screens that
+ * load them (./nav-counts: Today's overdue doses in `missed`, V1).
+ * TODO(V3, V5): "low" on Supplies, "3 low" on Stock in `low`.
  */
 export function Sidebar({
   identity,
-  counts = {},
+  counts: given = {},
 }: {
   identity: AppIdentity;
   /** Right-aligned mono counters by nav item key (e.g. { today: { text: "1", tone: "missed" } }). */
   counts?: Readonly<Record<string, SidebarCount>>;
 }) {
   const pathname = usePathname();
+  const loaded = useNavCounts();
+  const counts = { ...loaded, ...given };
   const groups = sidebarFor(identity.role);
   const { chosen, choose } = useNavChoice();
   const current = activeKey(

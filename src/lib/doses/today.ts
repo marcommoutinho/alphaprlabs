@@ -16,8 +16,14 @@
 // the first). The badge counts doses awaiting confirmation (their time has
 // come, not taken) in cycles that have not ended: exactly the ones Today
 // asks the researcher to confirm.
+//
+// V1 (design v3): a skipped dose (dose_skips) is resolved: never the hero,
+// never unconfirmed or in the badge; today's shows as "Skipped". The v3
+// screen also reads `items` (every dose on the screen with its raw times and
+// state, for the Now block, the day rail and the overdue rows), the header's
+// short date and cycle day, and the injection-site rotation (./sites).
 import type { CycleRecord } from "@/lib/cycles/rules";
-import { cycleStatus, planOccurrences } from "@/lib/cycles/schedule";
+import { cycleSpan, cycleStatus, planOccurrences } from "@/lib/cycles/schedule";
 import { occurrenceWhen, type RecordedConfirmation, recordedAmount, STATE_LABEL, type ViewPeptides } from "@/lib/cycles/views";
 import { SYRINGE_LABEL } from "@/lib/calculator/calculator";
 import { formatDateTime } from "@/lib/format";
@@ -30,9 +36,14 @@ import {
   type OccurrenceState,
   type Phase,
 } from "@/lib/schedule/engine";
-import { type InstantInput, toInstant } from "@/lib/schedule/zone";
+import { type InstantInput, localDateOf, toInstant } from "@/lib/schedule/zone";
+import { shortDate } from "@/lib/alpha/format";
 import { drawDisplay, type DrawDisplay, type DrawSetup, type ScheduleEffect, STALE_LINK, unitsLabel, type Wall, wallOf } from "./rules";
 import { type SetupSegment, setupAt } from "./setups";
+import { lastSiteNote, lastSiteUse, nextSite, type RotationSite } from "./sites";
+
+/** A tracked open vial's estimate now (by mixture id): what R2's "Vial after" counts down from. */
+export type VialNow = { label: string; strengthMg: string; remainingMg: string };
 
 /** Everything the sheet needs for one dose, as shown now. Serializable. */
 export type DoseDetail = {
@@ -63,6 +74,16 @@ export type DoseDetail = {
   syringeLabel: string;
   /** The tracked open vial of the plan's mixture, when supply tracking is on. */
   vialLabel: string | null;
+  /**
+   * The next planned dose (today onward, not this one) of the plans using
+   * this dose's mixture: "Vial after" is low when less than it would be left
+   * (the low-stock rule), or null when none is planned.
+   */
+  vialNextMg: string | null;
+  /** "every 2 days", "Mon and Thu" or "Daily" (the Now block's sub-line). */
+  schedule: string;
+  /** When skipped (V1): when the skip was entered, in the dose's zone. */
+  skipped: { entered: string } | null;
   effect: ScheduleEffect;
   /**
    * When already confirmed: the actual and entered times in the dose's zone,
@@ -73,8 +94,8 @@ export type DoseDetail = {
   calculatorHref: string;
 };
 
-/** A setup span with the vial a confirmation in it would deduct from (confirm_dose's rule). */
-export type DoseSetup = SetupSegment & { vialLabel: string | null };
+/** A setup span with the vial a confirmation in it would deduct from (confirm_dose's rule), and its estimate now. */
+export type DoseSetup = SetupSegment & { vialLabel: string | null; vial: VialNow | null };
 
 /**
  * What the sheet shows and sends for an actual time (`at`: an instant, or
@@ -91,6 +112,40 @@ export function setupForActual(
   const segment = setupAt(detail.setups, at);
   return { setup: segment?.setup ?? null, versionId: segment?.versionId ?? null, vialLabel: segment?.vialLabel ?? null };
 }
+
+/** The tracked open vial (with its estimate now) a confirmation at `at` (null: now) would deduct from, as setupForActual picks it. */
+export function vialForActual(detail: Pick<DoseDetail, "setup" | "mixtureVersionId" | "vialLabel" | "setups">, at: string | null): VialNow | null {
+  if (at === null) {
+    if (!detail.vialLabel) return null;
+    return detail.setups.find((s) => s.versionId === detail.mixtureVersionId && s.vial)?.vial ?? null;
+  }
+  return setupAt(detail.setups, at)?.vial ?? null;
+}
+
+/** One dose on the v3 screen, with its raw times and state (see the header). Serializable. */
+export type TodayDose = {
+  key: string;
+  /** today: dated today; open: an earlier day, unconfirmed (overdue); next: each plan's next dose on a later day. */
+  kind: "today" | "open" | "next";
+  state: OccurrenceState;
+  planId: string;
+  peptideName: string;
+  cycleName: string;
+  doseMg: string;
+  scheduledAt: string;
+  localDate: string;
+  localTime: string;
+  timeZone: string;
+  /** Recorded: when it was actually taken, the amount and site. */
+  actualAt: string | null;
+  amountMg: string | null;
+  site: string;
+  draw: DrawDisplay;
+  setup: DrawSetup | null;
+  /** R8's low-stock line (hero, today's doses still to take, each plan's next dose). */
+  stockNote: string | null;
+  schedule: string;
+};
 
 export type TodayHero = {
   key: string;
@@ -125,6 +180,19 @@ export type TodayRow = {
 export type TodayView = {
   /** `Saturday, September 26` and the zone it is in. */
   dateLabel: string;
+  /** When this view was built (epoch ms): the screen's clock until it ticks. */
+  renderedAt: number;
+  /** `Sat, Sep 26` (v3 header) and that local date. */
+  shortDate: string;
+  today: string;
+  /** "Day 24 of 84" of the cycle the header follows (the hero's, else the newest running one), or null. */
+  cycleDay: string | null;
+  /** Every dose on the screen: today's in time order, then unconfirmed ones newest first, then each plan's next. */
+  items: TodayDose[];
+  /** The Now block's dose: the hero, else the first plan's next dose on a later day. */
+  now: { key: string; mode: "due" | "later" | "next" } | null;
+  /** R2's rotation: the site to preselect, and the last-used one. */
+  sites: { suggested: RotationSite; last: { site: string; note: string } | null };
   timeZone: string;
   hasCycles: boolean;
   hero: TodayHero | null;
@@ -151,6 +219,8 @@ export type TodayInput = {
   vials: ReadonlyMap<string, string>;
   /** R8 low-stock notes by plan id (src/lib/supplies/view todayStockNotes); none while tracking is off. */
   stock?: ReadonlyMap<string, string>;
+  /** Tracked open vials' estimates by mixture id (empty while tracking is off), for R2's "Vial after". */
+  vialEstimates?: ReadonlyMap<string, VialNow>;
   now: InstantInput;
   /** The requested occurrence key (`?dose=`), if any. */
   requestedKey?: string | null;
@@ -168,6 +238,15 @@ const MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "Ju
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
 const at = (o: Occurrence) => Date.parse(o.scheduledAt);
+
+/** "Daily", "every 2 days", "Mon and Thu", "Mon, Wed and Fri". */
+function scheduleWords(phase: Phase | null): string {
+  if (!phase || phase.kind !== "active") return "";
+  if (phase.schedule.type === "interval") return phase.schedule.everyDays === 1 ? "Daily" : `every ${phase.schedule.everyDays} days`;
+  const days = WEEK_ORDER.filter((d) => (phase.schedule as { days: number[] }).days.includes(d)).map((d) => WEEKDAYS[d]);
+  if (days.length === 7) return "Daily";
+  return days.length > 1 ? `${days.slice(0, -1).join(", ")} and ${days.at(-1)}` : (days[0] ?? "");
+}
 const indexOf = (o: Occurrence) => Number(o.key.split(":")[2]);
 
 /** `Saturday, September 26` for a wall-clock date. */
@@ -237,6 +316,16 @@ export function todayView(input: TodayInput): TodayView {
   const recordedByKey = new Map([...input.confirmations.values()].flat().map((c) => [c.key, c]));
   /** What was recorded for a taken dose (the engine's actualAt is the recorded one). */
   const recordOf = (o: Occurrence) => (o.actualAt ? recordedByKey.get(o.key) : undefined);
+  const todayOf = (o: Occurrence) => wallOf(now.toString(), o.timeZone).slice(0, 10);
+
+  /** The next planned dose of the plans on `mixtureId` from today on, other than `key` (see DoseDetail.vialNextMg). */
+  const nextOnMixture = (mixtureId: string, key: string): string | null => {
+    const planIds = new Set([...input.mixtures.values()].filter((m) => m.id === mixtureId).flatMap((m) => m.planIds));
+    const next = entries.find(
+      (e) => planIds.has(e.o.planId) && e.o.key !== key && !e.ended && (e.state === "due" || e.state === "planned") && e.o.localDate >= todayOf(e.o),
+    );
+    return next?.o.doseMg ?? null;
+  };
 
   const doses: Record<string, DoseDetail> = {};
   const detail = (entry: Entry): DoseDetail => {
@@ -259,10 +348,17 @@ export function todayView(input: TodayInput): TodayView {
       stateLabel: STATE_LABEL[entry.state],
       setup: mixture?.setup ?? null,
       mixtureVersionId: mixture?.setupId ?? null,
-      setups: (input.setups.get(o.planId) ?? []).map((s) => ({ ...s, vialLabel: input.vials.get(s.mixtureId) ?? null })),
+      setups: (input.setups.get(o.planId) ?? []).map((s) => {
+        const label = input.vials.get(s.mixtureId) ?? null;
+        const estimate = label ? input.vialEstimates?.get(s.mixtureId) : undefined;
+        return { ...s, vialLabel: label, vial: estimate && label ? { ...estimate, label } : null };
+      }),
       mixtureLabel: mixture ? `${mixture.setup.vialMg} mg / ${mixture.setup.liquidMl} mL` : "",
       syringeLabel: mixture ? SYRINGE_LABEL[mixture.setup.syringe] : "",
       vialLabel: mixture ? (input.vials.get(mixture.id) ?? null) : null,
+      vialNextMg: mixture ? nextOnMixture(mixture.id, o.key) : null,
+      schedule: scheduleWords(phaseOf(entry.cycle, o.planId, o.phaseId)),
+      skipped: o.skipped && recordedByKey.get(o.key) ? { entered: formatDateTime(recordedByKey.get(o.key)!.recordedAt, { timeZone: o.timeZone }) } : null,
       effect: effectOf(entry.cycle, o, byPlan.get(o.planId)?.occurrences ?? [], nowMs),
       recorded:
         o.actualAt && record
@@ -281,8 +377,10 @@ export function todayView(input: TodayInput): TodayView {
     return value;
   };
 
-  const today = entries.filter((e) => e.state === "due" || (e.o.actualAt && e.o.localDate === wallOf(now.toString(), e.o.timeZone).slice(0, 10)));
-  const heroEntry = today.find((e) => !e.o.actualAt) ?? null;
+  const today = entries.filter(
+    (e) => e.state === "due" || ((e.o.actualAt || e.o.skipped) && e.o.localDate === wallOf(now.toString(), e.o.timeZone).slice(0, 10)),
+  );
+  const heroEntry = today.find((e) => e.state === "due") ?? null;
   const open = entries.filter((e) => e.state === "open" && !e.ended).reverse();
   const nextByPlan = new Map<string, Entry>();
   for (const e of entries) if (e.state === "planned" && !e.ended && !nextByPlan.has(e.o.planId)) nextByPlan.set(e.o.planId, e);
@@ -310,6 +408,19 @@ export function todayView(input: TodayInput): TodayView {
   for (const e of today) {
     if (e === heroEntry) continue;
     const d = detail(e);
+    if (e.o.skipped) {
+      rows.push({
+        key: e.o.key,
+        kind: "today",
+        title: nameOf(e),
+        sub: `Planned ${e.o.localTime} · ${e.o.doseMg} mg`,
+        status: "Skipped",
+        statusNote: "",
+        action: "Details",
+        stockNote: null,
+      });
+      continue;
+    }
     if (e.o.actualAt) {
       // What was recorded, not the plan: the amount taken, the plan only where it differs.
       const amount = recordedAmount(e.o.doseMg, recordOf(e.o)?.amountMg);
@@ -393,8 +504,70 @@ export function todayView(input: TodayInput): TodayView {
     current[0]?.revisions.at(-1)?.timeZone ??
     LOCAL_TIME_ZONE;
 
+  // The v3 screen's structured doses (see TodayDose).
+  const item = (e: Entry, kind: TodayDose["kind"], stock: boolean): TodayDose => {
+    const d = doses[e.o.key] ?? detail(e);
+    const record = recordOf(e.o);
+    return {
+      key: e.o.key,
+      kind,
+      state: e.state,
+      planId: e.o.planId,
+      peptideName: nameOf(e),
+      cycleName: e.cycle.name,
+      doseMg: e.o.doseMg,
+      scheduledAt: e.o.scheduledAt,
+      localDate: e.o.localDate,
+      localTime: e.o.localTime,
+      timeZone: e.o.timeZone,
+      actualAt: e.o.actualAt,
+      amountMg: record?.amountMg ?? null,
+      site: record?.site ?? "",
+      draw: drawOf(e),
+      setup: setupOf(e),
+      stockNote: stock ? stockOf(e) : null,
+      schedule: d.schedule,
+    };
+  };
+  const items: TodayDose[] = [
+    ...today.map((e) => item(e, "today", e.state === "due")),
+    ...open.map((e) => item(e, "open", false)),
+    ...upcoming.map((e) => item(e, "next", true)),
+  ];
+  const nowEntry = heroEntry ?? upcoming[0] ?? null;
+
+  // The header's cycle: the hero's, else the newest one running today.
+  const running = current.filter((c) => {
+    const status = cycleStatus(c.revisions[c.revisions.length - 1], now.toString());
+    return status === "Active" || status === "In break";
+  });
+  const headerCycle = (heroEntry && running.includes(heroEntry.cycle) ? heroEntry.cycle : null) ?? running.at(-1) ?? null;
+  let cycleDay: string | null = null;
+  if (headerCycle) {
+    const revision = headerCycle.revisions[headerCycle.revisions.length - 1];
+    const span = cycleSpan(revision);
+    const localToday = localDateOf(now, revision.timeZone);
+    const days = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+    cycleDay = `Day ${days(span.start, localToday) + 1} of ${days(span.start, span.end) + 1}`;
+  }
+
+  // Site rotation: the latest dose recorded at a rotation site, by actual time.
+  const uses = [...input.confirmations.values()].flat().filter((c) => !c.skipped && c.site) as (RecordedConfirmation & { site: string })[];
+  const last = lastSiteUse(uses.map((c) => ({ site: c.site, actualAt: String(c.actualAt), recordedAt: String(c.recordedAt) })));
+  const headerToday = wallOf(now.toString(), zone).slice(0, 10);
+
   return {
     dateLabel: longDate(wallOf(now.toString(), zone).slice(0, 10)),
+    renderedAt: nowMs,
+    shortDate: shortDate(headerToday),
+    today: headerToday,
+    cycleDay,
+    items,
+    now: nowEntry ? { key: nowEntry.o.key, mode: nowEntry === heroEntry ? (at(nowEntry.o) <= nowMs ? "due" : "later") : "next" } : null,
+    sites: {
+      suggested: nextSite(last?.site),
+      last: last ? { site: last.site, note: lastSiteNote(last.site, wallOf(last.actualAt, zone).slice(0, 10), headerToday) } : null,
+    },
     timeZone: zone,
     hasCycles: current.length > 0,
     hero,

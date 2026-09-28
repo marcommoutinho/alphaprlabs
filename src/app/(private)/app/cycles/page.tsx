@@ -3,7 +3,7 @@ import { AppPage } from "@/components/app-shell/app-shell";
 import { requireResearcher } from "@/lib/auth/session";
 import { cycleOccurrences } from "@/lib/cycles/schedule";
 import { cycleSummary, listCycles, listCyclePeptides } from "@/lib/cycles/service";
-import { confirmationsByCycle, listDoseRecords } from "@/lib/doses/service";
+import { ownerConfirmations } from "@/lib/doses/service";
 import { cycleRow, groupCycles } from "@/lib/cycles/views";
 import { createClient } from "@/lib/supabase/server";
 import "@/styles/app/cycles.css";
@@ -18,8 +18,7 @@ import "@/styles/app/cycle-views.css";
 export default async function CyclesPage() {
   const person = await requireResearcher("/app/cycles");
   const db = await createClient();
-  const [cycles, library, records] = await Promise.all([listCycles(db, person.id), listCyclePeptides(db), listDoseRecords(db, person.id)]);
-  const confirmations = confirmationsByCycle(records);
+  const [cycles, library, confirmations] = await Promise.all([listCycles(db, person.id), listCyclePeptides(db), ownerConfirmations(db, person.id)]);
   const peptides = new Map(library.map((peptide) => [peptide.id, peptide]));
   const now = new Date();
   const groups = groupCycles(

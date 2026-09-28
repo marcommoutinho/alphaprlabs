@@ -67,7 +67,7 @@ test("a tracked vial drops once for a retried confirmation, and shows low stock 
   // Today: nothing low yet.
   await page.goto(`${APP_ORIGIN}/app/today`);
   const hero = page.getByTestId("today-hero");
-  await expect(hero.locator(".app-today-hero-name")).toHaveText(A);
+  await expect(hero.getByTestId("hero-name")).toHaveText(A);
   await expect(page.getByTestId("today-stock")).toHaveCount(0);
 
   // The first confirmation reaches the server but its answer is lost; the retry sends the same request.
@@ -85,7 +85,8 @@ test("a tracked vial drops once for a retried confirmation, and shows low stock 
     await route.fallback();
   });
   await (await hydrated(hero.getByRole("button", { name: "Taken", exact: true }))).click();
-  await expect(page.getByRole("status").filter({ hasText: SAVE_FAILED_MESSAGE })).toBeVisible();
+  // A v3 error toast is an alert (it stays until dismissed).
+  await expect(page.getByRole("alert").filter({ hasText: SAVE_FAILED_MESSAGE })).toBeVisible();
   expect(lost).toBe(1);
   const recorded = async () => {
     const doses = await ok(serviceClient().from("dose_records").select("id").eq("cycle_id", cycleId), "doses");
@@ -101,11 +102,11 @@ test("a tracked vial drops once for a retried confirmation, and shows low stock 
   expect(await recorded()).toEqual({ doses: 1, deductions: [{ amount_mg: "0.4", remaining_after_mg: "0.3" }] });
 
   await hero.getByRole("button", { name: "Taken", exact: true }).click();
-  await expect(page.getByRole("status").filter({ hasText: `Taken · ${A} · ` })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: `${A} · 0.4 mg logged at ` })).toBeVisible();
   expect(await recorded()).toEqual({ doses: 1, deductions: [{ amount_mg: "0.4", remaining_after_mg: "0.3" }] });
 
   // 0.3 mg left is less than the next planned 0.4 mg (two days after the actual time): noted beside A's next dose.
-  const next = page.getByTestId("today-row").filter({ hasText: A }).filter({ has: page.locator('[data-status="Next"]') });
+  const next = page.locator('[data-testid="today-row"][data-status="Next"]').filter({ hasText: A });
   await expect(next.getByTestId("today-stock")).toHaveText("Vial E2E-1 is low · 0.3 mg left (estimate)");
 
   // Supplies: the estimate dropped once, flagged low, with its history.
@@ -124,5 +125,5 @@ test("a tracked vial drops once for a retried confirmation, and shows low stock 
   await expect(row).toContainText("−0.4 mg");
   await expect(row).toContainText("0.3 mg left");
   await row.getByRole("link", { name: "View dose" }).click();
-  await expect(page.getByRole("dialog", { name: "Confirm administration" }).getByRole("heading", { level: 2 })).toHaveText(A);
+  await expect(page.getByRole("dialog", { name: A }).getByRole("heading", { level: 2 })).toHaveText(A);
 });

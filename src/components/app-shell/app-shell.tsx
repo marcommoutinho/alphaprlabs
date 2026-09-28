@@ -1,4 +1,5 @@
 import { NavChoiceProvider } from "@/components/alpha/shell/nav-choice";
+import { NavCountsProvider } from "@/components/alpha/shell/nav-counts";
 import { SectionNav } from "@/components/alpha/shell/section-nav";
 import { Sidebar } from "@/components/alpha/shell/sidebar";
 import { TabBar } from "@/components/alpha/shell/tab-bar";
@@ -15,12 +16,14 @@ export function AppShell({ identity, children }: { identity: AppIdentity; childr
   return (
     <div className="flex flex-1 flex-col laptop:pl-[232px]" data-slot="app-shell">
       <NavChoiceProvider>
-        <Sidebar identity={identity} />
-        <div className="flex min-w-0 flex-1 flex-col pt-[env(safe-area-inset-top)]">
-          <SectionNav role={identity.role} />
-          {children}
-        </div>
-        <TabBar role={identity.role} />
+        <NavCountsProvider>
+          <Sidebar identity={identity} />
+          <div className="flex min-w-0 flex-1 flex-col pt-[env(safe-area-inset-top)]">
+            <SectionNav role={identity.role} />
+            {children}
+          </div>
+          <TabBar role={identity.role} />
+        </NavCountsProvider>
       </NavChoiceProvider>
     </div>
   );

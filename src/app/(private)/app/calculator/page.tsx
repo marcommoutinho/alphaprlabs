@@ -2,7 +2,7 @@ import { AppPage } from "@/components/app-shell/app-shell";
 import { Calculator } from "@/components/research/calculator";
 import { requireResearcher } from "@/lib/auth/session";
 import { listCycles, listCyclePeptides } from "@/lib/cycles/service";
-import { confirmationsByCycle, listDoseRecords } from "@/lib/doses/service";
+import { ownerConfirmations } from "@/lib/doses/service";
 import { linkablePlans } from "@/lib/mixtures/plans";
 import { blankForm, type CalculatorForm, formFromMixture } from "@/lib/mixtures/rules";
 import { getSupplyTracking, listMixtures, listPersonalVials } from "@/lib/mixtures/service";
@@ -28,15 +28,15 @@ export default async function CalculatorPage({ searchParams }: { searchParams: S
   const person = await requireResearcher(`/app/calculator${query}`);
 
   const db = await createClient();
-  const [peptides, mixtures, cycles, vials, tracking, records] = await Promise.all([
+  const [peptides, mixtures, cycles, vials, tracking, confirmations] = await Promise.all([
     listCyclePeptides(db),
     listMixtures(db, person.id),
     listCycles(db, person.id),
     listPersonalVials(db, person.id),
     getSupplyTracking(db, person.id),
-    listDoseRecords(db, person.id),
+    ownerConfirmations(db, person.id),
   ]);
-  const plans = linkablePlans(cycles, mixtures, new Date(), confirmationsByCycle(records));
+  const plans = linkablePlans(cycles, mixtures, new Date(), confirmations);
 
   let initial: CalculatorForm = blankForm(peptides.find((peptide) => peptide.available)?.id ?? "");
   let linked: string[] = [];

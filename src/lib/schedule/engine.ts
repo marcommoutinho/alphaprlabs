@@ -119,6 +119,12 @@ export type Confirmation = {
   recordedAt: InstantInput;
   /** The scheduled time recorded with the confirmation, if stored. */
   scheduledAt?: InstantInput;
+  /**
+   * A recorded skip (dose_skips), not an administration: it never moves the
+   * schedule (every-N-days doses after it count from its planned time, as
+   * for any dose not taken); it only marks its occurrence `skipped`.
+   */
+  skipped?: boolean;
 };
 
 export type Occurrence = {
@@ -138,6 +144,8 @@ export type Occurrence = {
   doseMg: string;
   /** Actual time (ISO UTC) when confirmed, else null. */
   actualAt: string | null;
+  /** Present (true) when the researcher skipped it: resolved, not taken and not open. */
+  skipped?: true;
   /**
    * Reminders and follow-ups for this occurrence stop at this instant (ISO
    * UTC): the phase's end or the next occurrence in the phase becoming due,
@@ -146,8 +154,8 @@ export type Occurrence = {
   remindersStopAt: string;
 };
 
-/** Dose states (handoff Business Rules 2), by local date in the plan's zone. */
-export type OccurrenceState = "taken" | "due" | "open" | "planned";
+/** Dose states (handoff Business Rules 2), by local date in the plan's zone; `skipped` once skipped. */
+export type OccurrenceState = "taken" | "due" | "open" | "planned" | "skipped";
 
 /** Validation issues; `phase` numbers are 1-based after sorting by start date. */
 export type PlanIssue =
@@ -537,7 +545,11 @@ export function scheduleOccurrences(
   if ((range?.from !== undefined && !isLocalDate(range.from)) || (range?.to !== undefined && !isLocalDate(range.to))) {
     throw new ScheduleInputError("Invalid range");
   }
-  const confirmed = parseConfirmations(confirmations);
+  if (!Array.isArray(confirmations)) throw new ScheduleInputError("Confirmations must be a list");
+  // Skips never move the schedule: it is computed from the doses taken, and
+  // a skipped occurrence is only marked.
+  const confirmed = parseConfirmations(confirmations.filter((c) => !c?.skipped));
+  const skipped = new Set(confirmations.filter((c) => c?.skipped).map((c) => c.key));
   const { planId, timeZone } = plan;
 
   const result: Occurrence[] = [];
@@ -552,7 +564,8 @@ export function scheduleOccurrences(
     drafts.forEach(({ occurrence }, i) => {
       const next = drafts[i + 1]?.instant;
       const stop = next && Temporal.Instant.compare(next, phaseEnd) < 0 ? next : phaseEnd;
-      result.push({ ...occurrence, remindersStopAt: isoInstant(stop) });
+      const skip = !occurrence.actualAt && skipped.has(occurrence.key);
+      result.push({ ...occurrence, ...(skip ? { skipped: true as const } : {}), remindersStopAt: isoInstant(stop) });
     });
   }
 
@@ -573,14 +586,15 @@ function compareInstants(a: string, b: string): number {
  */
 export function occurrenceState(occurrence: Occurrence, now: InstantInput): OccurrenceState {
   if (occurrence.actualAt) return "taken";
+  if (occurrence.skipped) return "skipped";
   const today = localDateOf(now, occurrence.timeZone);
   if (occurrence.localDate === today) return "due";
   return occurrence.localDate < today ? "open" : "planned";
 }
 
-/** True when unconfirmed and its scheduled time has arrived (counts toward the app badge). */
+/** True when unconfirmed, not skipped, and its scheduled time has arrived (counts toward the app badge). */
 export function isAwaitingConfirmation(occurrence: Occurrence, now: InstantInput): boolean {
-  return !occurrence.actualAt && Temporal.Instant.compare(Temporal.Instant.from(occurrence.scheduledAt), toInstant(now)) <= 0;
+  return !occurrence.actualAt && !occurrence.skipped && Temporal.Instant.compare(Temporal.Instant.from(occurrence.scheduledAt), toInstant(now)) <= 0;
 }
 
 /** The earliest unconfirmed occurrence scheduled at or after `now`, or null. */
@@ -588,7 +602,7 @@ export function nextDue(occurrences: readonly Occurrence[], now: InstantInput): 
   const at = toInstant(now);
   let best: Occurrence | null = null;
   for (const occurrence of occurrences) {
-    if (occurrence.actualAt) continue;
+    if (occurrence.actualAt || occurrence.skipped) continue;
     if (Temporal.Instant.compare(Temporal.Instant.from(occurrence.scheduledAt), at) < 0) continue;
     if (!best || compareInstants(occurrence.scheduledAt, best.scheduledAt) < 0) best = occurrence;
   }

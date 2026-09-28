@@ -669,6 +669,7 @@ export type Database = {
           planned_mg: number
           recorded_at: string
           request_key: string
+          schedule_version_after: number | null
           scheduled_at: string
           site: string
         }
@@ -687,6 +688,7 @@ export type Database = {
           planned_mg: number
           recorded_at: string
           request_key: string
+          schedule_version_after?: number | null
           scheduled_at: string
           site?: string
         }
@@ -705,6 +707,7 @@ export type Database = {
           planned_mg?: number
           recorded_at?: string
           request_key?: string
+          schedule_version_after?: number | null
           scheduled_at?: string
           site?: string
         }
@@ -718,6 +721,115 @@ export type Database = {
           },
           {
             foreignKeyName: "dose_records_plan"
+            columns: ["plan_id", "cycle_id", "owner_id", "peptide_id"]
+            isOneToOne: false
+            referencedRelation: "cycle_plans"
+            referencedColumns: ["id", "cycle_id", "owner_id", "peptide_id"]
+          },
+        ]
+      }
+      dose_skips: {
+        Row: {
+          cycle_id: string
+          id: string
+          occurrence_key: string
+          owner_id: string
+          peptide_id: string
+          phase_id: string
+          plan_id: string
+          planned_mg: number
+          recorded_at: string
+          request_key: string
+          schedule_version_after: number
+          scheduled_at: string
+        }
+        Insert: {
+          cycle_id: string
+          id?: string
+          occurrence_key: string
+          owner_id: string
+          peptide_id: string
+          phase_id: string
+          plan_id: string
+          planned_mg: number
+          recorded_at: string
+          request_key: string
+          schedule_version_after: number
+          scheduled_at: string
+        }
+        Update: {
+          cycle_id?: string
+          id?: string
+          occurrence_key?: string
+          owner_id?: string
+          peptide_id?: string
+          phase_id?: string
+          plan_id?: string
+          planned_mg?: number
+          recorded_at?: string
+          request_key?: string
+          schedule_version_after?: number
+          scheduled_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dose_skips_plan"
+            columns: ["plan_id", "cycle_id", "owner_id", "peptide_id"]
+            isOneToOne: false
+            referencedRelation: "cycle_plans"
+            referencedColumns: ["id", "cycle_id", "owner_id", "peptide_id"]
+          },
+        ]
+      }
+      dose_voids: {
+        Row: {
+          cycle_id: string
+          deduction: Json | null
+          entry: Json
+          entry_id: string
+          entry_request_key: string
+          id: string
+          kind: string
+          occurrence_key: string
+          owner_id: string
+          peptide_id: string
+          plan_id: string
+          request_key: string
+          voided_at: string
+        }
+        Insert: {
+          cycle_id: string
+          deduction?: Json | null
+          entry: Json
+          entry_id: string
+          entry_request_key: string
+          id?: string
+          kind: string
+          occurrence_key: string
+          owner_id: string
+          peptide_id: string
+          plan_id: string
+          request_key: string
+          voided_at: string
+        }
+        Update: {
+          cycle_id?: string
+          deduction?: Json | null
+          entry?: Json
+          entry_id?: string
+          entry_request_key?: string
+          id?: string
+          kind?: string
+          occurrence_key?: string
+          owner_id?: string
+          peptide_id?: string
+          plan_id?: string
+          request_key?: string
+          voided_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dose_voids_plan"
             columns: ["plan_id", "cycle_id", "owner_id", "peptide_id"]
             isOneToOne: false
             referencedRelation: "cycle_plans"
@@ -1704,6 +1816,14 @@ export type Database = {
         Args: { p_dose_id: string; p_replayed: boolean }
         Returns: Json
       }
+      dose_skip_result: {
+        Args: { p_replayed: boolean; p_skip_id: string }
+        Returns: Json
+      }
+      dose_void_result: {
+        Args: { p_replayed: boolean; p_void_id: string }
+        Returns: Json
+      }
       due_supplement_occurrences: {
         Args: {
           p_after_at?: string
@@ -1950,6 +2070,15 @@ export type Database = {
       }
       set_supply_tracking: { Args: { p_enabled: boolean }; Returns: boolean }
       share_with_team: { Args: never; Returns: string }
+      skip_dose: {
+        Args: {
+          p_occurrence_key: string
+          p_request_key: string
+          p_seen_dose_mg: string
+          p_seen_scheduled_at: string
+        }
+        Returns: Json
+      }
       stop_sharing_with_team: { Args: never; Returns: boolean }
       store_fx_rates: {
         Args: { p_rates: Json }
@@ -1987,6 +2116,10 @@ export type Database = {
         }[]
       }
       trim_whitespace: { Args: { p_text: string }; Returns: string }
+      undo_dose: {
+        Args: { p_entry_id: string; p_request_key: string }
+        Returns: Json
+      }
     }
     Enums: {
       app_role: "admin" | "researcher"

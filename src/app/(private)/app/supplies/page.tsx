@@ -3,7 +3,7 @@ import { AppPage } from "@/components/app-shell/app-shell";
 import { SuppliesScreen } from "@/components/research/supplies-screen";
 import { requireResearcher } from "@/lib/auth/session";
 import { listCycles, listCyclePeptides } from "@/lib/cycles/service";
-import { confirmationsByCycle, listDoseRecords } from "@/lib/doses/service";
+import { confirmationsByCycle, listDoseRecords, listDoseSkips } from "@/lib/doses/service";
 import { getSupplyTracking, listMixtures, listPersonalVials } from "@/lib/mixtures/service";
 import { listDeductions } from "@/lib/supplies/service";
 import { suppliesView } from "@/lib/supplies/view";
@@ -20,7 +20,7 @@ import "@/styles/app/supplies.css";
 export default async function SuppliesPage() {
   const person = await requireResearcher("/app/supplies");
   const db = await createClient();
-  const [tracking, vials, mixtures, library, deductions, records, cycles] = await Promise.all([
+  const [tracking, vials, mixtures, library, deductions, records, cycles, skips] = await Promise.all([
     getSupplyTracking(db, person.id),
     listPersonalVials(db, person.id),
     listMixtures(db, person.id),
@@ -28,6 +28,7 @@ export default async function SuppliesPage() {
     listDeductions(db, person.id),
     listDoseRecords(db, person.id),
     listCycles(db, person.id),
+    listDoseSkips(db, person.id),
   ]);
 
   const view = suppliesView({
@@ -38,7 +39,7 @@ export default async function SuppliesPage() {
     deductions,
     doses: records,
     cycles,
-    confirmations: confirmationsByCycle(records),
+    confirmations: confirmationsByCycle(records, skips),
     now: new Date(),
   });
 

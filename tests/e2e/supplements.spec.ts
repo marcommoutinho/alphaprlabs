@@ -32,9 +32,9 @@ test("create a routine, take it on Today once despite a retry, edit it and keep 
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
   await expect(page.getByTestId("today-supplement")).toHaveCount(0);
   // No cycle: the header is today in Toronto (the app's zone), and the prototype's empty note.
-  const torontoToday = new Intl.DateTimeFormat("en-US", { timeZone: "America/Toronto", weekday: "long", month: "long", day: "numeric" }).format(new Date());
-  await expect(page.locator(".app-today-zone")).toHaveText("America/Toronto");
-  await expect(page.locator(".app-today-date")).toHaveText(torontoToday);
+  const torontoToday = new Intl.DateTimeFormat("en-US", { timeZone: "America/Toronto", weekday: "short", month: "short", day: "numeric" }).format(new Date());
+  await expect(page.getByTestId("today-date")).toHaveAttribute("title", "America/Toronto");
+  await expect(page.getByTestId("today-date")).toHaveText(torontoToday);
   await expect(page.getByTestId("today-empty-body")).toHaveText(NO_CYCLES_BODY);
 
   // R10: the supplied guidance; nothing tracked until turned on and a routine exists.
@@ -72,10 +72,10 @@ test("create a routine, take it on Today once despite a retry, edit it and keep 
   // Today lists it; the first Taken reaches the server but its answer is lost.
   await page.goto(`${APP_ORIGIN}/app/today`);
   const row = page.getByTestId("today-supplement").filter({ hasText: name });
-  await expect(row).toContainText("Supplement · 00:00 · 2000 IU");
+  await expect(row).toContainText(`12:00 AM${name} · 2000 IU`);
   // Still no cycle: the same header, and the note no longer says nothing is due.
-  await expect(page.locator(".app-today-zone")).toHaveText("America/Toronto");
-  await expect(page.locator(".app-today-date")).toHaveText(torontoToday);
+  await expect(page.getByTestId("today-date")).toHaveAttribute("title", "America/Toronto");
+  await expect(page.getByTestId("today-date")).toHaveText(torontoToday);
   await expect(page.getByTestId("today-empty-body")).toHaveText(NO_CYCLES_BODY_SUPPLEMENTS);
   let lost = 0;
   await page.route(/\/app\/today$/, async (route) => {
@@ -91,7 +91,8 @@ test("create a routine, take it on Today once despite a retry, edit it and keep 
     await route.fallback();
   });
   await (await hydrated(row.getByRole("button", { name: "Taken", exact: true }))).click();
-  await expect(page.getByRole("status").filter({ hasText: SAVE_FAILED_MESSAGE })).toBeVisible();
+  // A v3 error toast is an alert (it stays until dismissed).
+  await expect(page.getByRole("alert").filter({ hasText: SAVE_FAILED_MESSAGE })).toBeVisible();
   expect(lost).toBe(1);
   const taken = () =>
     ok(serviceClient().from("supplement_taken").select("local_date, name, amount::text, unit, request_key").eq("owner_id", researcherId), "taken");
@@ -102,7 +103,7 @@ test("create a routine, take it on Today once despite a retry, edit it and keep 
   // The retry sends the same request: the recorded Taken comes back, and nothing more is recorded.
   await row.getByRole("button", { name: "Taken", exact: true }).click();
   await expect(page.getByRole("status").filter({ hasText: `Taken · ${name} · ` })).toBeVisible();
-  await expect(row.getByTestId("supplement-status")).toHaveText(/^Taken \d\d:\d\d$/);
+  await expect(row.getByTestId("supplement-status")).toHaveText(/^Taken \d{1,2}:\d\d [AP]M$/);
   await expect(row.getByRole("button", { name: "Taken", exact: true })).toHaveCount(0);
   await expect(page.getByTestId("today-empty-body")).toHaveText(NO_CYCLES_BODY);
   expect(await taken()).toEqual([first]);
@@ -137,8 +138,8 @@ test("create a routine, take it on Today once despite a retry, edit it and keep 
 
   // Today still shows what was taken today, as it was taken.
   await page.goto(`${APP_ORIGIN}/app/today`);
-  await expect(row).toContainText("Supplement · 00:00 · 2000 IU");
-  await expect(row.getByTestId("supplement-status")).toHaveText(/^Taken \d\d:\d\d$/);
+  await expect(row).toContainText(`12:00 AM${name} · 2000 IU`);
+  await expect(row.getByTestId("supplement-status")).toHaveText(/^Taken \d{1,2}:\d\d [AP]M$/);
 
   // On a phone, R10 fits without sideways scrolling.
   await page.goto(`${APP_ORIGIN}/app/supplements`);

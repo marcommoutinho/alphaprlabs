@@ -15,9 +15,10 @@ import {
 } from "@/lib/calculator/calculator";
 import { normalizeDecimal, parseDecimal } from "@/lib/calculator/decimal";
 import { formatDay } from "@/lib/format";
+import { RECORDED_SITES, ROTATION } from "./sites";
 
-/** R5's injection sites (the prototype's), stored as written. */
-export const SITES = ["Abdomen L", "Abdomen R", "Thigh L", "Thigh R", "Other"] as const;
+/** R2's injection sites (design v3: eight, in rotation order), stored as written. See ./sites. */
+export const SITES = ROTATION;
 
 export const NOTES_LIMIT = 1000;
 export const AMOUNT_LIMIT = "100000";
@@ -42,6 +43,18 @@ export const VIAL_NOTE = (label: string) =>
 export const lateNote = (days: number) =>
   `You're recording this ${days} day${days === 1 ? "" : "s"} after it happened. That's fine — the actual time is what the schedule uses.`;
 export const takenToast = (peptide: string, when: string) => `Taken · ${peptide} · ${when}`;
+// V1 (design v3 §7.15 and the new Skip / Undo).
+/** "TB-500 · 2.5 mg logged at 9:12 AM" (the Undo toast after Taken). */
+export const loggedToast = (peptide: string, amount: string, at: string) => `${peptide} · ${amount} logged at ${at}`;
+/** "TB-500 · 9:00 AM skipped" (the Undo toast after Skip). */
+export const skippedToast = (peptide: string, planned: string) => `${peptide} · ${planned} skipped`;
+export const undoneToast = (peptide: string) => `Undone. ${peptide} is open again.`;
+export const UNDO_TOO_LATE = "It's too late to undo that entry. It stays recorded.";
+export const UNDO_DEPENDS = "Something was recorded after that entry, so it can't be undone.";
+export const UNDO_FAILED = "Couldn't undo. The entry is still recorded.";
+export const ALREADY_SKIPPED = "This dose was skipped, so it can't be logged.";
+export const DOSE_ALREADY_TAKEN = "This dose is already logged.";
+export const SKIPPED_NOTE = "You marked this dose skipped. It counts as skipped, not missed, and can't be logged now.";
 export const discrepancyToast = (peptide: string, when: string, vial: string) =>
   `Taken · ${peptide} · ${when}. Vial ${vial}'s estimate is now below zero — check it in Personal supplies.`;
 
@@ -247,7 +260,7 @@ export function confirmFormError(form: Pick<ConfirmForm, "amount" | "actual" | "
     if (!isWall(form.actual)) return TIME_REQUIRED;
     if (form.actual > now) return TIME_FUTURE;
   }
-  if (form.site !== "" && !(SITES as readonly string[]).includes(form.site)) return "Choose a site from the list.";
+  if (form.site !== "" && !RECORDED_SITES.includes(form.site)) return "Choose a site from the list.";
   if (form.notes.trim().length > NOTES_LIMIT) return NOTES_TOO_LONG;
   return null;
 }

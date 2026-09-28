@@ -22,6 +22,8 @@ const EXCLUSIVE = [
   "tests/integration/dose-parity.test.ts",
   // An owner-level psql transaction holds save_mixture's locks while a confirmation waits.
   "tests/integration/dose-locks.test.ts",
+  // Owner-level psql moves undo_dose's entries back in time (committed, a unique account).
+  "tests/integration/dose-undo-owner.test.ts",
   // Owner-level psql tries S14's composite keys (always rolled back).
   "tests/integration/supplies-keys.test.ts",
   // Owner-level psql transactions hold reopen_personal_vial's (and its rivals') locks.

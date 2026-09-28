@@ -13,6 +13,7 @@ import type { Confirmation } from "@/lib/schedule/engine";
 import type { InstantInput } from "@/lib/schedule/zone";
 import {
   mgLabel,
+  OVER_STATE,
   outlookFor,
   outlookLine,
   type PlannedDose,
@@ -270,4 +271,55 @@ export function todayStockNotes(input: TodayStockInput): Map<string, string> {
     if (note) for (const planId of mixture.planIds) notes.set(planId, note);
   }
   return notes;
+}
+
+/** A tracked open vial that is low, empty or over: Today's "Supplies" row (design v3 R1 §6). */
+export type LowVialRow = {
+  vialId: string;
+  /** "BPC-157 · 10 mg vial A-02" */
+  title: string;
+  /** "Low · 0.3 mg left, less than the next 0.4 mg dose" */
+  status: string;
+};
+
+export type TodaySupply = {
+  /** todayStockNotes' notes, by plan id. */
+  notes: Map<string, string>;
+  /** Each tracked open vial's estimate now, by mixture id (R2's "Vial after"). */
+  vials: Map<string, { label: string; strengthMg: string; remainingMg: string }>;
+  low: LowVialRow[];
+};
+
+/**
+ * Everything Today shows about personal supplies (V1): the R8 notes beside
+ * doses, the estimate R2 counts "Vial after" down from, and the low vial rows.
+ * Low is the R8 rule (less than the next planned dose; Marco's rule wins over
+ * the design's "3 days"). Nothing while tracking is off.
+ */
+export function todaySupply(input: TodayStockInput & { peptideNames?: ReadonlyMap<string, string> }): TodaySupply {
+  const supply: TodaySupply = { notes: todayStockNotes(input), vials: new Map(), low: [] };
+  if (!input.tracking) return supply;
+  const byMixture = new Map<string, Mixture>();
+  for (const mixture of input.mixtures.values()) byMixture.set(mixture.id, mixture);
+  const byVial = deductionsByVial(input.deductions);
+  let upcoming: Map<string, PlannedDose[]> | null = null;
+  for (const vial of input.vials) {
+    const mixture = vial.mixtureId && vial.finishedAt === null ? byMixture.get(vial.mixtureId) : undefined;
+    if (!mixture) continue;
+    upcoming ??= upcomingByPlan(input.cycles, input.confirmations, input.now);
+    const estimate = vialEstimate(vial.strengthMg, byVial.get(vial.id) ?? []);
+    supply.vials.set(mixture.id, { label: vial.label, strengthMg: vial.strengthMg, remainingMg: estimate.remainingMg });
+    const outlook = outlookFor(estimate, mixture.id, mixture.planIds, upcoming);
+    const name = input.peptideNames?.get(vial.peptideId) ?? "";
+    const title = `${name ? `${name} · ` : ""}${mgLabel(vial.strengthMg)} vial ${vial.label}`;
+    if (estimate.state === "over") supply.low.push({ vialId: vial.id, title, status: OVER_STATE });
+    else if (estimate.state === "empty") supply.low.push({ vialId: vial.id, title, status: "Empty · 0 mg left (estimate)" });
+    else if (outlook.kind === "known" && outlook.low)
+      supply.low.push({
+        vialId: vial.id,
+        title,
+        status: `Low · ${mgLabel(estimate.remainingMg)} left, less than the next ${mgLabel(outlook.next.doseMg)} dose`,
+      });
+  }
+  return supply;
 }

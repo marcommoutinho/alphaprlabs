@@ -129,7 +129,7 @@ export function upcomingByPlan(
     const revision = cycle.revisions.at(-1);
     if (!revision || cycleStatus(revision, at.toString()) === "Ended") continue;
     for (const [planId, occurrences] of planOccurrences(cycle.revisions, confirmations.get(cycle.id) ?? [])) {
-      const ahead = occurrences.filter((o) => !o.actualAt && o.localDate >= localDateOf(at, o.timeZone));
+      const ahead = occurrences.filter((o) => !o.actualAt && !o.skipped && o.localDate >= localDateOf(at, o.timeZone));
       if (ahead.length) byPlan.set(planId, [...(byPlan.get(planId) ?? []), ...ahead].sort(byTime));
     }
   }

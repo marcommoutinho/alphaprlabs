@@ -129,20 +129,88 @@ const confirmationOf = (record: DoseRecord): RecordedConfirmation => ({
   notes: record.notes,
 });
 
-/** Recorded doses as the engine's confirmations, by cycle id. */
-export function confirmationsByCycle(records: readonly DoseRecord[]): Map<string, RecordedConfirmation[]> {
+/** A recorded skip as the engine's (skipped) confirmation: it only marks its occurrence. */
+const skipConfirmationOf = (skip: DoseSkip): RecordedConfirmation => ({
+  key: skip.occurrenceKey,
+  actualAt: skip.recordedAt,
+  recordedAt: skip.recordedAt,
+  scheduledAt: skip.scheduledAt,
+  skipped: true,
+});
+
+/** Recorded doses (and skips, V1) as the engine's confirmations, by cycle id. */
+export function confirmationsByCycle(records: readonly DoseRecord[], skips: readonly DoseSkip[] = []): Map<string, RecordedConfirmation[]> {
   const byCycle = new Map<string, RecordedConfirmation[]>();
-  for (const record of records) {
-    const list = byCycle.get(record.cycleId) ?? [];
-    list.push(confirmationOf(record));
-    byCycle.set(record.cycleId, list);
-  }
+  const add = (cycleId: string, confirmation: RecordedConfirmation) => {
+    const list = byCycle.get(cycleId) ?? [];
+    list.push(confirmation);
+    byCycle.set(cycleId, list);
+  };
+  for (const record of records) add(record.cycleId, confirmationOf(record));
+  for (const skip of skips) add(skip.cycleId, skipConfirmationOf(skip));
   return byCycle;
 }
 
-/** One cycle's confirmations, for a page that shows one cycle. */
+/** One cycle's confirmations (its recorded doses and skips), for a page that shows one cycle. */
 export async function cycleConfirmations(db: Db, cycleId: string, options: DoseReadOptions = {}): Promise<RecordedConfirmation[]> {
-  return (await recordRows(db, { cycleId }, options)).map((row) => confirmationOf(recordOf(row)));
+  const [rows, skips] = await Promise.all([recordRows(db, { cycleId }, options), skipRows(db, { cycleId })]);
+  return [...rows.map((row) => confirmationOf(recordOf(row))), ...skips.map(skipConfirmationOf)];
+}
+
+// ── Skips (V1: "Skip" / "Mark skipped") ─────────────────────────────────────
+
+/** One recorded skip (dose_skips): the occurrence is resolved, not taken. */
+export type DoseSkip = {
+  id: string;
+  cycleId: string;
+  planId: string;
+  occurrenceKey: string;
+  scheduledAt: string;
+  plannedMg: string;
+  recordedAt: string;
+};
+
+type SkipRow = { id: string; cycle_id: string; plan_id: string; occurrence_key: string; scheduled_at: string; planned_mg: string; recorded_at: string };
+const SKIP_COLUMNS = "id, cycle_id, plan_id, occurrence_key, scheduled_at, planned_mg::text, recorded_at";
+
+const skipOf = (row: SkipRow): DoseSkip => ({
+  id: row.id,
+  cycleId: row.cycle_id,
+  planId: row.plan_id,
+  occurrenceKey: row.occurrence_key,
+  scheduledAt: row.scheduled_at,
+  plannedMg: row.planned_mg,
+  recordedAt: row.recorded_at,
+});
+
+/** Every skip matching `scope`, read a page at a time by id (as recordRows). */
+async function skipRows(db: Db, scope: { ownerId: string } | { cycleId: string }): Promise<DoseSkip[]> {
+  const rows: SkipRow[] = [];
+  for (let after: string | null = null; ; ) {
+    const query = db.from("dose_skips").select(SKIP_COLUMNS);
+    const scoped = "ownerId" in scope ? query.eq("owner_id", scope.ownerId) : query.eq("cycle_id", scope.cycleId);
+    const { data, error } = await ((after ? scoped.gt("id", after) : scoped).order("id").limit(PAGE) as unknown as PromiseLike<{
+      data: SkipRow[] | null;
+      error: { message: string } | null;
+    }>);
+    if (error) throw new Error(`Could not load skipped doses: ${error.message}`);
+    const got = data ?? [];
+    rows.push(...got);
+    if (got.length < PAGE) break;
+    after = got[got.length - 1].id;
+  }
+  return rows.map(skipOf);
+}
+
+/** Every dose `ownerId` skipped (readable to them, or to admins while they share). */
+export function listDoseSkips(db: Db, ownerId: string): Promise<DoseSkip[]> {
+  return skipRows(db, { ownerId });
+}
+
+/** The engine's confirmations for everything `ownerId` recorded (doses and skips), by cycle id. */
+export async function ownerConfirmations(db: Db, ownerId: string): Promise<Map<string, RecordedConfirmation[]>> {
+  const [records, skips] = await Promise.all([listDoseRecords(db, ownerId), listDoseSkips(db, ownerId)]);
+  return confirmationsByCycle(records, skips);
 }
 
 // ── The setups a plan used over time (R5's units and seen version) ──────────
@@ -225,6 +293,8 @@ export type ConfirmDoseInput = {
 
 export type RecordedDose = {
   id: string;
+  /** The recorded site ("" when none). */
+  site: string;
   occurrenceKey: string;
   actualAt: string;
   recordedAt: string;
@@ -236,7 +306,7 @@ export type RecordedDose = {
 
 export type ConfirmDoseResult =
   | { kind: "recorded"; dose: RecordedDose }
-  | { kind: "not_found" | "gone" | "already" | "not_yet" | "changed" | "future" | "too_early" | "invalid" | "error" };
+  | { kind: "not_found" | "gone" | "already" | "skipped" | "undone" | "not_yet" | "changed" | "future" | "too_early" | "invalid" | "error" };
 
 const REFUSALS: Record<string, Exclude<ConfirmDoseResult["kind"], "recorded">> = {
   AP017: "gone",
@@ -245,11 +315,14 @@ const REFUSALS: Record<string, Exclude<ConfirmDoseResult["kind"], "recorded">> =
   AP020: "changed",
   AP021: "future",
   AP022: "too_early",
+  AP031: "skipped",
+  AP034: "undone",
   "22023": "invalid",
 };
 
 type ResultJson = {
   id: string;
+  site: string;
   occurrence_key: string;
   actual_at: string;
   recorded_at: string;
@@ -279,6 +352,7 @@ export async function confirmDose(db: Db, input: ConfirmDoseInput): Promise<Conf
     kind: "recorded",
     dose: {
       id: json.id,
+      site: json.site,
       occurrenceKey: json.occurrence_key,
       actualAt: json.actual_at,
       recordedAt: json.recorded_at,
@@ -292,5 +366,69 @@ export async function confirmDose(db: Db, input: ConfirmDoseInput): Promise<Conf
           }
         : null,
     },
+  };
+}
+
+// ── Skipping and undoing (V1) ───────────────────────────────────────────────
+
+export type SkipDoseInput = { requestKey: string; occurrenceKey: string; seenScheduledAt: string; seenDoseMg: string };
+
+export type SkipDoseResult =
+  | { kind: "skipped"; skip: { id: string; occurrenceKey: string; recordedAt: string; replayed: boolean } }
+  | { kind: "not_found" | "gone" | "already" | "already_skipped" | "undone" | "not_yet" | "changed" | "invalid" | "error" };
+
+const SKIP_REFUSALS: Record<string, Exclude<SkipDoseResult["kind"], "skipped">> = {
+  AP017: "gone",
+  AP018: "already",
+  AP019: "not_yet",
+  AP020: "changed",
+  AP031: "already_skipped",
+  AP034: "undone",
+  "22023": "invalid",
+};
+
+/** skip_dose (20260928100000_dose_skips_undo_sites.sql): one recorded skip, idempotent by request key. */
+export async function skipDose(db: Db, input: SkipDoseInput): Promise<SkipDoseResult> {
+  const { data, error } = await db.rpc("skip_dose", {
+    p_request_key: input.requestKey,
+    p_occurrence_key: input.occurrenceKey,
+    p_seen_scheduled_at: input.seenScheduledAt,
+    p_seen_dose_mg: input.seenDoseMg,
+  });
+  if (error) return { kind: SKIP_REFUSALS[error.code] ?? "error" };
+  if (!data) return { kind: "not_found" };
+  const json = data as unknown as { id: string; occurrence_key: string; recorded_at: string; replayed: boolean };
+  return { kind: "skipped", skip: { id: json.id, occurrenceKey: json.occurrence_key, recordedAt: json.recorded_at, replayed: json.replayed } };
+}
+
+export type UndoDoseResult =
+  | {
+      kind: "undone";
+      undo: { id: string; entry: "taken" | "skipped"; occurrenceKey: string; replayed: boolean; vialLabel: string | null };
+    }
+  | { kind: "not_found" | "too_late" | "depends" | "already" | "invalid" | "error" };
+
+const UNDO_REFUSALS: Record<string, Exclude<UndoDoseResult["kind"], "undone">> = {
+  AP032: "too_late",
+  AP033: "depends",
+  AP034: "already",
+  "22023": "invalid",
+};
+
+/** undo_dose: retracts a Taken or a skip just recorded, keeping an audit record (see the migration). */
+export async function undoDose(db: Db, input: { requestKey: string; entryId: string }): Promise<UndoDoseResult> {
+  const { data, error } = await db.rpc("undo_dose", { p_request_key: input.requestKey, p_entry_id: input.entryId });
+  if (error) return { kind: UNDO_REFUSALS[error.code] ?? "error" };
+  if (!data) return { kind: "not_found" };
+  const json = data as unknown as {
+    id: string;
+    kind: "taken" | "skipped";
+    occurrence_key: string;
+    replayed: boolean;
+    deduction: { vial_label: string | null } | null;
+  };
+  return {
+    kind: "undone",
+    undo: { id: json.id, entry: json.kind, occurrenceKey: json.occurrence_key, replayed: json.replayed, vialLabel: json.deduction?.vial_label ?? null },
   };
 }

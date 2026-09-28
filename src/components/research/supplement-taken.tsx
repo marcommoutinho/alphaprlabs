@@ -4,7 +4,7 @@ import { unstable_rethrow } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { takeSupplementAction, type TakenActionResult } from "@/app/(private)/app/supplements/actions";
 import { Modal, ModalClose } from "@/components/app-shell/modal";
-import { SAVE_FAILED_MESSAGE, useToast } from "@/components/app-shell/toast";
+import { SAVE_FAILED_MESSAGE, type ToastTone, useToast } from "@/components/app-shell/toast";
 import { daysBetween, lateNote, TIME_NOW_NOTE, type Wall, wallLabel, wallOf, wallShort } from "@/lib/doses/rules";
 import { takenTimeError, takenToast } from "@/lib/supplements/rules";
 import type { SupplementDetail } from "@/lib/supplements/view";
@@ -15,8 +15,12 @@ import type { SupplementDetail } from "@/lib/supplements/view";
  * key and the server records one Taken and returns it again. `actual` is a
  * wall-clock time in the routine's zone, or null for now.
  */
-export function useTakeSupplement() {
-  const toast = useToast();
+/** Where the hook reports (Today passes the v3 toasts; R10 keeps the legacy ones). */
+export type SupplementNotify = (message: string, tone: ToastTone) => void;
+
+export function useTakeSupplement(notify?: SupplementNotify) {
+  const legacy = useToast();
+  const toast = notify ?? legacy;
   const [pending, startTransition] = useTransition();
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const requestKeys = useRef(new Map<string, string>());

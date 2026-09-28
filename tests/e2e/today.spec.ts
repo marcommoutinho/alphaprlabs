@@ -1,4 +1,4 @@
-// S12 R1 Today and the R5 confirmation sheet, against the real local
+// S12 R1 Today and the log sheet (R5, design v3's R2 / R2b), against the real local
 // Supabase. The server's clock is the real one, so cycles use a fixed-offset
 // zone where it is about 12:00 now (08:00 and 09:00 doses today are due) and
 // dates relative to today there. navigator.setAppBadge is stubbed to record
@@ -6,24 +6,14 @@
 import { expect, test, type Page } from "@playwright/test";
 import { APP_ORIGIN } from "../../playwright.config";
 import { DOSE_CHANGED, STALE_LINK, TIME_FUTURE } from "../../src/lib/doses/rules";
-import { createCycle, interval, plan, tag, weekdays } from "../support/cycles";
-import { d, NOON, noonZoneInstant } from "../support/noon";
-import { ensureAccount, hydrated, ok, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
+import { d, noonZoneInstant } from "../support/noon";
+import { hydrated, ok, serviceClient, signedInClient, signInAs } from "../support/local-supabase";
+import { seedToday } from "../support/today";
 
 declare global {
   interface Window {
     __badges?: number[];
   }
-}
-
-async function seedPeptide(name: string) {
-  const { data, error } = await serviceClient()
-    .from("peptides")
-    .insert({ name, information: `[Supplied information for ${name}]`, available: true })
-    .select("id")
-    .single();
-  if (error || !data) throw new Error(`Could not seed ${name}: ${error?.message ?? "no row"}`);
-  return data.id;
 }
 
 /**
@@ -33,28 +23,18 @@ async function seedPeptide(name: string) {
  * two days ago, B yesterday.
  */
 async function seed(label: string) {
-  const t = tag();
-  const email = uniqueEmail(`s12-today-${label}`);
-  await ensureAccount({ email, name: `Today ${label}`, role: "researcher" });
-  const [A, B] = [`Today A ${t}`, `Today B ${t}`];
-  const [aId, bId] = [await seedPeptide(A), await seedPeptide(B)];
-  const db = await signedInClient(email);
-  const cycleId = await createCycle(db, {
-    name: `Today cycle ${t}`,
-    timeZone: NOON,
-    plans: [plan(aId, [interval(d(-2), d(20), "0.4", 2, "08:00")]), plan(bId, [weekdays(d(-1), d(20), [0, 1, 2, 3, 4, 5, 6], "1", "09:00")])],
-  });
-  const plans = await ok(db.from("cycle_plans").select("id, peptide_id").eq("cycle_id", cycleId), "plans");
-  const planA = plans.find((p) => p.peptide_id === aId)!.id;
-  const setup = { p_peptide_id: aId, p_vial_mg: "10", p_syringe_units: 100, p_line_spacing: "2", p_plan_ids: [planA] };
-  const mixtureId = (await ok(db.rpc("save_mixture", { ...setup, p_liquid_ml: "2" }), "mixture"))!;
+  const seeded = await seedToday(`s12-${label}`);
+  const { email } = seeded;
+  const [{ id: mixtureId, peptide_id: peptideId }] = await ok(seeded.db.from("mixtures").select("id, peptide_id"), "mixture");
+  const [{ id: planA }] = await ok(seeded.db.from("cycle_plans").select("id").eq("cycle_id", seeded.cycleId).eq("peptide_id", peptideId), "plan A");
+  const setup = { p_peptide_id: peptideId, p_vial_mg: "10", p_syringe_units: 100, p_line_spacing: "2", p_plan_ids: [planA] };
   /** Another session changes A's mixture to 10 mg / `liquidMl` mL. */
   const changeMixture = async (liquidMl: string) => {
     const elsewhere = await signedInClient(email);
     const [{ version }] = await ok(elsewhere.from("mixtures").select("version").eq("id", mixtureId), "mixture version");
     await ok(elsewhere.rpc("save_mixture", { ...setup, p_liquid_ml: liquidMl, p_mixture_id: mixtureId, p_version: version }), "mixture change");
   };
-  return { email, A, B, cycleId, changeMixture };
+  return { ...seeded, changeMixture };
 }
 
 /** Records every badge the app sets (0 for a cleared badge). */
@@ -92,35 +72,44 @@ test("Today confirms the due dose in one tap and the badge follows", async ({ pa
   await signIn(page, email);
 
   const hero = page.getByTestId("today-hero");
-  await expect(hero).toContainText(`Due · 08:00`);
-  await expect(hero.locator(".app-today-hero-name")).toHaveText(A);
+  await expect(hero).toContainText("Due now");
+  await expect(hero).toContainText("8:00 AM");
+  await expect(hero.getByTestId("hero-name")).toHaveText(A);
   await expect(hero.getByTestId("hero-units")).toHaveText("8");
-  await expect(hero).toContainText("0.4 mg · 0.08 mL · from your 10 mg / 2 mL mixture · 1 mL syringe");
-  const rows = page.getByTestId("today-row");
-  // Today's other dose, unconfirmed doses newest first, then each plan's next dose.
-  await expect(rows.locator(".app-today-row-title")).toHaveText([B, `Unconfirmed · ${B}`, `Unconfirmed · ${A}`, B, A]);
+  await expect(hero).toContainText("0.08 mL");
+  await expect(hero).toContainText("100-unit syringe");
+  // Today's doses on the day rail, unconfirmed doses newest first, then each plan's next dose.
+  const today = page.locator('[data-testid="today-row"][data-kind="today"]');
+  await expect(today.getByTestId("today-row-title")).toHaveText([new RegExp(`^${A} `), new RegExp(`^${B} `)]);
+  await expect(page.getByTestId("today-overdue")).toContainText([`${B} · 1 mgNot logged`, `${A} · 0.4 mgNot logged`]);
+  await expect(page.locator('[data-testid="today-row"][data-kind="next"]').getByTestId("today-row-title")).toHaveText([
+    new RegExp(`^${B} `),
+    new RegExp(`^${A} `),
+  ]);
+  await expect(page.getByTestId("today-overdue-count")).toHaveText("2 overdue");
   // Two due today, two unconfirmed.
   await expect.poll(() => lastBadge(page)).toBe(4);
 
   await (await hydrated(hero.getByRole("button", { name: "Taken", exact: true }))).click();
-  await expect(page.getByRole("status").filter({ hasText: `Taken · ${A} · ` })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: `${A} · 0.4 mg logged at ` })).toBeVisible();
   await expect.poll(() => lastBadge(page)).toBe(3);
-  // B's 09:00 dose leads now, in mg (no saved mixture); A's shows as taken today.
-  await expect(hero.locator(".app-today-hero-name")).toHaveText(B);
+  // B's 09:00 dose leads now, in mg (no saved mixture); A's shows as taken today, at the suggested site.
+  await expect(hero.getByTestId("hero-name")).toHaveText(B);
   await expect(hero.getByTestId("hero-mg")).toHaveText("1 mg");
-  // The amount taken (here the planned one), not a bare time.
-  await expect(rows.filter({ hasText: A }).first().locator(".app-today-row-status")).toHaveText(/^Taken \d\d:\d\d · 0\.4 mg$/);
+  await expect(today.filter({ hasText: A }).getByTestId("today-row-status")).toHaveText(/^Taken \d{1,2}:\d\d [AP]M · Abdomen L$/);
 
   const recorded = await doses(cycleId);
   expect(recorded).toHaveLength(1);
-  expect(recorded[0]).toMatchObject({ amount_mg: "0.4", site: "", notes: "" });
+  expect(recorded[0]).toMatchObject({ amount_mg: "0.4", site: "Abdomen L", notes: "" });
   expect(Math.abs(Date.parse(recorded[0].actual_at) - Date.parse(recorded[0].recorded_at))).toBeLessThan(1000);
 
-  // One more tap confirms B's dose today: nothing left due today.
+  // One more tap confirms B's dose today, at the next site in the rotation: nothing left due today.
   await (await hydrated(hero.getByRole("button", { name: "Taken", exact: true }))).click();
   await expect(page.getByTestId("today-quiet")).toContainText("All done for today");
   await expect.poll(() => lastBadge(page)).toBe(2);
-  expect(await doses(cycleId)).toHaveLength(2);
+  const both = await doses(cycleId);
+  expect(both).toHaveLength(2);
+  expect(both.map((dose) => dose.site).sort()).toEqual(["Abdomen L", "Abdomen R"]);
 });
 
 test("the sheet records an earlier time, the amount, a site and notes", async ({ page }) => {
@@ -129,41 +118,53 @@ test("the sheet records an earlier time, the amount, a site and notes", async ({
   await signIn(page, email);
   await expect.poll(() => lastBadge(page)).toBe(4);
 
-  const row = page.getByTestId("today-row").filter({ hasText: `Unconfirmed · ${A}` });
-  await (await hydrated(row.getByRole("button", { name: "Confirm" }))).click();
-  const sheet = page.getByRole("dialog", { name: "Confirm administration" });
+  const row = page.getByTestId("today-overdue").filter({ hasText: A });
+  await (await hydrated(row.getByRole("button", { name: "Log" }))).click();
+  const sheet = page.getByRole("dialog", { name: A });
   await expect(sheet.getByRole("heading", { level: 2 })).toHaveText(A);
+  // R2b: Earlier is chosen, at the planned date and time.
+  const date = sheet.getByLabel("Date");
+  const time = sheet.getByLabel("Time", { exact: true });
+  await expect(date).toHaveValue(d(-2));
+  await expect(time).toHaveValue("08:00");
+  // The mixture was saved today: at the planned time there was none, so no units for that time.
+  await expect(sheet.getByTestId("sheet-units")).toHaveText("no saved mixture");
+  // Now: the current mixture's units.
+  await sheet.getByRole("button", { name: /^Now · / }).click();
   await expect(sheet.getByTestId("sheet-units")).toHaveText("= 8 units");
 
+  await sheet.getByRole("button", { name: "Change the amount taken" }).click();
   const amount = sheet.getByLabel(/^Amount taken \(mg\)/);
   await amount.fill("0.35");
   await expect(sheet.getByTestId("sheet-units")).toHaveText("= 7 units · not on a line");
   await amount.fill("0.3");
   await expect(sheet.getByTestId("sheet-units")).toHaveText("= 6 units");
-  const time = sheet.getByLabel("When you actually took it");
+  await sheet.getByRole("button", { name: "Earlier…" }).click();
+  await expect(date).toHaveValue(d(-2));
   // A future time is refused before anything is sent.
-  await time.fill(`${d(1)}T08:00`);
-  await sheet.getByRole("button", { name: "Mark Taken" }).click();
+  await date.fill(d(1));
+  await sheet.getByRole("button", { name: "Log at 8:00 AM" }).click();
   await expect(sheet.getByRole("alert")).toHaveText(TIME_FUTURE);
   expect(await doses(cycleId)).toEqual([]);
 
-  await time.fill(`${d(-2)}T07:40`);
+  await date.fill(d(-2));
+  await time.fill("07:40");
   await expect(sheet.getByRole("alert")).toHaveCount(0);
-  // The mixture was saved today: two days ago there was none, so no units for that time.
+  // Two days ago there was no mixture: no units for that time.
   await expect(sheet.getByTestId("sheet-units")).toHaveText("no saved mixture");
   await expect(sheet).toContainText("You're recording this 2 days after it happened.");
   // A's next dose (today 08:00) is already due, so this entry doesn't move it.
   await expect(sheet).toContainText(`Later ${A} doses that are already due keep their times`);
-  await sheet.getByRole("button", { name: /Site and notes/ }).click();
+  await sheet.getByRole("button", { name: /^Injection site/ }).click();
   await sheet.getByRole("button", { name: "Thigh L" }).click();
   await expect(sheet.getByRole("button", { name: "Thigh L" })).toHaveAttribute("aria-pressed", "true");
-  await sheet.getByLabel("Observations · optional").fill("Mild redness");
-  await sheet.getByRole("button", { name: "Mark Taken" }).click();
+  await sheet.getByLabel("Note").fill("Mild redness");
+  await sheet.getByRole("button", { name: "Log at 7:40 AM" }).click();
 
   await expect(sheet).toBeHidden();
-  await expect(page.getByRole("status").filter({ hasText: `Taken · ${A} · ` })).toContainText("07:40");
+  await expect(page.getByRole("status").filter({ hasText: `${A} · 0.3 mg logged at 7:40 AM` })).toBeVisible();
   await expect.poll(() => lastBadge(page)).toBe(3);
-  await expect(page.getByTestId("today-row").filter({ hasText: `Unconfirmed · ${A}` })).toHaveCount(0);
+  await expect(page.getByTestId("today-overdue").filter({ hasText: A })).toHaveCount(0);
 
   const recorded = await doses(cycleId);
   expect(recorded).toHaveLength(1);
@@ -188,15 +189,15 @@ test("a Taken from a screen whose mixture changed elsewhere is refused and shows
   // Another session changes the setup to 10 mg / 4 mL: 0.4 mg is now 16 units.
   await changeMixture("4");
   await (await hydrated(hero.getByRole("button", { name: "Taken", exact: true }))).click();
-  const sheet = page.getByRole("dialog", { name: "Confirm administration" });
+  const sheet = page.getByRole("dialog", { name: A });
   await expect(sheet).toContainText(DOSE_CHANGED);
   await expect(sheet.getByTestId("sheet-units")).toHaveText("= 16 units");
   await expect(hero.getByTestId("hero-units")).toHaveText("16");
   expect(await doses(cycleId)).toEqual([]);
 
-  await sheet.getByRole("button", { name: "Mark Taken" }).click();
+  await sheet.getByRole("button", { name: "Taken · 0.4 mg" }).click();
   await expect(sheet).toBeHidden();
-  await expect(page.getByRole("status").filter({ hasText: `Taken · ${A} · ` })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: `${A} · 0.4 mg logged at ` })).toBeVisible();
   expect(await doses(cycleId)).toHaveLength(1);
 });
 
@@ -215,13 +216,13 @@ test("a reminder link opens its dose on a phone; an out-of-date one says so", as
   const phaseB = await ok(serviceClient().from("cycle_revision_phases").select("plan_id, phase_id").in("plan_id", planB).eq("schedule_type", "weekdays"), "phase");
   const key = `${phaseB[0].plan_id}:${phaseB[0].phase_id}:${d(-1)}`;
   await page.goto(`${APP_ORIGIN}/app/today?dose=${encodeURIComponent(key)}`);
-  const sheet = page.getByRole("dialog", { name: "Confirm administration" });
+  const sheet = page.getByRole("dialog", { name: B });
   await expect(sheet.getByRole("heading", { level: 2 })).toHaveText(B);
-  await expect(sheet).toContainText("Unconfirmed");
+  await expect(sheet).toContainText("Not logged");
   expect(await noSideScroll()).toBe(true);
   const sheetBox = await sheet.boundingBox();
   expect(sheetBox!.width).toBeLessThanOrEqual(390);
-  await (await hydrated(sheet.getByRole("button", { name: "Cancel" }))).click();
+  await (await hydrated(sheet.getByRole("button", { name: "Close" }))).click();
   await expect(sheet).toBeHidden();
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
 

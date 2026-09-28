@@ -50,7 +50,7 @@ test("check in, edit it, and see it in history beside a confirmed dose", async (
   // Confirm today's dose.
   const hero = page.getByTestId("today-hero");
   await (await hydrated(hero.getByRole("button", { name: "Taken", exact: true }))).click();
-  await expect(page.getByRole("status").filter({ hasText: `Taken · ${A} · ` })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: `${A} · 0.4 mg logged at ` })).toBeVisible();
 
   await page.goto(`${APP_ORIGIN}/app/progress`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Progress");

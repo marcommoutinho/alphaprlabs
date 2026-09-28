@@ -110,6 +110,7 @@ export function StatusRow({
   action,
   href,
   className,
+  testId,
 }: {
   tone: "overdue" | "low";
   title: React.ReactNode;
@@ -117,6 +118,7 @@ export function StatusRow({
   action?: React.ReactNode;
   href?: string;
   className?: string;
+  testId?: string;
 }) {
   const classes = cn(
     "flex min-h-16 items-center gap-3 rounded-[18px] py-3 pr-3 pl-4 text-ink",
@@ -142,11 +144,11 @@ export function StatusRow({
     </>
   );
   return href && !action ? (
-    <Link href={href} className={classes} data-tone={tone}>
+    <Link href={href} className={classes} data-tone={tone} data-testid={testId}>
       {body}
     </Link>
   ) : (
-    <div className={classes} data-tone={tone}>
+    <div className={classes} data-tone={tone} data-testid={testId}>
       {body}
     </div>
   );

@@ -43,6 +43,11 @@ export type SupplementRow = {
   status: string;
   /** Untaken: the details a Taken sends; null once taken. */
   detail: SupplementDetail | null;
+  /** V1 (the v3 day rail): the planned local time, when it was taken (local "HH:MM"), and "2000 IU". */
+  time: string;
+  takenTime: string | null;
+  amountLabel: string;
+  state: "due" | "later" | "taken";
 };
 
 export type SupplementToday = { rows: SupplementRow[] };
@@ -131,6 +136,10 @@ export function supplementsToday(input: SupplementsInput): SupplementToday {
         sub: `Supplement · ${clock(taken.scheduledAt, routine.timeZone)} · ${taken.amount} ${taken.unit}`,
         status: `Taken ${clock(taken.actualAt, routine.timeZone)}`,
         detail: null,
+        time: clock(taken.scheduledAt, routine.timeZone),
+        takenTime: clock(taken.actualAt, routine.timeZone),
+        amountLabel: `${taken.amount} ${taken.unit}`,
+        state: "taken",
       });
       continue;
     }
@@ -141,6 +150,10 @@ export function supplementsToday(input: SupplementsInput): SupplementToday {
       sub: `Supplement · ${o.localTime} · ${routine.amount} ${routine.unit}`,
       status: Date.parse(o.scheduledAt) <= nowMs ? "Due" : "Later today",
       detail: detailOf(routine, o),
+      time: o.localTime,
+      takenTime: null,
+      amountLabel: `${routine.amount} ${routine.unit}`,
+      state: Date.parse(o.scheduledAt) <= nowMs ? "due" : "later",
     });
   }
   return { rows };
@@ -222,10 +235,10 @@ export function supplementsView(input: SupplementsInput & { guidance: readonly G
 
 // ── Today's notes beside supplements ────────────────────────────────────────
 
-/** The prototype's "No cycles yet" body. */
-export const NO_CYCLES_BODY = "Start from a supplied template or build a custom cycle. Nothing is due until a plan exists.";
+/** R9a "No cycle running" body (design v3). */
+export const NO_CYCLES_BODY = "Build one from scratch, or start from a template the team maintains and adjust it.";
 /** The same, above a supplement still to take today (only peptide doses wait for a plan). */
-export const NO_CYCLES_BODY_SUPPLEMENTS = "Start from a supplied template or build a custom cycle. Peptide doses appear once a plan exists.";
+export const NO_CYCLES_BODY_SUPPLEMENTS = "Build one from scratch, or start from a template the team maintains. Peptide doses appear once a plan exists.";
 /** The prototype's quiet titles, and what they say while a supplement is still to take today. */
 const QUIET_WITH_SUPPLEMENTS: Record<string, string> = {
   "All done for today": "Doses done for today",

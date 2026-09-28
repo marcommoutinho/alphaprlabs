@@ -65,7 +65,32 @@ function v3UtilityPattern(): RegExp {
   const theme = readFileSync(THEME_CSS, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
   const names = (prefix: string) => [...theme.matchAll(new RegExp(`--${prefix}-([a-z0-9-]+):`, "g"))].map((m) => m[1]);
   const colors = names("color").sort((a, b) => b.length - a.length).join("|");
-  const colorUtility = `(?:bg|text|border(?:-[trblxyse])?|ring(?:-offset)?|outline|fill|stroke|divide|from|via|to|decoration|caret|accent|shadow|placeholder)-(?:${colors})`;
+  // Every Tailwind family that takes a colour, the inset / drop / text shadow
+  // and inset ring ones included (the lookbehind below would otherwise read
+  // "inset-ring-line" as not "ring-line").
+  const families = [
+    "bg",
+    "text",
+    "border(?:-[trblxyse])?",
+    "ring(?:-offset)?",
+    "inset-ring",
+    "outline",
+    "fill",
+    "stroke",
+    "divide",
+    "from",
+    "via",
+    "to",
+    "decoration",
+    "caret",
+    "accent",
+    "shadow",
+    "inset-shadow",
+    "drop-shadow",
+    "text-shadow",
+    "placeholder",
+  ].join("|");
+  const colorUtility = `(?:${families})-(?:${colors})`;
   const radius = `rounded(?:-[a-z]{1,2})?-(?:${names("radius").join("|")})`;
   const shadow = `shadow-(?:${names("shadow").join("|")})`;
   const ease = `ease-(?:${names("ease").join("|")})`;
@@ -106,10 +131,38 @@ describe("Tailwind sources: the private tree has its own stylesheet", () => {
   it("no file outside the private tree uses a design v3 utility", () => {
     const pattern = v3UtilityPattern();
     // Sanity: the pattern knows the v3 utilities and ignores ordinary ones.
-    for (const hit of ["bg-paper", "text-ink-2", "border-line", "rounded-btn", "laptop:px-10", "phone:hidden", "text-on-ink-done"]) {
+    for (const hit of [
+      "bg-paper",
+      "text-ink-2",
+      "border-line",
+      "rounded-btn",
+      "laptop:px-10",
+      "phone:hidden",
+      "text-on-ink-done",
+      "inset-ring-line",
+      "inset-shadow-line",
+      "drop-shadow-ink",
+      "text-shadow-signal",
+      "ring-offset-paper",
+      "decoration-missed",
+      "border-x-line",
+      "from-signal",
+    ]) {
       expect(`class="${hit}"`.match(pattern), hit).not.toBeNull();
     }
-    for (const miss of ["bg-white", "bg-background", "text-slate-900", "rounded-lg", "Phone: 555", "border-input", "text-link"]) {
+    for (const miss of [
+      "bg-white",
+      "bg-background",
+      "text-slate-900",
+      "rounded-lg",
+      "Phone: 555",
+      "border-input",
+      "text-link",
+      "inset-ring-2",
+      "drop-shadow-lg",
+      "text-shadow-sm",
+      "inset-shadow-xs",
+    ]) {
       expect(`class="${miss}"`.match(pattern), miss).toBeNull();
     }
     const offenders = filesUnder(SRC)
