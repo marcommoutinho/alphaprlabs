@@ -63,7 +63,8 @@ test.describe("laptop, light", () => {
     await expect(page.getByTestId("supplements-off")).toContainText(TRACKING_OFF);
     await (await hydrated(page.getByTestId("supplements-off").getByRole("button", { name: "Turn on" }))).click();
     await expect(page.getByTestId("supplements-today-empty")).toHaveText(NO_ROUTINES);
-    await expect(page.getByRole("switch", { name: "Track supplements" })).toBeChecked();
+    // The switch lives on Me › Tracking (V4); Supplies links there while tracking is on.
+    await expect(page.getByTestId("tracking-note")).toContainText("Turn it off in Me › Tracking.");
     await expect(page.getByTestId("supplements-grid")).toHaveCount(0);
 
     // The + adds a routine: the prototype's checks, then the routine (a decimal comma works; grouping doesn't).
@@ -270,13 +271,21 @@ test.describe("phone, dark", () => {
     await expect(grid).toHaveCount(2);
     expect(await noSideScroll(page)).toBe(true);
 
-    // Tracking off: the lists go (nothing deleted), the guidance stays.
-    await page.getByRole("switch", { name: "Track supplements" }).click();
+    // Tracking off, from Me › Tracking: the lists go (nothing deleted), the guidance stays.
+    await page.getByTestId("tracking-note").getByRole("link", { name: "Me › Tracking" }).click();
+    await expect(page).toHaveURL(`${APP_ORIGIN}/app/me`);
+    await expect(page.getByTestId("me-supplements-value")).toHaveText(/^\d+ routines?$/);
+    await (await hydrated(page.getByTestId("me-supplements"))).click();
+    const tracking = page.getByRole("dialog", { name: "Supplements" });
+    await tracking.getByRole("switch", { name: "Track supplements" }).click();
+    await expect(tracking.getByRole("switch", { name: "Track supplements" })).not.toBeChecked();
+    await expect(page.getByTestId("me-supplements-value")).toHaveText("Off");
+    await page.goto(`${APP_ORIGIN}/app/supplements`);
     await expect(page.getByTestId("supplements-off")).toContainText(TRACKING_OFF);
     await expect(rows).toHaveCount(0);
     await expect(page.getByTestId("routine-card")).toHaveCount(0);
     await expect(page.getByTestId("guidance")).toBeVisible();
-    await page.getByTestId("supplements-off").getByRole("button", { name: "Turn on" }).click();
+    await (await hydrated(page.getByTestId("supplements-off").getByRole("button", { name: "Turn on" }))).click();
     await expect(page.getByTestId("routine-card")).toHaveCount(3);
   });
 });

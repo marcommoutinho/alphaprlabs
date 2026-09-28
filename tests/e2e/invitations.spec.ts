@@ -53,19 +53,19 @@ test("an admin invites an admin: confirm, accept from the email, and the new adm
 
   const invitee = await (await browser.newContext()).newPage();
   await invitee.goto(link!);
-  await expect(invitee.getByRole("heading", { level: 1 })).toHaveText("Join Alpha PR Labs Research");
-  await expect(invitee.getByText(`An Alpha PR Labs admin invited ${email} with admin access.`)).toBeVisible();
+  // R14 (V4): the invitation page asks for the password itself, and says the access comes with it.
+  await expect(invitee.getByRole("heading", { level: 1 })).toHaveText("Join Alpha Research");
+  await expect(invitee.getByRole("progressbar", { name: "Step 1 of 3" })).toBeVisible();
+  await expect(invitee.getByTestId("invite-role-note")).toHaveText(
+    "An Alpha PR Labs admin invited you with admin access. Accepting creates a researcher account with admin access.",
+  );
   await expect(invitee.getByText("Marco")).toHaveCount(0);
-  await invitee.getByRole("link", { name: "Accept invitation" }).click();
-  await expect(invitee.getByText("Step 1 of 3")).toBeVisible();
-  await expect(invitee.getByText("Accepting this invitation creates a researcher account with admin access.")).toBeVisible();
-  await (await hydrated(invitee.getByLabel("Password · at least 8 characters"))).fill(TEST_PASSWORD);
+  await (await hydrated(invitee.getByLabel("Password · 8 characters or more"))).fill(TEST_PASSWORD);
   await invitee.getByRole("button", { name: "Continue" }).click();
-  await expect(invitee.getByText("Step 2 of 3")).toBeVisible();
-  await (await hydrated(invitee.getByLabel("I have read the acknowledgement and confirm I am a researcher."))).check();
-  await invitee.getByRole("button", { name: "Continue" }).click();
-  await expect(invitee).toHaveURL(`${APP_ORIGIN}/auth/reminders`);
-  await (await hydrated(invitee.getByRole("button", { name: "Not now" }))).click();
+  await expect(invitee.getByRole("progressbar", { name: "Step 2 of 3" })).toBeVisible();
+  await (await hydrated(invitee.getByRole("checkbox", { name: "I've read this and I'm using the app as a researcher." }))).click();
+  await invitee.getByRole("button", { name: "Agree and continue" }).click();
+  // R16 is for iPhone Safari only: a desktop browser goes straight on to Today.
   await expect(invitee).toHaveURL(`${APP_ORIGIN}/app/today`);
 
   // The new admin opens the back office.

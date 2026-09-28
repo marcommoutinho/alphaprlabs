@@ -27,41 +27,42 @@ test("an admin acknowledges, turns on reminders, uses the research side and swit
   await fakePushService(page, endpoint);
   await page.setViewportSize({ width: 390, height: 844 });
 
-  // The app opens on the research side, which first needs the acknowledgement.
+  // The app opens on the research side, which first needs the acknowledgement (R15).
   await signInAs(page, APP_ORIGIN, ADMIN.email);
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth/acknowledge`);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Researcher acknowledgement");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("For research use only");
   await page.goto(`${APP_ORIGIN}/app/notifications`);
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth/acknowledge`);
   // A full page load: the form only works once React has hydrated it.
-  await (await hydrated(page.getByLabel("I have read the acknowledgement and confirm I am a researcher."))).check();
-  await page.getByRole("button", { name: "Continue" }).click();
+  await (await hydrated(page.getByRole("checkbox", { name: "I've read this and I'm using the app as a researcher." }))).click();
+  await page.getByRole("button", { name: "Agree and continue" }).click();
 
-  // Step 3: reminders on this phone, then Today.
-  await expect(page).toHaveURL(`${APP_ORIGIN}/auth/reminders`);
+  // R16 is for iPhone Safari only, and the push prompt opens by itself only
+  // on a Home Screen launch: this browser goes straight on to Today.
+  await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
   const { data: profile } = await serviceClient().from("profiles").select("role, acknowledged_at").eq("id", adminId).single();
   expect(profile?.role).toBe("admin");
   expect(profile?.acknowledged_at).not.toBeNull();
-  await expect(page.getByText("Step 3 of 3 · optional")).toBeVisible();
-  await page.getByRole("button", { name: "Turn on reminders" }).click();
-  await expect(page.locator(".app-toast")).toHaveText("Reminders on for this device.");
-  expect(await deviceRow(endpoint)).toEqual({ profile_id: adminId, disabled_reason: null });
-  await page.getByRole("button", { name: "Continue to Today" }).click();
-  await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Today");
 
-  // The settings screen shows this device on for the admin, reached from the
-  // Me tab (client-side navigation: a reload would reset the emulated push
-  // service).
+  // Reminders are turned on from Me › Dose reminders (client-side
+  // navigation: a reload would reset the emulated push service).
   const tabs = page.getByRole("navigation", { name: "Main" });
   await tabs.getByRole("link", { name: "Me" }).click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/me`);
-  await page.getByRole("link", { name: "Reminders on this phone" }).click();
+  await expect(page.getByTestId("me-reminders-value")).toHaveText("Off");
+  await page.getByTestId("me-reminders").click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Reminders on this phone");
+  await (await hydrated(page.getByRole("button", { name: "Turn on reminders" }))).click();
+  await expect(page.locator(".app-toast")).toHaveText("Reminders on for this device.");
+  expect(await deviceRow(endpoint)).toEqual({ profile_id: adminId, disabled_reason: null });
   await expect(page.locator(".app-reminders-row", { hasText: "Permission on this device" }).locator("b")).toHaveText(
     "Enabled",
   );
   await expect(page.getByRole("button", { name: "Turn off reminders" })).toBeVisible();
+  // Me shows it on for this device.
+  await page.getByRole("link", { name: "‹ Me" }).click();
+  await expect(page.getByTestId("me-reminders-value")).toHaveText("At dose time");
 
   // The admin's fourth tab, Business, switches to the back office; Today back.
   await expect(tabs.getByRole("link")).toHaveText(["Today", "Cycles", "Progress", "Business", "Me"]);

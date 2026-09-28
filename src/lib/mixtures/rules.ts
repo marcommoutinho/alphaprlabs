@@ -126,13 +126,14 @@ export type CalculatorForm = {
   lineChoice: LineChoice;
 };
 
-export const blankForm = (peptideId = ""): CalculatorForm => ({
+/** A new setup: the syringe is R8's default syringe (100-unit unless changed on Me). */
+export const blankForm = (peptideId = "", syringe: SyringeCapacity = 100): CalculatorForm => ({
   mixtureId: "",
   peptideId,
   vialMg: "",
   liquidMl: "",
   doseMg: "",
-  syringe: 100,
+  syringe,
   lineChoice: "",
 });
 

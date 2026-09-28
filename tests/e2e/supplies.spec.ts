@@ -66,7 +66,8 @@ test.describe("laptop, light", () => {
     await expect(page.getByTestId("supplies-add-laptop")).toHaveCount(0);
     await (await hydrated(page.getByTestId("supplies-off").getByRole("button", { name: "Turn on" }))).click();
     await expect(page.getByTestId("supplies-empty")).toHaveText(NO_VIALS);
-    await expect(page.getByRole("switch", { name: "Track vials" })).toBeChecked();
+    // The switch lives on Me › Tracking (V4); Supplies links there while tracking is on.
+    await expect(page.getByTestId("tracking-note")).toContainText("Turn it off in Me › Tracking.");
 
     // Add a vial on the saved mixture: its strength comes from the mixture.
     await (await hydrated(page.getByTestId("supplies-add-laptop"))).click();
@@ -283,12 +284,21 @@ test.describe("phone, dark", () => {
     await expect(sheet).toBeHidden();
     expect(await noSideScroll(page)).toBe(true);
 
-    // Tracking off: the list is hidden (nothing deleted), and + goes.
-    await page.getByRole("switch", { name: "Track vials" }).click();
+    // Tracking off, from Me › Tracking: the list is hidden (nothing deleted), and + goes.
+    await page.getByTestId("tracking-note").getByRole("link", { name: "Me › Tracking" }).click();
+    await expect(page).toHaveURL(`${APP_ORIGIN}/app/me`);
+    await expect(page.getByTestId("me-supplies-value")).toHaveText("On");
+    await (await hydrated(page.getByTestId("me-supplies"))).click();
+    const tracking = page.getByRole("dialog", { name: "Vials and supplies" });
+    await expect(tracking.getByRole("switch", { name: "Track vials" })).toBeChecked();
+    await tracking.getByRole("switch", { name: "Track vials" }).click();
+    await expect(tracking.getByRole("switch", { name: "Track vials" })).not.toBeChecked();
+    await expect(page.getByTestId("me-supplies-value")).toHaveText("Off");
+    await page.goto(`${APP_ORIGIN}/app/supplies`);
     await expect(page.getByTestId("supplies-off")).toContainText(TRACKING_OFF);
     await expect(group).toHaveCount(0);
     await expect(page.getByTestId("supplies-add")).toHaveCount(0);
-    await page.getByTestId("supplies-off").getByRole("button", { name: "Turn on" }).click();
+    await (await hydrated(page.getByTestId("supplies-off").getByRole("button", { name: "Turn on" }))).click();
     await expect(group).toContainText("× 3");
 
     // The Supplements tab is beside it.

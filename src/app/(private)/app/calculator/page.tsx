@@ -38,7 +38,8 @@ export default async function CalculatorPage({ searchParams }: { searchParams: S
   ]);
   const plans = linkablePlans(cycles, mixtures, new Date(), confirmations);
 
-  let initial: CalculatorForm = blankForm(peptides.find((peptide) => peptide.available)?.id ?? "");
+  const { defaultSyringe } = person.preferences;
+  let initial: CalculatorForm = blankForm(peptides.find((peptide) => peptide.available)?.id ?? "", defaultSyringe);
   let linked: string[] = [];
   const plan = planParam ? plans.find((p) => p.planId === planParam) : undefined;
   const opened = mixtures.find((m) => m.id === (plan ? plan.mixtureId : mixtureParam));
@@ -46,7 +47,7 @@ export default async function CalculatorPage({ searchParams }: { searchParams: S
     initial = formFromMixture(opened, plan?.doseMg ?? "");
     linked = opened.planIds;
   } else if (plan) {
-    initial = { ...blankForm(plan.peptideId), doseMg: plan.doseMg ?? "" };
+    initial = { ...blankForm(plan.peptideId, defaultSyringe), doseMg: plan.doseMg ?? "" };
     linked = [plan.planId];
   }
 

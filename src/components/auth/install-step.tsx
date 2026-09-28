@@ -39,7 +39,8 @@ export function InstallStep() {
       n: 1,
       text: (
         <>
-          Tap <b className="font-semibold">Share</b> in Safari&apos;s toolbar
+          Tap <b className="font-semibold">Share</b>
+          {" in Safari's toolbar"}
         </>
       ),
       icon: <Share className="size-[22px] text-signal-ink" aria-hidden />,

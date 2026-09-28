@@ -6,7 +6,8 @@
 --    Appearance). One row per account, created on the first save:
 --      * default_syringe: 100, 50 or 30 (U-100 syringe capacities). It
 --        preselects the syringe where no saved mixture says otherwise (the
---        log sheet, the cycle builder). Default 100.
+--        cycle builder's new mix, the calculator's new setup, the log
+--        sheet). Default 100.
 --      * weight_unit: 'kg' or 'lb'. Weights are shown and entered in it;
 --        stored check-in measurements keep the unit they were entered in
 --        (progress_check_ins stores value and unit) and are converted exactly

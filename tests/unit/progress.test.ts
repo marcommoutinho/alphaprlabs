@@ -804,9 +804,9 @@ describe("phases across a change of time zone", () => {
 
 describe("R5 Progress in R8's weight unit", () => {
   const weights = [
-    checkIn("2026-09-19", { measurement: { name: "Weight", value: "82", unit: "kg" } }),
-    checkIn("2026-09-20", { measurement: { name: "Weight", value: "180", unit: "lb" } }),
-    checkIn("2026-09-21", { measurement: { name: "Weight", value: "81.4", unit: "kg" } }),
+    checkIn("2026-09-19", { measurement: { name: "Weight", value: "82", unit: "kg", measuredAt: "2026-09-19T12:00:00Z" } }),
+    checkIn("2026-09-20", { measurement: { name: "Weight", value: "180", unit: "lb", measuredAt: "2026-09-20T12:00:00Z" } }),
+    checkIn("2026-09-21", { measurement: { name: "Weight", value: "81.4", unit: "kg", measuredAt: "2026-09-21T12:00:00Z" } }),
   ];
 
   it("shows every weight in pounds, converted exactly from kg and as stored when entered in lb", () => {

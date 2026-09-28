@@ -37,6 +37,9 @@ const deviceRow = async (endpoint: string) =>
   (await serviceClient().from("push_subscriptions").select("disabled_reason, device_label, last_seen_at").eq("endpoint", endpoint).single()).data!;
 const rememberedDevice = (page: Page) => page.evaluate(() => localStorage.getItem("apl.reminders.device"));
 const statusValue = (page: Page, label: string) => page.locator(".app-reminders-row", { hasText: label }).locator("b");
+/** The push permission prompt's status rows (design v3, V4). */
+const promptValue = (page: Page, label: string) =>
+  page.locator(`[data-testid="reminder-status"][data-label="${label}"]`).getByTestId("reminder-status-value");
 
 /**
  * Holds this page's next device save (the saveDevice server action) until
@@ -304,13 +307,14 @@ test.describe("designed device states", () => {
     await expect(page.getByRole("button", { name: "Turn on reminders" })).toHaveCount(0);
   });
 
-  test("step 3, denied and unsupported", async ({ page }) => {
+  test("the push prompt, denied and unsupported", async ({ page }) => {
     await emulatePermission(page, "default");
     await signInAs(page, APP_ORIGIN, RESEARCHER.email);
+    // Never by itself in a browser tab.
     await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
     await page.goto(`${APP_ORIGIN}/auth/reminders`);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Reminders on your phone");
-    await expect(statusValue(page, "Notification permission")).toHaveText("Not requested");
+    await expect(promptValue(page, "Notification permission")).toHaveText("Not requested");
 
     await emulatePermission(page, "denied");
     await page.goto(`${APP_ORIGIN}/app/notifications`);
@@ -326,7 +330,7 @@ test.describe("designed device states", () => {
     await expect(statusValue(unsupported, "Permission on this device")).toHaveText("Unavailable");
   });
 
-  test("installed iPhone app: first open after sign-in routes once to step 3", async ({ browser }) => {
+  test("installed iPhone app: the first launch after sign-in opens the push prompt once", async ({ browser }) => {
     const context = await browser.newContext({ userAgent: IPHONE_UA, viewport: PHONE });
     await context.addInitScript(() => {
       const original = window.matchMedia.bind(window);
@@ -337,8 +341,8 @@ test.describe("designed device states", () => {
     const page = await context.newPage();
     await signInAs(page, APP_ORIGIN, RESEARCHER.email);
     await expect(page).toHaveURL(`${APP_ORIGIN}/auth/reminders`);
-    await expect(page.getByText("Step 3 of 3 · optional")).toBeVisible();
-    await expect(statusValue(page, "Installed to home screen")).toHaveText("Yes");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Reminders on your phone");
+    await expect(promptValue(page, "Installed to home screen")).toHaveText("Yes");
     await expect(page.getByRole("button", { name: "Turn on reminders" })).toBeVisible();
 
     await page.getByRole("button", { name: "Not now" }).click();

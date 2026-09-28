@@ -129,15 +129,20 @@ test("share with the team, read the full history read-only, stop, and the admin'
     for (const name of [s.admin.name, s.other.name, "Marco"]) await expect(me.locator("body")).not.toContainText(name);
   };
 
-  // R11: the profile and the optional features' summaries.
+  // R8 (V4): the profile, Support access off, and the Tracking rows.
   await signInAs(me, APP_ORIGIN, s.researcher.email);
   await expect(me).toHaveURL(`${APP_ORIGIN}/app/today`);
   await me.goto(`${APP_ORIGIN}/app/me`);
   await expect(me.getByRole("heading", { level: 1 })).toHaveText(s.researcher.name);
-  await expect(me.getByText(`${s.researcher.email} · Researcher · acknowledgement accepted`)).toBeVisible();
-  await expect(me.getByTestId("me-supplies")).toHaveText("1 vial ›");
-  await expect(me.getByTestId("me-supplements")).toHaveText("1 routine ›");
-  await expect(me.getByTestId("support-active")).toHaveCount(0);
+  await expect(me.getByTestId("me-email")).toHaveText(s.researcher.email);
+  await expect(me.getByTestId("me-since")).toHaveText(/^Researcher since \w{3} \d{4}$/);
+  await expect(me.getByTestId("me-supplies-value")).toHaveText("On");
+  await expect(me.getByTestId("me-supplements-value")).toHaveText("1 routine");
+  const card = me.getByTestId("support-card");
+  const sharingSwitch = me.getByRole("switch", { name: "Let admins view my history" });
+  await expect(card).toHaveAttribute("data-sharing", "false");
+  await expect(sharingSwitch).not.toBeChecked();
+  await expect(me.getByTestId("share-event")).toHaveCount(0);
   await expectNoAdminNamed();
 
   // Not shared: Support doesn't list the researcher, and the history is denied.
@@ -151,16 +156,24 @@ test("share with the team, read the full history read-only, stop, and the admin'
   await expect(admin.getByTestId("support-denied")).toContainText(`${s.researcher.name} isn't sharing their history`);
   await expect(admin.getByTestId("support-denied")).toContainText("hasn't shared their history with the team");
 
-  // Share: one button, then the confirm step.
-  await (await hydrated(me.getByRole("button", { name: "Share with the Alpha PR Labs team" }))).click();
-  const confirm = me.getByRole("group", { name: "Share your history with the Alpha PR Labs team?" });
-  await expect(confirm).toContainText("Every Alpha PR Labs admin can read it, including admins added later.");
-  await expect(confirm).toContainText("Covers your full profile history, not a single cycle.");
-  await confirm.getByRole("button", { name: "Share read-only history" }).click();
+  // Share: the switch opens R17, which names the team, never an admin.
+  await (await hydrated(sharingSwitch)).click();
+  const confirm = me.getByRole("dialog", { name: "Let admins view your history?" });
+  await expect(confirm).toContainText("Alpha PR Labs admins");
+  await expect(confirm).toContainText("Everyone with admin access to the app");
+  for (const line of ["Cycles and schedules", "Logged doses and sites", "Check-ins and weight", "Vials and supplements"]) await expect(confirm).toContainText(line);
+  for (const line of ["Edit anything", "Log on your behalf", "See it after you turn this off"]) await expect(confirm).toContainText(line);
+  // Not now leaves it private.
+  await confirm.getByRole("button", { name: "Not now" }).click();
+  await expect(confirm).toHaveCount(0);
+  await expect(card).toHaveAttribute("data-sharing", "false");
+  await sharingSwitch.click();
+  await me.getByRole("dialog", { name: "Let admins view your history?" }).getByRole("button", { name: "Allow read-only access" }).click();
   await expect(me.getByRole("status").filter({ hasText: "Your history is shared with the Alpha PR Labs team. Stop sharing any time." })).toBeVisible();
-  const active = me.getByTestId("support-active");
-  await expect(active).toContainText("Alpha PR Labs team can read your history");
-  await expect(active).toContainText(/Shared since \w{3} \w{3} \d+ · \d\d:\d\d · full profile history · until you stop/);
+  await expect(card).toHaveAttribute("data-sharing", "true");
+  await expect(sharingSwitch).toBeChecked();
+  await expect(me.getByTestId("support-since")).toHaveText(/^Shared since \w{3}, \w{3} \d+, \d{4} · \d+:\d\d [AP]M$/);
+  await expect(me.getByTestId("share-event")).toHaveText([/^Shared with Alpha PR Labs admins\w{3}, /]);
   await expectNoAdminNamed();
 
   // A8: Support lists the researcher; the history shows every card, read-only.
@@ -194,15 +207,21 @@ test("share with the team, read the full history read-only, stop, and the admin'
   await expect(main.getByRole("button")).toHaveCount(0);
   await expect(main.locator("input, select, textarea, form")).toHaveCount(0);
 
-  // Stop sharing: confirm on Me.
-  await (await hydrated(active.getByRole("button", { name: "Stop sharing" }))).click();
-  const stop = me.getByRole("group", { name: "Stop sharing your history?" });
+  // Stop sharing: the switch asks first (Marco, 2026-09-27); Keep sharing changes nothing.
+  await sharingSwitch.click();
+  const stop = me.getByRole("dialog", { name: "Stop sharing your history?" });
   await expect(stop).toContainText("The team loses access to your history from their next page or request.");
-  await stop.getByRole("button", { name: "Stop sharing" }).click();
+  await stop.getByRole("button", { name: "Keep sharing" }).click();
+  await expect(stop).toHaveCount(0);
+  await expect(card).toHaveAttribute("data-sharing", "true");
+  await sharingSwitch.click();
+  await me.getByRole("dialog", { name: "Stop sharing your history?" }).getByRole("button", { name: "Stop sharing" }).click();
   await expect(me.getByRole("status").filter({ hasText: "Sharing stopped. The team can no longer open your history." })).toBeVisible();
-  await expect(me.getByTestId("support-active")).toHaveCount(0);
-  await expect(me.getByTestId("support-past")).toContainText(/^Previously: shared \w{3} \d+, \d{4} – \w{3} \d+, \d{4}$/);
-  await expect(me.getByRole("button", { name: "Share with the Alpha PR Labs team" })).toBeVisible();
+  await expect(card).toHaveAttribute("data-sharing", "false");
+  await expect(me.getByTestId("support-since")).toHaveCount(0);
+  // The grant history: the stop, then the share, newest first.
+  await expect(me.getByTestId("share-event")).toHaveText([/^Stopped sharing\w{3}, /, /^Shared with Alpha PR Labs admins\w{3}, /]);
+  await expect(me.getByTestId("share-event").first()).toHaveAttribute("data-kind", "stopped");
   await expectNoAdminNamed();
 
   // The admin's open history: the next request is denied ...
@@ -229,8 +248,8 @@ test("Me signs out", async ({ page }) => {
   await signInAs(page, APP_ORIGIN, email);
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
   await page.goto(`${APP_ORIGIN}/app/me`);
-  await expect(page.getByTestId("me-supplies")).toHaveText("Off ›");
-  await expect(page.getByTestId("me-supplements")).toHaveText("Off ›");
+  await expect(page.getByTestId("me-supplies-value")).toHaveText("Off");
+  await expect(page.getByTestId("me-supplements-value")).toHaveText("Off");
   await (await hydrated(page.getByRole("main").getByRole("button", { name: "Sign out", exact: true }))).click();
   await expect(page).toHaveURL(new RegExp(`^${APP_ORIGIN}/auth`));
   await page.goto(`${APP_ORIGIN}/app/me`);

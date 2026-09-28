@@ -215,39 +215,45 @@ test("R6 hides withdrawn peptides; a template names one and is still a starting 
   await signIn(page, RESEARCHER.email);
   await page.goto(`${APP_ORIGIN}/app/library`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Library");
-  const search = await hydrated(page.getByLabel("Search library"));
+  // R11 (V4): peptides only; the withdrawn one is never listed.
+  const search = await hydrated(page.getByLabel("Search peptides"));
   await search.fill(t);
   const peptides = page.getByTestId("library-peptide");
-  await expect(peptides.locator(".app-rl-peptide-name")).toHaveText([A]);
-  await expect(peptides.locator(".app-rl-peptide-sub")).toHaveText(["Information · cycling-off guidance"]);
+  await expect(peptides).toHaveCount(1);
+  await expect(peptides).toContainText(A);
+  await expect(peptides).toContainText(`[Supplied information for ${A}]`);
   await search.fill(W);
   await expect(peptides).toHaveCount(0);
   await expect(page.getByText(`No peptides match “${W}”.`)).toBeVisible();
-  // The template still matches by the withdrawn peptide's name, and says so.
-  const card = page.getByTestId("library-template");
+  // Templates are browsed from Cycles › Templates: the template names the withdrawn peptide, and says so.
+  await page.goto(`${APP_ORIGIN}/app/cycles/templates`);
+  const card = page.getByTestId("cycle-template").filter({ hasText: templateName });
   await expect(card).toHaveCount(1);
-  await expect(card).toContainText(`${templateName}40 days${A} · 1 phase + ${W} · 1 phase`);
-  await expect(card.locator(".app-rl-template-warning")).toHaveText("Includes a peptide no longer offered for new cycles.");
+  await expect(card).toContainText(`${A} · ${W}`);
+  await expect(card).toContainText("Includes a peptide no longer offered for new cycles.");
 
   // The withdrawn entry's own page isn't browsable; the available one is.
   await page.goto(`${APP_ORIGIN}/app/library/peptides/${wId}`);
   await expect(page.getByText("This page could not be found.")).toBeVisible();
   await page.goto(`${APP_ORIGIN}/app/library/peptides/${aId}`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(A);
-  await expect(page.locator(".app-rl-section p").nth(1)).toHaveText("Four weeks off.");
-  await expect(page.locator(".app-rl-used")).toHaveText("Not used in any of your cycles.");
+  await expect(page.getByTestId("peptide-cycling-off")).toContainText("Four weeks off.");
+  // Not in any of the researcher's cycles: no "Your mix".
+  await expect(page.getByTestId("your-mix")).toHaveCount(0);
   await expect(page.getByRole("navigation", { name: "Main" }).locator('[aria-current="page"]')).toHaveText("Library");
 
   await page.goto(`${APP_ORIGIN}/app/library/templates/${templateId}`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(templateName);
-  await expect(page.locator(".app-rl-kicker")).toHaveText("Template · 40 days");
+  await expect(page.getByText("Template · 40 days")).toBeVisible();
   const plans = page.getByTestId("template-plan");
-  await expect(plans.locator(".app-rl-plan-name")).toHaveText([A, W]);
-  await expect(plans.nth(1).locator(".app-rl-withdrawn")).toHaveText("No longer offered for new cycles.");
-  await expect(plans.nth(0).locator(".app-rl-withdrawn")).toHaveCount(0);
-  await expect(plans.nth(0).locator(".app-rl-phase")).toHaveText(["Day 1–290.4 mg · every 5 days · 20:00", "Day 30–36Break"]);
-  await expect(plans.nth(1).locator(".app-rl-phase")).toHaveText(["Day 1–400.3 mg · Mon/Wed/Fri · 07:30"]);
-  await expect(page.locator(".app-rl-guidance p")).toHaveText(`Guidance for ${templateName}`);
+  await expect(plans.getByRole("heading", { level: 2 })).toHaveText([A, `${W}No longer offered for new cycles.`]);
+  await expect(plans.nth(0)).not.toContainText("No longer offered for new cycles.");
+  await expect(plans.nth(0).locator("[data-slot=group] > div")).toHaveText([
+    "Day 1–290.4 mg · every 5 days · 20:00",
+    "Day 30–36Break",
+  ]);
+  await expect(plans.nth(1).locator("[data-slot=group] > div")).toHaveText(["Day 1–400.3 mg · Mon/Wed/Fri · 07:30"]);
+  await expect(page.getByText(`Guidance for ${templateName}`)).toBeVisible();
 
   await (await hydrated(page.getByRole("link", { name: "Use as starting point" }))).click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/cycles/new?template=${templateId}`);
@@ -310,6 +316,6 @@ test("the cycle and library views work at phone width", async ({ page }) => {
   await expect(rows.first().getByRole("link", { name: "Log late dose" })).toBeVisible();
 
   await page.goto(`${APP_ORIGIN}/app/library`);
-  await expect(page.getByLabel("Search library")).toBeVisible();
+  await expect(page.getByLabel("Search peptides")).toBeVisible();
   expect(await noSideScroll()).toBe(true);
 });

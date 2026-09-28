@@ -25,6 +25,9 @@ test.beforeAll(async () => {
 // The inline form error (Next.js adds its own empty route-announcer alert).
 const alert = (page: Page) => page.locator('.app-inline-error[role="alert"]');
 const toast = (page: Page) => page.locator(".app-toast");
+// Sign-in, recovery and joining are design v3 (V4): their form error and toast.
+const formError = (page: Page) => page.getByTestId("form-error");
+const v3Toast = (page: Page) => page.locator('[data-slot="toast"]');
 const row = (page: Page, email: string) => page.getByTestId("invitation-row").filter({ hasText: email });
 /** The given emails in the order their rows are listed (a missing row is left out). */
 const rowOrder = async (page: Page, emails: string[]) =>
@@ -70,40 +73,41 @@ test("admin invites; the researcher accepts, sets a password, acknowledges and r
   for (const part of [mail.subject, mail.text, mail.html]) expect(part).not.toContain("Marco");
   const researcher = await (await browser.newContext()).newPage();
   await researcher.goto(link!);
-  await expect(researcher.getByText("You're invited")).toBeVisible();
-  await expect(researcher.getByRole("heading", { level: 1 })).toHaveText("Join Alpha PR Labs Research");
-  await expect(researcher.getByText(`An Alpha PR Labs admin invited ${email}.`)).toBeVisible();
+  // R14 (V4): the invitation page asks for the password itself.
+  await expect(researcher.getByText("You've been invited")).toBeVisible();
+  await expect(researcher.getByRole("heading", { level: 1 })).toHaveText("Join Alpha Research");
+  await expect(researcher.getByTestId("invite-role-note")).toHaveText(
+    "An Alpha PR Labs admin invited you. Accepting creates a researcher account; roles are assigned by admins.",
+  );
   // The invitee never learns which admin it is (the email, sent by that admin, may name them).
   await expect(researcher.getByText("Marco")).toHaveCount(0);
-  await researcher.getByRole("link", { name: "Accept invitation" }).click();
 
-  await expect(researcher.getByText("Step 1 of 3")).toBeVisible();
+  await expect(researcher.getByRole("progressbar", { name: "Step 1 of 3" })).toBeVisible();
   await expect(researcher.getByLabel("Name")).toHaveValue("Jordan Reyes");
-  await expect(researcher.getByLabel("Email (from your invitation)")).toHaveValue(email);
-  await (await hydrated(researcher.getByLabel("Password · at least 8 characters"))).fill("short");
+  await expect(researcher.getByLabel("Email · from your invitation")).toHaveValue(email);
+  await expect(researcher.getByLabel("Email · from your invitation")).not.toBeEditable();
+  await (await hydrated(researcher.getByLabel("Password · 8 characters or more"))).fill("short");
   await researcher.getByRole("button", { name: "Continue" }).click();
-  await expect(alert(researcher)).toHaveText("Password needs at least 8 characters.");
-  await researcher.getByLabel("Password · at least 8 characters").fill(TEST_PASSWORD);
+  await expect(formError(researcher)).toHaveText("Password needs at least 8 characters.");
+  await researcher.getByLabel("Password · 8 characters or more").fill(TEST_PASSWORD);
   await researcher.getByRole("button", { name: "Continue" }).click();
 
-  await expect(researcher.getByText("Step 2 of 3")).toBeVisible();
+  // R15: the disclaimer; Agree stays disabled until the box is ticked.
+  await expect(researcher.getByRole("progressbar", { name: "Step 2 of 3" })).toBeVisible();
+  await expect(researcher.getByRole("heading", { level: 1 })).toHaveText("For research use only");
   // Until acknowledged, the app routes back here.
   await researcher.goto(`${APP_ORIGIN}/app/today`);
   await expect(researcher).toHaveURL(`${APP_ORIGIN}/auth/acknowledge`);
-  await (await hydrated(researcher.getByRole("button", { name: "Continue" }))).click();
-  await expect(alert(researcher)).toHaveText(
-    "Tick the acknowledgement to continue. It is required for researcher accounts.",
-  );
-  await researcher.getByLabel("I have read the acknowledgement and confirm I am a researcher.").check();
-  await researcher.getByRole("button", { name: "Continue" }).click();
-  // Step 3 (optional): reminders on this phone; "Not now" continues to Today.
-  await expect(researcher).toHaveURL(`${APP_ORIGIN}/auth/reminders`);
-  await expect(researcher.getByText("Step 3 of 3 · optional")).toBeVisible();
-  await expect(researcher.getByRole("heading", { level: 1 })).toHaveText("Reminders on your phone");
-  await (await hydrated(researcher.getByRole("button", { name: "Not now" }))).click();
+  const agree = researcher.getByRole("button", { name: "Agree and continue" });
+  await expect(await hydrated(agree)).toBeDisabled();
+  await expect(researcher.getByRole("region", { name: "Research-use disclaimer" })).toContainText("[Researcher disclaimer text.");
+  await researcher.getByRole("checkbox", { name: "I've read this and I'm using the app as a researcher." }).click();
+  await expect(agree).toBeEnabled();
+  await agree.click();
+  // R16 is for iPhone Safari only: a desktop browser goes straight on to Today.
   await expect(researcher).toHaveURL(`${APP_ORIGIN}/app/today`);
   await expect(researcher.getByRole("heading", { level: 1 })).toHaveText("Today");
-  await expect(toast(researcher)).toHaveCount(0);
+  await expect(v3Toast(researcher)).toHaveCount(0);
 
   // A researcher cannot open admin screens; the used link now says so.
   await researcher.goto(`${APP_ORIGIN}/admin/invitations`);
@@ -181,7 +185,7 @@ test("sign in errors, session-expired notice and return path", async ({ page, co
     [uniqueEmail("e2e-nobody"), TEST_PASSWORD],
   ]) {
     await signInAs(page, APP_ORIGIN, email, password);
-    await expect(alert(page)).toHaveText("Email or password is incorrect. Passwords are case-sensitive.");
+    await expect(formError(page)).toHaveText("Email or password is incorrect. Passwords are case-sensitive.");
   }
 
   // A lapsed session cookie: protected pages send you to sign in, with the notice.
@@ -230,7 +234,7 @@ test("recovery shows the same confirmation for known and unknown emails and rese
   // redirect is a full load; in production it keeps the page, and the toast).
   await page.addInitScript(() =>
     new MutationObserver(() => {
-      const shown = document.querySelector(".app-toast")?.textContent;
+      const shown = document.querySelector('[data-slot="toast"]')?.textContent;
       if (shown) sessionStorage.setItem("toast-seen", shown);
     }).observe(document, { childList: true, subtree: true }),
   );
@@ -239,17 +243,17 @@ test("recovery shows the same confirmation for known and unknown emails and rese
   await (await hydrated(page.getByRole("button", { name: "Continue to reset password" }))).click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth/reset`);
   // Locally the redirect is a full page load: type only once the form is hydrated.
-  const newPassword = await hydrated(page.getByLabel("New password · at least 8 characters"));
+  const newPassword = await hydrated(page.getByLabel("New password · 8 characters or more"));
   // A redirecting action is a success: no save-failure toast at any point.
   expect(await page.evaluate(() => sessionStorage.getItem("toast-seen"))).toBeNull();
-  await expect(toast(page)).toHaveCount(0);
+  await expect(v3Toast(page)).toHaveCount(0);
   // A genuine failure (request dropped) still shows it and keeps the input.
   await page.route("**/auth/reset", (route) =>
     route.request().method() === "POST" ? route.abort() : route.continue(),
   );
   await newPassword.fill("a-brand-new-password");
   await page.getByRole("button", { name: "Save password" }).click();
-  await expect(toast(page)).toContainText("Could not save. Nothing was lost");
+  await expect(v3Toast(page)).toContainText("Could not save. Nothing was lost");
   await expect(newPassword).toHaveValue("a-brand-new-password");
   await page.unroute("**/auth/reset");
   await page.getByRole("button", { name: "Save password" }).click();
