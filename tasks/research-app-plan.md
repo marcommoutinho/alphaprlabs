@@ -803,12 +803,20 @@ and G2 still requires S13.
   extra Marco-approved round: Bank of Canada rates stored in `fx_rates` (daily
   Vercel cron at 22:00 UTC via `/api/cron/fx-rates`, `CRON_SECRET` required;
   backfill `npm run fx:backfill -- --from 2025-01-01`); USD purchases must use
-  the latest stored rate in the 10-day window (AP028). Not yet deployed
-  (migration 20260927140000; needs CRON_SECRET in Vercel and the backfill).
+  the latest stored rate in the 10-day window (AP028).
+- Sellers, admin invitations and buyer linking integrated at `6de4091` after
+  the standard correction (older outside sales reachable for linking;
+  same-name sellers shown with email); fresh recheck CLEAR.
+- 2026-09-27: migrations 20260927140000 and 20260927160000 in production;
+  rates backfilled from 2025-01-01 (434 days). With Marco's approval
+  (invite-only, so it can live on main) `main` was fast-forwarded to
+  `6de4091`, the app's env vars (incl. `CRON_SECRET`) copied to Vercel
+  Production, and `app.alphaprlabs.com` moved to Production, so the daily
+  rate cron now runs. Deploys go through `main` from here; the public site
+  is unchanged on www.alphaprlabs.com.
 
-Next: sellers, admin invitations and buyer linking (in review), deploy both
-with the rate setup, Marco invites Brian and Natasha, import the Sep 15–24
-sales; then S13 reminders last.
+Next: Marco invites Brian and Natasha as admins, import the Sep 15–24 sales
+(preview first); then S13 reminders last.
 
 ## Technical references
 
