@@ -34,6 +34,7 @@ import {
 import type { MonthTotals, StockLevel, Totals } from "@/lib/business/service";
 import {
   attemptFor,
+  settles,
   avgCost,
   DEFAULT_SORT,
   isLow,
@@ -484,6 +485,17 @@ describe("business stock (stock.ts)", () => {
     expect(second).toEqual({ key: "key-2", value: 6 });
     // Back to the first value after editing: still a new edit, never the old key for a newer intent.
     expect(attemptFor(second, 5, newKey)).toEqual({ key: "key-3", value: 5 });
+  });
+
+  it("only a sure answer ends an attempt: saved, replayed or refused; an unsure one keeps its key", () => {
+    type Answer = { error?: string; saved?: boolean; replayed?: boolean; unsure?: boolean };
+    const sure: Answer[] = [{ saved: true }, { saved: true, replayed: true }, { error: "This stock item no longer exists." }];
+    for (const answer of sure) expect(settles(answer)).toBe(true);
+    // Maybe committed (a dropped connection, a gateway error): Retry or Save with 5 again replays the same key.
+    const kept = { key: "key-1", value: 5 };
+    const unsure = { error: "Couldn't save.", unsure: true };
+    expect(settles(unsure)).toBe(false);
+    expect(attemptFor(settles(unsure) ? null : kept, 5, () => "key-2")).toBe(kept);
   });
 
   it("parses a threshold: a whole number of vials, 0 to 100,000", () => {

@@ -225,6 +225,39 @@ export async function signedInClient(email: string, password = TEST_PASSWORD) {
 }
 
 /**
+ * A client signed in as `email` whose calls matching `lose` reach the
+ * database and run to completion, but whose answer is lost on the way back:
+ * as a dropped connection ("fetch failed") or as the gateway's 502. That is
+ * how supabase-js reports both, as an ordinary error, although the write
+ * committed. `lose` is read on every call, so a test can turn it off.
+ */
+export async function answerLostClient(
+  email: string,
+  lose: (url: string) => "dropped" | "gateway" | null,
+  password = TEST_PASSWORD,
+) {
+  const lossy = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = input instanceof Request ? input.url : String(input);
+    const response = await fetch(input, init);
+    const how = lose(url);
+    if (!how) return response;
+    await response.arrayBuffer(); // the database has answered: it committed.
+    if (how === "dropped") throw new TypeError("fetch failed");
+    return new Response(JSON.stringify({ message: GATEWAY_NO_RESPONSE }), {
+      status: 502,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const client = createClient<Database>(localSupabase().url, localSupabase().publishableKey, {
+    ...clientOptions,
+    global: { fetch: lossy },
+  });
+  const { error } = await client.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+  return client;
+}
+
+/**
  * Inserts an invitation directly (secret key) and returns its raw token.
  * `sentDaysAgo` > 30 makes a pending invitation expired.
  */

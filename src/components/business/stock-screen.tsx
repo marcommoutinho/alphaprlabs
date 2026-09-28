@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, ChevronLeft, Plus, Search } from "lucide-react";
 import Link from "@/components/alpha/link";
@@ -25,6 +25,7 @@ import {
   levelOf,
   matchesSearch,
   parseThreshold,
+  settles,
   sortStock,
   stockTotals,
   vialCount,
@@ -50,6 +51,13 @@ export function StockScreen({ items, initialFilter }: { items: StockLevel[]; ini
   const [filter, setFilter] = useState<Filter>(initialFilter);
   const [sort, setSort] = useState<StockSort>(DEFAULT_SORT);
   const [openId, setOpenId] = useState<string | null>(null);
+  // Each item's reorder-level submission still waiting for a sure answer.
+  // Kept here, not in its sheet, so a Retry from a toast, or the item opened
+  // again, reuses the request key after the sheet has closed.
+  const attempts = useRef(new Map<string, ThresholdAttempt>());
+  // A submission that finished closes its own item's sheet if that is still
+  // the one open, and never another item's (whose entry may be unsaved).
+  const finished = useCallback((itemId: string) => setOpenId((current) => (current === itemId ? null : current)), []);
   const totals = stockTotals(items);
   const low = items.filter(isLow);
   useNavCount("stock", lowCounter(low.length));
@@ -153,7 +161,7 @@ export function StockScreen({ items, initialFilter }: { items: StockLevel[]; ini
       {/* D4 laptop: the sortable table. */}
       {shown.length > 0 ? <StockTable items={shown} all={items} sort={sort} onSort={setSort} onOpen={setOpenId} /> : null}
 
-      <ThresholdSheet item={open} onClose={() => setOpenId(null)} />
+      <ThresholdSheet item={open} attempts={attempts} onClose={() => setOpenId(null)} onDone={finished} />
     </main>
   );
 }
@@ -324,34 +332,60 @@ export function EmptyStockPanel({ className }: { className?: string }) {
 const THRESHOLD_FAILED = "Couldn't save. Your entry is still here.";
 
 /** An item's sheet: its figures and its reorder level (the per-item low-stock threshold). */
-function ThresholdSheet({ item, onClose }: { item: StockLevel | null; onClose: () => void }) {
+type Attempts = RefObject<Map<string, ThresholdAttempt>>;
+
+function ThresholdSheet({
+  item,
+  attempts,
+  onClose,
+  onDone,
+}: {
+  item: StockLevel | null;
+  attempts: Attempts;
+  onClose: () => void;
+  /** A submission for this item finished (saved or replayed). */
+  onDone: (itemId: string) => void;
+}) {
   return (
     <Sheet open={item !== null} onOpenChange={(next) => (next ? undefined : onClose())}>
-      {item ? <ThresholdContent key={item.id} item={item} onClose={onClose} /> : null}
+      {item ? <ThresholdContent key={item.id} item={item} attempts={attempts} onDone={onDone} /> : null}
     </Sheet>
   );
 }
 
-function ThresholdContent({ item, onClose }: { item: StockLevel; onClose: () => void }) {
+function ThresholdContent({ item, attempts, onDone }: { item: StockLevel; attempts: Attempts; onDone: (itemId: string) => void }) {
   const router = useRouter();
   const toast = useAlphaToast();
   const [text, setText] = useState(String(item.threshold));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  // The submission still waiting for an answer: Retry and a repeated Save of
-  // the same value reuse its request key (lib/business/stock.ts attemptFor).
-  // A ref, not state, so a Retry from an earlier render's toast sees it too.
-  const pending = useRef<ThresholdAttempt | null>(null);
   const average = avgCost(item);
+  // A Retry from a toast can answer after this sheet has closed.
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const send = async (attempt: ThresholdAttempt) => {
+    // It may have been saved: Retry sends the same attempt (the same request key).
+    const unsure = () =>
+      toast.error({ message: THRESHOLD_FAILED, action: { label: "Retry", onAction: () => void send(attempt) } });
     setSaving(true);
     try {
       const result = await setStockThresholdAction({ requestKey: attempt.key, stockItemId: item.id, threshold: attempt.value });
-      // An answer arrived: the next submission is a new edit.
-      if (pending.current === attempt) pending.current = null;
+      // Saved, replayed or refused: the next submission is a new edit. An
+      // unsure answer keeps the attempt (lib/business/stock.ts settles).
+      if (settles(result) && attempts.current.get(item.id) === attempt) attempts.current.delete(item.id);
+      if (result.unsure) {
+        unsure();
+        return;
+      }
       if (result.error) {
-        setError(result.error);
+        if (mounted.current) setError(result.error);
+        else toast.error({ message: `${item.label}: ${result.error}` });
         return;
       }
       toast.success({
@@ -360,12 +394,12 @@ function ThresholdContent({ item, onClose }: { item: StockLevel; onClose: () => 
           : `${item.label}: reorder at ${vialCount(result.threshold ?? attempt.value)}`,
       });
       router.refresh();
-      onClose();
+      onDone(item.id);
     } catch {
-      // No answer (the connection dropped): it may have been saved. Retry sends the same attempt.
-      toast.error({ message: THRESHOLD_FAILED, action: { label: "Retry", onAction: () => void send(attempt) } });
+      // No answer at all (the connection dropped).
+      unsure();
     } finally {
-      setSaving(false);
+      if (mounted.current) setSaving(false);
     }
   };
 
@@ -376,8 +410,8 @@ function ThresholdContent({ item, onClose }: { item: StockLevel; onClose: () => 
       return;
     }
     setError(null);
-    const attempt = attemptFor(pending.current, parsed.value, () => crypto.randomUUID());
-    pending.current = attempt;
+    const attempt = attemptFor(attempts.current.get(item.id) ?? null, parsed.value, () => crypto.randomUUID());
+    attempts.current.set(item.id, attempt);
     void send(attempt);
   };
 

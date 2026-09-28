@@ -109,6 +109,15 @@ export type ThresholdAttempt = { key: string; value: number };
 export const attemptFor = (pending: ThresholdAttempt | null, value: number, newKey: () => string): ThresholdAttempt =>
   pending && pending.value === value ? pending : { key: newKey(), value };
 
+/**
+ * Whether an answer ends its attempt, so the next Save is a new edit: it was
+ * saved (or replayed), or the database refused it and nothing was written.
+ * An unsure answer (a dropped connection, a gateway error: it may have
+ * committed), like no answer at all, keeps the attempt, so Retry or Save with
+ * the same value replays it instead of saving again over a newer change.
+ */
+export const settles = (answer: { unsure?: boolean }) => answer.unsure !== true;
+
 /** "4 vials" · "1 vial" */
 export const vialCount = (count: number) => `${count.toLocaleString("en-CA")} vial${count === 1 ? "" : "s"}`;
 

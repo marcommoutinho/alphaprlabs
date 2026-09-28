@@ -37,11 +37,15 @@ import { StockNavCount } from "./stock-nav-count";
 const ON_INK_LINE = "border-[color:color-mix(in_oklab,currentColor_12%,transparent)]";
 
 /** An amount, `missed` with its minus sign when negative (gross profit); money is otherwise ink. */
-function Money({ amount, onInk = false, className }: { amount: string; onInk?: boolean; className?: string }) {
+function Money({ amount, onInk = false, className, testId }: { amount: string; onInk?: boolean; className?: string; testId?: string }) {
   const text = money(amount);
   const negative = text.startsWith("−");
   return (
-    <span data-negative={negative || undefined} className={cn(negative && (onInk ? "text-on-ink-missed" : "text-missed"), className)}>
+    <span
+      data-testid={testId}
+      data-negative={negative || undefined}
+      className={cn(negative && (onInk ? "text-on-ink-missed" : "text-missed"), className)}
+    >
       {text}
     </span>
   );
@@ -136,36 +140,42 @@ function NowRows({ overview }: { overview: PeriodOverview }) {
   const t = overview.totals;
   return (
     <div className="mt-3.5 flex flex-col text-[15px]" data-testid="now-rows">
-      <div className={cn("flex items-center gap-2.5 border-b py-2", ON_INK_LINE)}>
+      <div className={cn("flex items-center gap-2.5 border-b py-2", ON_INK_LINE)} data-figure-box="">
         <span className="flex-1 text-on-ink-soft">Revenue</span>
-        <span className="font-semibold">{money(t.revenue)}</span>
+        <span className="font-semibold" data-testid="figure-now-revenue">
+          {money(t.revenue)}
+        </span>
       </div>
-      <div className={cn("flex items-center gap-2.5 border-b py-2", ON_INK_LINE)}>
+      <div className={cn("flex items-center gap-2.5 border-b py-2", ON_INK_LINE)} data-figure-box="">
         <Swatch kind="cost" />
         <span className="flex-1 text-on-ink-soft">Cost of stock sold</span>
-        <span className="font-semibold">{money(`-${t.cost}`)}</span>
+        <span className="font-semibold" data-testid="figure-now-cost">
+          {money(`-${t.cost}`)}
+        </span>
       </div>
-      <div className="flex items-center gap-2.5 pt-2">
+      <div className="flex items-center gap-2.5 pt-2" data-figure-box="">
         <Swatch kind="profit" />
         <span className="flex-1 text-on-ink-soft">Gross profit</span>
-        <Money amount={t.grossProfit} onInk className="font-semibold" />
+        <Money amount={t.grossProfit} onInk className="font-semibold" testId="figure-now-profit" />
       </div>
     </div>
   );
 }
 
 /** The Display reading (52 / 56, stepping down to fit) with its mono "CAD". */
-function BigMoney({ amount, size, className }: { amount: string; size: number; className?: string }) {
+function BigMoney({ amount, size, className, testId }: { amount: string; size: number; className?: string; testId: string }) {
   return (
     <Fit text={money(amount)} max={size} reserve={48} className={cn("flex items-baseline gap-2", className)}>
-      <Money amount={amount} onInk className="leading-none font-semibold tracking-[-0.045em]" />
-      <span className="font-mono text-[15px] text-on-ink-2">CAD</span>
+      <Money amount={amount} onInk className="leading-none font-semibold tracking-[-0.045em]" testId={testId} />
+      <span className="font-mono text-[15px] text-on-ink-2" data-testid={`${testId}-unit`}>
+        CAD
+      </span>
     </Fit>
   );
 }
 
 function GrossReading({ overview, size }: { overview: PeriodOverview; size: 52 | 56 }) {
-  return <BigMoney amount={overview.totals.grossProfit} size={size} className="mt-2.5" />;
+  return <BigMoney amount={overview.totals.grossProfit} size={size} className="mt-2.5" testId="figure-gross-profit" />;
 }
 
 function PeriodPhone({
@@ -186,7 +196,7 @@ function PeriodPhone({
   const labels = new Map(stock.map((item) => [item.id, item.label]));
   return (
     <div className="flex flex-col laptop:hidden" data-testid="period-phone">
-      <NowBlock className="mx-3 mt-4 pb-[18px]" aria-label="Gross profit" data-testid="now">
+      <NowBlock className="mx-3 mt-4 pb-[18px]" aria-label="Gross profit" data-testid="now" data-figure-box="">
         <div className="flex items-baseline justify-between text-[13px] text-on-ink-2">
           <span>Gross profit</span>
           <span className="font-mono text-[12px] font-medium">{vialCount(t.vials)} sold</span>
@@ -216,6 +226,7 @@ function PeriodPhone({
           sizeAs={longest([money(held.value), t.vials.toLocaleString("en-CA")])}
           context={`${vialCount(held.vials)} at cost`}
           testId="tile-stock"
+          figure="figure-stock-value"
         />
         <Tile
           label="Vials sold"
@@ -223,6 +234,7 @@ function PeriodPhone({
           sizeAs={longest([money(held.value), t.vials.toLocaleString("en-CA")])}
           context={overview.avgPrice ? `avg ${money(overview.avgPrice)} each` : "none sold"}
           testId="tile-sold"
+          figure="figure-vials-sold"
         />
       </div>
 
@@ -270,6 +282,7 @@ function Tile({
   value,
   context,
   testId,
+  figure,
   tone,
   sizeAs,
 }: {
@@ -277,6 +290,8 @@ function Tile({
   value: string;
   context: string;
   testId?: string;
+  /** The value's test id (figure-…). */
+  figure: string;
   tone?: "low";
   /** The longest value of the tiles beside it: they share one reading size. */
   sizeAs?: string;
@@ -284,10 +299,13 @@ function Tile({
   return (
     <div
       data-testid={testId}
+      data-figure-box=""
       className={cn("rounded-group px-4 py-3.5", tone === "low" ? "bg-low-tint" : "border border-line bg-surface")}
     >
       <div className={cn("text-[13px]", tone === "low" ? "font-semibold text-low" : "font-medium text-ink-2")}>{label}</div>
-      <Fit text={value} sizeAs={sizeAs} max={24} laptopMax={23} className="mt-2 leading-tight font-semibold tracking-[-0.025em]" />
+      <Fit text={value} sizeAs={sizeAs} max={24} laptopMax={23} className="mt-2 leading-tight font-semibold tracking-[-0.025em]">
+        <span data-testid={figure}>{value}</span>
+      </Fit>
       <div className={cn("mt-0.5 text-[12px] laptop:text-[13px]", tone === "low" ? "text-low" : "text-ink-3")}>{context}</div>
     </div>
   );
@@ -401,7 +419,7 @@ function PeriodLaptop({
   return (
     <div className="mt-5 hidden grid-cols-12 gap-4 laptop:grid" data-testid="period-laptop">
       <NowBlock className="col-span-8 grid grid-cols-[minmax(0,1fr)_210px] gap-7 px-6 py-[22px]" aria-label="Gross profit">
-        <div className="flex min-w-0 flex-col">
+        <div className="flex min-w-0 flex-col" data-figure-box="">
           <span className="text-[13px] text-on-ink-2">Gross profit</span>
           <GrossReading overview={overview} size={56} />
           <div className="mt-1.5 text-[14px] text-on-ink-2" data-testid="margin-laptop">
@@ -409,18 +427,22 @@ function PeriodLaptop({
           </div>
           <SplitBar profitShare={overview.profitShare} className="mt-auto pt-0" />
           <div className="mt-3.5 grid grid-cols-3 gap-3 text-[14px]">
-            <span className="min-w-0">
+            <span className="min-w-0" data-figure-box="">
               <span className="block text-[13px] text-on-ink-2">Revenue</span>
-              <Fit text={money(t.revenue)} sizeAs={nowRow} max={17} className="font-semibold" />
+              <Fit text={money(t.revenue)} sizeAs={nowRow} max={17} className="font-semibold">
+                <span data-testid="figure-now-revenue">{money(t.revenue)}</span>
+              </Fit>
             </span>
-            <span className="min-w-0">
+            <span className="min-w-0" data-figure-box="">
               <span className="block text-[13px] text-on-ink-2">Cost of stock</span>
-              <Fit text={money(t.cost)} sizeAs={nowRow} max={17} className="font-semibold" />
+              <Fit text={money(t.cost)} sizeAs={nowRow} max={17} className="font-semibold">
+                <span data-testid="figure-now-cost">{money(t.cost)}</span>
+              </Fit>
             </span>
-            <span className="min-w-0">
+            <span className="min-w-0" data-figure-box="">
               <span className="block text-[13px] text-on-ink-2">Gross profit</span>
               <Fit text={money(t.grossProfit)} sizeAs={nowRow} max={17} className="font-semibold">
-                <Money amount={t.grossProfit} onInk />
+                <Money amount={t.grossProfit} onInk testId="figure-now-profit" />
               </Fit>
             </span>
           </div>
@@ -444,13 +466,15 @@ function PeriodLaptop({
         <Tile
           label="Revenue"
           value={money(t.revenue)}
+          figure="figure-revenue"
           sizeAs={tiles}
           context={overview.avgPrice ? `${vialCount(t.vials)} · avg ${money(overview.avgPrice)}` : "no vials sold"}
         />
-        <Tile label="Cost of stock sold" value={money(t.cost)} sizeAs={tiles} context="oldest stock first" />
+        <Tile label="Cost of stock sold" value={money(t.cost)} figure="figure-cost" sizeAs={tiles} context="oldest stock first" />
         <Tile
           label="Stock value"
           value={money(held.value)}
+          figure="figure-stock-value"
           sizeAs={tiles}
           context={`${vialCount(held.vials)} at cost`}
           testId="tile-stock-laptop"
@@ -459,12 +483,13 @@ function PeriodLaptop({
           <Tile
             label="Low stock"
             value={lowValue}
+            figure="figure-low-stock"
             sizeAs={tiles}
             context={low.every((item) => item.threshold === smallest) ? `under ${smallest} vials each` : "under their reorder levels"}
             tone="low"
           />
         ) : (
-          <Tile label="Low stock" value={lowValue} sizeAs={tiles} context="all at reorder level or above" />
+          <Tile label="Low stock" value={lowValue} figure="figure-low-stock" sizeAs={tiles} context="all at reorder level or above" />
         )}
       </div>
 
@@ -596,7 +621,7 @@ function TwelveNow({ view, laptop }: { view: TwelveMonths; laptop: boolean }) {
         <span>Gross profit · {c.name} to date</span>
         {laptop ? null : <span className="font-mono text-[12px] font-medium">{vialCount(c.vials)}</span>}
       </div>
-      <BigMoney amount={c.grossProfit} size={laptop ? 46 : 52} className="mt-2.5" />
+      <BigMoney amount={c.grossProfit} size={laptop ? 46 : 52} className="mt-2.5" testId="figure-month-gross-profit" />
       <div className="mt-2.5 flex items-center gap-1.5 text-[15px] font-semibold" data-testid="same-days-change">
         <ChangeArrow change={c.change} className="size-4" />
         {changeWords(c.change)}
@@ -618,18 +643,25 @@ function TwelveNow({ view, laptop }: { view: TwelveMonths; laptop: boolean }) {
 function TwelvePhone({ view }: { view: TwelveMonths }) {
   return (
     <div className="flex flex-col laptop:hidden" data-testid="twelve-phone">
-      <NowBlock className="mx-3 mt-4 pb-[18px]" aria-label={`Gross profit, ${view.current.name} to date`} data-testid="now">
+      <NowBlock
+        className="mx-3 mt-4 pb-[18px]"
+        aria-label={`Gross profit, ${view.current.name} to date`}
+        data-testid="now"
+        data-figure-box=""
+      >
         <TwelveNow view={view} laptop={false} />
         <div className={cn("mt-4 grid grid-cols-2 gap-3 border-t pt-3.5 text-[14px]", ON_INK_LINE)}>
-          <span className="min-w-0">
+          <span className="min-w-0" data-figure-box="">
             <span className="block text-[12px] text-on-ink-2">12-month gross profit</span>
             <Fit text={money(view.totals.grossProfit)} max={18} className="font-semibold">
-              <Money amount={view.totals.grossProfit} onInk />
+              <Money amount={view.totals.grossProfit} onInk testId="figure-12m-gross-profit" />
             </Fit>
           </span>
-          <span className="min-w-0">
+          <span className="min-w-0" data-figure-box="">
             <span className="block text-[12px] text-on-ink-2">12-month purchases</span>
-            <Fit text={money(view.totals.purchases)} max={18} className="font-semibold" />
+            <Fit text={money(view.totals.purchases)} max={18} className="font-semibold">
+              <span data-testid="figure-12m-purchases">{money(view.totals.purchases)}</span>
+            </Fit>
           </span>
         </div>
       </NowBlock>
@@ -710,17 +742,25 @@ function TwelveLaptop({ view }: { view: TwelveMonths }) {
   const rows = [...view.months].reverse();
   return (
     <div className="mt-3.5 hidden grid-cols-12 gap-3.5 laptop:grid" data-testid="twelve-laptop">
-      <NowBlock className="col-span-4 flex flex-col px-[22px] py-5" aria-label={`Gross profit, ${view.current.name} to date`}>
+      <NowBlock
+        className="col-span-4 flex flex-col px-[22px] py-5"
+        aria-label={`Gross profit, ${view.current.name} to date`}
+        data-figure-box=""
+      >
         <TwelveNow view={view} laptop />
         <div className="mt-auto flex flex-col pt-4 text-[14px]">
           {[
-            ["12-month revenue", view.totals.revenue],
-            ["12-month gross profit", view.totals.grossProfit],
-            ["12-month purchases", view.totals.purchases],
-          ].map(([label, amount], index) => (
-            <div key={label} className={cn("flex justify-between py-2", index < 2 && cn("border-b", ON_INK_LINE), index === 2 && "pb-0")}>
+            ["12-month revenue", view.totals.revenue, "figure-12m-revenue"],
+            ["12-month gross profit", view.totals.grossProfit, "figure-12m-gross-profit"],
+            ["12-month purchases", view.totals.purchases, "figure-12m-purchases"],
+          ].map(([label, amount, testId], index) => (
+            <div
+              key={label}
+              data-figure-box=""
+              className={cn("flex justify-between py-2", index < 2 && cn("border-b", ON_INK_LINE), index === 2 && "pb-0")}
+            >
               <span className="text-on-ink-soft">{label}</span>
-              <Money amount={amount} onInk className="font-semibold" />
+              <Money amount={amount} onInk className="font-semibold" testId={testId} />
             </div>
           ))}
         </div>

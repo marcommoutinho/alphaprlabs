@@ -7,7 +7,10 @@
 import { expect, test, type Page } from "@playwright/test";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
+import Decimal from "decimal.js";
 import { APP_ORIGIN } from "../../playwright.config";
+import { money } from "../../src/lib/alpha/format";
+import { isLow, stockTotals } from "../../src/lib/business/stock";
 import { MONTHS_CSV_HEADER } from "../../src/lib/business/overview";
 import { addDays, monthsLabel, monthStart, rangeLabel, sameDaysWindow } from "../../src/lib/business/period";
 import { PAUSED_NOTE } from "../../src/components/business/stock-load-error";
@@ -40,20 +43,6 @@ const shot = (page: Page, name: string) =>
 async function signInAdmin(page: Page) {
   await signInAs(page, APP_ORIGIN, ADMIN.email);
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
-}
-
-/** Another purchase of an item, received today. */
-async function buyMore(itemId: string, quantity: number, unitCost: string) {
-  const { error } = await (await signedInClient(ADMIN.email))
-    .rpc("record_business_purchase", {
-      p_idempotency_key: randomUUID(),
-      p_received_on: businessToday(),
-      p_quantity: quantity,
-      p_unit_cost: unitCost,
-      p_stock_item_id: itemId,
-    })
-    .single();
-  if (error) throw error;
 }
 
 /** A sale recorded as Priya (`seller` defaults to her), to an outside buyer unless a profile is given. */
@@ -455,6 +444,67 @@ test("Stock: a Retry after a saved change lost its answer replays it, and never 
   await expect(sheet.getByTestId("threshold-changed")).toContainText(`Set by ${SECOND.name}`);
 });
 
+test("Stock: a late Retry for one item never closes another item's sheet or discards its entry", async ({ page }) => {
+  const a = await newItem(7);
+  const b = await newItem(7);
+  await page.setViewportSize(LAPTOP);
+  await signInAdmin(page);
+  await page.goto(`${APP_ORIGIN}/admin/inventory`);
+  await hydrated(page.getByRole("searchbox", { name: "Search stock" }));
+  const rowOf = (item: { name: string }) => page.getByTestId("stock-table-row").getByRole("button", { name: `${item.name} 10 mg` });
+
+  // A's save is saved, but its answer never arrives.
+  let lost = 0;
+  await page.route(
+    (url) => url.pathname.startsWith("/admin/inventory"),
+    async (route) => {
+      const request = route.request();
+      if (lost === 0 && request.method() === "POST" && request.headers()["next-action"]) {
+        lost++;
+        const url = new URL(request.url());
+        await route.fetch({ url: request.url().replace(url.hostname, "127.0.0.1"), headers: { ...request.headers(), host: url.host } });
+        await route.abort("connectionreset");
+        return;
+      }
+      await route.continue();
+    },
+  );
+  await rowOf(a).click();
+  const sheetA = page.getByRole("dialog", { name: a.label });
+  await sheetA.getByLabel("Reorder at").fill("5");
+  await sheetA.getByRole("button", { name: "Save" }).click();
+  // While another sheet is open the page behind it (the toast too) is aria-hidden, but the toast
+  // sits above the sheet's overlay: the click below still checks nothing covers it.
+  const retry = page
+    .getByRole("alert", { includeHidden: true })
+    .filter({ hasText: "Couldn't save. Your entry is still here." })
+    .getByRole("button", { name: "Retry", includeHidden: true });
+  await expect(retry).toBeVisible();
+  await expect.poll(() => thresholdOf(a.id)).toBe(5);
+
+  // A's sheet is closed; B's is opened and edited, not saved yet.
+  await page.keyboard.press("Escape");
+  await expect(sheetA).toBeHidden();
+  await rowOf(b).click();
+  const sheetB = page.getByRole("dialog", { name: b.label });
+  await sheetB.getByLabel("Reorder at").fill("3");
+
+  // A's Retry is answered (a replay): B's sheet stays open with its entry.
+  await retry.click();
+  await expect(page.getByText(`${a.label}: this change was already saved. The list shows the current level.`)).toBeVisible();
+  await expect(sheetB).toBeVisible();
+  await expect(sheetB.getByLabel("Reorder at")).toHaveValue("3");
+  expect(await thresholdOf(b.id)).toBe(10);
+  expect(await thresholdOf(a.id)).toBe(5);
+
+  // B's own save still works and closes B's sheet (once A's toast, over the drawer's footer, has gone).
+  await page.mouse.move(10, 10); // the pointer on the toast holds it
+  await expect(page.locator('[data-slot="toast"]')).toBeHidden({ timeout: 15_000 });
+  await sheetB.getByRole("button", { name: "Save" }).click();
+  await expect(sheetB).toBeHidden();
+  await expect.poll(() => thresholdOf(b.id)).toBe(3);
+});
+
 test("a period with only a free sample: sold, no revenue, the loss in missed with its minus sign, no margin", async ({ page }) => {
   const item = await newItem(3);
   const [day] = await freeDays();
@@ -485,42 +535,176 @@ test("a period with only a free sample: sold, no revenue, the loss in missed wit
   await expect(laptop.getByRole("region", { name: "Gross profit" })).toContainText("Revenue$0.00Cost of stock$5.00Gross profit− $5.00");
 });
 
-test("7-figure amounts fit every tile and Now-block figure, on a phone and a laptop", async ({ page }) => {
-  // Stock value past $1.3M; this month a sale of $1.6M; a past day with a $1,050,000 loss (free samples).
-  const item = await newItem(90_000, "15");
-  await buyMore(item.id, 90_000, "15");
-  const [day] = await freeDays();
-  await sell(item.id, day, 70_000, "0");
-  await sell(item.id, businessToday(), 20_000, "80");
+/**
+ * Every visible tile and Now-block figure (data-testid "figure-…", set by the
+ * screen on the amount itself, with or without Fit): its rendered text, and
+ * whether the text as drawn (a Range over it, so clipping or overflow can't
+ * hide it) lies inside its box (the nearest data-figure-box: the tile, the
+ * Now block's cell or row) within the box's padding.
+ */
+const readFigures = (page: Page) =>
+  page.evaluate(() => {
+    const out: Record<string, { text: string; inside: boolean; detail: string }> = {};
+    for (const el of document.querySelectorAll<HTMLElement>('[data-testid^="figure-"]')) {
+      if (!el.checkVisibility()) continue;
+      const box = el.closest<HTMLElement>("[data-figure-box]");
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const text = range.getBoundingClientRect();
+      if (!box) {
+        out[el.dataset.testid!] = { text: el.innerText, inside: false, detail: "no box" };
+        continue;
+      }
+      const edge = box.getBoundingClientRect();
+      const style = getComputedStyle(box);
+      const left = edge.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
+      const right = edge.right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight);
+      const inside = text.left >= left - 0.5 && text.right <= right + 0.5 && text.top >= edge.top - 0.5 && text.bottom <= edge.bottom + 0.5;
+      out[el.dataset.testid!] = {
+        text: el.innerText,
+        inside,
+        detail: `text ${text.left.toFixed(1)}–${text.right.toFixed(1)}, box ${left.toFixed(1)}–${right.toFixed(1)}`,
+      };
+    }
+    return out;
+  });
+
+/** Stock value and the count of low items as every Business view shows them (the same RPC, all pages). */
+async function heldNow(today: string) {
+  const db = await signedInClient(ADMIN.email);
+  const rows: { stock_item_id: string; on_hand: number; value_at_cost: string; low_stock_threshold: number }[] = [];
+  for (;;) {
+    const after = rows.at(-1)?.stock_item_id;
+    const query = db.rpc("admin_business_stock_levels", { p_today: today });
+    const { data, error } = await (after ? query.gt("stock_item_id", after) : query).order("stock_item_id").limit(1000);
+    if (error) throw error;
+    rows.push(...data);
+    if (data.length < 1000) break;
+  }
+  const levels = rows.map((row) => ({ onHand: Number(row.on_hand), valueAtCost: row.value_at_cost, threshold: row.low_stock_threshold }));
+  const low = levels.filter(isLow).length;
+  return { value: money(stockTotals(levels).value), low: `${low} ${low === 1 ? "item" : "items"}` };
+}
+
+/** A period's totals (the same RPC as the page). */
+async function summaryOf(from: string, to: string) {
+  const { data, error } = await (await signedInClient(ADMIN.email))
+    .rpc("admin_business_sales_summary", { p_from: from, p_to: to })
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+/** The figures of a period view: the Now block (phone rows show the cost as a deduction) and the tiles. */
+function periodFigures(
+  laptop: boolean,
+  t: { revenue: string; cost: string; gross_profit: string; vials: number },
+  held: { value: string; low: string },
+): Record<string, string> {
+  const shared = {
+    "figure-gross-profit": money(t.gross_profit),
+    "figure-gross-profit-unit": "CAD",
+    "figure-now-revenue": money(t.revenue),
+    "figure-now-profit": money(t.gross_profit),
+    "figure-stock-value": held.value,
+  };
+  return laptop
+    ? {
+        ...shared,
+        "figure-now-cost": money(t.cost),
+        "figure-revenue": money(t.revenue),
+        "figure-cost": money(t.cost),
+        "figure-low-stock": held.low,
+      }
+    : { ...shared, "figure-now-cost": money(`-${t.cost}`), "figure-vials-sold": t.vials.toLocaleString("en-CA") };
+}
+
+test("7-figure amounts: every tile and Now-block figure shows its exact amount inside its box, on a phone and a laptop", async ({
+  page,
+}) => {
+  // Stock value past $1M and 12 months of purchases past $3M. On two past days
+  // no other test uses: a $1,050,000 loss (free samples), then $1.6M of
+  // revenue. The sales are spread over four items and both admins so no item's
+  // or seller's all-time totals pass six figures: the older Sales page
+  // (/admin/sales, rebuilt in step 7) lists those on one line, and
+  // inventory.spec checks it fits a phone.
+  const items = await Promise.all([1, 2, 3, 4].map(() => newItem(30_000, "15")));
+  await newItem(90_000, "15"); // $1,350,000 held
+  const [loss, gain] = await freeDays();
+  const today = businessToday();
+  for (const [index, item] of items.entries()) {
+    const seller = index % 2 === 0 ? id.admin : id.second;
+    await sell(item.id, loss, 17_500, "0", seller);
+    await sell(item.id, gain, 5_000, "80", seller);
+  }
   await signInAdmin(page);
 
-  const overflowing = () =>
-    page.evaluate(() =>
-      [...document.querySelectorAll<HTMLElement>("[data-fit]")]
-        .filter((el) => el.offsetParent !== null)
-        .filter((el) => el.scrollWidth > el.clientWidth + 0.5 || el.parentElement!.scrollWidth > el.parentElement!.clientWidth + 0.5)
-        .map((el) => el.title),
-    );
-  const fitted = () =>
-    page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-fit]")].filter((el) => el.offsetParent !== null).map((el) => el.title));
+  // Those two days' figures, exactly (every vial cost $15).
+  const lossDay = { revenue: "0.00", cost: "1050000.00", gross_profit: "-1050000.00", vials: 70_000 };
+  const gainDay = { revenue: "1600000.00", cost: "300000.00", gross_profit: "1300000.00", vials: 20_000 };
+  expect(periodFigures(false, lossDay, { value: "", low: "" })).toMatchObject({
+    "figure-gross-profit": "− $1,050,000.00",
+    "figure-now-cost": "− $1,050,000.00",
+    "figure-vials-sold": "70,000",
+  });
+
+  const views: { query: string; expected: (laptop: boolean) => Promise<Record<string, string>> }[] = [
+    { query: `?from=${loss}&to=${loss}`, expected: async (laptop) => periodFigures(laptop, lossDay, await heldNow(today)) },
+    { query: `?from=${gain}&to=${gain}`, expected: async (laptop) => periodFigures(laptop, gainDay, await heldNow(today)) },
+    // This month and 12 months are shared with the other tests: the same reads as the page, just after it.
+    {
+      query: "",
+      expected: async (laptop) => periodFigures(laptop, await summaryOf(monthStart(today), today), await heldNow(today)),
+    },
+    {
+      query: "?range=12m",
+      expected: async (laptop) => {
+        const { data: months, error } = await (await signedInClient(ADMIN.email)).rpc("admin_business_months", {
+          p_from: monthStart(today, -11),
+          p_to: today,
+        });
+        if (error) throw error;
+        const sum = (pick: (m: NonNullable<typeof months>[number]) => string) => money(months.reduce((n, m) => n.plus(pick(m)), new Decimal(0)).toFixed(2));
+        const current = money((await summaryOf(monthStart(today), today)).gross_profit);
+        return {
+          "figure-month-gross-profit": current,
+          "figure-month-gross-profit-unit": "CAD",
+          "figure-12m-gross-profit": sum((m) => m.gross_profit),
+          "figure-12m-purchases": sum((m) => m.purchases),
+          ...(laptop ? { "figure-12m-revenue": sum((m) => m.revenue) } : {}),
+        };
+      },
+    },
+  ];
 
   for (const size of [PHONE, LAPTOP]) {
     await page.setViewportSize(size);
-    for (const query of ["", `?from=${day}&to=${day}`, "?range=12m"]) {
-      await page.goto(`${APP_ORIGIN}/admin/business${query}`);
-      await expect(page.getByTestId("business")).toBeVisible();
-      const figures = await fitted();
-      expect(figures.length, `${size.width} ${query}`).toBeGreaterThan(0);
-      if (query.startsWith("?from")) expect(figures).toContain("− $1,050,000.00");
-      else expect(figures.some((text) => /^\$\d,\d{3},\d{3}\.\d{2}$/.test(text)), `${size.width} ${query}: ${figures}`).toBe(true);
-      expect(await overflowing(), `${size.width} ${query}`).toEqual([]);
+    for (const view of views) {
+      const where = `${size.width} px ${view.query || "this month"}`;
+      // Other tests record sales and stock meanwhile: read the page, then the database, until they agree.
+      await expect(async () => {
+        await page.goto(`${APP_ORIGIN}/admin/business${view.query}`);
+        const layout = `${view.query === "?range=12m" ? "twelve" : "period"}-${size === LAPTOP ? "laptop" : "phone"}`;
+        await expect(page.getByTestId(layout)).toBeVisible();
+        const shown = await readFigures(page);
+        const expected = await view.expected(size === LAPTOP);
+        expect(
+          Object.fromEntries(Object.entries(shown).map(([id, figure]) => [id, figure.text])),
+          where,
+        ).toEqual(expected);
+      }).toPass({ timeout: 45_000 });
+      // Drawn inside its tile or cell, never past it (nor clipped by it).
+      const outside = Object.entries(await readFigures(page)).filter(([, figure]) => !figure.inside);
+      expect(outside.map(([id, figure]) => `${id} "${figure.text}": ${figure.detail}`), where).toEqual([]);
     }
   }
+  expect(Object.values(await readFigures(page)).some((figure) => /^\$\d{1,3}(,\d{3}){2,}\.\d{2}$/.test(figure.text))).toBe(true);
+
   await page.goto(`${APP_ORIGIN}/admin/business`);
   await expect(page.getByTestId("period-laptop")).toBeVisible();
   await shot(page, "overview-laptop-fixed");
   await page.setViewportSize(PHONE);
-  await page.goto(`${APP_ORIGIN}/admin/business?from=${day}&to=${day}`);
+  await page.goto(`${APP_ORIGIN}/admin/business?from=${loss}&to=${loss}`);
   await expect(page.getByTestId("period-phone")).toBeVisible();
   await shot(page, "business-7-figures-phone");
 });

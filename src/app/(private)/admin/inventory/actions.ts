@@ -266,7 +266,18 @@ export async function linkSaleAction(input: unknown): Promise<LinkActionResult> 
   }
 }
 
-export type ThresholdActionResult = { error?: string; saved?: boolean; threshold?: number; /** The request key was already saved: nothing changed now. */ replayed?: boolean };
+export type ThresholdActionResult = {
+  error?: string;
+  saved?: boolean;
+  threshold?: number;
+  /** The request key was already saved: nothing changed now. */
+  replayed?: boolean;
+  /**
+   * No answer from the database: it may have been saved. The sheet keeps the
+   * request key, so Retry (or Save with the same value) replays it.
+   */
+  unsure?: boolean;
+};
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const field = (input: unknown, name: string): unknown =>
@@ -305,12 +316,15 @@ export async function setStockThresholdAction(input: unknown): Promise<Threshold
       return { error: SUBMISSION_CONFLICT };
     case "invalid":
       return { error: "Enter a whole number of vials, 0 or more." };
-    default:
-      return { error: THRESHOLD_SAVE_FAILED };
+    case "not_authorized":
+      return { error: THRESHOLD_NOT_ALLOWED };
+    case "unsure":
+      return { error: THRESHOLD_SAVE_FAILED, unsure: true };
   }
 }
 
 const THRESHOLD_SAVE_FAILED = "Couldn't save. Your entry is still here. Try again.";
+const THRESHOLD_NOT_ALLOWED = "Only admins can change reorder levels.";
 
 /** The toast with the revenue and gross profit the database froze (not the preview's). */
 async function recordedSaleToast(db: Awaited<ReturnType<typeof createClient>>, saleId: string, quantity: number) {

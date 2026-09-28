@@ -7,9 +7,10 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { listStockLevels, setStockThreshold } from "@/lib/business/service";
+import { attemptFor, settles, type ThresholdAttempt } from "@/lib/business/stock";
 import { businessToday } from "@/lib/inventory/screens";
 import { recordPurchase } from "@/lib/inventory/service";
-import { anonClient, ensureAccount, ok, sqlState, signedInClient, uniqueEmail } from "../support/local-supabase";
+import { anonClient, answerLostClient, ensureAccount, ok, sqlState, signedInClient, uniqueEmail } from "../support/local-supabase";
 
 const acting = vi.hoisted(() => ({ client: null as unknown, refreshed: 0, revalidated: [] as string[] }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => acting.client }));
@@ -243,6 +244,61 @@ describe("A3 / D4 setStockThresholdAction", () => {
       { previous_threshold: 10, threshold: 5, request_key: entry.requestKey, changed_by: adminId },
       { previous_threshold: 5, threshold: 8, request_key: expect.any(String), changed_by: otherId },
     ]);
+  });
+
+  it.each(["dropped", "gateway"] as const)(
+    "a save that committed but whose answer was lost (%s) is unsure: its retry replays and leaves another admin's newer value",
+    async (how) => {
+      const itemId = await newItem();
+      let lost = true;
+      acting.client = await answerLostClient(admin.email, (url) =>
+        lost && url.includes("/rpc/set_business_stock_threshold") ? how : null,
+      );
+      const entry = { requestKey: randomUUID(), stockItemId: itemId, threshold: "5" };
+      // Postgres committed it; the answer never arrived.
+      const first = await setStockThresholdAction(entry);
+      expect(first).toEqual({ error: expect.stringContaining("Couldn't save"), unsure: true });
+      expect((await levelOf(itemId)).threshold).toBe(5);
+      // The sheet keeps the attempt, so Retry (or Save with 5 again) sends the same key.
+      expect(settles(first)).toBe(false);
+      const kept: ThresholdAttempt = { key: entry.requestKey, value: 5 };
+      const retry = attemptFor(settles(first) ? null : kept, 5, randomUUID);
+      expect(retry).toBe(kept);
+      // Another admin sets 8 meanwhile.
+      expect(
+        await setStockThreshold(await signedInClient(other.email), { requestKey: randomUUID(), stockItemId: itemId, threshold: 8 }),
+      ).toMatchObject({ kind: "saved", replayed: false });
+      // The retry gets through: a replay, and their 8 stays.
+      lost = false;
+      expect(await setStockThresholdAction({ requestKey: retry.key, stockItemId: itemId, threshold: String(retry.value) })).toEqual({
+        saved: true,
+        threshold: 5,
+        replayed: true,
+      });
+      expect((await levelOf(itemId)).threshold).toBe(8);
+      expect(await changesOf(itemId)).toEqual([
+        { previous_threshold: 10, threshold: 5, request_key: entry.requestKey, changed_by: adminId },
+        { previous_threshold: 5, threshold: 8, request_key: expect.any(String), changed_by: otherId },
+      ]);
+    },
+  );
+
+  it("the service reports a lost answer as unsure, and only the database's refusals as refusals", async () => {
+    const itemId = await newItem();
+    const lossy = await answerLostClient(admin.email, (url) => (url.includes("/rpc/") ? "dropped" : null));
+    expect(await setStockThreshold(lossy, { requestKey: randomUUID(), stockItemId: itemId, threshold: 6 })).toEqual({ kind: "unsure" });
+    const db = await signedInClient(admin.email);
+    const key = randomUUID();
+    expect(await setStockThreshold(db, { requestKey: key, stockItemId: itemId, threshold: 7 })).toMatchObject({ kind: "saved" });
+    // Refused, nothing written: the sheet may start a new edit.
+    expect(await setStockThreshold(db, { requestKey: key, stockItemId: itemId, threshold: 9 })).toEqual({ kind: "conflict" });
+    expect(await setStockThreshold(db, { requestKey: randomUUID(), stockItemId: randomUUID(), threshold: 9 })).toEqual({
+      kind: "unknown_item",
+    });
+    expect(
+      await setStockThreshold(await signedInClient(researcher.email), { requestKey: randomUUID(), stockItemId: itemId, threshold: 9 }),
+    ).toEqual({ kind: "not_authorized" });
+    expect((await levelOf(itemId)).threshold).toBe(7);
   });
 
   it("returns the message for an invalid value or request, and refreshes when the item is gone", async () => {

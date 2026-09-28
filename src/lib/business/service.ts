@@ -136,9 +136,21 @@ export async function recentSales(db: Db, limit: number): Promise<SaleRecord[]> 
 
 export type ThresholdResult =
   | { kind: "saved"; threshold: number; replayed: boolean }
-  | { kind: "not_authorized" | "invalid" | "unknown_item" | "conflict" | "error" };
+  /** The database refused it (nothing was written). */
+  | { kind: "not_authorized" | "invalid" | "unknown_item" | "conflict" }
+  /**
+   * No answer from the database: a dropped connection, a gateway error, a
+   * timeout, or an error it doesn't define. It may have committed, so the
+   * caller must retry with the same request key (a replay), never a new one.
+   */
+  | { kind: "unsure" };
 
-/** Sets a stock item's low-stock threshold (admins only; idempotent by request key). */
+/**
+ * Sets a stock item's low-stock threshold (admins only; idempotent by request
+ * key). supabase-js reports a lost answer (fetch failed, a 502, a timeout) as
+ * an ordinary error, so only the refusals set_business_stock_threshold raises
+ * count as "nothing was written"; anything else is `unsure`.
+ */
 export async function setStockThreshold(
   db: Db,
   input: { requestKey: string; stockItemId: string; threshold: number },
@@ -161,7 +173,7 @@ export async function setStockThreshold(
       case "AP005":
         return { kind: "conflict" };
       default:
-        return { kind: "error" };
+        return { kind: "unsure" };
     }
   }
   return { kind: "saved", threshold: data.threshold, replayed: data.replayed };
