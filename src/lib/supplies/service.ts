@@ -156,13 +156,19 @@ const ADD_REFUSALS: Record<string, Exclude<AddVialResult["kind"], "added">> = {
   "22023": "invalid",
 };
 
-/** R7's round + (add_personal_vial): a new vial, once per request key. */
+/**
+ * R7's round + (add_personal_vial): a new vial, once per request (its key,
+ * and the hash of the submission: a key reused for anything else is
+ * refused). A blank label is named "Vial N" by the database; the result is
+ * the label stored, on a replay too.
+ */
 export async function addPersonalVial(
   db: Db,
-  vial: { requestKey: string; label: string; peptideId: string; strengthMg: string; mixtureId: string | null },
+  vial: { requestKey: string; requestHash: string; label: string; peptideId: string; strengthMg: string; mixtureId: string | null },
 ): Promise<AddVialResult> {
   const { data, error } = await db.rpc("add_personal_vial", {
     p_request_key: vial.requestKey,
+    p_request_hash: vial.requestHash,
     p_label: vial.label,
     p_peptide_id: vial.peptideId,
     p_strength_mg: vial.strengthMg,

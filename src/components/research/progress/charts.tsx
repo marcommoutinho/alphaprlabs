@@ -45,7 +45,7 @@ function PreCycle({ fraction, onInk }: { fraction: number | null; onInk: boolean
   );
 }
 
-/** The feeling line over the range, gaps as gaps, today's point in signal. */
+/** The feeling line over the range, gaps as gaps, the latest check-in's point in signal. */
 export function FeelingChart({
   points,
   preCycle,
@@ -57,7 +57,8 @@ export function FeelingChart({
   className?: string;
 }) {
   const segments = runs(points, (p) => p.feeling !== null);
-  const last = points.at(-1);
+  // The latest day with a check-in (today's, or the last before a gap up to today).
+  const last = points.findLast((p) => p.feeling !== null);
   return (
     <div className={cn("relative", className)} data-testid="feeling-chart" data-points={points.filter((p) => p.feeling !== null).length}>
       <PreCycle fraction={preCycle} onInk />
@@ -94,7 +95,7 @@ export function FeelingChart({
       {last?.feeling ? (
         <i
           aria-hidden
-          data-slot="today-point"
+          data-slot="latest-point"
           className="absolute size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-ink bg-signal"
           style={{ left: `${last.x * 100}%`, top: `${(feelingY(last.feeling) / FEELING_H) * 100}%`, boxSizing: "content-box" }}
         />

@@ -13,6 +13,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { addDays } from "@/lib/cycles/rules";
 import { listPersonalVials } from "@/lib/mixtures/service";
 import { checkInDay } from "@/lib/progress/rules";
+import { saveRequestHash } from "@/lib/request-hash";
 import { endRoutine, listRoutines, saveRoutine, takeSupplement } from "@/lib/supplements/service";
 import { routineEnded } from "@/lib/supplements/view";
 import { addPersonalVial, correctPersonalVial, listDeductions } from "@/lib/supplies/service";
@@ -25,14 +26,20 @@ const people = {
   alex: { email: uniqueEmail("v3-alex"), name: "Alex Corrects", role: "researcher" },
   blair: { email: uniqueEmail("v3-blair"), name: "Blair Other", role: "researcher" },
   rae: { email: uniqueEmail("v3-rae"), name: "Rae Routines", role: "researcher" },
+  vera: { email: uniqueEmail("v3-vera"), name: "Vera Vials", role: "researcher" },
   grace: { email: uniqueEmail("v3-grace"), name: "Grace Granted", role: "admin" },
 } as const;
 type Name = keyof typeof people;
 const id = {} as Record<Name, string>;
 const db = {} as Record<Name, Client>;
 let peptideA = "";
+let peptideB = "";
 /** Today in Toronto, as the server judges routines (see beforeAll). */
 let today = "";
+
+/** R7's + as the action sends it: the submission's hash beside its request key. */
+const add = (who: Name, vial: { label: string; peptideId: string; strengthMg: string; mixtureId: string | null }, key: string = randomUUID()) =>
+  addPersonalVial(db[who], { requestKey: key, requestHash: saveRequestHash(vial), ...vial });
 
 const hash = (value: unknown = randomUUID()) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const request = (value?: unknown) => ({ key: randomUUID(), hash: hash(value) });
@@ -79,6 +86,7 @@ beforeAll(async () => {
     db[key] = await signedInClient(spec.email);
   }
   peptideA = await createPeptide(db.grace, `V3 A ${tag()}`);
+  peptideB = await createPeptide(db.grace, `V3 B ${tag()}`);
   await ok(db.rae.rpc("set_supplement_tracking", { p_enabled: true }), "rae's supplement tracking");
 }, 120_000);
 
@@ -162,25 +170,63 @@ describe("R7 correct remaining", () => {
 });
 
 describe("R7 add vial and when a vial was mixed", () => {
-  it("adds one vial per request key, whatever the retries, and refuses the key for another vial", async () => {
+  it("adds one vial per request, whatever the retries, and refuses the key for anything else", async () => {
     await ok(db.alex.rpc("set_supply_tracking", { p_enabled: true }), "tracking on");
     const key = randomUUID();
-    const vial = { requestKey: key, label: `N-${tag()}`, peptideId: peptideA, strengthMg: "5", mixtureId: null };
-    const added = await addPersonalVial(db.alex, vial);
+    const vial = { label: `N-${tag()}`, peptideId: peptideA, strengthMg: "5", mixtureId: null as string | null };
+    const added = await add("alex", vial, key);
     expect(added).toMatchObject({ kind: "added", label: vial.label, replayed: false });
-    // A retry (even with the next "Vial N" label) returns the same vial.
-    expect(await addPersonalVial(db.alex, { ...vial, label: "Vial 9" })).toEqual({ ...added, replayed: true });
+    // A retry of the same submission returns the same vial.
+    expect(await add("alex", vial, key)).toEqual({ ...added, replayed: true });
     expect((await listPersonalVials(db.alex, id.alex)).filter((v) => v.label === vial.label)).toHaveLength(1);
-    expect(await addPersonalVial(db.alex, { ...vial, strengthMg: "6" })).toEqual({ kind: "invalid" });
-    expect(await addPersonalVial(db.blair, vial)).toEqual({ kind: "invalid" });
+    // The key with any other field, or from another account, is refused.
+    for (const other of [{ strengthMg: "6" }, { label: "Vial 9" }, { peptideId: peptideB }]) {
+      expect(await add("alex", { ...vial, ...other }, key), JSON.stringify(other)).toEqual({ kind: "invalid" });
+    }
+    expect(await add("blair", vial, key)).toEqual({ kind: "invalid" });
+    // A hash that isn't one is refused.
+    expect(
+      await sqlState(db.alex.rpc("add_personal_vial", { p_request_key: randomUUID(), p_request_hash: "x", p_label: "Z", p_peptide_id: peptideA, p_strength_mg: "5" }), "bad hash"),
+    ).toBe("22023");
     // It keeps save_personal_vial's rules.
     await ok(db.blair.rpc("set_supply_tracking", { p_enabled: false }), "blair's tracking off");
-    expect(await addPersonalVial(db.blair, { ...vial, requestKey: randomUUID() })).toEqual({ kind: "tracking_off" });
+    expect(await add("blair", vial)).toEqual({ kind: "tracking_off" });
     await ok(db.blair.rpc("set_supply_tracking", { p_enabled: true }), "blair's tracking on");
   });
 
+  it("refuses a key reused for another mixture of the same peptide and strength", async () => {
+    await ok(db.alex.rpc("set_supply_tracking", { p_enabled: true }), "tracking on");
+    const mixture = async () =>
+      (await ok(
+        db.alex.rpc("save_mixture", { p_peptide_id: peptideA, p_vial_mg: "7", p_liquid_ml: "1", p_syringe_units: 100, p_line_spacing: "2", p_plan_ids: [] }),
+        "mixture",
+      ))!;
+    const [first, second] = [await mixture(), await mixture()];
+    const key = randomUUID();
+    const vial = { label: `X-${tag()}`, peptideId: peptideA, strengthMg: "7", mixtureId: first as string | null };
+    const added = (await add("alex", vial, key)) as { id: string };
+    expect(await add("alex", { ...vial, mixtureId: second }, key)).toEqual({ kind: "invalid" });
+    expect(await add("alex", { ...vial, mixtureId: null }, key)).toEqual({ kind: "invalid" });
+    // Nothing was added for the refused ones, and the first stays on its mixture.
+    expect((await listPersonalVials(db.alex, id.alex)).filter((v) => v.label === vial.label)).toEqual([expect.objectContaining({ id: added.id, mixtureId: first })]);
+  });
+
+  it("names a blank label Vial N in the database, and a retry reports the name stored", async () => {
+    await ok(db.vera.rpc("set_supply_tracking", { p_enabled: true }), "tracking on");
+    const blank = { label: "", peptideId: peptideA, strengthMg: "5", mixtureId: null as string | null };
+    const key = randomUUID();
+    expect(await add("vera", blank, key)).toMatchObject({ kind: "added", label: "Vial 1", replayed: false });
+    // The retry after a lost answer: the vial stored, still "Vial 1" (the list now has one vial).
+    expect(await add("vera", blank, key)).toMatchObject({ kind: "added", label: "Vial 1", replayed: true });
+    expect(await add("vera", blank)).toMatchObject({ label: "Vial 2", replayed: false });
+    // Labels in use are skipped, whatever their case.
+    await add("vera", { ...blank, label: "vial 4" });
+    expect(await add("vera", blank)).toMatchObject({ label: "Vial 5" });
+    expect((await listPersonalVials(db.vera, id.vera)).map((v) => v.label).sort()).toEqual(["Vial 1", "Vial 2", "Vial 5", "vial 4"]);
+  });
+
   it("stamps mixed_at when a vial is first linked to a mixture, and never clears it", async () => {
-    const unlinked = (await addPersonalVial(db.alex, { requestKey: randomUUID(), label: `M-${tag()}`, peptideId: peptideA, strengthMg: "10", mixtureId: null })) as { id: string };
+    const unlinked = (await add("alex", { label: `M-${tag()}`, peptideId: peptideA, strengthMg: "10", mixtureId: null })) as { id: string };
     const mixedAt = async () => (await listPersonalVials(db.alex, id.alex)).find((v) => v.id === unlinked.id)!.mixedAt;
     expect(await mixedAt()).toBeNull();
     const mixtureId = (await ok(
@@ -200,7 +246,8 @@ describe("R7 add vial and when a vial was mixed", () => {
       db.alex.rpc("save_mixture", { p_peptide_id: peptideA, p_vial_mg: "10", p_liquid_ml: "1", p_syringe_units: 100, p_line_spacing: "2", p_plan_ids: [] }),
       "mixture",
     ))!;
-    const linked = (await addPersonalVial(db.alex, { requestKey: randomUUID(), label: `L-${tag()}`, peptideId: peptideA, strengthMg: "10", mixtureId: other })) as { id: string };
+    const linked = await add("alex", { label: `L-${tag()}`, peptideId: peptideA, strengthMg: "10", mixtureId: other });
+    if (linked.kind !== "added") throw new Error(`add failed: ${linked.kind}`);
     expect((await listPersonalVials(db.alex, id.alex)).find((v) => v.id === linked.id)!.mixedAt).not.toBeNull();
   });
 });

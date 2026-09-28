@@ -6,13 +6,13 @@ import { SAVE_FAILED_MESSAGE, type ToastTone } from "@/components/app-shell/toas
 import { signInUrl } from "@/lib/auth/paths";
 import { currentResearcher } from "@/lib/auth/session";
 import { massLabel } from "@/lib/alpha/format";
-import { finishPersonalVial, listPersonalVials, savePersonalVial, setSupplyTracking } from "@/lib/mixtures/service";
+import { finishPersonalVial, savePersonalVial, setSupplyTracking } from "@/lib/mixtures/service";
+import { saveRequestHash } from "@/lib/request-hash";
 import {
   addedToast,
   CORRECTION_CHANGED,
   CORRECTION_INVALID,
   correctedToast,
-  defaultVialLabel,
   finishedToast,
   LABEL_REQUIRED,
   MIXTURE_HAS_VIAL,
@@ -86,32 +86,26 @@ export async function setTrackingAction(input: unknown): Promise<SuppliesActionR
  * mixture has no other open vial.
  */
 export async function saveVialAction(input: unknown): Promise<SuppliesActionResult> {
-  const person = await signedIn();
+  await signedIn();
   const valid = validateVialForm(input);
   if (!valid.ok) return { error: valid.error };
   const form = valid.value;
   const requestKey = requestKeyOf(input);
   if (!form.id && !requestKey) return { error: VIAL_INVALID };
 
-  const db = await createClient();
-  let label = form.label;
-  if (!label) {
-    if (form.id) return { error: LABEL_REQUIRED };
-    try {
-      label = defaultVialLabel((await listPersonalVials(db, person.id)).map((vial) => vial.label));
-    } catch {
-      return { toast: SAVE_FAILED_MESSAGE, tone: "error" };
-    }
-  }
+  if (!form.label && form.id) return { error: LABEL_REQUIRED };
 
-  const vial = { label, peptideId: form.peptideId, strengthMg: form.strengthMg, mixtureId: form.mixtureId };
+  const db = await createClient();
+  const vial = { label: form.label, peptideId: form.peptideId, strengthMg: form.strengthMg, mixtureId: form.mixtureId };
+  // A blank label is named by add_personal_vial; the toast names what was stored (a retry's too).
   const result = form.id
-    ? await savePersonalVial(db, { id: form.id, ...vial })
-    : await addPersonalVial(db, { requestKey: requestKey!, ...vial }).then((added) => (added.kind === "added" ? { kind: "saved" as const } : added));
+    ? await savePersonalVial(db, { id: form.id, ...vial }).then((saved) => (saved.kind === "saved" ? { ...saved, label: form.label } : saved))
+    : await addPersonalVial(db, { requestKey: requestKey!, requestHash: saveRequestHash(vial), ...vial });
   switch (result.kind) {
     case "saved":
+    case "added":
       revalidateSupplies();
-      return { saved: true, toast: form.id ? savedToast(label) : addedToast(label), tone: "info" };
+      return { saved: true, toast: form.id ? savedToast(result.label) : addedToast(result.label), tone: "info" };
     case "mixture_has_vial":
       return { error: MIXTURE_HAS_VIAL };
     case "strength":

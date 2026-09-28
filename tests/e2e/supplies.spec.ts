@@ -7,12 +7,14 @@
 // "low" counter; Correct remaining sets what's left (a correction in its
 // history, the Low tag and the counter go); Mark finished moves it to
 // Finished with its history. Phone: unopened vials grouped by peptide and
-// strength, one added with the round +, and tracking off hides the list.
+// strength, one added with the round + and no label (its first answer lost:
+// the retry reports the "Vial N" the database stored, and adds nothing more),
+// and tracking off hides the list.
 // Cycles use a fixed-offset zone where it is about 12:00 now (tests/support/noon).
 import { expect, test, type Page } from "@playwright/test";
 import { APP_ORIGIN, SERVER_ORIGIN } from "../../playwright.config";
 import { SAVE_FAILED_MESSAGE } from "../../src/components/app-shell/toast";
-import { NO_VIALS, TRACKING_OFF } from "../../src/lib/supplies/rules";
+import { addedToast, NO_VIALS, TRACKING_OFF } from "../../src/lib/supplies/rules";
 import { createCycle, interval, plan, tag } from "../support/cycles";
 import { d, NOON } from "../support/noon";
 import { ensureAccount, hydrated, ok, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
@@ -245,9 +247,30 @@ test.describe("phone, dark", () => {
     await add.getByLabel("Saved mixture").selectOption({ label: "Not mixed yet" });
     await add.getByLabel("Peptide").selectOption({ label: A });
     await add.getByLabel(/^Strength/).fill("5");
+    // No label: the database names it. The first answer is lost after the vial was added; the retry
+    // sends the same request and reports the name stored, not a new one.
+    let lost = 0;
+    await page.route(/\/app\/supplies$/, async (route) => {
+      const request = route.request();
+      if (request.method() === "POST" && request.headers()["next-action"] && lost === 0) {
+        lost += 1;
+        const url = new URL(request.url());
+        await route.fetch({ url: `${SERVER_ORIGIN}${url.pathname}`, headers: { ...request.headers(), host: url.host } });
+        await route.abort("failed");
+        return;
+      }
+      await route.fallback();
+    });
+    await add.getByTestId("add-vial-submit").click();
+    await expect(page.getByRole("alert").filter({ hasText: SAVE_FAILED_MESSAGE })).toBeVisible();
+    expect(lost).toBe(1);
+    await expect(add).toBeVisible();
     await add.getByTestId("add-vial-submit").click();
     await expect(add).toBeHidden();
-    await expect(page.getByRole("status").filter({ hasText: /^Vial .+ added\.$/ })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: addedToast("Vial 3") })).toBeVisible();
+    await page.unroute(/\/app\/supplies$/);
+    const vials = await ok(serviceClient().from("personal_vials").select("label").eq("peptide_id", aId).order("label"), "vials");
+    expect(vials.map((v) => v.label)).toEqual(["U-1", "U-2", "Vial 3"]);
     await expect(group).toContainText("× 3");
     await expect(page.getByText("Unopened · 3")).toBeVisible();
     expect(await noSideScroll(page)).toBe(true);

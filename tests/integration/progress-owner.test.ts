@@ -11,7 +11,7 @@ import { addDays } from "@/lib/cycles/rules";
 import { listCycles, listCyclePeptides } from "@/lib/cycles/service";
 import { checkInDay } from "@/lib/progress/rules";
 import { countCheckIns, listCheckIns } from "@/lib/progress/service";
-import { CSV_HEADER } from "@/lib/progress/csv";
+import { CSV_HEADER, exportRange } from "@/lib/progress/csv";
 import { exportOwnCheckIns } from "@/lib/progress/export";
 import { progressScreen, progressSelection } from "@/lib/progress/screen";
 import { type Client, createCycle, createPeptide, interval, plan, tag } from "../support/cycles";
@@ -121,6 +121,13 @@ describe("D3 Export CSV is owner-only", () => {
     }
     // Signed out: nothing.
     expect(await exportOwnCheckIns(anonClient(), range)).toBeNull();
+
+    // A ten-year cycle's range (its week before included) is accepted and exports every day there is.
+    const decade = exportRange(addDays(today, -3666), today)!;
+    expect(decade).toEqual({ from: addDays(today, -3666), to: today });
+    const all = await exportOwnCheckIns(db.alex, decade);
+    expect(all?.rows).toBe(DAYS);
+    expect(all?.filename).toBe(`alpha-check-ins_${decade.from}_to_${today}.csv`);
   });
 });
 

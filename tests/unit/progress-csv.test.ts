@@ -2,7 +2,7 @@
 // injection), the byte-order mark and CRLF endings, the rows oldest first,
 // the file name and the range the route accepts.
 import { describe, expect, it } from "vitest";
-import { checkInsCsv, CSV_HEADER, csvField, csvFilename, csvText, EXPORT_MAX_DAYS, exportRange } from "@/lib/progress/csv";
+import { checkInsCsv, CSV_HEADER, csvField, csvFilename, csvText, EXPORT_EARLIEST, EXPORT_LATEST, exportRange } from "@/lib/progress/csv";
 import type { CheckIn } from "@/lib/progress/service";
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -82,12 +82,15 @@ describe("the check-ins file", () => {
 });
 
 describe("the export range", () => {
-  it("accepts real dates in order, up to the limit", () => {
+  it("accepts real dates in order: any range the screen can show, however long a cycle runs", () => {
     expect(exportRange("2026-08-30", "2026-09-28")).toEqual({ from: "2026-08-30", to: "2026-09-28" });
     expect(exportRange("2026-09-28", "2026-09-28")).toEqual({ from: "2026-09-28", to: "2026-09-28" });
-    expect(EXPORT_MAX_DAYS).toBe(400);
-    expect(exportRange("2025-08-25", "2026-09-28")).not.toBeNull(); // 399 days apart
-    expect(exportRange("2025-08-24", "2026-09-28")).toBeNull(); // 400
+    // A ten-year cycle's range with its week before (3,667 days), and far longer ones.
+    expect(exportRange("2016-09-24", "2026-09-28")).toEqual({ from: "2016-09-24", to: "2026-09-28" });
+    expect([EXPORT_EARLIEST, EXPORT_LATEST]).toEqual(["1999-12-25", "2100-12-31"]);
+    expect(exportRange("1999-12-25", "2100-12-31")).not.toBeNull();
+    expect(exportRange("1999-12-24", "2026-09-28")).toBeNull();
+    expect(exportRange("2026-09-28", "2101-01-01")).toBeNull();
   });
 
   it("refuses a missing, malformed, impossible or reversed range", () => {

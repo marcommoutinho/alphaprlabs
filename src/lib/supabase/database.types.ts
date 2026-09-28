@@ -1203,6 +1203,7 @@ export type Database = {
           mixture_id: string | null
           owner_id: string
           peptide_id: string
+          request_hash: string | null
           request_key: string | null
           strength_mg: number
           updated_at: string
@@ -1216,6 +1217,7 @@ export type Database = {
           mixture_id?: string | null
           owner_id: string
           peptide_id: string
+          request_hash?: string | null
           request_key?: string | null
           strength_mg: number
           updated_at?: string
@@ -1229,6 +1231,7 @@ export type Database = {
           mixture_id?: string | null
           owner_id?: string
           peptide_id?: string
+          request_hash?: string | null
           request_key?: string | null
           strength_mg?: number
           updated_at?: string
@@ -1676,6 +1679,7 @@ export type Database = {
           p_label: string
           p_mixture_id?: string
           p_peptide_id: string
+          p_request_hash: string
           p_request_key: string
           p_strength_mg: string
         }

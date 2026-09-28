@@ -46,6 +46,10 @@ test.describe("laptop, light", () => {
     await signInAs(page, APP_ORIGIN, email);
     await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
     await expect(page.getByTestId("today-supplement")).toHaveCount(0);
+    // No cycle: the header is today in Toronto (the app's zone), and the prototype's empty note.
+    const torontoToday = new Intl.DateTimeFormat("en-US", { timeZone: "America/Toronto", weekday: "short", month: "short", day: "numeric" }).format(new Date());
+    await expect(page.getByTestId("today-date")).toHaveAttribute("title", "America/Toronto");
+    await expect(page.getByTestId("today-date")).toHaveText(torontoToday);
     await expect(page.getByTestId("today-empty-body")).toHaveText(NO_CYCLES_BODY);
 
     // R13: the supplied guidance; nothing tracked until turned on and a routine exists.
@@ -97,6 +101,9 @@ test.describe("laptop, light", () => {
     await page.goto(`${APP_ORIGIN}/app/today`);
     const row = page.getByTestId("today-supplement").filter({ hasText: name });
     await expect(row).toContainText(`12:00 AM${name} · 2000 IU`);
+    // Still no cycle: the same header, and the note no longer says nothing is due.
+    await expect(page.getByTestId("today-date")).toHaveAttribute("title", "America/Toronto");
+    await expect(page.getByTestId("today-date")).toHaveText(torontoToday);
     await expect(page.getByTestId("today-empty-body")).toHaveText(NO_CYCLES_BODY_SUPPLEMENTS);
     let lost = 0;
     await page.route(/\/app\/today$/, async (route) => {

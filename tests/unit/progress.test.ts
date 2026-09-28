@@ -36,6 +36,7 @@ import {
   VALUE_TOO_LARGE,
   VALUE_TOO_PRECISE,
 } from "@/lib/progress/rules";
+import { exportRange } from "@/lib/progress/csv";
 import type { CheckIn } from "@/lib/progress/service";
 import {
   daysOf,
@@ -409,6 +410,19 @@ describe("R5 Progress: the cycle and the range", () => {
     expect(view().feeling.preCycle).toBeCloseTo(18 / 29);
     expect(view({ range: "7d" }).feeling.preCycle).toBeNull();
   });
+
+  it("offers an export of any range it shows: a ten-year cycle's range is one the export accepts", () => {
+    const [b] = revision.plans[1].phases;
+    const decade = cycleOf(503, "Decade", [{ ...revision, id: uuid(130), plans: [{ ...revision.plans[1], phases: [{ ...b, start: "2016-10-01", end: "2026-10-06" }] }] }]);
+    const long = view({ cycles: [decade], selectedId: decade.id, range: "cycle" });
+    expect([long.from, long.to]).toEqual(["2016-09-24", "2026-09-21"]);
+    const href = new URL(long.exportHref, "http://app.localhost");
+    expect(exportRange(href.searchParams.get("from"), href.searchParams.get("to"))).toEqual({ from: "2016-09-24", to: "2026-09-21" });
+    for (const range of ["7d", "30d", "cycle"] as const) {
+      const shown = new URL(view({ range }).exportHref, "http://app.localhost");
+      expect(exportRange(shown.searchParams.get("from"), shown.searchParams.get("to")), range).not.toBeNull();
+    }
+  });
 });
 
 describe("R5 Progress: feeling, gaps and the check-in rows", () => {
@@ -604,6 +618,33 @@ describe("R5 Progress: dose tracks, adherence and the measurement", () => {
     expect(measureCard([waist, weight("2026-09-16", "82")], daysOf("2026-09-15", "2026-09-21"), null)?.name).toBe("Weight");
     expect(measureCard([waist], daysOf("2026-09-15", "2026-09-21"), null)?.name).toBe("Waist");
     expect(view().measure).toBeNull();
+  });
+
+  it("finds the baseline before the range shown: the last entry on or before the cycle's start, in every check-in given", () => {
+    const weight = (day: string, value: string, unit = "kg") => checkIn(day, { measurement: { name: "Weight", value, unit, measuredAt: `${day}T12:00:00Z` } });
+    const week = daysOf("2026-09-04", "2026-09-10");
+    // The cycle starts Sep 3; the range is Sep 4–10. Sep 1 is the baseline, though not shown.
+    const early = measureCard([weight("2026-09-01", "84"), weight("2026-09-10", "82.5")], week, "2026-09-03")!;
+    expect(early).toMatchObject({ latest: "82.5", entries: "1 entry", max: "82.5 kg", min: "82.5 kg" });
+    expect(early.change).toEqual({ direction: "down", text: "Down 1.5 kg", since: "since Sep 1" });
+    expect(early.points.map((p) => p.day)).toEqual(["2026-09-10"]);
+    // Sep 3 (the start day) is later than Sep 1: it is the baseline.
+    expect(measureCard([weight("2026-09-01", "84"), weight("2026-09-03", "83.4"), weight("2026-09-10", "82.5")], week, "2026-09-03")!.change).toEqual({
+      direction: "down",
+      text: "Down 0.9 kg",
+      since: "since Sep 3",
+    });
+    // Only the same kind and unit: another unit or kind before the start is no baseline.
+    const waist = checkIn("2026-09-02", { measurement: { name: "Waist", value: "80", unit: "cm", measuredAt: "2026-09-02T12:00:00Z" } });
+    expect(measureCard([weight("2026-09-01", "185", "lb"), waist, weight("2026-09-05", "83"), weight("2026-09-10", "82.5")], week, "2026-09-03")!.change).toMatchObject({
+      text: "Down 0.5 kg",
+      since: "since Sep 5",
+    });
+    // Nothing measured in the range: no card, whatever came before.
+    expect(measureCard([weight("2026-09-01", "84")], week, "2026-09-03")).toBeNull();
+    // Through the screen: the check-ins the page fetched reach the card.
+    const v = view({ range: "7d", checkIns: [weight("2026-09-09", "84"), weight("2026-09-20", "82.9")] });
+    expect(v.measure?.change).toMatchObject({ text: "Down 1.1 kg", since: "since Sep 9" });
   });
 });
 

@@ -3,7 +3,10 @@
 // on three days, written as the database owner since only today's can be
 // saved through the API) beside a cycle's doses; the feeling average and
 // change, the dose lane, the weight card, the tiles and the check-ins; check
-// in and edit today's from the screen (R6's sheet); "No cycle"; a researcher
+// in and edit today's from the screen (R6's sheet); a check-in with an effect,
+// a note and a weight beside a dose confirmed on Today, edited ("None" clears
+// the effect, the note cleared) while a second tab's stale edit is refused;
+// "No cycle"; a researcher
 // with no cycle and no measurements; and D3's Export CSV (owner-only: a
 // signed-out request gets nothing). Days are America/Toronto days. Cycles use
 // a fixed-offset zone where it is about 12:00 now (tests/support/noon).
@@ -13,7 +16,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { APP_ORIGIN } from "../../playwright.config";
 import { addDays } from "../../src/lib/cycles/rules";
 import { CSV_HEADER } from "../../src/lib/progress/csv";
-import { checkInDay, NO_CYCLE_OPTION, NOT_EVIDENCE } from "../../src/lib/progress/rules";
+import { CHECK_IN_CHANGED, CHECK_IN_SAVED, checkInDay, FEELING_REQUIRED, NO_CYCLE_OPTION, NO_DOSES, NOT_EVIDENCE } from "../../src/lib/progress/rules";
 import { formatMonthDay } from "../../src/lib/format";
 import { createCycle, interval, plan, tag } from "../support/cycles";
 import { d, NOON, noonZoneInstant } from "../support/noon";
@@ -172,6 +175,113 @@ test.describe("phone, light", () => {
     await expect(now.getByRole("img", { name: new RegExp(`^${A}:`) })).toHaveCount(0);
     await expect(tile(page, "tile-adherence").locator("[data-slot=context]")).toHaveText("No cycle selected");
     await expect(now.getByTestId("feeling-average")).toHaveText("3.5");
+  });
+
+  test("check in with an effect, a note and a weight beside a confirmed dose; edit it; a stale tab can't overwrite it", async ({ page, context }) => {
+    // A every 2 days at 08:00 from two days ago: today's dose is due, yesterday had none.
+    const t = tag();
+    const email = uniqueEmail("v3-progress-edit");
+    const researcherId = await ensureAccount({ email, name: "Progress Edit", role: "researcher" });
+    const A = `Progress A ${t}`;
+    const aId = await seedPeptide(A);
+    await createCycle(await signedInClient(email), { name: `Progress cycle ${t}`, timeZone: NOON, plans: [plan(aId, [interval(d(-2), d(20), "0.4", 2, "08:00")])] });
+    const today = checkInDay(new Date());
+    const yesterday = addDays(today, -1);
+    psql(`insert into public.progress_check_ins (owner_id, day, feeling, effects, note) values (${quote(researcherId)}, ${quote(yesterday)}, 3, '{None}', '');`);
+
+    // Confirm today's dose on Today.
+    await signInAs(page, APP_ORIGIN, email);
+    await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
+    await (await hydrated(page.getByTestId("today-hero").getByRole("button", { name: "Taken", exact: true }))).click();
+    await expect(page.getByRole("status").filter({ hasText: `${A} · 400 mcg logged at ` })).toBeVisible();
+    await page.goto(`${APP_ORIGIN}/app/progress?range=7d`);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Progress");
+
+    // Yesterday: the phase, no doses.
+    const rows = page.getByTestId("progress-row");
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first().locator("[data-slot=beside]")).toHaveText(`${A}: 400 mcg · ${NO_DOSES}`);
+
+    // Check in: the feeling is required.
+    await (await hydrated(page.getByTestId("progress-check-in"))).click();
+    const sheet = page.getByRole("dialog", { name: "Daily check-in" });
+    await sheet.getByRole("button", { name: "Save check-in" }).click();
+    await expect(sheet.getByRole("alert")).toHaveText(FEELING_REQUIRED);
+    await sheet.getByRole("radio", { name: "4 · Good" }).click();
+    await expect(sheet.getByRole("radio", { name: "4 · Good" })).toHaveAttribute("aria-checked", "true");
+    await expect(sheet.getByRole("alert")).toHaveCount(0);
+    await sheet.getByRole("button", { name: "Headache", exact: true }).click();
+    await sheet.getByLabel("Note").fill("Slept better.");
+    await sheet.getByLabel("Measurement type").selectOption("Weight");
+    await sheet.getByLabel("Value").fill("82,4");
+    await sheet.getByRole("button", { name: "Save check-in" }).click();
+    await expect(sheet).toBeHidden();
+    await expect(page.getByRole("status").filter({ hasText: CHECK_IN_SAVED })).toBeVisible();
+
+    // Today's row: the feeling, the note, the effect and the weight, beside the phase and the dose taken.
+    const todayRow = page.locator(`[data-testid=progress-row][data-day="${today}"]`);
+    await expect(rows.first()).toHaveAttribute("data-day", today);
+    await expect(todayRow.locator("[data-slot=feeling]")).toHaveText("4 · Good");
+    await expect(todayRow).toContainText("Slept better.");
+    await expect(todayRow).toContainText("Headache · Weight 82.4 kg");
+    await expect(todayRow.locator("[data-slot=beside]")).toHaveText(`${A}: 400 mcg · ${A} 400 mcg`);
+
+    // The edit sheet starts from what was saved.
+    await expect(page.getByTestId("progress-check-in")).toHaveText("Edit today's check-in");
+    await page.getByTestId("progress-check-in").click();
+    const edit = page.getByRole("dialog", { name: "Today's check-in" });
+    await expect(edit.getByRole("radio", { name: "4 · Good" })).toHaveAttribute("aria-checked", "true");
+    await expect(edit.getByRole("button", { name: "Headache", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(edit.getByLabel("Note")).toHaveValue("Slept better.");
+    await expect(edit.getByLabel("Value")).toHaveValue("82.4");
+
+    // Another tab opened now starts from version 1.
+    const other = await context.newPage();
+    await other.goto(`${APP_ORIGIN}/app/progress?range=7d`);
+    await (await hydrated(other.getByTestId("progress-check-in"))).click();
+    const stale = other.getByRole("dialog", { name: "Today's check-in" });
+    await expect(stale.getByRole("radio", { name: "4 · Good" })).toHaveAttribute("aria-checked", "true");
+
+    // Edit: a lower feeling, "None" clears the headache, the note cleared; the weight stays.
+    await edit.getByRole("radio", { name: "3 · OK" }).click();
+    await edit.getByRole("button", { name: "None", exact: true }).click();
+    await expect(edit.getByRole("button", { name: "Headache", exact: true })).toHaveAttribute("aria-pressed", "false");
+    await expect(edit.getByRole("button", { name: "None", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await edit.getByLabel("Note").fill("");
+    await edit.getByRole("button", { name: "Update check-in" }).click();
+    await expect(edit).toBeHidden();
+    await expect(todayRow.locator("[data-slot=feeling]")).toHaveText("3 · OK");
+    await expect(todayRow).not.toContainText("Headache");
+    await expect(todayRow).not.toContainText("Slept better.");
+    await expect(todayRow).toContainText("Weight 82.4 kg");
+    await expect(todayRow.locator("[data-slot=beside]")).toHaveText(`${A}: 400 mcg · ${A} 400 mcg`);
+
+    // The stale tab can't overwrite it.
+    await stale.getByRole("radio", { name: "5 · Great" }).click();
+    await stale.getByRole("button", { name: "Update check-in" }).click();
+    await expect(stale.getByRole("alert")).toHaveText(CHECK_IN_CHANGED);
+    await expect(stale).toBeVisible();
+    await other.close();
+
+    const saved = await ok(
+      serviceClient()
+        .from("progress_check_ins")
+        .select("day, feeling, effects, note, measurement_name, measurement_value::text, measurement_unit, version")
+        .eq("owner_id", researcherId)
+        .eq("day", today),
+      "check-ins",
+    );
+    expect(saved).toEqual([
+      { day: today, feeling: 3, effects: ["None"], note: "", measurement_name: "Weight", measurement_value: "82.4", measurement_unit: "kg", version: 2 },
+    ]);
+    expect(await noSideScroll(page)).toBe(true);
+
+    // No cycle: the same check-in on its own, without the phase or doses.
+    await (await hydrated(page.getByLabel("Cycle"))).selectOption({ label: NO_CYCLE_OPTION });
+    await expect(page).toHaveURL(`${APP_ORIGIN}/app/progress?range=7d&cycle=none`);
+    await expect(todayRow.locator("[data-slot=feeling]")).toHaveText("3 · OK");
+    await expect(todayRow).toContainText("Weight 82.4 kg");
+    await expect(page.locator("[data-testid=progress-row] [data-slot=beside]")).toHaveCount(0);
   });
 });
 

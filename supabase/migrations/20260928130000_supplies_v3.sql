@@ -40,14 +40,19 @@
 --    their created_at: the closest record there is.
 --
 -- 3. Adding a vial idempotently (R7's round +). add_personal_vial(
---    p_request_key, p_label, p_peptide_id, p_strength_mg, p_mixture_id) is
---    save_personal_vial() for a new vial (same checks and refusals: AP014,
---    AP015, AP016, 22023) with a request key stored on the vial: the same
---    key again returns that vial ("replayed") and adds nothing, so a retry
---    after a lost response never adds a second vial; the key with another
---    peptide or strength, or from another account, is 22023 (the label is
---    not compared: "Vial N" is numbered from the list, which then includes
---    the first vial).
+--    p_request_key, p_request_hash, p_label, p_peptide_id, p_strength_mg,
+--    p_mixture_id) is save_personal_vial() for a new vial (same checks and
+--    refusals: AP014, AP015, AP016, 22023) with the request stored on the
+--    vial: p_request_key made once by the app and sent again on a retry, and
+--    p_request_hash the app's SHA-256 (hex) of the submission (label as
+--    typed, peptide, strength, mixture), the convention of cycle saves. The
+--    same key and hash again return that vial ("replayed") and add nothing,
+--    so a retry after a lost response never adds a second vial; the key with
+--    another hash (any field differs) or from another account is 22023.
+--    A blank label is named here, not by the app: "Vial N", N from the
+--    caller's vial count + 1 up, skipping labels in use (case-insensitive;
+--    src/lib/supplies/rules.ts defaultVialLabel is the same rule), so a
+--    retry returns the name that was stored.
 --
 -- 4. Supplement routines with a start and an optional end (R13's round +:
 --    name, amount, unit, time, start, optional end). Until now a routine
@@ -96,7 +101,8 @@
 -- update) and nothing else, so it serializes with confirm_dose and
 -- undo_dose on that vial (both take its row lock) and never waits on a cycle
 -- or plan. add_personal_vial takes its request key's advisory lock first,
--- then save_personal_vial's locks (the mixture). The supplement writers keep
+-- then (a blank label only) the caller's naming advisory lock, then
+-- save_personal_vial's locks (the mixture). The supplement writers keep
 -- their order (at most one routine row) after their request key's advisory
 -- lock. Advisory locks are only ever taken first, each by its own writer.
 --
@@ -260,10 +266,16 @@ create trigger personal_vials_mixed
 
 alter table public.personal_vials
   add column request_key uuid,
-  add constraint personal_vials_request unique (request_key);
+  add column request_hash text,
+  add constraint personal_vials_request unique (request_key),
+  add constraint personal_vials_request_hash check (
+    (request_key is null and request_hash is null)
+    or (request_key is not null and request_hash ~ '^[0-9a-f]{64}$')
+  );
 
 create function public.add_personal_vial(
   p_request_key uuid,
+  p_request_hash text,
   p_label text,
   p_peptide_id uuid,
   p_strength_mg text,
@@ -277,28 +289,41 @@ set search_path = ''
 as $$
 declare
   v_uid uuid := (select auth.uid());
+  v_label text := public.trim_whitespace(coalesce(p_label, ''));
   v_vial public.personal_vials%rowtype;
+  v_taken text[];
+  v_n integer;
   v_id uuid;
 begin
   if not public.can_write_researcher(v_uid) then
     raise exception 'not authorized' using errcode = '42501';
   end if;
-  if p_request_key is null then
+  if p_request_key is null or coalesce(p_request_hash, '') !~ '^[0-9a-f]{64}$' then
     raise exception 'invalid vial' using errcode = '22023';
   end if;
 
   perform pg_advisory_xact_lock(hashtextextended('personal_vial_add:' || p_request_key::text, 0));
   select pv.* into v_vial from public.personal_vials pv where pv.request_key = p_request_key;
   if found then
-    if v_vial.owner_id <> v_uid or v_vial.peptide_id is distinct from p_peptide_id
-       or v_vial.strength_mg is distinct from public.mixture_decimal(p_strength_mg) then
+    if v_vial.owner_id <> v_uid or v_vial.request_hash <> p_request_hash then
       raise exception 'request key already used' using errcode = '22023';
     end if;
     return jsonb_build_object('id', v_vial.id, 'label', v_vial.label, 'replayed', true);
   end if;
 
-  v_id := public.save_personal_vial(p_label, p_peptide_id, p_strength_mg, p_mixture_id, null);
-  update public.personal_vials pv set request_key = p_request_key where pv.id = v_id
+  if v_label = '' then
+    -- One caller names one blank vial at a time.
+    perform pg_advisory_xact_lock(hashtextextended('personal_vial_label:' || v_uid::text, 0));
+    select coalesce(array_agg(lower(pv.label)), '{}'), count(*) + 1 into v_taken, v_n
+    from public.personal_vials pv where pv.owner_id = v_uid;
+    while ('vial ' || v_n) = any (v_taken) loop
+      v_n := v_n + 1;
+    end loop;
+    v_label := 'Vial ' || v_n;
+  end if;
+
+  v_id := public.save_personal_vial(v_label, p_peptide_id, p_strength_mg, p_mixture_id, null);
+  update public.personal_vials pv set request_key = p_request_key, request_hash = p_request_hash where pv.id = v_id
   returning pv.* into v_vial;
   return jsonb_build_object('id', v_vial.id, 'label', v_vial.label, 'replayed', false);
 exception
@@ -307,8 +332,8 @@ exception
 end;
 $$;
 
-revoke all on function public.add_personal_vial(uuid, text, uuid, text, uuid) from public, anon;
-grant execute on function public.add_personal_vial(uuid, text, uuid, text, uuid) to authenticated;
+revoke all on function public.add_personal_vial(uuid, text, text, uuid, text, uuid) from public, anon;
+grant execute on function public.add_personal_vial(uuid, text, text, uuid, text, uuid) to authenticated;
 
 -- ── 4. Supplement routines: start, planned end, idempotent writes ─────────
 

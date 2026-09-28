@@ -9,7 +9,9 @@
 // apostrophe, so opening the file never runs it (CSV injection).
 import { formatAmount, parseDecimal } from "@/lib/calculator/decimal";
 import { FEELING_WORDS } from "./rules";
-import { reportedEffects } from "./screen";
+import { addDaysToDate } from "@/lib/doses/rules";
+import { EARLIEST_PHASE_DATE, LATEST_PHASE_DATE } from "@/lib/schedule/engine";
+import { LEAD_IN_DAYS, reportedEffects } from "./screen";
 import type { CheckIn } from "./service";
 
 export const CSV_TYPE = "text/csv; charset=utf-8";
@@ -54,12 +56,21 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const realDate = (value: string | null): value is string =>
   value !== null && DATE.test(value) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
 
-/** The longest range one export covers (a little over a year). */
-export const EXPORT_MAX_DAYS = 400;
+/**
+ * The days an export may cover: any range the screen can show. Its widest
+ * is a cycle's "Cycle" range, from the week before its first day
+ * (LEAD_IN_DAYS) to its last; a cycle's phases fall within
+ * EARLIEST_PHASE_DATE to LATEST_PHASE_DATE (src/lib/schedule/engine.ts),
+ * each up to MAX_PHASE_DAYS long, one after another. Outside these dates
+ * no range is one the screen offers. (The rows are the owner's own
+ * check-ins, one per day at most and only ever saved for the day they
+ * were made, so a long range costs no more than the history there is.)
+ */
+export const EXPORT_EARLIEST = addDaysToDate(EARLIEST_PHASE_DATE, -LEAD_IN_DAYS);
+export const EXPORT_LATEST = LATEST_PHASE_DATE;
 
-/** `?from=&to=` as a range of days, or null when it isn't one (missing, not a date, reversed, too long). */
+/** `?from=&to=` as a range of days, or null when it isn't one (missing, not a date, reversed, outside the dates above). */
 export function exportRange(from: string | null, to: string | null): { from: string; to: string } | null {
   if (!realDate(from) || !realDate(to) || from > to) return null;
-  const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000;
-  return days < EXPORT_MAX_DAYS ? { from, to } : null;
+  return from >= EXPORT_EARLIEST && to <= EXPORT_LATEST ? { from, to } : null;
 }

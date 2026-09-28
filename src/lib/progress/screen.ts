@@ -52,6 +52,9 @@ export type RangeWindow = {
 
 const current = (cycle: CycleRecord) => cycle.revisions[cycle.revisions.length - 1];
 
+/** The first day of a cycle as it stands (its current revision). */
+export const cycleStartOf = (cycle: CycleRecord): string => cycleSpan(current(cycle)).start;
+
 /** Today in Toronto. */
 export const progressToday = (now: InstantInput) => checkInDay(toInstant(now).toString(), PROGRESS_TIME_ZONE);
 
@@ -210,18 +213,21 @@ export type MeasureCard = {
  * The measurement card: Weight when any was measured in the range, else the
  * most recent measurement's kind, in the unit of its latest entry (entries in
  * another unit are left out, never converted). The change is from the
- * baseline: the last entry on or before the cycle's start, else the first
- * one in the range. Null when nothing was measured.
+ * baseline: the last entry of that kind and unit on or before the cycle's
+ * start, looked for in every check-in given (it may be before the range
+ * shown), else the first one in the range. Null when nothing was measured
+ * in the range.
  */
 export function measureCard(checkIns: readonly CheckIn[], days: readonly string[], cycleStart: string | null): MeasureCard | null {
-  const inRange = checkIns.filter((c) => c.measurement && days.length && c.day >= days[0] && c.day <= days[days.length - 1]).sort((a, b) => a.day.localeCompare(b.day));
+  const measured = checkIns.filter((c) => c.measurement).sort((a, b) => a.day.localeCompare(b.day));
+  const inRange = measured.filter((c) => days.length && c.day >= days[0] && c.day <= days[days.length - 1]);
   if (!inRange.length) return null;
   const name = inRange.some((c) => c.measurement!.name === "Weight") ? "Weight" : inRange[inRange.length - 1].measurement!.name;
   const named = inRange.filter((c) => c.measurement!.name === name);
   const unit = named[named.length - 1].measurement!.unit;
   const entries = named.filter((c) => c.measurement!.unit === unit);
   const latest = entries[entries.length - 1];
-  const before = cycleStart ? entries.filter((c) => c.day <= cycleStart) : [];
+  const before = cycleStart ? measured.filter((c) => c.day <= cycleStart && c.measurement!.name === name && c.measurement!.unit === unit) : [];
   const baseline = before.length ? before[before.length - 1] : entries[0];
   const n = days.length;
   const values = entries.map((c) => new Exact(c.measurement!.value));
@@ -436,7 +442,8 @@ export function progressScreen(input: ProgressScreenInput): ProgressScreen {
       axis,
     },
     tracks: cycle ? doseTracks(cycle, confirmations, input.peptides, days, input.now) : [],
-    measure: measureCard(inRange, days, cycleStart),
+    // Every check-in given: the baseline may be before the range.
+    measure: measureCard(input.checkIns, days, cycleStart),
     tiles: {
       adherence: stats ? { value: stats.percent === null ? "—" : String(stats.percent), unit: stats.percent === null ? "" : "%", context: adherenceCount(stats) } : null,
       checkIns: { value: String(inCount.length), context: `of ${counted.length} days` },

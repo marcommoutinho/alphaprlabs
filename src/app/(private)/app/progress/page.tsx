@@ -4,7 +4,7 @@ import { requireResearcher } from "@/lib/auth/session";
 import { listCycles, listCyclePeptides } from "@/lib/cycles/service";
 import { addDaysToDate } from "@/lib/doses/rules";
 import { confirmationsByCycle, listDoseRecords, listDoseSkips } from "@/lib/doses/service";
-import { progressScreen, progressSelection, readRange } from "@/lib/progress/screen";
+import { cycleStartOf, progressScreen, progressSelection, readRange } from "@/lib/progress/screen";
 import { countCheckIns, listCheckIns } from "@/lib/progress/service";
 import { NO_CYCLE_PARAM } from "@/lib/progress/view";
 import { createClient } from "@/lib/supabase/server";
@@ -12,7 +12,11 @@ import { createClient } from "@/lib/supabase/server";
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** How far back the check-in sheet looks for a measurement's last value ("Last: 81.7 kg · Mon Sep 21"), as Today does. */
+/**
+ * How far back the check-in sheet looks for a measurement's last value
+ * ("Last: 81.7 kg · Mon Sep 21"), as Today does; and how far before a
+ * cycle's start its measurement baseline is looked for.
+ */
 const MEASUREMENT_LOOKBACK_DAYS = 90;
 
 /**
@@ -33,11 +37,13 @@ export default async function ProgressPage({ searchParams }: { searchParams: Sea
   const now = new Date();
   const cycles = await listCycles(db, person.id);
   const { cycle, window } = progressSelection(cycles, asked, range, now);
-  const lookback = addDaysToDate(window.today, -MEASUREMENT_LOOKBACK_DAYS);
+  // From the range, R6's lookback and, with a cycle, the lookback before its start (the measurement's baseline).
+  const start = cycle ? cycleStartOf(cycle) : null;
+  const lookback = [window.from, addDaysToDate(window.today, -MEASUREMENT_LOOKBACK_DAYS), ...(start ? [addDaysToDate(start, -MEASUREMENT_LOOKBACK_DAYS)] : [])].sort()[0];
   const [library, total, checkIns, records, skips] = await Promise.all([
     listCyclePeptides(db),
     countCheckIns(db, person.id),
-    listCheckIns(db, person.id, { from: window.from < lookback ? window.from : lookback, to: window.today }),
+    listCheckIns(db, person.id, { from: lookback, to: window.today }),
     // Doses are shown only beside a cycle.
     cycle ? listDoseRecords(db, person.id) : Promise.resolve([]),
     cycle ? listDoseSkips(db, person.id) : Promise.resolve([]),
