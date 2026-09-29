@@ -220,7 +220,7 @@ export function PeptideEditor({ entry, takenNames }: { entry: AdminPeptide | nul
               onChange={(event) => set("information", event.currentTarget.value)}
               placeholder="Researchers see this on the peptide page."
               className={cn(
-                "h-[116px] text-[15px] leading-[1.45] laptop:h-[150px] laptop:rounded-[12px]",
+                "h-[116px] text-base leading-[1.45] laptop:h-[150px] laptop:rounded-[12px] laptop:text-[15px]",
                 summaryMissing && "border-missed shadow-[inset_0_0_0_1px_var(--missed)]",
               )}
               data-testid="peptide-summary-input"
@@ -235,7 +235,7 @@ export function PeptideEditor({ entry, takenNames }: { entry: AdminPeptide | nul
             <TextArea
               value={form.cyclingOff}
               onChange={(event) => set("cyclingOff", event.currentTarget.value)}
-              className="h-[88px] min-h-[88px] text-[15px] laptop:rounded-[12px]"
+              className="h-[88px] min-h-[88px] text-base laptop:rounded-[12px] laptop:text-[15px]"
               data-testid="peptide-cycling-off-input"
             />
           </Field>
@@ -243,7 +243,7 @@ export function PeptideEditor({ entry, takenNames }: { entry: AdminPeptide | nul
             <TextArea
               value={form.supplement}
               onChange={(event) => set("supplement", event.currentTarget.value)}
-              className="h-[88px] min-h-[88px] text-[15px] laptop:rounded-[12px]"
+              className="h-[88px] min-h-[88px] text-base laptop:rounded-[12px] laptop:text-[15px]"
               data-testid="peptide-supplement-input"
             />
           </Field>
@@ -412,7 +412,7 @@ function Strengths({ list, onChange, error }: { list: string[]; onChange: (list:
               inputMode="decimal"
               aria-label="Strength in mg"
               placeholder="10"
-              className="w-[72px] bg-transparent font-mono text-[14px] font-semibold outline-none placeholder:text-ink-3"
+              className="w-[72px] bg-transparent font-mono text-base font-semibold outline-none placeholder:text-ink-3 laptop:text-[14px]"
               data-testid="strength-input"
             />
             <span className="font-mono text-[13px] text-ink-3">mg</span>

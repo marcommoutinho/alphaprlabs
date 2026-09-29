@@ -266,7 +266,7 @@ function CyclePicker({ screen, onPick }: { screen: Screen; onPick: (cycle: strin
         aria-label="Cycle"
         value={screen.cycleId ?? NO_CYCLE_PARAM}
         onChange={(event) => onPick(event.target.value)}
-        className="absolute inset-0 cursor-pointer opacity-0"
+        className="absolute inset-0 size-full cursor-pointer appearance-none text-base leading-none opacity-0"
       >
         {screen.cycles.map((cycle) => (
           <option key={cycle.id} value={cycle.id}>

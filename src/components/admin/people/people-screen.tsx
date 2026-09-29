@@ -56,7 +56,7 @@ export function PeopleScreen({ view }: { view: PeopleView }) {
           value={quickEmail}
           onChange={(event) => setQuickEmail(event.currentTarget.value)}
           placeholder="name@email.com"
-          className="h-[52px] min-w-0 rounded-[14px] border border-line bg-surface px-3.5 font-mono text-[15px] text-ink outline-none placeholder:text-ink-3 focus:border-ink focus:shadow-[inset_0_0_0_1px_var(--ink)]"
+          className="h-[52px] min-w-0 rounded-[14px] border border-line bg-surface px-3.5 font-mono text-base text-ink outline-none placeholder:text-ink-3 focus:border-ink focus:shadow-[inset_0_0_0_1px_var(--ink)]"
         />
         <Button type="submit" variant="ink" className="h-[52px] rounded-[14px] px-[18px] text-base" data-testid="quick-invite">
           Invite
@@ -353,7 +353,7 @@ function InviteForm({ initialEmail, onSent, idPrefix }: { initialEmail: string; 
           }}
           autoComplete="off"
           placeholder="name@example.com"
-          className="text-[14px] laptop:bg-paper"
+          className="laptop:bg-paper laptop:text-[14px]"
           name="email"
         />
       </Field>

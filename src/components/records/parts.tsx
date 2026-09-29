@@ -104,7 +104,7 @@ export function PickerRow({
         data-testid={testId}
         value={selected}
         onChange={(event) => onSelect(event.currentTarget.value)}
-        className="absolute inset-0 size-full cursor-pointer appearance-none rounded-[16px] opacity-0"
+        className="absolute inset-0 size-full cursor-pointer appearance-none rounded-[16px] text-base opacity-0"
       >
         {placeholder !== undefined ? (
           <option value="" disabled>

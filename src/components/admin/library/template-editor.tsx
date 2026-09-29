@@ -399,7 +399,7 @@ function PeptideCard({
   );
 }
 
-const BOX = "flex h-9 items-center rounded-[10px] border border-line bg-surface px-2.5 font-mono text-[13px] font-medium focus-within:border-ink focus-within:shadow-[inset_0_0_0_1px_var(--ink)]";
+const BOX = "flex h-9 items-center rounded-[10px] border border-line bg-surface px-2.5 font-mono text-base font-medium laptop:text-[13px] focus-within:border-ink focus-within:shadow-[inset_0_0_0_1px_var(--ink)]";
 const BARE = "min-w-0 bg-transparent outline-none";
 
 function PhaseRowView({ row, index, peptide, onChange, onRemove }: { row: PhaseRow; index: number; peptide: string; onChange: (patch: Partial<PhaseRow>) => void; onRemove: () => void }) {
@@ -455,7 +455,7 @@ function PhaseRowView({ row, index, peptide, onChange, onRemove }: { row: PhaseR
                   const frequency = e.currentTarget.value as Frequency;
                   onChange({ frequency, every: frequency === "every" && row.every.trim() === "1" ? "2" : row.every });
                 }}
-                className="h-9 min-w-0 rounded-[10px] border border-line bg-surface px-2 text-[14px]"
+                className="h-9 min-w-0 rounded-[10px] border border-line bg-surface px-2 text-base laptop:text-[14px]"
                 data-testid="phase-schedule"
               >
                 <option value="daily">Daily</option>

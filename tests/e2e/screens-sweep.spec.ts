@@ -164,6 +164,15 @@ async function problems(page: Page): Promise<string[]> {
     }
     body.style.overflowX = clip;
 
+    // On a phone, iOS zooms into a field whose text is under 16 px when it takes focus.
+    if (window.innerWidth < 760) {
+      for (const el of body.querySelectorAll("input, textarea, select")) {
+        if (el instanceof HTMLInputElement && ["checkbox", "radio", "range", "hidden", "file"].includes(el.type)) continue;
+        const size = parseFloat(getComputedStyle(el).fontSize);
+        if (size < 16 && el.getBoundingClientRect().width > 0) found.push(`field text ${size}px (iOS zooms under 16px): ${describe(el)}`);
+      }
+    }
+
     // A box that hides overflow and has more content than room, other than
     // an intended one-line ellipsis, a scroller, or a visually hidden label.
     for (const el of body.querySelectorAll("*")) {

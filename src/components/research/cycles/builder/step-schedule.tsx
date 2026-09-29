@@ -278,7 +278,7 @@ function PhaseCard({
               value={phase.time}
               onChange={(e) => onChange({ time: e.target.value })}
               aria-label="Time"
-              className="h-11 rounded-[12px] border border-line bg-paper px-3.5 font-mono text-[15px] font-semibold text-ink"
+              className="h-11 rounded-[12px] border border-line bg-paper px-3.5 font-mono text-base font-semibold text-ink laptop:text-[15px]"
             />
           </label>
         </>

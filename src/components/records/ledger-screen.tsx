@@ -234,7 +234,7 @@ function SellerChip({ view, sellers }: { view: LedgerView; sellers: LedgerSeller
         data-testid="seller-select"
         value={view.seller ?? ""}
         onChange={(event) => router.push(ledgerHref(view, { seller: event.currentTarget.value || null }))}
-        className="absolute inset-0 size-full cursor-pointer appearance-none opacity-0"
+        className="absolute inset-0 size-full cursor-pointer appearance-none text-base opacity-0"
       >
         <option value="">All sellers</option>
         {options.map((seller) => (

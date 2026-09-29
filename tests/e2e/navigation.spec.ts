@@ -1,6 +1,6 @@
 // The private app's links don't prefetch (src/components/alpha/link.tsx):
-// Next.js 16.2 can commit an empty page when a link is clicked while its
-// prefetch is still in flight (vercel/next.js#98684). On a phone (tab bar)
+// Next.js 16.2 and 16.3 can commit an empty page when a link is clicked while
+// its prefetch is still in flight (vercel/next.js#98684, open for 16.3.7). On a phone (tab bar)
 // and a laptop (sidebar), against the production build: moving quickly
 // between the tabs, a cycle card and its detail, Today's calculator link and
 // a Library peptide, every destination renders its heading, and no request
