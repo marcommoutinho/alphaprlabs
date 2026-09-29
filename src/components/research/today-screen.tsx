@@ -187,6 +187,8 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
   const [sheetQueue, setSheetQueue] = useState<readonly Queued[]>([]);
   /** Refused doses whose sheet can't open (no longer on the page): the toast says what the server said about each. */
   const [dropped, setDropped] = useState<readonly Queued[]>([]);
+  /** The refusal the open sheet shows (it opened from the queue, or reopened in place), if any. */
+  const [sheetRefusal, setSheetRefusal] = useState<Queued | null>(null);
   /** The refused doses whose refreshed page never came, from the page they were made on (their toast names each). */
   const stalled = useRef<Reopen[]>([]);
   const [, startTransition] = useTransition();
@@ -197,23 +199,29 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
 
   const reopened = reopens.filter((entry) => entry.from !== view);
   const onPage = (entry: { key: string }) => view.doses[entry.key] !== undefined;
-  if (reopened.length || !sheetQueue.every(onPage)) {
+  // The open sheet's dose left the page (a later refresh): its sheet can't show it.
+  const openGone = sheetKey !== null && !onPage({ key: sheetKey });
+  if (reopened.length || openGone || !sheetQueue.every(onPage)) {
     // The refreshed page is here: each refused dose's sheet shows it as it is now, one after the other.
     if (reopened.length) setReopens(reopens.filter((entry) => entry.from === view));
     const arriving: Queued[] = reopened.map(({ key, notice, name, lead }) => ({ key, notice, name, lead }));
     const same = arriving.find((entry) => entry.key === sheetKey && onPage(entry));
-    if (same) setSheetNotice(same.notice);
+    if (same) {
+      setSheetNotice(same.notice);
+      setSheetRefusal(same);
+    }
     const next = [...sheetQueue, ...arriving.filter((entry) => entry !== same)];
-    // A dose no longer on the page (recorded elsewhere and no longer overdue) has no sheet: its message is a toast.
+    // A dose no longer on the page (recorded elsewhere and no longer overdue) has no sheet: its message is a
+    // toast, the open sheet's too when it was showing a refusal; the next sheet then opens.
     const gone = next.filter((entry) => !onPage(entry));
+    const openRefusal = openGone && sheetRefusal?.key === sheetKey && !gone.some((entry) => entry.key === sheetKey) ? [sheetRefusal] : [];
     setSheetQueue(next.filter(onPage));
-    if (gone.length) {
-      setDropped([...dropped, ...gone]);
-      if (gone.some((entry) => entry.key === sheetKey)) {
-        setSheetKey(null);
-        setSheetNotice(null);
-        setSheetError(null);
-      }
+    if (gone.length || openRefusal.length) setDropped([...dropped, ...openRefusal, ...gone]);
+    if (openGone) {
+      setSheetKey(null);
+      setSheetNotice(null);
+      setSheetError(null);
+      setSheetRefusal(null);
     }
   }
   if (sheetQueue.length && sheetKey === null && !checkInOpen && !supplementSheet && !reopened.length && sheetQueue.every(onPage)) {
@@ -221,6 +229,7 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
     setSheetKey(sheetQueue[0].key);
     setSheetError(null);
     setSheetNotice(sheetQueue[0].notice);
+    setSheetRefusal(sheetQueue[0]);
   }
   if (shown.some((entry) => entry.answered && reflects(view, entry))) {
     // The page from the server shows these now.
@@ -288,12 +297,14 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
     setSheetKey(null);
     setSheetError(null);
     setSheetNotice(null);
+    setSheetRefusal(null);
     // Drop ?dose= once handled, so a later refresh doesn't reopen it.
     if (view.requested) router.replace(pathname, { scroll: false });
   };
   const openSheet = (key: string) => {
     setSheetError(null);
     setSheetNotice(null);
+    setSheetRefusal(null);
     setSheetKey(key);
   };
 

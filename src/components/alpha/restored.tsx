@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type ReactNode, type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 /**
- * Back/forward restores a page from the router's client cache without asking
- * the server, whatever staleTimes says (Next.js 16.3.7), so a page that checks
+ * Back/forward puts a page back without asking the server: Next.js restores it
+ * from its client cache whatever staleTimes says (16.3.7), and the browser may
+ * restore the whole document from its back/forward cache. A page that checks
  * access on each request would come back as it was: a researcher history
- * after the share stopped, a peptide after it left the Library.
+ * after the share stopped, a peptide after it left the Library, with the
+ * researcher's own regimen.
  *
  * Such a page renders a fresh id on every server render (crypto.randomUUID()
  * in the page). The first time that payload mounts it came straight from the
@@ -16,43 +18,66 @@ import { useRouter } from "next/navigation";
  */
 const shown = new Set<string>();
 
-/** True when this server render was already on screen: this mount is a restore. Pure (a render may call it). */
-export const wasShown = (id: string): boolean => shown.has(id);
-
-/** Records that this server render is on screen (from an effect). */
-export const markShown = (id: string): void => {
-  shown.add(id);
-};
-
 /**
- * Whether this mount is a restore, decided once when it mounts: later renders
- * of the same payload are not restores, and a new id on the same mount (a
- * refresh) is always a fresh server render. A restore always mounts anew.
+ * The gate for one server render (`id`): `restoring` while the page was put
+ * back without the server, from a mount of an id already shown (decided once,
+ * when it mounts: a new id on the same mount is a fresh render) or a document
+ * restored by the browser (pageshow persisted). Leaving the document
+ * (pagehide) hides `box` at once, on the element itself, so a document the
+ * browser keeps comes back hidden before any script runs. `reveal()` ends the
+ * restore for this id (a check passed); a new id ends it too.
  */
-export function useRestored(id: string): boolean {
-  const [mount] = useState(() => ({ id, restored: wasShown(id) }));
-  return mount.id === id && mount.restored;
+export function useRestoreGate(id: string): { restoring: boolean; box: RefObject<HTMLDivElement | null>; reveal: () => void } {
+  const [state, setState] = useState(() => ({ id, restoring: shown.has(id) }));
+  const restoring = state.id === id && state.restoring;
+  const box = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    shown.add(id);
+  }, [id]);
+
+  useEffect(() => {
+    const onHide = () => {
+      const element = box.current;
+      if (!element) return;
+      element.style.display = "none";
+      element.inert = true;
+      element.setAttribute("aria-hidden", "true");
+    };
+    const onShow = (event: PageTransitionEvent) => {
+      if (event.persisted) setState({ id, restoring: true });
+    };
+    window.addEventListener("pagehide", onHide);
+    window.addEventListener("pageshow", onShow);
+    return () => {
+      window.removeEventListener("pagehide", onHide);
+      window.removeEventListener("pageshow", onShow);
+    };
+  }, [id]);
+
+  const reveal = useCallback(() => setState({ id, restoring: false }), [id]);
+  return { restoring, box, reveal };
+}
+
+/** What a gate shows once revealed: its children, in a box that adds no layout (see useRestoreGate). */
+export function GateBox({ box, children }: { box: RefObject<HTMLDivElement | null>; children: ReactNode }) {
+  return (
+    <div ref={box} style={{ display: "contents" }} data-gate="open">
+      {children}
+    </div>
+  );
 }
 
 /**
- * For pages where the previous payload may flash while the server answers
- * (the Library, a peptide): a restore asks the server again at once with
- * router.refresh(), and so does a page the browser itself kept (pageshow
- * persisted). Renders nothing.
+ * For the Library and a peptide (the researcher's own cycles and mix): a
+ * restore shows the route's placeholder, not the page as it was, and asks
+ * the server again (router.refresh()); the refreshed page (a new id) shows.
  */
-export function RefreshOnRestore({ id }: { id: string }) {
+export function RestoreGate({ id, placeholder, children }: { id: string; placeholder: ReactNode; children: ReactNode }) {
   const router = useRouter();
-  const restored = useRestored(id);
+  const { restoring, box } = useRestoreGate(id);
   useEffect(() => {
-    if (restored) router.refresh();
-    markShown(id);
-  }, [id, restored, router]);
-  useEffect(() => {
-    const onShow = (event: PageTransitionEvent) => {
-      if (event.persisted) router.refresh();
-    };
-    window.addEventListener("pageshow", onShow);
-    return () => window.removeEventListener("pageshow", onShow);
-  }, [router]);
-  return null;
+    if (restoring) router.refresh();
+  }, [restoring, router]);
+  return restoring ? placeholder : <GateBox box={box}>{children}</GateBox>;
 }
