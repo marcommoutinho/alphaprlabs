@@ -119,9 +119,9 @@ test("host routing redirects between the public site and the app host", async ({
   // Node may not resolve *.localhost, so the rest goes through Chromium.
   await page.goto(`${PUBLIC_ORIGIN}/auth`);
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth`);
-  // Signed out, the app host's home asks for sign-in and comes back afterwards.
+  // Signed out, the app host's home asks for sign-in and comes back to Today afterwards.
   await page.goto(`${APP_ORIGIN}/`);
-  await expect(page).toHaveURL(`${APP_ORIGIN}/auth?next=%2Fapp`);
+  await expect(page).toHaveURL(`${APP_ORIGIN}/auth?next=%2Fapp%2Ftoday`);
   await page.goto(`${APP_ORIGIN}/about`);
   await expect(page).toHaveURL(`${PUBLIC_ORIGIN}/about`);
   await expect(page.getByRole("contentinfo")).toBeVisible();

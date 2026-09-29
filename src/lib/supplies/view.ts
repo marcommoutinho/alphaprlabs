@@ -371,18 +371,30 @@ export type TodayStockInput = {
  * "Vial A-02 is low · 0.2 mg left (estimate)". Nothing while tracking is off.
  */
 export function todayStockNotes(input: TodayStockInput): Map<string, string> {
+  return stockNotes(input, upcomingOnce(input));
+}
+
+/**
+ * Each plan's upcoming doses (upcomingByPlan: every cycle's schedule, the
+ * costly part), computed on first use and then shared, so Today works it
+ * out once for the notes and the low rows.
+ */
+function upcomingOnce(input: TodayStockInput): () => Map<string, PlannedDose[]> {
+  let upcoming: Map<string, PlannedDose[]> | null = null;
+  return () => (upcoming ??= upcomingByPlan(input.cycles, input.confirmations, input.now));
+}
+
+function stockNotes(input: TodayStockInput, upcoming: () => Map<string, PlannedDose[]>): Map<string, string> {
   const notes = new Map<string, string>();
   if (!input.tracking) return notes;
   const byMixture = new Map<string, Mixture>();
   for (const mixture of input.mixtures.values()) byMixture.set(mixture.id, mixture);
   const byVial = deductionsByVial(input.deductions);
-  let upcoming: Map<string, PlannedDose[]> | null = null;
   for (const vial of input.vials) {
     const mixture = vial.mixtureId && vial.finishedAt === null ? byMixture.get(vial.mixtureId) : undefined;
     if (!mixture) continue;
-    upcoming ??= upcomingByPlan(input.cycles, input.confirmations, input.now);
     const estimate = vialEstimate(vial.strengthMg, byVial.get(vial.id) ?? []);
-    const note = todayStockNote(vial.label, estimate, outlookFor(estimate, mixture.id, mixture.planIds, upcoming));
+    const note = todayStockNote(vial.label, estimate, outlookFor(estimate, mixture.id, mixture.planIds, upcoming()));
     if (note) for (const planId of mixture.planIds) notes.set(planId, note);
   }
   return notes;
@@ -412,19 +424,18 @@ export type TodaySupply = {
  * the design's "3 days"). Nothing while tracking is off.
  */
 export function todaySupply(input: TodayStockInput & { peptideNames?: ReadonlyMap<string, string> }): TodaySupply {
-  const supply: TodaySupply = { notes: todayStockNotes(input), vials: new Map(), low: [] };
+  const upcoming = upcomingOnce(input);
+  const supply: TodaySupply = { notes: stockNotes(input, upcoming), vials: new Map(), low: [] };
   if (!input.tracking) return supply;
   const byMixture = new Map<string, Mixture>();
   for (const mixture of input.mixtures.values()) byMixture.set(mixture.id, mixture);
   const byVial = deductionsByVial(input.deductions);
-  let upcoming: Map<string, PlannedDose[]> | null = null;
   for (const vial of input.vials) {
     const mixture = vial.mixtureId && vial.finishedAt === null ? byMixture.get(vial.mixtureId) : undefined;
     if (!mixture) continue;
-    upcoming ??= upcomingByPlan(input.cycles, input.confirmations, input.now);
     const estimate = vialEstimate(vial.strengthMg, byVial.get(vial.id) ?? []);
     supply.vials.set(mixture.id, { label: vial.label, strengthMg: vial.strengthMg, remainingMg: estimate.remainingMg });
-    const outlook = outlookFor(estimate, mixture.id, mixture.planIds, upcoming);
+    const outlook = outlookFor(estimate, mixture.id, mixture.planIds, upcoming());
     const name = input.peptideNames?.get(vial.peptideId) ?? "";
     const title = `${name ? `${name} · ` : ""}${massLabel(vial.strengthMg)} ${vialName(vial.label, true)}`;
     if (estimate.state === "over") supply.low.push({ vialId: vial.id, title, status: OVER_STATE });

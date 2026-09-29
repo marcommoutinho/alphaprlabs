@@ -53,15 +53,21 @@ export default async function TodayPage({ searchParams }: { searchParams: Search
   // Today's supplement Taken records (yesterday included, for a zone seam).
   const supplementFrom = addDaysToDate(todayIn(now, SUPPLEMENT_TIME_ZONE), -1);
   const checkInToday = checkInDay(now);
-  const [cycles, records, skips, library, mixtures, setups, tracking, vials, supplementTracking, routines, taken, checkIns] = await Promise.all([
+  // Every read at once; the tracked vials' deductions as soon as tracking and the vials are known.
+  const trackingLoading = getSupplyTracking(db, person.id);
+  const vialsLoading = listPersonalVials(db, person.id);
+  const trackedLoading = Promise.all([trackingLoading, vialsLoading]).then(([on, all]) => all.filter((vial) => on && vial.mixtureId && !vial.finishedAt));
+  const [cycles, records, skips, library, mixtures, setups, tracking, vials, tracked, deductions, supplementTracking, routines, taken, checkIns] = await Promise.all([
     listCycles(db, person.id),
     listDoseRecords(db, person.id),
     listDoseSkips(db, person.id),
     listCyclePeptides(db),
     planMixtures(db, person.id),
     planSetups(db, person.id),
-    getSupplyTracking(db, person.id),
-    listPersonalVials(db, person.id),
+    trackingLoading,
+    vialsLoading,
+    trackedLoading,
+    trackedLoading.then((open) => (open.length ? deductionsOfVials(db, open.map((vial) => vial.id)) : [])),
     getSupplementTracking(db, person.id),
     listRoutines(db, person.id),
     listTaken(db, person.id, { from: supplementFrom }),
@@ -71,13 +77,12 @@ export default async function TodayPage({ searchParams }: { searchParams: Search
   if (tracking) for (const vial of vials) if (vial.mixtureId && !vial.finishedAt) openVials.set(vial.mixtureId, vial.label);
   const confirmations = confirmationsByCycle(records, skips);
   // R8: a low, empty or over tracked vial beside the doses it serves, and the low row.
-  const tracked = vials.filter((vial) => tracking && vial.mixtureId && !vial.finishedAt);
   const peptides = new Map(library.map((peptide) => [peptide.id, peptide]));
   const supply = todaySupply({
     tracking,
     vials: tracked,
     mixtures,
-    deductions: tracked.length ? await deductionsOfVials(db, tracked.map((vial) => vial.id)) : [],
+    deductions,
     cycles,
     confirmations,
     now,

@@ -84,8 +84,9 @@ test("the app host serves the manifest, icons and a cache-free worker; only the 
   request,
 }) => {
   const manifest = await (await hostGet(request, APP_ORIGIN, "/manifest.webmanifest")).json();
-  expect(manifest).toMatchObject({ id: "/app", name: "Alpha PR Labs", start_url: "/", scope: "/", display: "standalone" });
-  expect([manifest.theme_color, manifest.background_color]).toEqual(["#050505", "#050505"]);
+  // Opens straight on Today (no redirect before the first paint), on the light `paper` splash.
+  expect(manifest).toMatchObject({ id: "/app", name: "Alpha PR Labs", start_url: "/app/today", scope: "/", display: "standalone" });
+  expect([manifest.theme_color, manifest.background_color]).toEqual(["#F2F2EE", "#F2F2EE"]);
   const icons = manifest.icons as { src: string; sizes: string; purpose: string }[];
   expect(icons.map((icon) => `${icon.sizes} ${icon.purpose}`)).toEqual(["192x192 any", "512x512 any", "512x512 maskable"]);
   for (const src of [...icons.map((icon) => icon.src), "/app-icons/apple-touch-icon.png"]) {
@@ -109,8 +110,19 @@ test("the app host serves the manifest, icons and a cache-free worker; only the 
   await expect(page.locator('meta[name="apple-mobile-web-app-status-bar-style"]')).toHaveAttribute("content", "default");
   await expect(page.locator('meta[name="theme-color"][media="(prefers-color-scheme: light)"]')).toHaveAttribute("content", "#F2F2EE");
   await expect(page.locator('meta[name="theme-color"][media="(prefers-color-scheme: dark)"]')).toHaveAttribute("content", "#0C0D0F");
+  // iOS launch images: every current iPhone screen, light and dark, each a PNG on the app host only.
+  const startup = page.locator('link[rel="apple-touch-startup-image"]');
+  await expect(startup).toHaveCount(24);
+  const iphone = page.locator(
+    'link[rel="apple-touch-startup-image"][media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: dark)"]',
+  );
+  await expect(iphone).toHaveAttribute("href", "/app-icons/launch/launch-1170x2532-dark.png");
+  for (const href of await startup.evaluateAll((links) => links.map((link) => link.getAttribute("href")!))) {
+    expect((await hostGet(request, APP_ORIGIN, href)).headers()["content-type"]).toBe("image/png");
+  }
+  expect((await hostGet(request, PUBLIC_ORIGIN, "/app-icons/launch/launch-1170x2532-light.png")).status()).toBe(404);
   await page.goto(`${PUBLIC_ORIGIN}/`);
-  await expect(page.locator('link[rel="manifest"], meta[name="apple-mobile-web-app-title"], meta[name="theme-color"]')).toHaveCount(0);
+  await expect(page.locator('link[rel="manifest"], link[rel="apple-touch-startup-image"], meta[name="apple-mobile-web-app-title"], meta[name="theme-color"]')).toHaveCount(0);
   await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute("href", "/apple-touch-icon.png");
 });
 

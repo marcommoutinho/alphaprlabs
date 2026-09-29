@@ -52,6 +52,26 @@ export function planOccurrences(
   revisions: readonly CycleRevision[],
   confirmations: readonly Confirmation[] = [],
 ): Map<string, Occurrence[]> {
+  // One screen asks for the same cycle's schedule several times (Today: its
+  // doses, the vial outlook, the badge): worked out once per pair of inputs,
+  // each caller gets its own map and arrays.
+  let byConfirmations = computed.get(revisions);
+  if (!byConfirmations) computed.set(revisions, (byConfirmations = new WeakMap()));
+  const key = confirmations.length ? confirmations : NO_CONFIRMATIONS;
+  let byPlan = byConfirmations.get(key);
+  if (!byPlan) byConfirmations.set(key, (byPlan = computePlanOccurrences(revisions, confirmations)));
+  return new Map([...byPlan].map(([planId, occurrences]) => [planId, [...occurrences]]));
+}
+
+/**
+ * planOccurrences' results by input identity. The inputs are never changed
+ * in place (a new revision or confirmation is a new array), and the
+ * occurrences are read-only values.
+ */
+const computed = new WeakMap<readonly CycleRevision[], WeakMap<readonly Confirmation[], ReadonlyMap<string, readonly Occurrence[]>>>();
+const NO_CONFIRMATIONS: readonly Confirmation[] = [];
+
+function computePlanOccurrences(revisions: readonly CycleRevision[], confirmations: readonly Confirmation[]): Map<string, Occurrence[]> {
   const byPlan = new Map<string, Occurrence[]>();
   revisions.forEach((revision, index) => {
     const previous = revisions[index - 1];

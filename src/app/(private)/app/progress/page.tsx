@@ -36,19 +36,25 @@ export default async function ProgressPage({ searchParams }: { searchParams: Sea
 
   const db = await createClient();
   const now = new Date();
-  const cycles = await listCycles(db, person.id);
-  const { cycle, window } = progressSelection(cycles, asked, range, now);
-  // From the range, R6's lookback and, with a cycle, the lookback before its start (the measurement's baseline).
-  const start = cycle ? cycleStartOf(cycle) : null;
-  const lookback = [window.from, addDaysToDate(window.today, -MEASUREMENT_LOOKBACK_DAYS), ...(start ? [addDaysToDate(start, -MEASUREMENT_LOOKBACK_DAYS)] : [])].sort()[0];
-  const [library, total, checkIns, records, skips] = await Promise.all([
+  // Everything that doesn't depend on the cycle shown starts with the cycles; the check-ins' window waits for them.
+  const cyclesLoading = listCycles(db, person.id);
+  const [cycles, library, total, allRecords, allSkips, checkIns] = await Promise.all([
+    cyclesLoading,
     listCyclePeptides(db),
     countCheckIns(db, person.id),
-    listCheckIns(db, person.id, { from: lookback, to: window.today }),
-    // Doses are shown only beside a cycle.
-    cycle ? listDoseRecords(db, person.id) : Promise.resolve([]),
-    cycle ? listDoseSkips(db, person.id) : Promise.resolve([]),
+    listDoseRecords(db, person.id),
+    listDoseSkips(db, person.id),
+    cyclesLoading.then((loaded) => {
+      const { cycle, window } = progressSelection(loaded, asked, range, now);
+      // From the range, R6's lookback and, with a cycle, the lookback before its start (the measurement's baseline).
+      const start = cycle ? cycleStartOf(cycle) : null;
+      const lookback = [window.from, addDaysToDate(window.today, -MEASUREMENT_LOOKBACK_DAYS), ...(start ? [addDaysToDate(start, -MEASUREMENT_LOOKBACK_DAYS)] : [])].sort()[0];
+      return listCheckIns(db, person.id, { from: lookback, to: window.today });
+    }),
   ]);
+  const { cycle, window } = progressSelection(cycles, asked, range, now);
+  // Doses are shown only beside a cycle.
+  const [records, skips] = cycle ? [allRecords, allSkips] : [[], []];
 
   const screen = progressScreen({
     cycles,
