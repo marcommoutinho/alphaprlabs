@@ -1,7 +1,6 @@
 "use client";
 
 import { type ReactNode, type RefObject, useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 
 /**
  * Back/forward puts a page back without asking the server: Next.js restores it
@@ -66,18 +65,4 @@ export function GateBox({ box, children }: { box: RefObject<HTMLDivElement | nul
       {children}
     </div>
   );
-}
-
-/**
- * For the Library and a peptide (the researcher's own cycles and mix): a
- * restore shows the route's placeholder, not the page as it was, and asks
- * the server again (router.refresh()); the refreshed page (a new id) shows.
- */
-export function RestoreGate({ id, placeholder, children }: { id: string; placeholder: ReactNode; children: ReactNode }) {
-  const router = useRouter();
-  const { restoring, box } = useRestoreGate(id);
-  useEffect(() => {
-    if (restoring) router.refresh();
-  }, [restoring, router]);
-  return restoring ? placeholder : <GateBox box={box}>{children}</GateBox>;
 }

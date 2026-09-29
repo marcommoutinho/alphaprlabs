@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useState } from "react";
 import { GateBox, useRestoreGate } from "@/components/alpha/restored";
 import { ScreenError } from "@/components/admin/states";
+import { REFRESH_WAIT_MS } from "@/lib/app/save";
 
 const CHECK_FAILED = new Error("Couldn't check whether the history is still shared.");
 
@@ -44,7 +45,10 @@ export function HistoryGate({
   useEffect(() => {
     if (!restoring || status) return;
     let live = true;
-    fetch(`/admin/people/${encodeURIComponent(researcherId)}/access`, { cache: "no-store", headers: { accept: "application/json" } })
+    // Bounded: a check that doesn't answer in time fails like one that couldn't be sent (Try again).
+    const timeout = new AbortController();
+    const timer = setTimeout(() => timeout.abort(), REFRESH_WAIT_MS);
+    fetch(`/admin/people/${encodeURIComponent(researcherId)}/access`, { cache: "no-store", headers: { accept: "application/json" }, signal: timeout.signal })
       .then(async (response) => {
         if (!live) return;
         if (response.status !== 403 && !response.ok) return setVerdict({ id: renderId, status: "failed" });
@@ -55,11 +59,22 @@ export function HistoryGate({
         setVerdict({ id: renderId, status: "denied" });
         router.refresh();
       })
-      .catch(() => live && setVerdict({ id: renderId, status: "failed" }));
+      .catch(() => live && setVerdict({ id: renderId, status: "failed" }))
+      .finally(() => clearTimeout(timer));
     return () => {
       live = false;
+      clearTimeout(timer);
+      timeout.abort();
     };
   }, [restoring, status, renderId, researcherId, reveal, router]);
+
+  // Failed (offline, or no answer in time): coming back online checks again.
+  useEffect(() => {
+    if (status !== "failed") return;
+    const onOnline = () => setVerdict(null);
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [status]);
 
   if (status === "denied") return denied;
   if (status === "failed")

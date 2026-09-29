@@ -82,6 +82,70 @@ export function waitForRefresh({
   };
 }
 
+export type RestorePhase = "restoring" | "failed" | "done";
+
+/**
+ * A page put back without the server (Back or Forward: restored.tsx) asks
+ * for itself again (`refresh`) and shows none of what it showed until the
+ * fresh page is here. Bounded like any refreshed page (waitForRefresh: one
+ * retry after `waitMs`, then it gives up: "failed"), so it never waits
+ * forever. Offline it doesn't ask at all (Next.js would fall back to a full
+ * page load, the browser's offline page): it fails at once. again() (Try
+ * again, back online) asks and waits again; done() (the fresh page is here,
+ * or the page is gone) stops quietly.
+ */
+export function restoreWait({
+  refresh,
+  onPhase,
+  online = () => typeof navigator === "undefined" || navigator.onLine !== false,
+  waitMs = REFRESH_WAIT_MS,
+  timers = realTimers,
+}: {
+  refresh: () => unknown;
+  onPhase: (phase: RestorePhase) => void;
+  online?: () => boolean;
+  waitMs?: number;
+  timers?: Timers;
+}) {
+  let phase: RestorePhase = "restoring";
+  let wait: RefreshWait | null = null;
+  const set = (next: RestorePhase) => {
+    if (phase === next) return;
+    phase = next;
+    onPhase(next);
+  };
+  const ask = () => {
+    if (!online()) throw new Error("offline");
+    return refresh();
+  };
+  const start = () => {
+    wait?.arrived();
+    wait = null;
+    if (!online()) return set("failed");
+    set("restoring");
+    const current = waitForRefresh({ retry: ask, giveUp: () => set("failed"), waitMs, timers });
+    wait = current;
+    try {
+      const loading = ask();
+      if (loading instanceof Promise) loading.catch(() => current.failed());
+    } catch {
+      current.failed();
+    }
+  };
+  return {
+    phase: () => phase,
+    start,
+    again: () => {
+      if (phase !== "done") start();
+    },
+    done: () => {
+      wait?.arrived();
+      wait = null;
+      phase = "done";
+    },
+  };
+}
+
 export type RefreshWaitStart = {
   /** Which of the screen's waits this is (one per key; unnamed: the screen's one wait). */
   key?: string;

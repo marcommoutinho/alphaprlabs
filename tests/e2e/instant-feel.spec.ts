@@ -68,6 +68,36 @@ async function quadrupleLiquid({ email, db }: Awaited<ReturnType<typeof seedToda
   );
 }
 
+/** Page requests (RSC) to `pathname` go unanswered, as over a connection that stalled, until resume(): later ones go through; the held ones never do. */
+async function stallPage(page: Page, pathname: string) {
+  let stalled = true;
+  let held = 0;
+  await page.route(
+    (url) => url.pathname === pathname,
+    async (route) => {
+      const headers = await route.request().allHeaders();
+      if (!stalled || !headers["rsc"] || route.request().method() !== "GET") return route.fallback();
+      held += 1;
+    },
+  );
+  return { resume: () => (stalled = false), held: () => held };
+}
+
+/** Library → Today, then the peptide `name` leaves the Library: the Library entry is ready to be put back by Back. */
+async function libraryThenToday(page: Page, label: string) {
+  const { email } = await seedToday(label);
+  const name = `Back peptide ${label} ${Date.now().toString(36)}`;
+  const id = await seedPeptide(name);
+  await signIn(page, email);
+  await (await hydrated(tab(page, "Library"))).tap();
+  await expect(heading(page)).toHaveText("Library");
+  await expect(page.getByTestId("library-peptide").filter({ hasText: name })).toBeVisible();
+  await (await hydrated(tab(page, "Today"))).tap();
+  await expect(page.getByTestId("today-hero")).toBeVisible();
+  await ok(serviceClient().from("peptides").update({ available: false }).eq("id", id), "not offered");
+  return page.getByTestId("library-peptide").filter({ hasText: name });
+}
+
 function hops(request: Request | null | undefined) {
   let count = 0;
   for (let from = request?.redirectedFrom(); from; from = from.redirectedFrom()) count += 1;
@@ -222,6 +252,55 @@ test("Back to the Library shows its placeholders until the server answers: a pep
   await expect(heading(page)).toHaveText("Library");
   await expect(page.getByTestId("library-peptide").first()).toBeVisible();
   await expect(peptide).toHaveCount(0);
+});
+
+test("Back to the Library whose page never comes: the error with Try again, never the old list; Try again shows it fresh", async ({ page }) => {
+  test.setTimeout(60_000);
+  const peptide = await libraryThenToday(page, "instant-back-stalled");
+  const library = await stallPage(page, "/app/library");
+  const watch = await watchVisible(page, '[data-testid="library-peptide"]');
+  await watch.arm();
+  await page.goBack();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/app/library`);
+  await expect(page.locator("main [data-slot=skeleton]").first()).toBeVisible();
+
+  // Asked, asked once more after the wait, then given up: the Library's error, with Try again.
+  const failed = page.getByRole("alert").filter({ hasText: "Couldn't load the library" });
+  await expect(failed).toBeVisible({ timeout: 25_000 });
+  expect(library.held()).toBe(2);
+  await expect(page.getByTestId("library-peptide")).toHaveCount(0);
+  expect(await watch.seen()).toBeNull();
+
+  // The connection is back; Try again asks again: the Library as it is now.
+  library.resume();
+  await failed.getByRole("button", { name: "Try again" }).tap();
+  await expect(page.getByTestId("library-peptide").first()).toBeVisible();
+  await expect(failed).toHaveCount(0);
+  await expect(peptide).toHaveCount(0);
+});
+
+test("Back to the Library while offline: the error at once, and back online it asks again", async ({ context, page }) => {
+  const peptide = await libraryThenToday(page, "instant-back-offline");
+  const asked: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/app/library" && request.headers()["rsc"]) asked.push(request.url());
+  });
+  const watch = await watchVisible(page, '[data-testid="library-peptide"]');
+  await watch.arm();
+  await context.setOffline(true);
+  await page.goBack();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/app/library`);
+  // Offline it doesn't ask (a full page load would follow, the browser's offline page): the error, never the old list.
+  const failed = page.getByRole("alert").filter({ hasText: "Couldn't load the library" });
+  await expect(failed).toBeVisible();
+  expect(asked).toEqual([]);
+  expect(await watch.seen()).toBeNull();
+
+  await context.setOffline(false);
+  await expect(page.getByTestId("library-peptide").first()).toBeVisible();
+  await expect(failed).toHaveCount(0);
+  await expect(peptide).toHaveCount(0);
+  expect(asked.length).toBeGreaterThanOrEqual(1);
 });
 
 // Mark skipped on an overdue row is a laptop control (a phone logs or skips from the sheet).

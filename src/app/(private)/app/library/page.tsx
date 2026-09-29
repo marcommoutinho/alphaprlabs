@@ -1,5 +1,5 @@
-import { RestoreGate } from "@/components/alpha/restored";
 import { LibraryScreen } from "@/components/research/library/library-screen";
+import { RestoreGate } from "@/components/research/restore-gate";
 import { requireResearcher } from "@/lib/auth/session";
 import { listCycles } from "@/lib/cycles/service";
 import { listAvailablePeptides } from "@/lib/library/research";
@@ -21,7 +21,7 @@ export default async function LibraryPage() {
   const [peptides, cycles] = await Promise.all([listAvailablePeptides(db), listCycles(db, person.id)]);
   const rows = libraryRows(peptides, peptidesInCycles(cycles, new Date()));
   return (
-    <RestoreGate id={crypto.randomUUID()} placeholder={<LibraryLoading />}>
+    <RestoreGate id={crypto.randomUUID()} placeholder={<LibraryLoading />} failed={{ title: "Library", heading: "Couldn't load the library" }}>
       <LibraryScreen meta={libraryMeta(peptides)} rows={rows} />
     </RestoreGate>
   );

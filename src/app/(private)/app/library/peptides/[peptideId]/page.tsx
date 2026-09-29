@@ -3,10 +3,10 @@ import { notFound } from "next/navigation";
 import { buttonVariants } from "@/components/alpha/button-variants";
 import Link from "@/components/alpha/link";
 import { NowBlock } from "@/components/alpha/now-block";
-import { RestoreGate } from "@/components/alpha/restored";
 import { Tag } from "@/components/alpha/tag";
 import { LIBRARY_MAIN } from "@/components/research/library/library-screen";
 import { PeptideSections } from "@/components/research/library/peptide-sections";
+import { RestoreGate } from "@/components/research/restore-gate";
 import { requireResearcher } from "@/lib/auth/session";
 import { listCycles } from "@/lib/cycles/service";
 import { getPeptideForDetail } from "@/lib/library/research";
@@ -39,7 +39,11 @@ export default async function PeptidePage({ params }: { params: Params }) {
   const mine = yourMix(peptide.id, cycles, mixtures, new Date());
 
   return (
-    <RestoreGate id={crypto.randomUUID()} placeholder={<PeptideLoading />}>
+    <RestoreGate
+      id={crypto.randomUUID()}
+      placeholder={<PeptideLoading />}
+      failed={{ title: "Library", heading: "Couldn't load this peptide", back: { href: "/app/library", label: "Library" } }}
+    >
       <main className={LIBRARY_MAIN}>
         <div className="laptop:max-w-[760px]">
           <nav aria-label="Peptide" className="flex h-11 items-center pl-1.5 text-[17px] text-signal-ink laptop:hidden">
