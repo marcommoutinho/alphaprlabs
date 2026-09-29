@@ -9,10 +9,8 @@ export default function LedgerLoading() {
         <div className="h-11 laptop:hidden" />
         <header className="px-5 pt-1 laptop:px-0 laptop:pt-0">
           <Skeleton className="hidden h-4 w-36 rounded-[6px] laptop:block" />
-          <h1 className="text-[34px] leading-[1.1] font-semibold tracking-[-0.03em] laptop:mt-0.5">
-            <span className="laptop:hidden">Ledger</span>
-            <span className="hidden laptop:inline">Sales and purchases</span>
-          </h1>
+          <h1 className="text-[34px] leading-[1.1] font-semibold tracking-[-0.03em] laptop:hidden">Ledger</h1>
+          <h1 className="hidden text-[34px] leading-[1.1] font-semibold tracking-[-0.03em] laptop:mt-0.5 laptop:block">Sales and purchases</h1>
         </header>
         <div className="mx-3 mt-3.5 flex flex-col gap-2.5 laptop:mx-0 laptop:mt-4">
           <Skeleton className="h-11 laptop:h-10 laptop:w-[260px]" />

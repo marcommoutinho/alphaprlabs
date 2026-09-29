@@ -99,10 +99,8 @@ export function LedgerScreen({ data }: { data: LedgerData }) {
           <div className="hidden font-mono text-[13px] font-medium text-ink-3 laptop:block" data-testid="ledger-range-header">
             {rangeHeader(view)}
           </div>
-          <h1 className="text-[34px] leading-[1.1] font-semibold tracking-[-0.03em] laptop:mt-0.5">
-            <span className="laptop:hidden">Ledger</span>
-            <span className="hidden laptop:inline">Sales and purchases</span>
-          </h1>
+          <h1 className="text-[34px] leading-[1.1] font-semibold tracking-[-0.03em] laptop:hidden">Ledger</h1>
+          <h1 className="hidden text-[34px] leading-[1.1] font-semibold tracking-[-0.03em] laptop:mt-0.5 laptop:block">Sales and purchases</h1>
         </div>
         <div className="ml-auto hidden gap-3 laptop:flex">
           <RecordButton kind="purchase" variant="outline" size="sm" className="rounded-[12px] text-[14px]">

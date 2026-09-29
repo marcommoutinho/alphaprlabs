@@ -37,7 +37,14 @@ const COUNT = 1210;
 let YEAR = 0;
 const d = (monthDay: string, year = YEAR) => `${year}-${monthDay}`;
 
-type Lot = { item: "A" | "B"; receivedOn: string; quantity: number; unitCost: string; usd?: { usdUnitCost: string; rate: string; rateDate: string } };
+type Lot = {
+  item: "A" | "B";
+  receivedOn: string;
+  quantity: number;
+  unitCost: string;
+  usd?: { usdUnitCost: string; rate: string; rateDate: string };
+  supplier?: string;
+};
 type Sale = {
   key: string;
   item: "A" | "B";
@@ -145,11 +152,26 @@ beforeAll(async () => {
 
   lots = [
     // Item A (CAD): Nov of the year before (outside the 13 months read) and March.
-    { item: "A", receivedOn: d("11-20", YEAR - 1), quantity: 300, unitCost: "3.10" },
-    { item: "A", receivedOn: d("03-01"), quantity: 2500, unitCost: "4.05" },
+    // Suppliers (V6): Halcyon in two spellings (one supplier, shown as its latest recorded), Northwind, and none.
+    { item: "A", receivedOn: d("11-20", YEAR - 1), quantity: 300, unitCost: "3.10", supplier: "Halcyon Peptides" },
+    { item: "A", receivedOn: d("03-01"), quantity: 2500, unitCost: "4.05", supplier: "Halcyon Peptides" },
     // Item B: two USD purchases (one converted at a rate from two days before it arrived), one CAD.
-    { item: "B", receivedOn: d("01-02"), quantity: 400, unitCost: cadOf("2.35", "1.3571"), usd: { usdUnitCost: "2.35", rate: "1.3571", rateDate: d("01-02") } },
-    { item: "B", receivedOn: d("06-17"), quantity: 500, unitCost: cadOf("2.10", "1.3645"), usd: { usdUnitCost: "2.10", rate: "1.3645", rateDate: d("06-15") } },
+    {
+      item: "B",
+      receivedOn: d("01-02"),
+      quantity: 400,
+      unitCost: cadOf("2.35", "1.3571"),
+      usd: { usdUnitCost: "2.35", rate: "1.3571", rateDate: d("01-02") },
+      supplier: "HALCYON Peptides",
+    },
+    {
+      item: "B",
+      receivedOn: d("06-17"),
+      quantity: 500,
+      unitCost: cadOf("2.10", "1.3645"),
+      usd: { usdUnitCost: "2.10", rate: "1.3645", rateDate: d("06-15") },
+      supplier: "Northwind Labs",
+    },
     { item: "B", receivedOn: d("10-05"), quantity: 50, unitCost: "5.00" },
   ];
   expect(lots[2].unitCost).toBe("3.19");
@@ -177,6 +199,7 @@ beforeAll(async () => {
         quantity: lot.quantity,
         unitCost: lot.unitCost,
         usd: lot.usd,
+        supplier: lot.supplier ?? null,
       });
       if (bought.kind !== "recorded") throw new Error(`purchase: ${bought.kind}`);
       items[key] = bought.stockItemId;
@@ -272,20 +295,25 @@ describe("Business aggregates over 1,210 sales", () => {
     expect(toDate[1]).toMatchObject(totalsOf(within({ from: d("12-01"), to: d("12-24") })));
   });
 
-  it("purchases by supplier: one no-supplier group until V6, CAD total, both currencies, however it is paged", async () => {
+  it("purchases by supplier: grouped by the recorded supplier in any case, no supplier as its own group, CAD totals, currencies, however it is paged", async () => {
     const db = await admin();
     const year = { from: d("01-01"), to: d("12-31") };
     const inYear = lots.filter((lot) => lot.receivedOn >= year.from);
+    const totalOf = (rows: Lot[]) => rows.reduce((sum, lot) => sum.plus(new Decimal(lot.unitCost).times(lot.quantity)), new Decimal(0)).toFixed(2);
     const groups = await purchaseSuppliers(db, year);
+    // Keyed by library_name_key: '' (none) first. Halcyon's November lot is before the year.
     expect(groups).toEqual([
+      { key: "", name: null, orders: 1, total: totalOf(inYear.filter((lot) => !lot.supplier)), currencies: ["CAD"] },
       {
-        key: "",
-        name: null,
-        orders: inYear.length,
-        total: inYear.reduce((sum, lot) => sum.plus(new Decimal(lot.unitCost).times(lot.quantity)), new Decimal(0)).toFixed(2),
+        key: "halcyon peptides",
+        name: "HALCYON Peptides",
+        orders: 2,
+        total: totalOf(inYear.filter((lot) => lot.supplier?.toLowerCase() === "halcyon peptides")),
         currencies: ["CAD", "USD"],
       },
+      { key: "northwind labs", name: "Northwind Labs", orders: 1, total: totalOf(inYear.filter((lot) => lot.supplier === "Northwind Labs")), currencies: ["USD"] },
     ]);
+    expect(groups.map((group) => group.total)).toEqual(["250.00", "11401.00", "1435.00"]);
     expect(await purchaseSuppliers(db, year, { pageSize: 1 })).toEqual(groups);
     expect(await purchaseSuppliers(db, { from: d("07-01"), to: d("09-30") })).toEqual([]);
   });
@@ -365,7 +393,12 @@ describe("Business aggregates over 1,210 sales", () => {
     expect(view.totals.revenue).toBe(totalsOf(within({ from: d("01-01"), to: today })).revenue);
     // Purchases in Jan, Mar, Jun and Oct only.
     expect(view.noPurchases).toBe("none in 8 months");
-    expect(view.suppliers).toHaveLength(1);
+    // Named suppliers by CAD total, then no supplier.
+    expect(view.suppliers.map((row) => [row.name, row.total, row.currency])).toEqual([
+      ["HALCYON Peptides", "11401.00", "CAD + USD"],
+      ["Northwind Labs", "1435.00", "USD"],
+      [null, "250.00", null],
+    ]);
   });
 
   it("a custom period (A1 / A2) into a month at a loss: totals, days and per-seller totals agree", async () => {

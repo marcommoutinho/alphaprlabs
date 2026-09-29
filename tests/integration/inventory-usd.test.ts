@@ -298,7 +298,7 @@ describe("the actions, with the Bank of Canada stubbed", () => {
   it("records a USD purchase converted on the server, whatever the client sends", async () => {
     const itemId = await newItem();
     const result = await recordPurchaseAction({ ...entry(itemId, { receivedOn: "2026-08-29", unitCost: "11,5" }), rate: "9.9", fxRate: "9.9" });
-    expect(result).toEqual({ stockItemId: itemId, toast: "Purchase recorded · 10 vials at USD 11.50 = CAD 15.97", tone: "info" });
+    expect(result).toEqual({ stockItemId: itemId, toast: "Purchase recorded · 10 vials · $159.70 · US$ 11.50 at 1.3888", tone: "info" });
     const lots = (await getStockItem(db, itemId))!.lots;
     expect(lots[1]).toMatchObject({ unitCost: "15.97", totalCost: "159.70", usd: { usdUnitCost: "11.50", rate: "1.3888", rateDate: "2026-08-28" } });
     expect(acting.revalidated).toContain(`/admin/inventory/${itemId}`);
@@ -314,7 +314,7 @@ describe("the actions, with the Bank of Canada stubbed", () => {
   it("a retry after a lost response replays the recorded purchase while no rate can be looked up", async () => {
     const itemId = await newItem();
     const first = entry(itemId, { receivedOn: "2026-08-28" });
-    expect(await recordPurchaseAction(first)).toMatchObject({ toast: "Purchase recorded · 10 vials at USD 11.00 = CAD 15.28" });
+    expect(await recordPurchaseAction(first)).toMatchObject({ toast: "Purchase recorded · 10 vials · $152.80 · US$ 11.00 at 1.3888" });
     // Neither the stored rates (a bad secret key) nor the Bank of Canada can be read now.
     vi.stubEnv("SUPABASE_SECRET_KEY", "sb_secret_not-a-valid-key");
     vi.stubEnv("BOC_FX_TEST_RATES", JSON.stringify({ ...RATES, "2026-08-28": "unavailable" }));
@@ -349,7 +349,7 @@ describe("the actions, with the Bank of Canada stubbed", () => {
     lookup.calls = 0;
     expect(await recordPurchaseAction(entry(itemId, { receivedOn: "2026-09-07" }))).toEqual({
       stockItemId: itemId,
-      toast: "Purchase recorded · 10 vials at USD 11.00 = CAD 15.22",
+      toast: "Purchase recorded · 10 vials · $152.20 · US$ 11.00 at 1.3840",
       tone: "info",
     });
     expect(lookup.calls).toBe(2);

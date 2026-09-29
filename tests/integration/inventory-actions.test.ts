@@ -1,4 +1,4 @@
-// S6 server actions for A5 Record purchase and A6 Record sale, against the
+// S6 server actions for A5 Record purchase and A6 Record sale (V6: the A4 / A5 sheets), against the
 // real local Supabase (npm run db:start). The actions run as the signed-in
 // person (RLS and the database functions apply); only the request's cookie
 // session is swapped for a signed-in client. Values go in as the strings a
@@ -48,7 +48,7 @@ beforeEach(async () => {
 });
 
 /** The pages a recorded purchase or sale must never show from a cached copy. */
-const stockPages = (itemId: string) => [`/admin/inventory/${itemId}`, "/admin/inventory", "/admin/sales", "/admin/business"];
+const stockPages = (itemId: string) => [`/admin/inventory/${itemId}`, "/admin/inventory", "/admin/ledger", "/admin/business"];
 
 async function newPeptide(): Promise<string> {
   const name = `Compound S6 ${randomBytes(4).toString("hex")}`;
@@ -85,7 +85,7 @@ describe("A5 and A6 actions for an admin", () => {
     const peptideId = await newPeptide();
     const first = purchase({ stockItemId: "new", peptideId, strengthMg: "8", receivedOn: "2026-08-15", quantity: "10", unitCost: "20" });
     const bought = await recordPurchaseAction(first);
-    expect(bought).toMatchObject({ toast: "Purchase recorded · 10 vials at CAD 20.00", tone: "info" });
+    expect(bought).toMatchObject({ toast: "Purchase recorded · 10 vials · $200.00", tone: "info" });
     const itemId = bought.stockItemId!;
     expect(itemId).toMatch(/^[0-9a-f-]{36}$/);
     expect(acting.revalidated).toEqual(stockPages(itemId));
@@ -96,12 +96,12 @@ describe("A5 and A6 actions for an admin", () => {
 
     expect(
       await recordPurchaseAction(purchase({ stockItemId: itemId, receivedOn: "2026-08-20", quantity: " 10 ", unitCost: "25.00" })),
-    ).toMatchObject({ stockItemId: itemId, toast: "Purchase recorded · 10 vials at CAD 25.00" });
+    ).toMatchObject({ stockItemId: itemId, toast: "Purchase recorded · 10 vials · $250.00" });
 
     const sold = sale(itemId, { buyerType: "account", buyerProfileId: jordanId, quantity: "12", unitPrice: "40" });
     expect(await recordSaleAction(sold)).toEqual({
       stockItemId: itemId,
-      toast: "Sale recorded · 12 vials · revenue CAD 480.00 · gross profit CAD 230.00",
+      toast: "Sale recorded · 12 vials · $480.00 · gross profit $230.00",
       tone: "info",
     });
     // Each recorded purchase (including the replay) and the sale revalidate the stock pages.
@@ -114,6 +114,7 @@ describe("A5 and A6 actions for an admin", () => {
     // 8 left: an outside buyer for 9 is refused and nothing is recorded; the page data is refreshed.
     expect(await recordSaleAction(sale(itemId, { buyerName: "K. Osei", quantity: "9", unitPrice: "40" }))).toEqual({
       error: stockChangedMessage(8),
+      stockChanged: { onHand: 8 },
     });
     expect(stockChangedMessage(8)).toBe("Stock changed before saving — only 8 on hand now. Nothing was recorded.");
     expect(acting.refreshed).toBe(1);
@@ -135,12 +136,12 @@ describe("A5 and A6 actions for an admin", () => {
     // may be dated before the purchase whose stock it uses.
     const bought = await recordPurchaseAction({ ...future, idempotencyKey: randomUUID(), receivedOn: today });
     const itemId = bought.stockItemId!;
-    expect(bought.toast).toBe("Purchase recorded · 5 vials at CAD 0.00");
+    expect(bought.toast).toBe("Purchase recorded · 5 vials · $0.00");
     expect(await recordSaleAction(sale(itemId, { soldOn: tomorrow, today: tomorrow, quantity: "1", unitPrice: "0" }))).toEqual({
       error: SALE_DATE_FUTURE,
     });
     expect(await recordSaleAction(sale(itemId, { soldOn: "2026-01-02", quantity: "1", unitPrice: "0" }))).toMatchObject({
-      toast: "Sale recorded · 1 vial · revenue CAD 0.00 · gross profit CAD 0.00",
+      toast: "Sale recorded · 1 vial · $0.00 · gross profit $0.00",
     });
   });
 
@@ -173,7 +174,7 @@ describe("A5 and A6 actions for an admin", () => {
       toast: "Linked 1 sale to Jordan Reyes.",
       tone: "info",
     });
-    expect(acting.revalidated).toEqual(["/(private)/admin/inventory/[itemId]", "/admin/sales", "/admin/sales/outside", "/admin/business"]);
+    expect(acting.revalidated).toEqual(["/(private)/admin/inventory/[itemId]", "/admin/ledger", "/admin/sales/outside", "/admin/business"]);
     // A second click: nothing more to link.
     expect(await linkSaleAction({ saleId: data!.id, profileId: jordanId })).toMatchObject({ linked: true, toast: "This sale was already linked to Jordan Reyes." });
     expect(await linkSaleAction({ saleId: data!.id, profileId: researcherId })).toEqual({ toast: LINK_NOT_LINKABLE });

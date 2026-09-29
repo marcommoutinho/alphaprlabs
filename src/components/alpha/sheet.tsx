@@ -57,6 +57,7 @@ export function SheetContent({
   contextTone = "default",
   size = "full",
   footer,
+  footerOn = "all",
   leading,
   className,
   children,
@@ -76,6 +77,12 @@ export function SheetContent({
   size?: "full" | "auto" | "screen";
   /** Pinned above the home indicator: an outline + a primary, or one primary. */
   footer?: React.ReactNode;
+  /**
+   * "laptop": the footer only on a laptop. A screen sheet's lone Cancel
+   * (while it loads, or with nothing to record) repeats its nav bar's Cancel
+   * on the phone.
+   */
+  footerOn?: "all" | "laptop";
   className?: string;
   children?: React.ReactNode;
 }) {
@@ -138,9 +145,9 @@ export function SheetContent({
           <Drawer.Content className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3.5 laptop:px-6">
             {children}
           </Drawer.Content>
-          <ToastSlot open={open} footer={Boolean(footer)} />
+          <ToastSlot open={open} footer={Boolean(footer) && footerOn === "all"} />
           {footer ? (
-            <div className="flex gap-2 border-t border-line px-4 pt-3 pb-[max(16px,env(safe-area-inset-bottom))] laptop:px-6 laptop:pb-5 [&>*:last-child]:flex-1">
+            <div className={cn("flex gap-2 border-t border-line px-4 pt-3 pb-[max(16px,env(safe-area-inset-bottom))] laptop:px-6 laptop:pb-5 [&>*:last-child]:flex-1", footerOn === "laptop" && "hidden laptop:flex")}>
               {footer}
             </div>
           ) : null}

@@ -13,6 +13,7 @@ import {
   SALE_ALREADY_RECORDED,
   SALE_DATE_FUTURE,
   SELLER_NOT_ADMIN,
+  stockChangedMessage,
   validateLink,
   validatePurchase,
   validateSale,
@@ -29,7 +30,7 @@ import {
   SUBMISSION_CONFLICT,
   vials,
 } from "@/lib/inventory/screens";
-import { onlyOnHand, purchaseRecordedToast, saleRecordedToast, SAVE_UNSURE, STOCK_CHANGED } from "@/lib/records/forms";
+import { purchaseRecordedToast, saleRecordedToast, SAVE_UNSURE, STOCK_CHANGED } from "@/lib/records/forms";
 import { usdRatePreview, type UsdRatePreview } from "@/lib/records/rate";
 import {
   getSale,
@@ -203,9 +204,12 @@ export async function recordSaleAction(input: unknown): Promise<InventoryActionR
       if (result.replayed) return { stockItemId, toast: SALE_ALREADY_RECORDED, tone: "warn" };
       return { stockItemId, toast: await recordedSaleToast(db, result.saleId, valid.value.quantity), tone: "info" };
     }
+    // Nothing recorded; the page data behind the sheet is refreshed too.
     case "insufficient":
-      return { error: onlyOnHand(result.onHand), stockChanged: { onHand: result.onHand } };
+      refresh();
+      return { error: stockChangedMessage(result.onHand), stockChanged: { onHand: result.onHand } };
     case "stock_changed":
+      refresh();
       return { error: STOCK_CHANGED, stockChanged: { onHand: result.onHand } };
     case "future_date":
       return { error: SALE_DATE_FUTURE };

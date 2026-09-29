@@ -71,6 +71,7 @@ function SaleContent({ opening, onDone }: { opening: Opening; onDone: (token: nu
       size="screen"
       context={data ? <DateButton value={date} max={data.today} onChange={setSoldOn} label="Sale date" testId="sale-date" /> : " "}
       footer={data && data.items.length > 0 ? undefined : <FooterCancelOnly />}
+      footerOn="laptop"
     >
       {!form || form.status === "loading" ? (
         <RecordSkeleton />

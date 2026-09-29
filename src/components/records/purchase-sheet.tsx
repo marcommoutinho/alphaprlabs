@@ -73,6 +73,7 @@ function PurchaseContent({ opening, onDone }: { opening: Opening; onDone: (token
       size="screen"
       context={data ? shortDate(data.today) : " "}
       footer={data ? undefined : <SheetClose className={cn(buttonVariants({ variant: "outline", size: "lg" }), "laptop:h-12")}>Cancel</SheetClose>}
+      footerOn="laptop"
     >
       {!form || form.status === "loading" ? (
         <RecordSkeleton />
