@@ -29,7 +29,9 @@ export const TIME_REQUIRED = "Enter when you actually took it.";
 export const TIME_FUTURE = "The actual time can't be in the future.";
 export const TIME_TOO_EARLY = "The actual time can't be more than a day before the planned time.";
 export const NOTES_TOO_LONG = "Observations can be up to 1,000 characters.";
-export const DOSE_CHANGED = "This dose changed since you opened it. The details below are current — check them and confirm again.";
+/** DOSE_CHANGED's first sentence: all that holds while the refreshed details haven't loaded. */
+export const DOSE_CHANGED_LEAD = "This dose changed since you opened it.";
+export const DOSE_CHANGED = `${DOSE_CHANGED_LEAD} The details below are current — check them and confirm again.`;
 export const DOSE_GONE = "This dose is no longer in your plan. Nothing was recorded.";
 export const DOSE_NOT_YET = "This dose isn't due yet. You can confirm it on its day.";
 export const STALE_LINK = "That reminder is out of date — this dose is no longer in your plan. Here's what's due now.";

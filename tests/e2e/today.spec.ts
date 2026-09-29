@@ -5,10 +5,11 @@
 // the counts the app sets. Each test has its own researcher.
 import { expect, test, type Page } from "@playwright/test";
 import { APP_ORIGIN } from "../../playwright.config";
-import { DOSE_CHANGED, STALE_LINK, TIME_FUTURE } from "../../src/lib/doses/rules";
+import { DOSE_ALREADY_TAKEN, DOSE_CHANGED, STALE_LINK, TIME_FUTURE } from "../../src/lib/doses/rules";
 import { shortDate as formatShortDate } from "../../src/lib/alpha/format";
 import { d, noonZoneInstant } from "../support/noon";
 import { hydrated, ok, serviceClient, signedInClient, signInAs } from "../support/local-supabase";
+import { stallRefresh } from "../support/stall-refresh";
 import { seedToday } from "../support/today";
 
 declare global {
@@ -210,6 +211,52 @@ test("a Taken from a screen whose mixture changed elsewhere is refused and shows
   await sheet.getByRole("button", { name: "Taken · 400 mcg" }).click();
   await expect(sheet).toBeHidden();
   await expect(page.getByRole("status").filter({ hasText: `${A} · 400 mcg logged at ` })).toBeVisible();
+  expect(await doses(cycleId)).toHaveLength(1);
+});
+
+test("a Log answered 'already logged' whose refreshed page never arrives frees the sheet after the wait, and says so", async ({ context, page }) => {
+  test.setTimeout(90_000);
+  const { email, A, cycleId } = await seed("stall");
+  await signIn(page, email);
+  const openLog = async (on: Page) => {
+    await (await hydrated(on.getByTestId("today-overdue").filter({ hasText: A }).getByRole("button", { name: "Log" }))).click();
+    const sheet = on.getByRole("dialog", { name: A });
+    await expect(sheet.getByRole("heading", { level: 2 })).toHaveText(A);
+    return { sheet, log: sheet.getByRole("button", { name: /^Log at / }) };
+  };
+  const { sheet, log } = await openLog(page);
+
+  // Another tab logs A's dose from two days ago first.
+  const other = await context.newPage();
+  await other.goto(`${APP_ORIGIN}/app/today`);
+  const elsewhere = await openLog(other);
+  await elsewhere.log.click();
+  await expect(elsewhere.sheet).toBeHidden();
+  await other.close();
+  expect(await doses(cycleId)).toHaveLength(1);
+
+  // This sheet's Log is answered "already logged"; the refreshed page never comes.
+  const stall = await stallRefresh(page, "/app/today");
+  await log.click();
+  // Busy while it's awaited (the refreshed page reopens the dose as it is now).
+  await expect(sheet.getByRole("button", { name: "Saving…" })).toBeDisabled();
+  await expect(sheet.getByRole("button", { name: "Mark skipped" })).toBeDisabled();
+
+  // After the wait and one more refresh: usable again, and it says what happened and that this is the page from before.
+  const toast = page.locator('[data-slot="toast"]');
+  await expect(toast).toContainText(`${DOSE_ALREADY_TAKEN} Couldn't load the latest version.`, { timeout: 30_000 });
+  await expect(toast.getByRole("button", { name: "Reload" })).toBeVisible();
+  await expect(log).toBeEnabled();
+  await expect(sheet.getByRole("button", { name: "Mark skipped" })).toBeEnabled();
+  expect(stall.actions).toBe(1);
+  expect(stall.held).toBeGreaterThanOrEqual(2);
+  expect(await doses(cycleId)).toHaveLength(1);
+
+  // Reload shows the dose as it is: logged, no longer overdue.
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await toast.getByRole("button", { name: "Reload" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Today");
+  await expect(page.getByTestId("today-overdue").filter({ hasText: A })).toHaveCount(0);
   expect(await doses(cycleId)).toHaveLength(1);
 });
 

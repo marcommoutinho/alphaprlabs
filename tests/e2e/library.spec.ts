@@ -10,6 +10,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { APP_ORIGIN } from "../../playwright.config";
 import { ensureAccount, hydrated, ok, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
 import { shot as saveShot, STATIC_TAB_BAR } from "../support/shots";
+import { stallRefresh } from "../support/stall-refresh";
 
 const ADMIN = { email: uniqueEmail("v7-lib-admin"), name: "Priya Sandhu" };
 const SECOND = { email: uniqueEmail("v7-lib-second"), name: "Owen Marchetti" };
@@ -127,6 +128,49 @@ test("laptop: a draft stays invisible to researchers until published, then stops
   await expect(page.getByTestId("library-row")).toHaveCount(1);
   await page.getByRole("searchbox").fill(`${name} nothing`);
   await expect(page.getByTestId("library-no-match")).toContainText("No peptide matches");
+});
+
+test("laptop: a save whose refreshed page never arrives frees the editor after the wait, and says so", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize(LAPTOP);
+  const name = unique("V7 Stallide");
+  await openLibrary(page);
+  await page.getByTestId("library-add-laptop").click();
+  await (await hydrated(page.getByTestId("peptide-name"))).fill(name);
+  await page.getByTestId("peptide-short").fill("Before the stall");
+  await page.getByTestId("save-draft").click();
+  await expect(page).toHaveURL(/\/admin\/library\/peptides\/[0-9a-f-]{36}$/);
+  await expect(page.getByTestId("peptide-state-line")).toHaveText("Draft · not visible to researchers");
+  const { id } = await stored(name);
+
+  // The save is answered; the refreshed page (the editor at version 2) never comes.
+  const stall = await stallRefresh(page, `/admin/library/peptides/${id}`);
+  await page.getByTestId("peptide-short").fill("Saved during the stall");
+  await page.getByTestId("save-draft").click();
+  await expect(toast(page)).toContainText(`Draft saved · ${name}.`);
+  // Still busy while it's awaited: typing now would be dropped when it lands.
+  await expect(page.getByTestId("save-draft")).toBeDisabled();
+  await expect(page.getByTestId("save-publish")).toBeDisabled();
+  expect(await stored(name)).toMatchObject({ short_description: "Saved during the stall", version: 2 });
+
+  // After the wait and one more refresh: usable again, and it says the page is the one from before.
+  await expect(toast(page)).toContainText("Saved. Couldn't load the latest version.", { timeout: 30_000 });
+  await expect(toast(page).getByRole("button", { name: "Reload" })).toBeVisible();
+  await expect(page.getByTestId("save-draft")).toBeEnabled();
+  await expect(page.getByTestId("peptide-short")).toBeEditable();
+  expect(stall.actions).toBe(1);
+  expect(stall.held).toBeGreaterThanOrEqual(2);
+  expect(await stored(name)).toMatchObject({ short_description: "Saved during the stall", version: 2 });
+
+  // Reload opens the saved version: the next save goes over version 2.
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await toast(page).getByRole("button", { name: "Reload" }).click();
+  await expect(page.getByTestId("peptide-short")).toHaveValue("Saved during the stall");
+  await (await hydrated(page.getByTestId("peptide-short"))).fill("After the reload");
+  await page.getByTestId("save-draft").click();
+  await expect(toast(page)).toContainText(`Draft saved · ${name}.`);
+  await expect.poll(async () => (await stored(name)).version).toBe(3);
+  expect(await stored(name)).toMatchObject({ short_description: "After the reload" });
 });
 
 for (const scheme of ["light", "dark"] as const) {

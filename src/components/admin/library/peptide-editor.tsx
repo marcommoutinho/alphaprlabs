@@ -8,6 +8,7 @@ import { Field, Switch, TextArea, TextInput } from "@/components/alpha/field";
 import Link from "@/components/alpha/link";
 import { ToastSlot, useAlphaToast } from "@/components/alpha/toast";
 import { useIsLaptop } from "@/components/alpha/use-laptop";
+import { useRefreshWait } from "@/components/alpha/use-refresh-wait";
 import { savePeptideAction, type PeptideActionResult } from "@/app/(private)/admin/library/actions";
 import {
   addStrength,
@@ -43,6 +44,7 @@ const SAVE_UNSURE = "Couldn't confirm it was saved. Retry sends the same save, s
 export function PeptideEditor({ entry, takenNames }: { entry: AdminPeptide | null; takenNames: string[] }) {
   const router = useRouter();
   const toast = useAlphaToast();
+  const refreshWait = useRefreshWait();
   const laptop = useIsLaptop();
   const [form, setForm] = useState<PeptideForm>(() => (entry ? formOfPeptide(entry) : newPeptideForm()));
   const [touched, setTouched] = useState(false);
@@ -95,12 +97,28 @@ export function PeptideEditor({ entry, takenNames }: { entry: AdminPeptide | nul
       // the action answers before the refreshed page arrives, and that page
       // remounts the editor at the new version (or another page opens), so
       // anything typed in between would be silently dropped. An unchanged
-      // save keeps the version: nothing replaces the editor.
+      // save keeps the version: nothing replaces the editor. The wait is
+      // bounded (useRefreshWait): if that page never comes, the form is
+      // usable again and the toast says it shows the version from before.
       pending.current = null;
       toast.success({ message: result.toast ?? "Saved." });
-      if (!laptop) router.push(LIBRARY_PATH);
-      else if (!entry) router.replace(peptidePath(result.saved.id));
-      else if (result.saved.version === entry.version) setSaving(null);
+      if (laptop && entry && result.saved.version === entry.version) {
+        setSaving(null);
+        return;
+      }
+      const opening = !laptop ? LIBRARY_PATH : !entry ? peptidePath(result.saved.id) : null;
+      const go = opening ? () => (laptop ? router.replace(opening) : router.push(opening)) : undefined;
+      go?.();
+      refreshWait.start({
+        lead: "Saved.",
+        retry: go,
+        reloadTo: opening ?? undefined,
+        onGiveUp: () => {
+          // Still a new entry here: saving it again unchanged replays this save, never adds another.
+          if (!entry) pending.current = attempt;
+          setSaving(null);
+        },
+      });
       return;
     }
     setSaving(null);

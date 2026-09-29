@@ -10,6 +10,7 @@ import { Sheet, SheetContent } from "@/components/alpha/sheet";
 import { Tag } from "@/components/alpha/tag";
 import { ToastSlot, useAlphaToast } from "@/components/alpha/toast";
 import { useIsLaptop } from "@/components/alpha/use-laptop";
+import { useRefreshWait } from "@/components/alpha/use-refresh-wait";
 import { Issues } from "@/components/research/cycles/builder/parts";
 import { AxisRow } from "@/components/research/cycles/lanes";
 import { saveTemplateAction, type TemplateActionResult } from "@/app/(private)/admin/library/templates/actions";
@@ -56,6 +57,7 @@ const freshKey = () => `k${++nextKey}`;
 export function TemplateEditor({ template, peptides }: { template: TemplateRecord | null; peptides: TemplatePeptide[] }) {
   const router = useRouter();
   const toast = useAlphaToast();
+  const refreshWait = useRefreshWait();
   const laptop = useIsLaptop();
   const byId = useMemo(() => new Map(peptides.map((peptide) => [peptide.id, peptide])), [peptides]);
   const kept = useMemo(() => new Set(template?.plans.map((plan) => plan.peptideId) ?? []), [template]);
@@ -114,12 +116,28 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
       // the action answers before the refreshed page arrives, and that page
       // remounts the editor at the new version (or another page opens), so
       // anything typed in between would be silently dropped. An unchanged
-      // save keeps the version: nothing replaces the editor.
+      // save keeps the version: nothing replaces the editor. The wait is
+      // bounded (useRefreshWait): if that page never comes, the form is
+      // usable again and the toast says it shows the version from before.
       pending.current = null;
       toast.success({ message: result.toast ?? "Template saved." });
-      if (!laptop) router.push(TEMPLATES_PATH);
-      else if (!template) router.replace(templatePath(result.saved.id));
-      else if (result.saved.version === template.version) setSaving(false);
+      if (laptop && template && result.saved.version === template.version) {
+        setSaving(false);
+        return;
+      }
+      const opening = !laptop ? TEMPLATES_PATH : !template ? templatePath(result.saved.id) : null;
+      const go = opening ? () => (laptop ? router.replace(opening) : router.push(opening)) : undefined;
+      go?.();
+      refreshWait.start({
+        lead: "Saved.",
+        retry: go,
+        reloadTo: opening ?? undefined,
+        onGiveUp: () => {
+          // Still a new template here: saving it again unchanged replays this save, never adds another.
+          if (!template) pending.current = attempt;
+          setSaving(false);
+        },
+      });
       return;
     }
     setSaving(false);

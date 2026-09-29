@@ -18,11 +18,23 @@ import { NowActions, NowBlock, NowHeader, NowReading } from "@/components/alpha/
 import { StateGlyph, type GlyphState } from "@/components/alpha/state-glyph";
 import { lowCounter, useNavCount } from "@/components/alpha/shell/nav-counts";
 import { useAlphaToast } from "@/components/alpha/toast";
+import { useRefreshWait } from "@/components/alpha/use-refresh-wait";
 import { SAVE_FAILED_MESSAGE } from "@/lib/app/save";
 import { AppBadge } from "@/components/push/app-badge";
 import { clock12, massLabel, untilLabel, wallWhen } from "@/lib/alpha/format";
 import { dayProgress, dayRail, type RailEntry } from "@/lib/doses/board";
-import { ENDED_NOTE, loggedToast, NO_MIXTURE_NOTE, skippedToast, UNDO_FAILED, undoneToast, wallOf } from "@/lib/doses/rules";
+import {
+  ALREADY_SKIPPED,
+  DOSE_ALREADY_TAKEN,
+  DOSE_CHANGED_LEAD,
+  ENDED_NOTE,
+  loggedToast,
+  NO_MIXTURE_NOTE,
+  skippedToast,
+  UNDO_FAILED,
+  undoneToast,
+  wallOf,
+} from "@/lib/doses/rules";
 import type { DoseDetail, TodayDose, TodayView } from "@/lib/doses/today";
 import { type SupplementDetail, type SupplementRow, type SupplementToday, todayNotes } from "@/lib/supplements/view";
 import type { LowVialRow } from "@/lib/supplies/view";
@@ -105,6 +117,7 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
   const router = useRouter();
   const pathname = usePathname();
   const toast = useAlphaToast();
+  const refreshWait = useRefreshWait();
   const nowMs = useNowMs(view.renderedAt);
   const [sheetKey, setSheetKey] = useState<string | null>(view.requested && !view.requested.notice ? view.requested.key : null);
   const [sheetError, setSheetError] = useState<string | null>(null);
@@ -127,6 +140,26 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
     setSheetKey(reopen.key);
     setSheetNotice(reopen.notice);
   }
+  useEffect(() => {
+    if (!reopen) refreshWait.arrived();
+  }, [reopen, refreshWait]);
+
+  /**
+   * Busy until the refreshed page reopens the dose (see Reopen), for a
+   * bounded time (useRefreshWait): if it never comes, the dose's controls
+   * work again, and the toast says what the answer was and that the page
+   * still shows the dose as it was.
+   */
+  const awaitReopen = (next: Reopen, lead: string) => {
+    setReopen(next);
+    refreshWait.start({
+      lead,
+      onGiveUp: () => {
+        setReopen(null);
+        setBusy(null);
+      },
+    });
+  };
 
   const supplement = useTakeSupplement((message, tone) => (tone === "error" ? toast.error({ message }) : toast.success({ message })));
 
@@ -189,7 +222,8 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
       }
       if (result.outcome === "changed" || result.outcome === "already" || result.outcome === "skipped") {
         // The page refreshed: once it's here, the sheet shows the dose as it is now (see Reopen).
-        setReopen({ key: detail.key, notice: result.outcome === "changed" ? (result.error ?? null) : null, from: shown });
+        const lead = result.outcome === "changed" ? DOSE_CHANGED_LEAD : result.outcome === "skipped" ? ALREADY_SKIPPED : DOSE_ALREADY_TAKEN;
+        awaitReopen({ key: detail.key, notice: result.outcome === "changed" ? (result.error ?? null) : null, from: shown }, lead);
         if (result.outcome === "skipped" && result.error) toast.error({ message: result.error });
         return;
       }
@@ -246,7 +280,7 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
       }
       if (result.outcome === "changed" || result.outcome === "taken") {
         // The page refreshed: once it's here, the sheet shows the dose as it is now (see Reopen).
-        setReopen({ key: detail.key, notice: result.error ?? null, from: shown });
+        awaitReopen({ key: detail.key, notice: result.error ?? null, from: shown }, result.outcome === "changed" ? DOSE_CHANGED_LEAD : DOSE_ALREADY_TAKEN);
         return;
       }
       setBusy(null);

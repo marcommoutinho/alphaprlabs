@@ -9,8 +9,10 @@
 import { expect, test, type Page } from "@playwright/test";
 import { randomBytes } from "node:crypto";
 import { APP_ORIGIN } from "../../playwright.config";
-import { ensureAccount, hydrated, ok, serviceClient, signInAs, uniqueEmail } from "../support/local-supabase";
+import { saveTemplateAs } from "../support/admin-writers";
+import { ensureAccount, hydrated, ok, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
 import { shot as saveShot, STATIC_TAB_BAR } from "../support/shots";
+import { stallRefresh } from "../support/stall-refresh";
 
 const ADMIN = { email: uniqueEmail("v7-tpl-admin"), name: "Templates Admin" };
 const RESEARCHER = { email: uniqueEmail("v7-tpl-researcher"), name: "Templates Researcher" };
@@ -62,6 +64,36 @@ async function addPeptide(page: Page, name: string) {
   await page.getByTestId("peptide-picker").getByRole("button", { name, exact: true }).click();
   await expect(page.getByTestId("peptide-picker")).toHaveCount(0);
 }
+
+test("laptop: a save whose refreshed page never arrives frees the editor after the wait, and says so", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize(LAPTOP);
+  const name = unique("V7 Stalled template");
+  const peptideId = await seedPeptide(unique("V7 Stall peptide"));
+  const phases = [{ kind: "active", offset_days: 0, length_days: 7, dose_mg: "0.4", local_time: "08:00", schedule_type: "interval", every_days: 1 }];
+  const saved = await saveTemplateAs(await signedInClient(ADMIN.email), { p_name: name, p_plans: [{ peptide_id: peptideId, phases }] });
+  expect(saved.error).toBeNull();
+  await openTemplates(page);
+  await page.goto(`${APP_ORIGIN}/admin/library/templates/${saved.data}`);
+
+  // The save is answered; the refreshed page (the editor at version 2) never comes.
+  const stall = await stallRefresh(page, `/admin/library/templates/${saved.data}`);
+  await (await hydrated(page.getByTestId("template-guidance"))).fill("Saved during the stall.");
+  await page.getByTestId("save-template").click();
+  await expect(toast(page)).toContainText("Template updated for future copies. Existing cycles unchanged.");
+  // Still busy while it's awaited: typing now would be dropped when it lands.
+  await expect(page.getByTestId("save-template")).toBeDisabled();
+  await expect.poll(async () => (await storedTemplate(name)).version).toBe(2);
+
+  // After the wait and one more refresh: usable again, and it says the page is the one from before.
+  await expect(toast(page)).toContainText("Saved. Couldn't load the latest version.", { timeout: 30_000 });
+  await expect(toast(page).getByRole("button", { name: "Reload" })).toBeVisible();
+  await expect(page.getByTestId("save-template")).toBeEnabled();
+  await expect(page.getByTestId("template-guidance")).toBeEditable();
+  expect(stall.actions).toBe(1);
+  expect(stall.held).toBeGreaterThanOrEqual(2);
+  expect(await storedTemplate(name)).toMatchObject({ version: 2, guidance: "Saved during the stall." });
+});
 
 test("laptop: create and edit a template, then keep saving it with a peptide no longer offered", async ({ page }) => {
   test.setTimeout(90_000);
