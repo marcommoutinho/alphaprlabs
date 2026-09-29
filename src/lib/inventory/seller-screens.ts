@@ -4,9 +4,7 @@
 // database, no React. Admin screens only; no researcher screen names an
 // admin or a seller.
 
-export const SELLER_LABEL = "Seller";
-export const BY_SELLER_TITLE = "By seller";
-/** A7 row for sales recorded before sellers existed. */
+/** The seller of a sale recorded before sellers existed (a sale's line and the By seller row). */
 export const NO_SELLER = "Seller not recorded";
 export const NO_SELLERS = "No admin can be chosen as the seller. Reload the page and try again.";
 
@@ -26,9 +24,6 @@ export const defaultSeller = (sellers: { id: string }[], signedIn: string) =>
 
 /** A sale's seller: `Sold by Marco Moutinho`, or `Seller not recorded` for an older sale. */
 export const sellerLine = (sale: { sellerName: string | null }) => (sale.sellerName ? `Sold by ${sale.sellerName}` : NO_SELLER);
-
-/** A7 "By seller" row label. */
-export const sellerRowLabel = (row: { sellerName: string | null }) => row.sellerName ?? NO_SELLER;
 
 const nameKey = (name: string) => name.trim().toLocaleLowerCase("en-CA");
 

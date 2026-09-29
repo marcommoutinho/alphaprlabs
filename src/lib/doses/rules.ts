@@ -16,10 +16,7 @@ import {
 import { normalizeDecimal, parseDecimal } from "@/lib/calculator/decimal";
 import { formatDay } from "@/lib/format";
 import { vialName } from "@/lib/supplies/name";
-import { RECORDED_SITES, ROTATION } from "./sites";
-
-/** R2's injection sites (design v3: eight, in rotation order), stored as written. See ./sites. */
-export const SITES = ROTATION;
+import { RECORDED_SITES } from "./sites";
 
 export const NOTES_LIMIT = 1000;
 export const AMOUNT_LIMIT = "100000";
@@ -36,14 +33,12 @@ export const DOSE_CHANGED = "This dose changed since you opened it. The details 
 export const DOSE_GONE = "This dose is no longer in your plan. Nothing was recorded.";
 export const DOSE_NOT_YET = "This dose isn't due yet. You can confirm it on its day.";
 export const STALE_LINK = "That reminder is out of date — this dose is no longer in your plan. Here's what's due now.";
-export const TIME_NOW_NOTE = "Defaults to now. Change it if this happened earlier.";
 export const ENDED_NOTE = "Unconfirmed entries from ended cycles stay open in that cycle's history.";
 export const NO_MIXTURE_NOTE = "No saved mixture for this peptide, so syringe units can't be shown.";
 export const VIAL_NOTE = (label: string) =>
   `Confirming reduces the estimate for ${vialName(label, true)} by the amount taken. It's an estimate, not a measurement.`;
 export const lateNote = (days: number) =>
   `You're recording this ${days} day${days === 1 ? "" : "s"} after it happened. That's fine — the actual time is what the schedule uses.`;
-export const takenToast = (peptide: string, when: string) => `Taken · ${peptide} · ${when}`;
 // V1 (design v3 §7.15 and the new Skip / Undo).
 /** "TB-500 · 2.5 mg logged at 9:12 AM" (the Undo toast after Taken). */
 export const loggedToast = (peptide: string, amount: string, at: string) => `${peptide} · ${amount} logged at ${at}`;
@@ -56,8 +51,6 @@ export const UNDO_FAILED = "Couldn't undo. The entry is still recorded.";
 export const ALREADY_SKIPPED = "This dose was skipped, so it can't be logged.";
 export const DOSE_ALREADY_TAKEN = "This dose is already logged.";
 export const SKIPPED_NOTE = "You marked this dose skipped. It counts as skipped, not missed, and can't be logged now.";
-export const discrepancyToast = (peptide: string, when: string, vial: string) =>
-  `Taken · ${peptide} · ${when}. ${vialName(vial)}'s estimate is now below zero — check it in Personal supplies.`;
 
 // ── The syringe draw for a dose ─────────────────────────────────────────────
 
@@ -149,9 +142,6 @@ export const daysBetween = (from: string, to: string) => Math.round((Date.parse(
 
 /** `Fri Sep 11 · 20:00` */
 export const wallLabel = (wall: Wall) => `${formatDay(wall.slice(0, 10))} · ${wall.slice(11, 16)}`;
-
-/** `Fri 20:00` (the sheet's time chips). */
-export const wallShort = (wall: Wall) => `${formatDay(wall.slice(0, 10)).slice(0, 3)} ${wall.slice(11, 16)}`;
 
 // ── What a confirmation does to the schedule (R5's effect line) ──────────────
 

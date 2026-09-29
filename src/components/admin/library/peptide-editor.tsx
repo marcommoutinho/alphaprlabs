@@ -136,7 +136,7 @@ export function PeptideEditor({ entry, takenNames }: { entry: AdminPeptide | nul
             <div className={cn("font-mono text-[13px] font-medium", stateTone)} data-testid="peptide-state-line">
               {entry ? STATE_LINE[state] : "New · not visible to researchers until published"}
             </div>
-            <h2 className="mt-0.5 hidden truncate text-[28px] leading-[1.15] font-semibold tracking-[-0.025em] laptop:block">{title}</h2>
+            <h2 className="mt-0.5 hidden truncate text-[28px] leading-[1.25] font-semibold tracking-[-0.025em] laptop:block">{title}</h2>
           </div>
           {entry ? (
             <Link href={`${peptidePath(entry.id)}/preview`} className="ml-auto hidden shrink-0 text-[14px] font-semibold laptop:block" data-testid="peptide-preview">

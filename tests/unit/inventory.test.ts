@@ -1,6 +1,6 @@
 // S5 business inventory rules (src/lib/inventory/rules.ts): A5/A6 validation
-// order and copy, strings-only form values, no future dates, the FIFO preview
-// and its order, exact CAD arithmetic and A7 periods.
+// order and copy, strings-only form values, no future dates, FIFO allocation
+// and its order, and exact CAD arithmetic.
 import { describe, expect, it } from "vitest";
 import {
   ACCOUNT_REQUIRED,
@@ -24,9 +24,6 @@ import {
   VIALS_TOO_MANY,
   allocateFifo,
   fifoOrder,
-  insufficientStockMessage,
-  saleAmounts,
-  salesPeriodRange,
   stockItemLabel,
   sumAmounts,
   validatePurchase as validate,
@@ -121,22 +118,15 @@ describe("A6 sale validation", () => {
     }
     expect(error(validateSale({ ...valid, buyerType: "outside" }))).toBe("ok");
   });
-
-  it("the insufficient-stock copy", () => {
-    expect(insufficientStockMessage(8, stockItemLabel("Compound A", "8"))).toBe(
-      "Only 8 vials are on hand for Compound A · 8 mg. Reduce the quantity or record a purchase first.",
-    );
-    expect(insufficientStockMessage(1, "X · 2 mg")).toMatch(/^Only 1 vial is on hand/);
-  });
 });
 
-describe("FIFO preview and gross profit", () => {
+describe("FIFO allocation", () => {
   const lots = [
     { purchaseId: "p1", receivedOn: "2026-08-15", recordedOrder: 1, unitCost: "20.00", remaining: 10 },
     { purchaseId: "p2", receivedOn: "2026-08-20", recordedOrder: 2, unitCost: "25.00", remaining: 10 },
   ];
 
-  it("the handoff scenario: 12 at 40 → revenue 480, cost 250, gross profit 230", () => {
+  it("the handoff scenario: 12 vials cost 250 (10 at 20, then 2 at 25)", () => {
     const fifo = allocateFifo(lots, 12);
     expect(fifo).toEqual({
       allocations: [
@@ -146,12 +136,10 @@ describe("FIFO preview and gross profit", () => {
       cost: "250.00",
       short: 0,
     });
-    expect(saleAmounts(12, "40.00", fifo.cost)).toEqual({ revenue: "480.00", cost: "250.00", grossProfit: "230.00" });
   });
 
-  it("reports the shortfall; skips exhausted lots; negative profit stays exact", () => {
+  it("reports the shortfall and skips exhausted lots; sums stay exact", () => {
     expect(allocateFifo([{ ...lots[0], remaining: 0 }, lots[1]], 12)).toMatchObject({ cost: "250.00", short: 2 });
-    expect(saleAmounts(3, "0.10", "0.60")).toEqual({ revenue: "0.30", cost: "0.60", grossProfit: "-0.30" });
     expect(sumAmounts(["0.10", "0.20"])).toBe("0.30");
     expect(sumAmounts([])).toBe("0.00");
   });
@@ -225,11 +213,8 @@ describe("no future dates", () => {
   });
 });
 
-describe("A7 periods", () => {
-  it("this month, last month (across a year) and all time", () => {
-    expect(salesPeriodRange("month", "2026-02-14")).toEqual({ from: "2026-02-01", to: "2026-02-28" });
-    expect(salesPeriodRange("prev", "2026-01-05")).toEqual({ from: "2025-12-01", to: "2025-12-31" });
-    expect(salesPeriodRange("prev", "2028-03-31")).toEqual({ from: "2028-02-01", to: "2028-02-29" });
-    expect(salesPeriodRange("all", "2026-01-05")).toEqual({ from: null, to: null });
+describe("labels", () => {
+  it("names a stock item by peptide and strength", () => {
+    expect(stockItemLabel("Compound A", "8")).toBe("Compound A · 8 mg");
   });
 });

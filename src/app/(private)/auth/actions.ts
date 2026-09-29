@@ -19,12 +19,27 @@ import { hasResearchAccess } from "@/lib/app/identity";
 import { acceptInvitation, MIN_PASSWORD_LENGTH } from "@/lib/invitations/service";
 import { createClient } from "@/lib/supabase/server";
 
-/** What a form shows after a failed submit: one inline error or one error toast. */
-export type FormResult = { error?: string; toast?: string } | undefined;
+/**
+ * What a form shows after a failed submit (one inline error or one error
+ * toast), or where it goes next.
+ */
+export type FormResult = { error?: string; toast?: string; redirectTo?: string } | undefined;
 
 const SAVE_FAILED = "Could not save. Nothing was lost — your entry is still here. Try again.";
 const PASSWORD_TOO_SHORT = "Password needs at least 8 characters.";
 const str = (value: unknown) => (typeof value === "string" ? value : "");
+
+/**
+ * Where the sign-in, recovery and joining forms go next. Not `redirect()`:
+ * Next.js renders an action's redirect target within the same request, with
+ * the cookies the request came in with, so after a sign-in the new session
+ * isn't on it yet and the person would land on a page rendered signed out
+ * (the sign-in form under /app/today); after R15 an iPhone was taken past
+ * R16 to Today. The form navigates instead, as a link would, with the
+ * current cookies (useAuthSubmit). The e2e suite resolves the app host as
+ * production does, so it takes this path (tests/support/resolve-localhost.mjs).
+ */
+const goTo = (path: string): FormResult => ({ redirectTo: path });
 
 // ── Sign in / out ────────────────────────────────────────────────────────────
 
@@ -48,7 +63,7 @@ export async function signIn(input: { email: unknown; password: unknown; next?: 
     await supabase.auth.signOut();
     return { error: "Email or password is incorrect. Passwords are case-sensitive." };
   }
-  redirect(destinationFor({ role: profile.role, acknowledged: profile.acknowledged_at !== null }, str(input.next)));
+  return goTo(destinationFor({ role: profile.role, acknowledged: profile.acknowledged_at !== null }, str(input.next)));
 }
 
 /**
@@ -104,7 +119,7 @@ export async function confirmRecovery(input: { tokenHash: unknown }): Promise<Fo
     const { error } = await supabase.auth.verifyOtp({ type: "recovery", token_hash: tokenHash });
     verified = !error;
   }
-  redirect(verified ? RESET_PASSWORD_PATH : `${RECOVER_PATH}?link=invalid`);
+  return goTo(verified ? RESET_PASSWORD_PATH : `${RECOVER_PATH}?link=invalid`);
 }
 
 export async function setNewPassword(input: { password: unknown }): Promise<FormResult> {
@@ -119,7 +134,7 @@ export async function setNewPassword(input: { password: unknown }): Promise<Form
   if (error?.code === "same_password") return { error: "Choose a password different from your old one." };
   if (error?.code === "weak_password") return { error: PASSWORD_TOO_SHORT };
   if (error) return { toast: SAVE_FAILED };
-  redirect(destinationFor(person));
+  return goTo(destinationFor(person));
 }
 
 // ── Invitation: account setup (step 1) and acknowledgement (step 2) ──────────
@@ -143,7 +158,7 @@ export async function createAccount(input: { token: unknown; name: unknown; pass
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email: result.email, password });
   if (error) redirect(SIGN_IN_PATH);
-  redirect(ACKNOWLEDGE_PATH);
+  return goTo(ACKNOWLEDGE_PATH);
 }
 
 export async function acknowledge(input: { accepted: unknown }): Promise<FormResult> {
@@ -160,5 +175,5 @@ export async function acknowledge(input: { accepted: unknown }): Promise<FormRes
     p_version: ACKNOWLEDGEMENT_VERSION,
   });
   if (error || !recorded) return { toast: SAVE_FAILED };
-  redirect(AFTER_ACKNOWLEDGEMENT_PATH);
+  return goTo(AFTER_ACKNOWLEDGEMENT_PATH);
 }

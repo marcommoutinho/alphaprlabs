@@ -374,7 +374,7 @@ test.describe("Stock", () => {
       await expect(sheet.getByTestId("threshold-changed")).toContainText(`Set by ${ADMIN.name}`);
       await sheet.getByRole("link", { name: "Purchases and sales" }).click();
       await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory/${item.id}`);
-      await page.getByRole("link", { name: "‹ Stock" }).click();
+      await page.getByTestId("back-link").click();
       await expect(h1(page)).toHaveText("Stock");
     });
   }

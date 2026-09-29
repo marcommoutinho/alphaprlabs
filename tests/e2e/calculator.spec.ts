@@ -88,7 +88,7 @@ test("calculate with comma decimals, save a mixture for a cycle peptide, and reo
 
   // Save it for the cycle's peptide.
   await expect(page.getByText("Use for syringe units in")).toBeVisible();
-  await page.getByLabel(CYCLE).check();
+  await page.getByRole("checkbox", { name: CYCLE }).check();
   await page.getByRole("button", { name: "Save mixture" }).click();
   await expect(page.getByRole("status")).toContainText(`Saved mixture · ${PEPTIDE} 8 mg / 2.5 mL`);
   await expect(page.getByRole("button", { name: "Update saved mixture" })).toBeVisible();
@@ -104,7 +104,7 @@ test("calculate with comma decimals, save a mixture for a cycle peptide, and reo
   await expect(page.getByLabel("Intended dose (mg) · entered by you")).toHaveValue("0.35");
   await expect(page.getByLabel("Liquid added (mL)")).toHaveValue("2.5");
   await expect(units(page)).toHaveText("10.9375");
-  await expect(page.getByLabel(CYCLE)).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: CYCLE })).toBeChecked();
 
   // Mark the lines unknown and update: a new version; the first stays.
   await (await hydrated(page.getByLabel("Line spacing override"))).selectOption("unknown");

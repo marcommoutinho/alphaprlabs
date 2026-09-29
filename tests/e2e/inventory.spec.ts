@@ -183,14 +183,14 @@ test("the handoff FIFO scenario: two purchases, a sale of 12, 8 left, 9 more blo
         `Cost CAD 250\\.00 \\(10 × CAD 20\\.00 \\+ 2 × CAD 25\\.00\\) · gross profit CAD 230\\.00 · Sold by ${ADMIN.name}$`,
     ),
   ]);
-  await expect(page.getByTestId("purchase-row").locator(".app-inv-sub")).toHaveText([
+  await expect(page.getByTestId("purchase-row").getByTestId("lot-note")).toHaveText([
     "10 of 10 allocated to sales · cost locked",
     "2 of 10 allocated to sales · cost locked",
   ]);
 
   // Stock lists it: 8 on hand (low, under the default 10), the 8 left of the
   // $25.00 lot at cost, and the 12 sold today.
-  await page.getByRole("link", { name: "‹ Stock" }).click();
+  await page.getByTestId("back-link").click();
   await expect(page.getByTestId("stock-table-row").filter({ hasText: peptide })).toHaveText(`${peptide} 8 mg8Low$200.00$25.0012`);
 
   // The Ledger for this item: totals match; last month has none of its sales.
@@ -334,6 +334,8 @@ test("phone: pages and sheets fit, sections stack, wide amounts stay on one line
     expect(await fits(), path).toBe(true);
   }
   await page.goto(`${APP_ORIGIN}/admin/inventory/${item.id}`);
+  // Past its loading state (A4's skeleton streams first).
+  await expect(page.getByTestId("purchase-row")).toBeVisible();
   const [purchases, sales] = await Promise.all([page.getByTestId("purchases").boundingBox(), page.getByTestId("sales").boundingBox()]);
   expect(sales!.y).toBeGreaterThanOrEqual(purchases!.y + purchases!.height);
 

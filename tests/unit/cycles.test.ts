@@ -9,11 +9,12 @@ import { editWindow, reviseCycle, type RevisedPlan } from "@/lib/cycles/revise";
 import {
   type CycleForm,
   type CyclePeptide,
+  type CyclePlanForm,
   type CycleRecord,
   type CycleRevision,
   formFromTemplate,
   formOfCycle,
-  newPlan,
+  newActivePhase,
   validateCycle,
 } from "@/lib/cycles/rules";
 import { cycleOccurrences, cycleStatus } from "@/lib/cycles/schedule";
@@ -33,6 +34,8 @@ const PLAN_A = uuid(1);
 const PLAN_B = uuid(2);
 const [A0, A1, BREAK, A2, B1] = [uuid(10), uuid(11), uuid(12), uuid(13), uuid(20)];
 const TORONTO = "America/Toronto";
+/** A new plan's form: one active phase from `start`. */
+const newPlan = (peptideId: string, start: string): CyclePlanForm => ({ planId: null, peptideId, phases: [newActivePhase(start)] });
 
 /** Revision 1, America/Toronto. Sep 15, 2026 is a Tuesday. */
 const revision1: CycleRevision = {

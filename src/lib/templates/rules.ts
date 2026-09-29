@@ -72,7 +72,7 @@ export type TemplateForm = { id: string | null; name: string; guidance: string; 
 const DEFAULT_TIME = "08:00";
 const DEFAULT_DAYS: Weekday[] = [1, 3, 5];
 
-/** "+ Phase": active, 28 days, every 5 days, 08:00, dose blank. */
+/** A new active phase: 28 days, every 5 days, 08:00, dose blank (the editor's rows and a stored phase's form start from it). */
 export const newActivePhase = (day: number): PhaseForm => ({
   kind: "active",
   day: String(day),
@@ -84,23 +84,10 @@ export const newActivePhase = (day: number): PhaseForm => ({
   days: [...DEFAULT_DAYS],
 });
 
-/** "+ Break": 7 days. */
+/** A new break: 7 days. */
 export const newBreak = (day: number): PhaseForm => ({ ...newActivePhase(day), kind: "break", len: "7" });
 
-/** "+ Add peptide": one active phase from day 1. */
-export const newPlan = (peptideId: string): PlanForm => ({ peptideId, phases: [newActivePhase(1)] });
-
 const wholeNumber = (value: string): number | null => (/^\d{1,9}$/.test(value.trim()) ? Number(value.trim()) : null);
-
-/**
- * The day "+ Phase" and "+ Break" start on: the day after the last phase ends
- * (day 1 without phases). Unreadable days count as day 1 and lengths as 0, as
- * in the prototype.
- */
-export function nextPhaseDay(plan: PlanForm): number {
-  const ends = plan.phases.map((phase) => Math.max(1, wholeNumber(phase.day) ?? 1) - 1 + (wholeNumber(phase.len) ?? 0));
-  return (ends.length ? Math.max(...ends) : 0) + 1;
-}
 
 /** A stored template as the editor's form. */
 export function formOf(template: Pick<TemplateRecord, "name" | "guidance" | "plans"> & { id: string | null }): TemplateForm {

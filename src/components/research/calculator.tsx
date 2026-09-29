@@ -241,11 +241,10 @@ export function Calculator({
               }))}
             />
           </div>
-          <div className="flex flex-col gap-2 laptop:flex-row laptop:items-center laptop:justify-between">
+          <div className="flex flex-col gap-2">
             <span className="px-2 text-[13px] leading-[18px] text-ink-2 laptop:px-0">{lineSpacingNote(form.syringe, spacing)}</span>
             <Select
               aria-label="Line spacing override"
-              className="laptop:w-[230px]"
               value={form.lineChoice}
               onChange={(e) => update({ lineChoice: e.target.value as LineChoice })}
             >

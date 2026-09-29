@@ -141,7 +141,8 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
         <Link href={TEMPLATES_PATH} className="justify-self-start text-signal-ink">
           Cancel
         </Link>
-        <span className="max-w-[220px] truncate font-semibold">{title}</span>
+        {/* The phone's page heading (the laptop header below is hidden here). */}
+        <h1 className="max-w-[220px] truncate font-semibold">{title}</h1>
         <span />
       </div>
 

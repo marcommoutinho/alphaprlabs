@@ -29,7 +29,6 @@ import {
   sellerLine,
   sellerOptions,
   sellerRowEmail,
-  sellerRowLabel,
 } from "@/lib/inventory/seller-screens";
 import type { SellerTotals } from "@/lib/inventory/sellers";
 import type { SaleRecord } from "@/lib/inventory/service";
@@ -72,11 +71,10 @@ describe("A6 seller", () => {
     expect(defaultSeller(sellers, ITEM)).toBe("");
   });
 
-  it("labels: the seller line, the A7 row, and a sale from before sellers existed", () => {
+  it("labels: the seller line, and a sale from before sellers existed", () => {
     expect(sellerLine({ sellerName: "Natasha" })).toBe("Sold by Natasha");
     expect(sellerLine({ sellerName: null })).toBe(NO_SELLER);
-    expect(sellerRowLabel({ sellerName: "Brian" })).toBe("Brian");
-    expect(sellerRowLabel({ sellerName: null })).toBe("Seller not recorded");
+    expect(NO_SELLER).toBe("Seller not recorded");
   });
 });
 

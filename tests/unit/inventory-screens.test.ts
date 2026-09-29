@@ -1,7 +1,7 @@
-// S6 inventory and sales screens: the view helpers (A5 total, A6 live
-// preview, labels, the Toronto business date) and every designed empty state,
-// rendered to HTML without a database (the shared local database always has
-// stock, so the "nothing yet" states can't be reached in a browser run).
+// S6 inventory screens: the view helpers (labels, the Toronto business date)
+// and every designed empty state, rendered to HTML without a database (the
+// shared local database always has stock, so the "nothing yet" states can't
+// be reached in a browser run).
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -9,97 +9,11 @@ import { StockItemView } from "@/components/admin/inventory-views";
 import { StockScreen } from "@/components/business/stock-screen";
 
 vi.mock("@/app/(private)/admin/inventory/actions", () => ({ setStockThresholdAction: async () => ({}) }));
-import { allocateFifo, type FifoLot } from "@/lib/inventory/rules";
-import {
-  accountMatches,
-  allocationSummary,
-  buyerLabel,
-  businessToday,
-  lotNote,
-  NO_PURCHASES,
-  NO_SALES,
-  previewAllocationLine,
-  profitTone,
-  purchaseRecordedToast,
-  purchaseTotal,
-  saleRecordedToast,
-  salePreview,
-  SALES_EMPTY_FILTERED,
-  SALES_EMPTY_NO_SALES,
-  SALES_EMPTY_NOTHING,
-  salesEmptyText,
-  salesPeriodOf,
-  vials,
-} from "@/lib/inventory/screens";
+import { accountMatches, allocationSummary, buyerLabel, businessToday, lotNote, NO_PURCHASES, NO_SALES, profitTone, vials } from "@/lib/inventory/screens";
 import type { StockItemDetail, StockItemSummary } from "@/lib/inventory/service";
 
-const lot = (purchaseId: string, receivedOn: string, recordedOrder: number, unitCost: string, remaining: number): FifoLot => ({
-  purchaseId,
-  receivedOn,
-  recordedOrder,
-  unitCost,
-  remaining,
-});
-// The handoff FIFO scenario: 10 × CAD 20 (Aug 15), then 10 × CAD 25 (Aug 20).
-const LOTS = [lot("p2", "2026-08-20", 2, "25.00", 10), lot("p1", "2026-08-15", 1, "20.00", 10)];
-
-describe("A6 live preview", () => {
-  it("12 × CAD 40 → revenue 480, FIFO cost 250, gross profit 230, oldest stock first", () => {
-    const preview = salePreview({ onHand: 20, lots: LOTS, quantity: "12", unitPrice: "40" });
-    expect(preview).toMatchObject({ available: 20, short: false, revenue: "480.00", cost: "250.00", grossProfit: "230.00" });
-    expect(preview.allocations.map(previewAllocationLine)).toEqual([
-      "10 × CAD 20.00 from the Aug 15, 2026 purchase",
-      "2 × CAD 25.00 from the Aug 20, 2026 purchase",
-    ]);
-    // Exactly the allocation the database makes (same function, same order).
-    expect(preview.allocations).toEqual(allocateFifo(LOTS, 12).allocations);
-  });
-
-  it("more vials than on hand is short: no cost, no profit, no allocation", () => {
-    const preview = salePreview({ onHand: 8, lots: [lot("p2", "2026-08-20", 2, "25.00", 8)], quantity: "9", unitPrice: "40" });
-    expect(preview).toMatchObject({ short: true, revenue: "360.00", cost: null, grossProfit: null, allocations: [] });
-  });
-
-  it("shows — until the entry gives a value, and while the item's lots load", () => {
-    expect(salePreview({ onHand: 20, lots: LOTS, quantity: "", unitPrice: "" })).toMatchObject({
-      short: false,
-      revenue: null,
-      cost: null,
-      grossProfit: null,
-    });
-    for (const quantity of ["0", "1.5", "-2", "abc"]) {
-      expect(salePreview({ onHand: 20, lots: LOTS, quantity, unitPrice: "40" }).revenue).toBeNull();
-    }
-    expect(salePreview({ onHand: 20, lots: LOTS, quantity: "3", unitPrice: "-1" })).toMatchObject({ revenue: null, cost: "60.00" });
-    expect(salePreview({ onHand: 20, lots: null, quantity: "3", unitPrice: "40" })).toMatchObject({ revenue: "120.00", cost: null });
-  });
-
-  it("a free sample (CAD 0) is a negative gross profit; exact cents, never floats", () => {
-    expect(salePreview({ onHand: 20, lots: LOTS, quantity: "1", unitPrice: "0" })).toMatchObject({
-      revenue: "0.00",
-      cost: "20.00",
-      grossProfit: "-20.00",
-    });
-    expect(salePreview({ onHand: 20, lots: [lot("a", "2026-08-01", 1, "0.10", 20)], quantity: "3", unitPrice: "0.20" })).toMatchObject({
-      revenue: "0.60",
-      cost: "0.30",
-      grossProfit: "0.30",
-    });
-  });
-});
-
 describe("screen helpers", () => {
-  it("A5 total purchase cost, or — until vials and cost are valid", () => {
-    expect(purchaseTotal("10", "20")).toBe("CAD 200.00");
-    expect(purchaseTotal(" 3 ", "0.1")).toBe("CAD 0.30");
-    expect(purchaseTotal("10", "0")).toBe("CAD 0.00");
-    expect(purchaseTotal("", "20")).toBe("—");
-    expect(purchaseTotal("0", "20")).toBe("—");
-    expect(purchaseTotal("10", "-1")).toBe("—");
-    expect(purchaseTotal("2.5", "20")).toBe("—");
-  });
-
-  it("labels, notes and toasts in the designed wording", () => {
+  it("labels and notes in the designed wording", () => {
     expect(vials(1)).toBe("1 vial");
     expect(vials(12)).toBe("12 vials");
     expect(lotNote({ quantity: 10, allocated: 0 })).toBe("None allocated yet");
@@ -112,14 +26,6 @@ describe("screen helpers", () => {
     expect(profitTone("-0.01")).toBe("negative");
     expect(profitTone("0.00")).toBe("zero");
     expect(profitTone("230.00")).toBe("positive");
-    expect(purchaseRecordedToast(10, "20.00")).toBe("Purchase recorded · 10 vials at CAD 20.00");
-    expect(saleRecordedToast({ quantity: 12, revenue: "480.00", grossProfit: "230.00" })).toBe(
-      "Sale recorded · 12 vials · revenue CAD 480.00 · gross profit CAD 230.00",
-    );
-    expect(salesPeriodOf("month")).toBe("month");
-    expect(salesPeriodOf("prev")).toBe("prev");
-    expect(salesPeriodOf(undefined)).toBe("all");
-    expect(salesPeriodOf(["month"])).toBe("all");
   });
 
   it("today is the business date in America/Toronto, whatever the server's zone", () => {
@@ -137,14 +43,6 @@ describe("screen helpers", () => {
       expect(accountMatches(jordan, query), query).toBe(true);
     }
     for (const query of ["osei", "jordan@", "Reyes Jordan"]) expect(accountMatches(jordan, query), query).toBe(false);
-  });
-
-  it("A7 empty state for the view", () => {
-    const view = (sales: number, hasSales: boolean, hasPurchases: boolean) => ({ totals: { sales }, hasSales, hasPurchases });
-    expect(salesEmptyText(view(0, false, false))).toBe(SALES_EMPTY_NOTHING);
-    expect(salesEmptyText(view(0, false, true))).toBe(SALES_EMPTY_NO_SALES);
-    expect(salesEmptyText(view(0, true, true))).toBe(SALES_EMPTY_FILTERED);
-    expect(salesEmptyText(view(3, true, true))).toBeNull();
   });
 });
 

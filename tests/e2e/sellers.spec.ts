@@ -22,7 +22,6 @@ test.beforeAll(async () => {
   id.kwame = await ensureAccount({ ...KWAME, role: "researcher" });
 });
 
-const toast = (page: Page) => page.locator(".app-toast");
 /** V6's toasts (the record and link sheets). */
 const status = (page: Page, text: string) => page.getByRole("status").filter({ hasText: text });
 const h1 = (page: Page) => page.getByRole("heading", { level: 1 });
@@ -208,15 +207,18 @@ test("an outside buyer's past sale is linked to their account; nothing else abou
   const newest = rows.first();
   await expect(newest.getByTestId("sale-buyer")).toHaveText(`${name} (outside)`);
   await (await hydrated(newest.getByRole("button", { name: "Link to account…" }))).click();
-  const panel = newest.getByTestId("link-sale");
-  await expect(panel.getByText("A buyer reference only: it grants no access to their private records")).toBeVisible();
+  const panel = page.getByRole("dialog");
+  await expect(panel.getByTestId("link-sale")).toContainText("A buyer reference only: it grants no access to their private records");
   const account = panel.getByRole("combobox", { name: /^Account/ });
   await account.fill(KWAME.email.split("@")[0]);
   await page.getByRole("option", { name: `${KWAME.name} · ${KWAME.email}` }).click();
   await expect(account).toHaveValue(`${KWAME.name} · ${KWAME.email}`);
-  await panel.getByLabel(`Also link every other outside sale recorded as “${name}”`).check();
+  const sameName = panel.getByRole("checkbox", { name: `Also link every other outside sale recorded as “${name}”` });
+  await sameName.click();
+  await expect(sameName).toHaveAttribute("aria-checked", "true");
   await panel.getByRole("button", { name: "Link sale" }).click();
-  await expect(toast(page)).toHaveText(`Linked 2 sales to ${KWAME.name}.`);
+  await expect(status(page, `Linked 2 sales to ${KWAME.name}.`)).toBeVisible();
+  await expect(panel).toHaveCount(0);
   await expect(rows.getByTestId("sale-buyer")).toHaveText([
     `${KWAME.name} (account · recorded as ${name})`,
     `${KWAME.name} (account · recorded as ${name})`,

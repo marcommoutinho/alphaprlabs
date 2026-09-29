@@ -13,7 +13,6 @@ import {
   calculatorInput,
   choiceOf,
   drawFor,
-  drawLabel,
   formFromMixture,
   formInput,
   INVALID_MIXTURE,
@@ -21,9 +20,7 @@ import {
   type Mixture,
   mixtureDetail,
   mixtureLabel,
-  NO_MIXTURE_LINE,
   PEPTIDE_REQUIRED,
-  planMixtureLine,
   savedToast,
   spacingOf,
   validateMixture,
@@ -62,7 +59,6 @@ describe("a saved mixture reproduces the calculation", () => {
     if (draw.state !== "calculated" || !typed.ok) throw new Error("expected results");
     expect(draw.result).toEqual(typed);
     expect(draw.result.display).toEqual({ concentration: "3.2", volume: "0.109375", units: "10.9375" });
-    expect(drawLabel(draw)).toBe("10.9375 units");
 
     // Reopening loads the same fields back (the dose is the researcher's).
     const reopened = formFromMixture(stored, "0.35");
@@ -80,14 +76,11 @@ describe("a saved mixture reproduces the calculation", () => {
 describe("incomplete setups stay explicit", () => {
   it("no mixture gives no units, never a guess", () => {
     expect(drawFor(null, "0.4")).toEqual({ state: "no-mixture" });
-    expect(drawLabel(drawFor(null, "0.4"))).toBe("no saved mixture");
-    expect(planMixtureLine(null)).toBe(NO_MIXTURE_LINE);
   });
 
   it("a dose the mixture can't hold is not calculable, with the reason", () => {
     const draw = drawFor(mixture(), "9");
     expect(draw).toMatchObject({ state: "not-calculable", errors: [DOSE_OVER_VIAL] });
-    expect(drawLabel(draw)).toBe("units can't be calculated");
   });
 
   it("unknown line spacing still converts, flagged, and nothing is rounded", () => {
@@ -150,7 +143,6 @@ describe("saving a mixture", () => {
   it("names the mixture as the design does", () => {
     expect(mixtureLabel("Compound A", mixture().setup)).toBe("Compound A · 8 mg / 2 mL · 1 mL");
     expect(mixtureDetail(mixture().setup, ["Spring", "Spring", "Winter"], "A-01")).toBe("4 mg/mL · lines every 2 u · used by Spring, Winter · vial A-01 tracked");
-    expect(planMixtureLine(mixture())).toBe("Mixture 8 mg / 2 mL (4 mg/mL) · 1 mL syringe");
     expect(savedToast(false, "Compound A", mixture().setup)).toBe("Saved mixture · Compound A 8 mg / 2 mL");
     expect(savedToast(true, "", mixture().setup)).toBe("Updated mixture · 8 mg / 2 mL");
   });

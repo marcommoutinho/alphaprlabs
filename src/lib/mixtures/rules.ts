@@ -245,7 +245,6 @@ export const PLANS_CHANGED = "Your cycles changed. Reload the page and choose th
 export const INVALID_MIXTURE = "This mixture could not be saved. Reload the page and try again.";
 export const LINK_HEADING = "Use for syringe units in";
 export const NO_PLANS = "No cycle uses this peptide yet. You can link the mixture later.";
-export const NO_MIXTURE_LINE = "No saved mixture — units can't be shown for this peptide.";
 
 export const VIAL_STRENGTH_TRACKED =
   "A tracked vial uses this mixture at its current strength. Finish that vial in Personal supplies, or save a new mixture.";
@@ -265,18 +264,4 @@ export function mixtureDetail(setup: MixtureSetup, usedBy: readonly string[], tr
   const lines = setup.lineSpacing === "unknown" ? "line spacing unknown" : `lines every ${setup.lineSpacing} u`;
   const used = usedBy.length ? ` · used by ${[...new Set(usedBy)].join(", ")}` : " · not linked to a plan";
   return `${concentrationOf(setup)} mg/mL · ${lines}${used}${trackedVial ? ` · ${vialName(trackedVial, true)} tracked` : ""}`;
-}
-
-/** R4's line for a plan's mixture: "Mixture 8 mg / 2 mL (4 mg/mL) · 1 mL syringe", or NO_MIXTURE_LINE. */
-export function planMixtureLine(mixture: Mixture | null): string {
-  if (!mixture) return NO_MIXTURE_LINE;
-  const { setup } = mixture;
-  return `Mixture ${setup.vialMg} mg / ${setup.liquidMl} mL (${concentrationOf(setup)} mg/mL) · ${SYRINGE_LABEL[setup.syringe]} syringe`;
-}
-
-/** "10 units", or the reason units can't be shown (Today, reminders). */
-export function drawLabel(draw: PlanDraw): string {
-  if (draw.state === "no-mixture") return "no saved mixture";
-  if (draw.state === "not-calculable") return "units can't be calculated";
-  return `${draw.result.display.units} units`;
 }

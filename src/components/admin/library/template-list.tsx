@@ -26,7 +26,7 @@ export function TemplateList({ templates, peptides }: { templates: TemplateRecor
   }
   const sorted = [...templates].sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }) || a.id.localeCompare(b.id));
   return (
-    <ul aria-label="Templates" className="mx-3 mt-4 grid gap-2.5 laptop:mx-0 laptop:grid-cols-2 laptop:gap-3 xl:grid-cols-3">
+    <ul aria-label="Templates" className="mx-3 mt-4 grid grid-cols-1 gap-2.5 laptop:mx-0 laptop:grid-cols-2 laptop:gap-3 xl:grid-cols-3">
       {sorted.map((template) => {
         const { lanes } = templateLanes(template);
         const withdrawn = withdrawnLine(template, byId);

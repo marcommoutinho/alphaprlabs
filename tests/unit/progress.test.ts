@@ -17,7 +17,6 @@ import {
   characters,
   checkInDay,
   effectLabel,
-  effectsLine,
   FEELING_REQUIRED,
   formEffects,
   measurementValue,
@@ -185,12 +184,8 @@ describe("check-in validation", () => {
     expect(toggleEffect(["Fatigue"], "Fatigue")).toEqual([]);
   });
 
-  it("shows stored effects under their v3 names, from either chip list, with Other's text", () => {
-    expect(effectsLine(["None"])).toBe("");
-    expect(effectsLine(["Nausea", "Headache", "Other"], "dizzy")).toBe("Nausea, Headache, Other: dizzy");
+  it("shows stored effects under their v3 names, from either chip list", () => {
     // Stored with the earlier chips: the same names where one corresponds.
-    expect(effectsLine(["None noticed"])).toBe("");
-    expect(effectsLine(["Injection-site redness", "Mild headache", "Appetite change", "Other"])).toBe("Site redness, Headache, Appetite change, Other");
     expect(["None noticed", "Injection-site redness", "Mild headache", "Nausea", "Fatigue", "Appetite change", "Other"].map(effectLabel)).toEqual([
       "None",
       "Site redness",

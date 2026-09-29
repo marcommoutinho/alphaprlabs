@@ -61,7 +61,7 @@ test.describe("public site (regression control)", () => {
       const response = await page.goto(`${PUBLIC_ORIGIN}${path}`);
       await expect(page.getByRole("banner").getByRole("link", { name: "Peptide Library" })).toBeVisible();
       await expect(page.getByRole("contentinfo")).toBeVisible();
-      await expect(page.locator(".app-root, .alpha")).toHaveCount(0);
+      await expect(page.locator(".alpha")).toHaveCount(0);
       // None of the private app's tokens, fonts or theme reach the public site.
       const look = await page.evaluate(() => ({
         paper: getComputedStyle(document.documentElement).getPropertyValue("--paper"),

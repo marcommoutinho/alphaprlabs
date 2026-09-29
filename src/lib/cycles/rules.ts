@@ -19,7 +19,7 @@ import {
   validatePlan,
   type Weekday,
 } from "@/lib/schedule/engine";
-import { isLocalDate, isValidTimeZone, type LocalDate, localDateOf } from "@/lib/schedule/zone";
+import { isValidTimeZone, type LocalDate, localDateOf } from "@/lib/schedule/zone";
 import { templatePlanToEngine, type TemplatePlan } from "@/lib/templates/rules";
 
 /** Mirrors the database checks (20260926180000_cycles.sql, save_cycle). */
@@ -110,13 +110,7 @@ export const tomorrowIn = (now: string, timeZone: string): LocalDate => addDays(
 /** The zone default dates are computed in before the builder knows the cycle's (server rendering). */
 export const DATES_ZONE = "UTC";
 
-/** A plan with every phase date moved by `days` (the builder's default dates, on a time zone change). */
-export function shiftPlan(plan: CyclePlanForm, days: number): CyclePlanForm {
-  const move = (date: string) => (isLocalDate(date) ? addDays(date, days) : date);
-  return { ...plan, phases: plan.phases.map((phase) => ({ ...phase, start: move(phase.start), end: move(phase.end) })) };
-}
-
-/** "+ Phase (change amount or frequency)": active, 28 days, every 5 days, 08:00, dose blank. */
+/** A new active phase: 28 days, every 5 days, 08:00, dose blank (a stored phase's form starts from it). */
 export const newActivePhase = (start: LocalDate): CyclePhaseForm => ({
   id: null,
   kind: "active",
@@ -128,18 +122,6 @@ export const newActivePhase = (start: LocalDate): CyclePhaseForm => ({
   every: "5",
   days: [...DEFAULT_DAYS],
 });
-
-/** "+ Break": 7 days. */
-export const newBreak = (start: LocalDate): CyclePhaseForm => ({ ...newActivePhase(start), kind: "break", end: addDays(start, 6) });
-
-/** "+ Add peptide from library": one active phase from `start` (the prototype: tomorrow). */
-export const newPlan = (peptideId: string, start: LocalDate): CyclePlanForm => ({ planId: null, peptideId, phases: [newActivePhase(start)] });
-
-/** Where "+ Phase" and "+ Break" start: the day after the last phase ends, else `fallback`. */
-export function nextPhaseStart(plan: CyclePlanForm, fallback: LocalDate): LocalDate {
-  const ends = plan.phases.map((phase) => phase.end).filter(isLocalDate).sort();
-  return ends.length ? addDays(ends[ends.length - 1], 1) : fallback;
-}
 
 /** An active phase's dose on a local date (its dose changes applied), "." decimal point. */
 export function doseAt(phase: ActivePhase, date: LocalDate): string {

@@ -35,9 +35,8 @@ describe("the acknowledgement action", () => {
 
   it("records it with the version and time for accepted === true, then goes on to the install step", async () => {
     acting.client = await signedInClient(newcomer.email);
-    await expect(acknowledge({ accepted: true })).rejects.toMatchObject({
-      digest: expect.stringContaining(`;${AFTER_ACKNOWLEDGEMENT_PATH};`),
-    });
+    // The form navigates there (not a redirect: see goTo in the actions).
+    expect(await acknowledge({ accepted: true })).toEqual({ redirectTo: AFTER_ACKNOWLEDGEMENT_PATH });
     const row = await stored();
     expect(row?.acknowledgement_version).toBe(ACKNOWLEDGEMENT_VERSION);
     expect(row?.acknowledged_at).not.toBeNull();

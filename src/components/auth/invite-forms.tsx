@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import { Field as FieldPrimitive } from "@base-ui/react/field";
 import { acknowledge, createAccount } from "@/app/(private)/auth/actions";
 import { Button } from "@/components/alpha/button";
 import { Checkbox, Field, TextInput } from "@/components/alpha/field";
@@ -50,7 +51,12 @@ export function AccountSetupForm({
           <TextInput name="name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label="Email · from your invitation">
-          <TextInput name="email" type="email" autoComplete="username" value={email} readOnly mono className="text-[15px]" />
+          {/* The address is shown wrapping, so a long one is never cut off on a phone; the
+              read-only input the label names is what a password manager saves as the username. */}
+          <FieldPrimitive.Control name="email" type="email" autoComplete="username" value={email} readOnly tabIndex={-1} className="sr-only" />
+          <div aria-hidden className="rounded-[14px] bg-sunken px-3.5 py-[15px] font-mono text-[15px] leading-[22px] break-all text-ink-2">
+            {email}
+          </div>
         </Field>
         <Field label={PASSWORD_LABEL}>
           <TextInput

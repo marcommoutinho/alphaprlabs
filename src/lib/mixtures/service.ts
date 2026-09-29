@@ -17,7 +17,7 @@ type Db = SupabaseClient<Database>;
 //
 // For other slices:
 //   S10 cycle detail  planMixtures(db, ownerId) → the mixture each plan uses
-//                     now; rules.planMixtureLine / drawFor for its lines.
+//                     now; rules.drawFor for its units.
 //   S12 Today         planDraws(db, ownerId, [{ planId, doseMg }]) → units for
 //                     each due dose; the confirmation function snapshots
 //                     public.plan_mixture_version_at(plan, instant).

@@ -11,7 +11,6 @@ import type { TemplatePhase, TemplatePlan } from "@/lib/templates/rules";
 import type { RevisedPlan } from "./revise";
 import type { MixtureSetup } from "@/lib/mixtures/rules";
 import type { CyclePeptide, CycleRecord, CycleRevision, DraftPhase, DraftPlan, StoredPlan, ValidCycle } from "./rules";
-import { type CycleStatus, cycleSpan, cycleStatus } from "./schedule";
 
 type Db = SupabaseClient<Database>;
 
@@ -226,33 +225,6 @@ export async function getCycle(db: Db, cycleId: string): Promise<CycleRecord | n
 /** Every cycle `ownerId` owns (readable to them, or to admins while they share), newest first. */
 export function listCycles(db: Db, ownerId: string, options: PageOptions = {}): Promise<CycleRecord[]> {
   return readCycles(db, { ownerId }, options);
-}
-
-/** R2's row data: name, status, dates, peptides and the current time zone. */
-export type CycleSummary = {
-  id: string;
-  name: string;
-  goal: string;
-  status: CycleStatus;
-  start: string;
-  end: string;
-  timeZone: string;
-  peptideIds: string[];
-  templateName: string;
-};
-
-export function cycleSummary(cycle: CycleRecord, now: Date | string): CycleSummary {
-  const current = cycle.revisions[cycle.revisions.length - 1];
-  return {
-    id: cycle.id,
-    name: cycle.name,
-    goal: cycle.goal,
-    status: cycleStatus(current, now),
-    ...cycleSpan(current),
-    timeZone: current.timeZone,
-    peptideIds: current.plans.map((plan) => plan.peptideId),
-    templateName: cycle.templateName,
-  };
 }
 
 /**

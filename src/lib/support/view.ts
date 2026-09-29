@@ -1,33 +1,18 @@
-// R11 / R8 Me's support access: what the screens show (with Marco's
+// R8 Me's support access: what the screens show (with Marco's
 // simplification, 2026-09-27: a researcher shares with the whole Alpha PR
 // Labs team, never with a chosen admin, and a researcher never sees which
 // admin reads). Pure: built from the caller's own share rows, shared by the
 // screens and the tests. Times are America/Toronto (the business is local).
 // The admin's side (A11 People, A12 a shared history) is src/lib/people/view.ts.
-import { formatDate, formatDateTime, formatDateTime12 } from "@/lib/format";
+import { formatDateTime12 } from "@/lib/format";
 import type { InstantInput } from "@/lib/schedule/zone";
 import { todayIn } from "@/lib/supplements/schedule";
 
 /** Share times are shown in the business's zone. */
 export const SUPPORT_TIME_ZONE = "America/Toronto";
-const when = (at: string) => formatDateTime(at, { timeZone: SUPPORT_TIME_ZONE });
-const dayOf = (at: string) => formatDate(at, { timeZone: SUPPORT_TIME_ZONE });
 
 // ── Copy ────────────────────────────────────────────────────────────────────
 
-export const TEAM = "the Alpha PR Labs team";
-
-export const SUPPORT_INTRO =
-  "Your history is private by default. You can share your full profile history — cycles, doses, check-ins, measurements, supplies and supplement records — with the Alpha PR Labs team to help with support. Read-only: they cannot edit anything. It lasts until you stop sharing.";
-export const SHARE_BUTTON = "Share with the Alpha PR Labs team";
-export const SHARE_QUESTION = "Share your history with the Alpha PR Labs team?";
-export const SHARE_POINTS = [
-  "Every Alpha PR Labs admin can read it, including admins added later.",
-  "Covers your full profile history, not a single cycle.",
-  "Read-only — nothing can be edited, added or deleted.",
-  "Lasts until you stop sharing here. No automatic expiry.",
-] as const;
-export const STOP_QUESTION = "Stop sharing your history?";
 export const STOP_POINTS = [
   "The team loses access to your history from their next page or request.",
   "Nothing in your history changes.",
@@ -37,28 +22,7 @@ export const SHARED_TOAST = "Your history is shared with the Alpha PR Labs team.
 export const STOPPED_TOAST = "Sharing stopped. The team can no longer open your history.";
 export const ALREADY_STOPPED = "Sharing had already stopped. Your history is private.";
 
-// ── R11 Me ──────────────────────────────────────────────────────────────────
-
 export type ShareRow = { id: string; startedAt: string; stoppedAt: string | null };
-
-export type MeSupport = {
-  /** "Shared since Fri Sep 11 · 07:30 · full profile history · until you stop", or null when private. */
-  sharedSince: string | null;
-  /** "Previously: shared Sep 1, 2026 – Sep 10, 2026; …", or "". */
-  past: string;
-};
-
-/** R11's support section from the caller's own shares. Names no admin: the team reads, not a person. */
-export function meSupport(shares: readonly ShareRow[]): MeSupport {
-  const active = shares.find((s) => s.stoppedAt === null) ?? null;
-  const past = shares
-    .filter((s) => s.stoppedAt !== null)
-    .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt) || b.id.localeCompare(a.id));
-  return {
-    sharedSince: active ? `Shared since ${when(active.startedAt)} · full profile history · until you stop` : null,
-    past: past.length ? `Previously: ${past.map((s) => `shared ${dayOf(s.startedAt)} – ${dayOf(s.stoppedAt!)}`).join("; ")}` : "",
-  };
-}
 
 // ── R8 Me · Support access and R17 (design v3) ──────────────────────────────
 // Marco's rules win over the design: the team is "Alpha PR Labs admins",
@@ -103,9 +67,6 @@ export function sharingSince(shares: readonly ShareRow[]): string | null {
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-
-/** Me's "Personal supplies" line: the open vials while tracking is on, else "Off". */
-export const suppliesSummary = (tracking: boolean, openVials: number) => (tracking ? plural(openVials, "vial") : "Off");
 
 /** Me's "Supplement routines" line: routines still running (an end date today or later), else "Off". */
 export function supplementsSummary(tracking: boolean, routines: readonly { endDate: string | null }[], now: InstantInput): string {

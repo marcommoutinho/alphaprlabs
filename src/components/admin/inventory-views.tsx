@@ -29,8 +29,6 @@ import { OUTSIDE_LINK_NOTE, OUTSIDE_TITLE, sellerLine } from "@/lib/inventory/se
 import type { BuyerAccount, SaleRecord, StockItemDetail } from "@/lib/inventory/service";
 import { cn } from "@/lib/utils";
 
-export const stockItemPath = (id: string) => `/admin/inventory/${id}`;
-
 /** A4 Stock item: on hand, its purchase lots (FIFO order) and its sales (newest first). */
 export function StockItemView({ detail, linkAccounts }: { detail: StockItemDetail; linkAccounts?: BuyerAccount[] }) {
   const { item, lots, sales } = detail;

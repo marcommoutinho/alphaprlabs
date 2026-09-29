@@ -5,7 +5,8 @@
 // cycle's history and Today's sheet show them. Sep 26, 2026 is a Saturday.
 import { describe, expect, it } from "vitest";
 import type { CycleRecord, CycleRevision } from "@/lib/cycles/rules";
-import { cycleDetail, type RecordedConfirmation } from "@/lib/cycles/views";
+import { cycleScreen } from "@/lib/cycles/screens";
+import type { RecordedConfirmation } from "@/lib/cycles/views";
 import { todayView } from "@/lib/doses/today";
 import type { Mixture } from "@/lib/mixtures/rules";
 import type { PersonalVial } from "@/lib/mixtures/service";
@@ -176,9 +177,12 @@ describe("a cycle that moves time zones", () => {
       now: "2026-09-28T18:00:00Z",
     }).inUse[0];
     expect(card.history.map((h) => h.when)).toEqual(["Mon Sep 28 · 08:05", "Thu Sep 24 · 08:05"]);
-    // The same as R4's "Actual" column for those doses.
-    const history = cycleDetail(cycle, peptides, "2026-09-28T18:00:00Z", confirmations).history;
-    expect(history.filter((row) => row.key === key(2) || row.key === key(4)).map((row) => row.actual)).toEqual(["Mon Sep 28 · 08:05", "Thu Sep 24 · 08:05"]);
+    // The same days and times as the cycle's history for those doses.
+    const history = cycleScreen(cycle, confirmations, peptides, new Map(), "2026-09-28T18:00:00Z").history;
+    expect(history.filter((row) => row.key === key(2) || row.key === key(4)).map((row) => `${row.date} ${row.time}`)).toEqual([
+      "Mon, Sep 28 8:05 AM",
+      "Thu, Sep 24 8:05 AM",
+    ]);
   });
 });
 

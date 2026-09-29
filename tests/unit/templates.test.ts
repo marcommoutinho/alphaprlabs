@@ -27,8 +27,6 @@ import {
   NAME_TOO_LONG,
   newActivePhase,
   newBreak,
-  newPlan,
-  nextPhaseDay,
   PEPTIDE_REQUIRED,
   templatePlanToEngine,
   unavailableAdded,
@@ -51,6 +49,8 @@ const byId = new Map(LIBRARY.map((p) => [p.id, p]));
 
 const active = (patch: Partial<PhaseForm> = {}): PhaseForm => ({ ...newActivePhase(1), mg: "0.4", ...patch });
 const pause = (day: number, len = 7): PhaseForm => ({ ...newBreak(day), len: String(len) });
+/** A new plan's form: one active phase from day 1. */
+const newPlan = (peptideId: string): TemplateForm["plans"][number] => ({ peptideId, phases: [newActivePhase(1)] });
 const form = (plans: TemplateForm["plans"], patch: Partial<TemplateForm> = {}): TemplateForm => ({
   id: null,
   name: "Recomp starter",
@@ -242,11 +242,8 @@ describe("validateTemplate: the designed messages, in order", () => {
 });
 
 describe("the editor's defaults", () => {
-  it("adds phases the day after the last one ends, as designed", () => {
-    expect(newPlan(A)).toEqual({ peptideId: A, phases: [{ kind: "active", day: "1", len: "28", mg: "", time: "08:00", schedule: "interval", every: "5", days: [1, 3, 5] }] });
-    expect(nextPhaseDay({ peptideId: A, phases: [] })).toBe(1);
-    expect(nextPhaseDay({ peptideId: A, phases: [active({ day: "1", len: "29" })] })).toBe(30);
-    expect(nextPhaseDay({ peptideId: A, phases: [active({ day: "30", len: "7" }), active({ day: "1", len: "28" })] })).toBe(37);
+  it("starts phases from the designed defaults, and opens a stored template as typed", () => {
+    expect(newActivePhase(1)).toEqual({ kind: "active", day: "1", len: "28", mg: "", time: "08:00", schedule: "interval", every: "5", days: [1, 3, 5] });
     expect(newBreak(30)).toMatchObject({ kind: "break", day: "30", len: "7" });
     // A stored template opens with its values as typed.
     const opened = formOf({ id: "t", name: "Recomp starter", guidance: "", plans: recomp });

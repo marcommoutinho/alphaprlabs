@@ -26,7 +26,6 @@ import {
   addedToast,
   CORRECTION_INVALID,
   correctedToast,
-  defaultVialLabel,
   finishedToast,
   LABEL_TOO_LONG,
   PEPTIDE_REQUIRED,
@@ -42,7 +41,7 @@ import {
 } from "@/lib/supplies/rules";
 import { type DeductionInput, suppliesView, todayStockNotes } from "@/lib/supplies/view";
 import { vialName } from "@/lib/supplies/name";
-import { discrepancyToast, VIAL_NOTE } from "@/lib/doses/rules";
+import { VIAL_NOTE } from "@/lib/doses/rules";
 import { mixtureDetail, type MixtureSetup } from "@/lib/mixtures/rules";
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -427,12 +426,6 @@ describe("the vial form", () => {
     expect(validateVialForm(null)).toEqual({ ok: false, error: PEPTIDE_REQUIRED });
   });
 
-  it("names an unlabelled vial 'Vial N', skipping labels in use", () => {
-    expect(defaultVialLabel([])).toBe("Vial 1");
-    expect(defaultVialLabel(["A-01", "A-02"])).toBe("Vial 3");
-    expect(defaultVialLabel(["vial 2", "Vial 3"])).toBe("Vial 4");
-  });
-
   it("names a vial once: 'Vial 3' as the database named it, 'Vial A-02' for a label of the researcher's own", () => {
     expect(vialName("Vial 3")).toBe("Vial 3");
     expect(vialName("vial 7")).toBe("Vial 7");
@@ -450,7 +443,6 @@ describe("the vial form", () => {
       expect(correctedToast(label, "300 mcg")).toBe(`${name} set to 300 mcg left.`);
       expect(unchangedToast(label)).toBe(`${name} already shows that amount.`);
       expect(todayStockNote(label, { state: "empty", remainingMg: "0" } as VialEstimate, { kind: "unknown" } as StockOutlook)).toBe(`${name} is empty (estimate)`);
-      expect(discrepancyToast("A", "9:00 AM", label)).toContain(`. ${name}'s estimate is now below zero`);
     }
     expect(VIAL_NOTE("Vial 3")).toMatch(/^Confirming reduces the estimate for Vial 3 by/);
     expect(VIAL_NOTE("A-02")).toMatch(/^Confirming reduces the estimate for vial A-02 by/);

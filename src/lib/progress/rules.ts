@@ -60,8 +60,6 @@ export const UNIT_LIMIT = 20;
 export const VALUE_DECIMALS = 6;
 /** Values are below this (a typo guard). */
 export const VALUE_LIMIT = "1000000";
-/** Days in "Last 14 days". */
-export const HISTORY_DAYS = 14;
 
 // ── Copy (the prototype's) ──────────────────────────────────────────────────
 
@@ -72,10 +70,7 @@ export const VALUE_INVALID = "Measurement must be a number, or leave it empty.";
 export const UNIT_REQUIRED = "Add a unit for the measurement.";
 export const CHECK_IN_SAVED = "Check-in saved.";
 // Not in the prototype (it required a cycle; Marco, 2026-09-26: check-ins don't).
-export const NO_CYCLE = "No cycle yet — your check-ins are shown on their own.";
 export const NO_CYCLE_OPTION = "No cycle · check-ins only";
-export const NO_CYCLE_SELECTED = "Check-ins only. Pick a cycle to see them beside its doses and phases.";
-export const ONE_ENTRY = "One entry covers all active peptides";
 export const NOT_EVIDENCE = "Shown together for your own comparison — not evidence that a peptide caused a change";
 export const SPARSE = "Sparse history so far — that's fine. Gaps stay gaps.";
 export const NO_DOSES = "No doses recorded this day";
@@ -88,9 +83,6 @@ export const NOTE_TOO_LONG = "Notes can be up to 1,000 characters.";
 export const CHECK_IN_CHANGED = "This check-in was changed on another device. Reload the page to see the latest.";
 export const NEW_DAY = "A new day has started. Reload the page to check in for today.";
 export const CHECK_IN_INVALID = "This check-in could not be saved. Reload the page and try again.";
-
-export const formTitle = (savedAt: string | null) => (savedAt ? `Today's check-in · saved ${savedAt}` : "Today's check-in");
-export const saveLabel = (existing: boolean) => (existing ? "Update today's check-in" : "Save check-in");
 
 // ── Effects ─────────────────────────────────────────────────────────────────
 
@@ -108,16 +100,6 @@ export const sortEffects = (effects: readonly Effect[]): Effect[] => [...effects
 
 /** A stored chip as shown: its v3 name ("Mild headache" → "Headache"), or as stored. */
 export const effectLabel = (stored: string): string => LEGACY_LABELS[stored] ?? stored;
-
-/**
- * "Headache, Nausea, Other: dizzy", or "" when none or only None (the
- * history's yellow line), for check-ins stored with either chip list.
- */
-export function effectsLine(effects: readonly string[], other = ""): string {
-  const labels = effects.map(effectLabel);
-  if (labels.length === 0 || (labels.length === 1 && labels[0] === NONE)) return "";
-  return labels.map((label) => (label === OTHER && other ? `${OTHER}: ${other}` : label)).join(", ");
-}
 
 /**
  * A stored check-in's chips as an edit form starts from them: v3 names, and

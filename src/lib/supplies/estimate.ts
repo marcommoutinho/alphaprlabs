@@ -20,7 +20,7 @@
 import { Temporal } from "@js-temporal/polyfill";
 import type { CycleRecord } from "@/lib/cycles/rules";
 import { cycleStatus, planOccurrences } from "@/lib/cycles/schedule";
-import { Exact, formatAmount, formatRatio } from "@/lib/calculator/decimal";
+import { Exact, formatRatio } from "@/lib/calculator/decimal";
 import { massLabel } from "@/lib/alpha/format";
 import { vialName } from "@/lib/supplies/name";
 import type { Confirmation, Occurrence } from "@/lib/schedule/engine";
@@ -163,9 +163,6 @@ export function outlookFor(
 }
 
 // ── Wording ─────────────────────────────────────────────────────────────────
-
-/** "7.6 mg" (exact up to 6 places, else "≈"). */
-export const mgLabel = (mg: string) => `${formatAmount(new Exact(mg))} mg`;
 
 /**
  * "Estimated remaining" as shown: "7.6 mg · 1.9 mL" (the mL at the mixture's

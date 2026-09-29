@@ -15,8 +15,6 @@ import { newActivePhase, newBreak, type PhaseForm, type TemplatePeptide, type Te
 
 export const TEMPLATE_CREATED = "Template created.";
 export const TEMPLATE_UPDATED = "Template updated for future copies. Existing cycles unchanged.";
-export const NO_TEMPLATES = "No templates yet";
-export const NO_TEMPLATES_BODY = "A template is a starting point researchers copy into their own cycle and adjust.";
 export const GUIDANCE_LABEL = "Guidance shown with the template";
 
 /** Total length in days: the last day any phase reaches. */

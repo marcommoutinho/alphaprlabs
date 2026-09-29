@@ -307,7 +307,7 @@ export async function getSale(db: Db, saleId: string): Promise<SaleRecord | null
   return data[0] ? toSale(data[0]) : null;
 }
 
-/** Inclusive `YYYY-MM-DD` bounds (see salesPeriodRange) and an optional item. */
+/** Inclusive `YYYY-MM-DD` bounds and an optional item. */
 export type SalesFilter = { from?: string | null; to?: string | null; stockItemId?: string | null };
 
 export type SalesReport = {

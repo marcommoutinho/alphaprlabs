@@ -14,16 +14,6 @@ export function displayState(
   return row.state;
 }
 
-export const STATE_LABEL: Record<InvitationDisplayState, string> = {
-  pending: "Pending",
-  accepted: "Accepted",
-  expired: "Expired",
-  failed: "Send failed",
-};
-
-/** Expired and failed rows can be resent. */
-export const canResend = (state: InvitationDisplayState) => state === "expired" || state === "failed";
-
 // ── Roles (Marco, 2026-09-27: admins can invite a new admin) ────────────────
 export type InvitationRole = "researcher" | "admin";
 

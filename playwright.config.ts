@@ -40,10 +40,10 @@ export default defineConfig({
     timeout: 180_000,
     env: {
       ...appTestEnv(),
-      // app.localhost and www.localhost resolve for the server too (a Server
-      // Action's redirect fetches its target from the request's host): see
-      // tests/support/resolve-localhost.cjs.
-      NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require ${path.join(__dirname, "tests/support/resolve-localhost.cjs")}`].filter(Boolean).join(" "),
+      // app.localhost and www.localhost resolve for the server too, as the
+      // production hosts do (a Server Action's redirect fetches its target
+      // from the request's host): see tests/support/resolve-localhost.mjs.
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import ${path.join(__dirname, "tests/support/resolve-localhost.mjs")}`].filter(Boolean).join(" "),
       APP_HOST: `app.localhost:${port}`,
       PUBLIC_HOST: `www.localhost:${port}`,
       // Bank of Canada USD→CAD rates served by the local stub (src/lib/inventory/fx.ts),

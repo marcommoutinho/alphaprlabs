@@ -48,15 +48,6 @@ const uuidOf = (value: unknown): string | null => (typeof value === "string" && 
 /** Trims surrounding whitespace, as the database's trim_whitespace. */
 export const cleanLabel = (value: string) => value.trim();
 
-/**
- * The label for a vial added without one: "Vial N", the first N from the
- * count of vials already listed that no existing label uses.
- */
-export function defaultVialLabel(existing: readonly string[]): string {
-  const taken = new Set(existing.map((label) => label.toLowerCase()));
-  for (let n = existing.length + 1; ; n += 1) if (!taken.has(`vial ${n}`)) return `Vial ${n}`;
-}
-
 /** What the add and edit forms send. */
 export type VialForm = {
   /** The vial being edited; null to add one. */

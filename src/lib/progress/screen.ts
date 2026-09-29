@@ -22,7 +22,7 @@ import { addDaysToDate, daysBetween, wallOf } from "@/lib/doses/rules";
 import { formatDay, formatMonthDay } from "@/lib/format";
 import { DEFAULT_PREFERENCES, shownMeasurement, type WeightUnit } from "@/lib/preferences/rules";
 import { type InstantInput, toInstant } from "@/lib/schedule/zone";
-import { checkInDay, type Effect, effectLabel, FEELING_WORDS, formEffects, NONE, OTHER, PROGRESS_TIME_ZONE, SPARSE } from "./rules";
+import { checkInDay, type Effect, effectLabel, FEELING_WORDS, formEffects, NO_DOSES, NONE, OTHER, PROGRESS_TIME_ZONE, SPARSE } from "./rules";
 import type { CheckIn } from "./service";
 import { dosesByDay, NO_CYCLE_PARAM, phaseLine, selectedCycle } from "./view";
 
@@ -476,7 +476,7 @@ export function progressScreen(input: ProgressScreenInput): ProgressScreen {
           measureName: c.measurement?.name ?? "",
           measureValue: c.measurement ? `${c.measurement.value} ${c.measurement.unit}` : "",
           phase: cycle ? phaseLine(cycle, c.day, input.peptides) : "",
-          doses: doses === null ? null : dayDoses.length ? dayDoses.join(", ") : "No doses recorded this day",
+          doses: doses === null ? null : dayDoses.length ? dayDoses.join(", ") : NO_DOSES,
         };
       }),
     sparse: input.total < 3 ? SPARSE : "",

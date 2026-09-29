@@ -32,7 +32,6 @@ import {
   vials,
 } from "@/lib/inventory/screens";
 import { purchaseRecordedToast, saleRecordedToast, SAVE_UNSURE, STOCK_CHANGED } from "@/lib/records/forms";
-import { usdRatePreview, type UsdRatePreview } from "@/lib/records/rate";
 import {
   getSale,
   purchaseByKey,
@@ -169,18 +168,6 @@ async function recordNewUsdPurchase(
     attempt = { purchase: converted.value, result: await recordPurchase(db, converted.value) };
   }
   return attempt!;
-}
-
-/**
- * A5 USD rate card: the stored Bank of Canada rate for a date received
- * (lib/records/rate.ts, the lookup the save makes). The sheet reads it from
- * GET /admin/records/rate; this is the same answer as a Server Function.
- */
-export async function usdRatePreviewAction(receivedOn: unknown): Promise<UsdRatePreview> {
-  const admin = await currentAdmin();
-  if (!admin) redirect(signInUrl({ next: "/admin/ledger?tab=purchases" }));
-  const { rate, rateDate, error } = await usdRatePreview(receivedOn);
-  return error ? { error } : { rate, rateDate };
 }
 
 /**

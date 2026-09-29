@@ -2,7 +2,7 @@
 
 import { Info } from "lucide-react";
 import Image from "next/image";
-import { unstable_rethrow } from "next/navigation";
+import { unstable_rethrow, useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { useAlphaToast } from "@/components/alpha/toast";
 import { SAVE_FAILED_MESSAGE } from "@/lib/app/save";
@@ -102,15 +102,17 @@ export function AuthNotice({ children, className }: { children: React.ReactNode;
   );
 }
 
-type SubmitResult = { error?: string; toast?: string; tone?: "error" | "success" | "info" } | undefined | void;
+type SubmitResult = { error?: string; toast?: string; tone?: "error" | "success" | "info"; redirectTo?: string } | undefined | void;
 
 /**
  * Calls an auth server action without resetting the form: an inline error,
- * or a v3 toast; a redirect navigates; a failed request shows the
- * save-failure toast and keeps what was typed.
+ * or a v3 toast; a redirect or `redirectTo` navigates (still pending until
+ * the page arrives); a failed request shows the save-failure toast and keeps
+ * what was typed.
  */
 export function useAuthSubmit<Input, Result extends SubmitResult>(action: (input: Input) => Promise<Result>) {
   const toast = useAlphaToast();
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | undefined>();
 
@@ -127,6 +129,7 @@ export function useAuthSubmit<Input, Result extends SubmitResult>(action: (input
       setError(result?.error);
       if (result?.toast) (result.tone && result.tone !== "error" ? toast.success : toast.error)({ message: result.toast });
       onResult?.(result);
+      if (result?.redirectTo) router.push(result.redirectTo);
     });
   }
 

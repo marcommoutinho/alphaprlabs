@@ -3,9 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/alpha/button";
-import { buttonVariants } from "@/components/alpha/button-variants";
 import type { RecordKind } from "@/lib/records/forms";
-import { cn } from "@/lib/utils";
 import { PurchaseSheet } from "./purchase-sheet";
 import { SaleSheet } from "./sale-sheet";
 
@@ -96,7 +94,3 @@ export function OpenRecordFromUrl({ kind, itemId }: { kind: RecordKind | null; i
   }, [kind, itemId, recorder, router, pathname]);
   return null;
 }
-
-/** Link-styled classes for a record button (kept for callers that style it like the page's other actions). */
-export const recordButtonClass = (variant: "primary" | "outline") =>
-  cn(buttonVariants({ variant, size: "sm" }), "rounded-[12px] text-[14px]");

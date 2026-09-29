@@ -21,7 +21,8 @@ import {
 import { pendingDoses, setupForActual, todayView } from "@/lib/doses/today";
 import type { Mixture } from "@/lib/mixtures/rules";
 import { setupAt, setupSegments, versionAt } from "@/lib/doses/setups";
-import { cycleDetail, type RecordedConfirmation } from "@/lib/cycles/views";
+import type { RecordedConfirmation } from "@/lib/cycles/views";
+import { cycleScreen } from "@/lib/cycles/screens";
 import type { Confirmation } from "@/lib/schedule/engine";
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -328,18 +329,22 @@ describe("the sheet's deduction notice follows the setup of the actual time", ()
   });
 });
 
-describe("R4 history shows what was recorded", () => {
+describe("the cycle's history shows what was recorded", () => {
   it("the amount taken, the plan where it differs, and the site and notes", () => {
-    const detail = cycleDetail(cycle, peptides, NOON, [
-      taken24,
-      { key: keyB("2026-09-25"), actualAt: "2026-09-26T00:10:00Z", recordedAt: "2026-09-26T00:11:00Z", amountMg: "0.75", site: "Abdomen R", notes: "Late" },
-    ]);
-    const rowOf = (key: string) => detail.history.find((row) => row.key === key)!;
-    expect(rowOf(keyB("2026-09-25"))).toMatchObject({ mg: "0.75 mg", plannedMg: "(planned 1 mg)", details: "Abdomen R · Late", state: "taken" });
+    const { history } = cycleScreen(
+      cycle,
+      [
+        taken24,
+        { key: keyB("2026-09-25"), actualAt: "2026-09-26T00:10:00Z", recordedAt: "2026-09-26T00:11:00Z", amountMg: "0.75", site: "Abdomen R", notes: "Late" },
+      ],
+      peptides,
+      new Map(),
+      NOON,
+    );
+    const rowOf = (key: string) => history.find((row) => row.key === key)!;
+    expect(rowOf(keyB("2026-09-25"))).toMatchObject({ amount: "750 mcg", planned: "1 mg", time: "8:10 PM", site: "Abdomen R", note: "Late", state: "taken" });
     // A confirmation without recorded details (older callers) shows the plan.
-    expect(rowOf(keyA(2))).toMatchObject({ mg: "0.4 mg", plannedMg: "", details: "" });
-    expect(rowOf(keyA(1))).toMatchObject({ mg: "0.4 mg", plannedMg: "", details: "", state: "open" });
-    const dot = detail.timeline.lanes[1].dots.find((x) => x.key === keyB("2026-09-25"))!;
-    expect(dot.label).toMatch(/Taken 20:10 · 0\.75 mg$/);
+    expect(rowOf(keyA(2))).toMatchObject({ amount: "400 mcg", planned: null, site: "", note: "", state: "taken" });
+    expect(rowOf(keyA(1))).toMatchObject({ amount: "400 mcg", planned: null, site: "", note: "", state: "missed" });
   });
 });

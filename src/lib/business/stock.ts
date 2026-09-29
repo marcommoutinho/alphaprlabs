@@ -8,7 +8,6 @@
 import Decimal from "decimal.js";
 import type { StockLevel } from "./service";
 
-export const DEFAULT_THRESHOLD = 10;
 export const THRESHOLD_MAX = 100_000;
 
 export const isLow = (item: Pick<StockLevel, "onHand" | "threshold">) => item.onHand < item.threshold;

@@ -32,14 +32,7 @@ import {
   validatePurchase,
   type UsdPurchaseEntry,
 } from "@/lib/inventory/rules";
-import {
-  fxEarlierNote,
-  fxRateLine,
-  purchaseAlreadyRecordedToast,
-  purchaseRecordedToast,
-  usdConversionLine,
-  usdPreview,
-} from "@/lib/inventory/screens";
+import { fxEarlierNote, purchaseAlreadyRecordedToast, usdConversionLine } from "@/lib/inventory/screens";
 import type { StockItemDetail } from "@/lib/inventory/service";
 
 const KEY = "0b5b3a3e-6f0e-4c8e-9a51-1f9d7f3b2c10";
@@ -396,8 +389,7 @@ describe("USD amounts and conversion (exact decimals)", () => {
 describe("USD copy", () => {
   const fx = { rate: "1.3861", rateDate: "2026-09-25" };
 
-  it("the rate line and why an earlier day's rate is used", () => {
-    expect(fxRateLine(fx)).toBe("Bank of Canada rate for Sep 25: 1.3861");
+  it("why an earlier day's rate is used", () => {
     expect(fxEarlierNote(fx, "2026-09-25", "2026-09-27")).toBeNull();
     expect(fxEarlierNote(fx, "2026-09-26", "2026-09-26")).toMatch(/^Today's rate isn't published yet/);
     expect(fxEarlierNote(fx, "2026-09-27", "2026-09-28")).toBe(
@@ -405,14 +397,9 @@ describe("USD copy", () => {
     );
   });
 
-  it("the preview amounts, the purchase line and the toasts", () => {
-    expect(usdPreview("10", "11", "1.3876")).toEqual({ unitCost: "15.26", total: "152.60" });
-    expect(usdPreview("", "11,5", "1.3876")).toEqual({ unitCost: "15.96", total: null });
-    expect(usdPreview("10", "1,000", "1.3876")).toEqual({ unitCost: null, total: null });
+  it("the purchase line and the already-recorded toast", () => {
     const usd = { usdUnitCost: "11.00", rate: "1.3876", rateDate: "2026-08-26" };
     expect(usdConversionLine({ unitCost: "15.26", usd })).toBe("USD 11.00 × 1.3876 (BoC Aug 26) = CAD 15.26");
-    expect(purchaseRecordedToast(10, "15.26", "11.00")).toBe("Purchase recorded · 10 vials at USD 11.00 = CAD 15.26");
-    expect(purchaseRecordedToast(10, "20.00")).toBe("Purchase recorded · 10 vials at CAD 20.00");
     expect(purchaseAlreadyRecordedToast({ unitCost: "15.26", usd })).toBe(
       `${PURCHASE_ALREADY_RECORDED} Recorded as USD 11.00 × 1.3876 (BoC Aug 26) = CAD 15.26.`,
     );

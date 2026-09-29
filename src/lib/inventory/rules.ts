@@ -1,5 +1,5 @@
-// Business inventory rules shared by A5 Record purchase, A6 Record sale (live
-// preview) and A7 Sales, the service and the tests (handoff
+// Business inventory rules shared by A5 Record purchase, A6 Record sale and
+// the stock item, the service and the tests (handoff
 // docs/design/research-app/README.md A4-A7 and the prototype's copy). Pure:
 // no database, no React.
 //
@@ -58,11 +58,6 @@ export const PREVIEW_REQUIRED = "A sale is recorded against its cost preview. Ch
 /** The same submission was already recorded (idempotent replay): a warn toast. */
 export const SALE_ALREADY_RECORDED = "This sale was already recorded a moment ago. No duplicate created.";
 export const PURCHASE_ALREADY_RECORDED = "This purchase was already recorded a moment ago. No duplicate created.";
-
-/** A6 inline error while the form asks for more vials than are on hand. */
-export function insufficientStockMessage(onHand: number, itemLabel: string): string {
-  return `Only ${onHand} vial${onHand === 1 ? " is" : "s are"} on hand for ${itemLabel}. Reduce the quantity or record a purchase first.`;
-}
 
 /** A6 error when stock ran out between the preview and saving (the database refused). */
 export function stockChangedMessage(onHand: number): string {
@@ -374,7 +369,8 @@ export const fifoOrder = (a: Pick<FifoLot, "receivedOn" | "recordedOrder">, b: P
  * FIFO allocation of `quantity` vials across `lots` (sorted here by
  * fifoOrder, whatever order they arrive in): the oldest remaining vials first,
  * as record_business_sale does. `short` is how many vials the lots cannot
- * cover (0 when the sale fits). A6's live preview; the database repeats it
+ * cover (0 when the sale fits). The model the tests check the database
+ * against: the database previews the allocation (A6) and repeats it
  * atomically when the sale is saved.
  */
 export function allocateFifo(lots: FifoLot[], quantity: number): { allocations: FifoAllocation[]; cost: string; short: number } {
@@ -392,32 +388,5 @@ export function allocateFifo(lots: FifoLot[], quantity: number): { allocations: 
   return { allocations, cost: cost.toFixed(2), short: need };
 }
 
-/** Revenue, cost and gross profit (revenue − cost; never "net") as `0.00` strings. */
-export function saleAmounts(quantity: number, unitPrice: string, cost: string) {
-  const revenue = new Decimal(unitPrice).times(quantity);
-  return { revenue: revenue.toFixed(2), cost: new Decimal(cost).toFixed(2), grossProfit: revenue.minus(cost).toFixed(2) };
-}
-
 /** Sums decimal strings exactly, as `0.00`. */
 export const sumAmounts = (amounts: string[]) => amounts.reduce((total, a) => total.plus(a), new Decimal(0)).toFixed(2);
-
-export type SalesPeriod = "all" | "month" | "prev";
-
-/**
- * A7 Period filter as an inclusive date range for `today` (`YYYY-MM-DD`, the
- * business date, America/Toronto): This month / Last month / All time (no bounds).
- */
-export function salesPeriodRange(period: SalesPeriod, today: string): { from: string | null; to: string | null } {
-  if (period === "all") return { from: null, to: null };
-  const date = calendarDate(today);
-  if (!date) throw new RangeError(`Invalid date: ${today}`);
-  let year = Number(date.slice(0, 4));
-  let month = Number(date.slice(5, 7));
-  if (period === "prev") {
-    month -= 1;
-    if (month === 0) [year, month] = [year - 1, 12];
-  }
-  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  const ym = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}`;
-  return { from: `${ym}-01`, to: `${ym}-${String(last).padStart(2, "0")}` };
-}

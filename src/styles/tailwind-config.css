@@ -1,6 +1,6 @@
 /*
  * Tailwind configuration shared by the two stylesheets that generate
- * utilities: src/app/globals.css (public site and legacy app screens) and
+ * utilities: src/app/globals.css (public site; the private app loads it first) and
  * src/styles/alpha/app.css (design v3, private app only). Configuration only:
  * theme bindings and plugin variants and utilities, so importing it twice
  * produces the same utilities in both. Each stylesheet defines its own `dark:`

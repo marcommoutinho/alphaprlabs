@@ -43,7 +43,9 @@ vi.mock("@/lib/inventory/fx", async (original) => {
 const STORED = { "2026-08-26": "1.3876", "2026-08-28": "1.3888", "2026-09-04": "1.3840" };
 const RATES = { ...STORED, "2026-08-20": "unavailable" };
 process.env.BOC_FX_TEST_RATES = JSON.stringify(RATES);
-const { recordPurchaseAction, usdRatePreviewAction } = await import("@/app/(private)/admin/inventory/actions");
+const { recordPurchaseAction } = await import("@/app/(private)/admin/inventory/actions");
+// The rate card's lookup (GET /admin/records/rate; admin-only, checked in tests/e2e/records.spec.ts).
+const { usdRatePreview } = await import("@/lib/records/rate");
 
 type Client = Awaited<ReturnType<typeof signedInClient>>;
 
@@ -291,10 +293,10 @@ describe("the actions, with the Bank of Canada stubbed", () => {
   });
 
   it("previews the rate for a weekend date with the latest earlier one; refuses a future date", async () => {
-    expect(await usdRatePreviewAction("2026-08-29")).toEqual({ rate: "1.3888", rateDate: "2026-08-28" });
-    expect(await usdRatePreviewAction("2026-08-26")).toEqual({ rate: "1.3876", rateDate: "2026-08-26" });
-    expect(await usdRatePreviewAction("2999-01-01")).toEqual({ error: "The date received can't be in the future." });
-    expect((await usdRatePreviewAction("2026-08-20")).error).toMatch(/^Couldn't get the Bank of Canada rate/);
+    expect(await usdRatePreview("2026-08-29")).toEqual({ rate: "1.3888", rateDate: "2026-08-28" });
+    expect(await usdRatePreview("2026-08-26")).toEqual({ rate: "1.3876", rateDate: "2026-08-26" });
+    expect(await usdRatePreview("2999-01-01")).toEqual({ error: "The date received can't be in the future." });
+    expect((await usdRatePreview("2026-08-20")).error).toMatch(/^Couldn't get the Bank of Canada rate/);
   });
 
   it("records a USD purchase converted on the server, whatever the client sends", async () => {
@@ -359,9 +361,8 @@ describe("the actions, with the Bank of Canada stubbed", () => {
     expect(lots[1]).toMatchObject({ unitCost: "15.22", usd: { rate: "1.3840", rateDate: "2026-09-04" } });
   });
 
-  it("researchers are sent to sign in by both actions", async () => {
+  it("researchers are sent to sign in by the action", async () => {
     acting.client = await signedInClient(researcher.email);
-    await expect(usdRatePreviewAction("2026-08-26")).rejects.toMatchObject({ digest: expect.stringContaining("NEXT_REDIRECT") });
     await expect(recordPurchaseAction(entry(randomUUID(), { receivedOn: "2026-08-26" }))).rejects.toMatchObject({
       digest: expect.stringContaining("NEXT_REDIRECT"),
     });
