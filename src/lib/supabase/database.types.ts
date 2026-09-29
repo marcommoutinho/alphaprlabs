@@ -2473,6 +2473,7 @@ export type Database = {
           }
       set_business_stock_threshold: {
         Args: {
+          p_expected: number
           p_request_key: string
           p_stock_item_id: string
           p_threshold: number

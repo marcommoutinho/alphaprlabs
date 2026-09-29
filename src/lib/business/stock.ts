@@ -96,18 +96,26 @@ export function parseThreshold(value: unknown): { ok: true; value: number } | { 
   return { ok: true, value: number };
 }
 
-/** One reorder-level submission: its request key and the value it asks for. */
-export type ThresholdAttempt = { key: string; value: number };
+/**
+ * One reorder-level submission: its request key, the value it asks for and
+ * the level it expects to replace (the database's compare-and-set).
+ */
+export type ThresholdAttempt = { key: string; value: number; expected: number };
 
 /**
- * The attempt a Save or Retry sends. Until an answer arrives for `pending`,
- * submitting its value again (Retry, or Save pressed again) reuses its key,
- * so a request that was saved but whose answer was lost replays instead of
- * saving again over a newer change; another value is a new edit, with a new
- * key.
+ * The attempt a Save or Retry sends. Until a sure answer arrives for
+ * `pending`, submitting the same value over the same expected level (Retry,
+ * or Save pressed again) reuses its key, so a request that was saved but
+ * whose answer was lost replays; anything else is a new edit, with a new key
+ * (and the database refuses it if the level is no longer the expected one).
  */
-export const attemptFor = (pending: ThresholdAttempt | null, value: number, newKey: () => string): ThresholdAttempt =>
-  pending && pending.value === value ? pending : { key: newKey(), value };
+export const attemptFor = (
+  pending: ThresholdAttempt | null,
+  value: number,
+  expected: number,
+  newKey: () => string,
+): ThresholdAttempt =>
+  pending && pending.value === value && pending.expected === expected ? pending : { key: newKey(), value, expected };
 
 /**
  * Whether an answer ends its attempt, so the next Save is a new edit: it was

@@ -50,6 +50,16 @@ const totals = (row: Pick<SummaryRow, "sales" | "vials" | "revenue" | "cost" | "
   grossProfit: row.gross_profit,
 });
 
+/** One stock item's level (null: no such item), as listStockLevels reads it. */
+export async function stockLevelOf(db: Db, today: string, stockItemId: string): Promise<StockLevel | null> {
+  const { data, error } = await db
+    .rpc("admin_business_stock_levels", { p_today: today })
+    .eq("stock_item_id", stockItemId)
+    .maybeSingle();
+  if (error) throw new Error(`Could not load the stock item: ${error.message}`);
+  return data ? toLevel(data) : null;
+}
+
 /** Every stock item with its level, value at cost, sales in the last 30 days and threshold (all pages). */
 export async function listStockLevels(db: Db, today: string, options: PageOptions = {}): Promise<StockLevel[]> {
   const rows = await keysetRows<LevelRow>(
@@ -60,7 +70,11 @@ export async function listStockLevels(db: Db, today: string, options: PageOption
     "stock",
     options,
   );
-  return rows.map((row) => ({
+  return rows.map(toLevel);
+}
+
+function toLevel(row: LevelRow): StockLevel {
+  return {
     id: row.stock_item_id,
     peptideId: row.peptide_id,
     peptideName: row.peptide_name,
@@ -73,7 +87,7 @@ export async function listStockLevels(db: Db, today: string, options: PageOption
     threshold: row.low_stock_threshold,
     thresholdChangedAt: row.threshold_changed_at,
     thresholdChangedBy: row.threshold_changed_by_name,
-  }));
+  };
 }
 
 /** Sales per day of the range (at most 400 days), days without sales as zeros, oldest first. */
@@ -136,8 +150,11 @@ export async function recentSales(db: Db, limit: number): Promise<SaleRecord[]> 
 
 export type ThresholdResult =
   | { kind: "saved"; threshold: number; replayed: boolean }
-  /** The database refused it (nothing was written). */
-  | { kind: "not_authorized" | "invalid" | "unknown_item" | "conflict" }
+  /**
+   * The database refused it (nothing was written). `changed`: the threshold
+   * is no longer the one the admin saw (AP036, compare-and-set).
+   */
+  | { kind: "not_authorized" | "invalid" | "unknown_item" | "conflict" | "changed" }
   /**
    * No answer from the database: a dropped connection, a gateway error, a
    * timeout, or an error it doesn't define. It may have committed, so the
@@ -147,18 +164,21 @@ export type ThresholdResult =
 
 /**
  * Sets a stock item's low-stock threshold (admins only; idempotent by request
- * key). supabase-js reports a lost answer (fetch failed, a 502, a timeout) as
- * an ordinary error, so only the refusals set_business_stock_threshold raises
- * count as "nothing was written"; anything else is `unsure`.
+ * key), only over `expected`, the threshold the admin saw (compare-and-set:
+ * `changed` otherwise, nothing written). supabase-js reports a lost answer
+ * (fetch failed, a 502, a timeout) as an ordinary error, so only the refusals
+ * set_business_stock_threshold raises count as "nothing was written";
+ * anything else is `unsure`.
  */
 export async function setStockThreshold(
   db: Db,
-  input: { requestKey: string; stockItemId: string; threshold: number },
+  input: { requestKey: string; stockItemId: string; expected: number; threshold: number },
 ): Promise<ThresholdResult> {
   const { data, error } = await db
     .rpc("set_business_stock_threshold", {
       p_request_key: input.requestKey,
       p_stock_item_id: input.stockItemId,
+      p_expected: input.expected,
       p_threshold: input.threshold,
     })
     .single();
@@ -172,6 +192,8 @@ export async function setStockThreshold(
         return { kind: "unknown_item" };
       case "AP005":
         return { kind: "conflict" };
+      case "AP036":
+        return { kind: "changed" };
       default:
         return { kind: "unsure" };
     }

@@ -415,7 +415,7 @@ describe("the append-only guard's threshold exception (as the owner, rolled back
       -- A recorded change to try to rewrite (the row triggers fire only on rows).
       set local role authenticated;
       set local "request.jwt.claims" to '${JSON.stringify({ sub: id.marco, role: "authenticated" })}';
-      select 'recorded', threshold from public.set_business_stock_threshold(gen_random_uuid(), ${b}, 8);
+      select 'recorded', threshold from public.set_business_stock_threshold(gen_random_uuid(), ${b}, 10, 8);
       reset role;
       ${attempt("change updated", `update public.business_stock_threshold_changes set threshold = 1 where stock_item_id = ${b}`)}
       ${attempt("change deleted", `delete from public.business_stock_threshold_changes where stock_item_id = ${b}`)}
@@ -447,7 +447,7 @@ describe("the append-only guard's threshold exception (as the owner, rolled back
       begin;
       set local role authenticated;
       set local "request.jwt.claims" to '${JSON.stringify({ sub: id.marco, role: "authenticated" })}';
-      select 'set', threshold || '/' || replayed from public.set_business_stock_threshold(gen_random_uuid(), ${a}, 6);
+      select 'set', threshold || '/' || replayed from public.set_business_stock_threshold(gen_random_uuid(), ${a}, 10, 6);
       reset role;
       select 'mark', coalesce(current_setting('app.business_stock_threshold', true), '');
       ${attempt("after", `update public.business_stock_items set low_stock_threshold = 7 where id = ${a}`)}
@@ -467,7 +467,7 @@ describe("the migration", () => {
     const a = quote(items.A);
     const out = psql(`
       begin;
-      drop function public.set_business_stock_threshold(uuid, uuid, integer);
+      drop function public.set_business_stock_threshold(uuid, uuid, integer, integer);
       drop function public.admin_business_stock_levels(date);
       drop function public.admin_business_sales_by_day(date, date);
       drop function public.admin_business_sales_summary(date, date);
@@ -486,7 +486,7 @@ describe("the migration", () => {
       select 'history', count(*) from public.business_stock_threshold_changes;
       set local role authenticated;
       set local "request.jwt.claims" to '${JSON.stringify({ sub: id.marco, role: "authenticated" })}';
-      select 'set', threshold from public.set_business_stock_threshold(gen_random_uuid(), ${a}, 12);
+      select 'set', threshold from public.set_business_stock_threshold(gen_random_uuid(), ${a}, 10, 12);
       select 'level', on_hand || '/' || low_stock_threshold from public.admin_business_stock_levels('${YEAR}-12-31') where stock_item_id = ${a};
       select 'sales', sales from public.admin_business_sales_summary('${YEAR - 1}-12-01', '${YEAR}-12-31');
       rollback;

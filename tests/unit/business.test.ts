@@ -473,29 +473,36 @@ describe("business stock (stock.ts)", () => {
     expect(labels(sortStock(items, { key: "avgCost", direction: "desc" }))[0]).toBe("Retatrutide · 10 mg");
   });
 
-  it("a reorder-level submission keeps its request key until answered; another value is a new edit", () => {
+  it("a reorder-level submission keeps its request key until answered; another value or expected level is a new edit", () => {
     let n = 0;
     const newKey = () => `key-${++n}`;
-    const first = attemptFor(null, 5, newKey);
-    expect(first).toEqual({ key: "key-1", value: 5 });
+    const first = attemptFor(null, 5, 10, newKey);
+    expect(first).toEqual({ key: "key-1", value: 5, expected: 10 });
     // Retry, or Save again, with no answer yet: the same key (the server replays it if it was saved).
-    expect(attemptFor(first, 5, newKey)).toBe(first);
+    expect(attemptFor(first, 5, 10, newKey)).toBe(first);
     // A different value is a new edit.
-    const second = attemptFor(first, 6, newKey);
-    expect(second).toEqual({ key: "key-2", value: 6 });
+    const second = attemptFor(first, 6, 10, newKey);
+    expect(second).toEqual({ key: "key-2", value: 6, expected: 10 });
     // Back to the first value after editing: still a new edit, never the old key for a newer intent.
-    expect(attemptFor(second, 5, newKey)).toEqual({ key: "key-3", value: 5 });
+    expect(attemptFor(second, 5, 10, newKey)).toEqual({ key: "key-3", value: 5, expected: 10 });
+    // The same value over another level (after a refusal showed it): a new edit too.
+    expect(attemptFor(first, 5, 8, newKey)).toEqual({ key: "key-4", value: 5, expected: 8 });
   });
 
   it("only a sure answer ends an attempt: saved, replayed or refused; an unsure one keeps its key", () => {
-    type Answer = { error?: string; saved?: boolean; replayed?: boolean; unsure?: boolean };
-    const sure: Answer[] = [{ saved: true }, { saved: true, replayed: true }, { error: "This stock item no longer exists." }];
+    type Answer = { error?: string; saved?: boolean; replayed?: boolean; unsure?: boolean; changed?: { threshold: number | null } };
+    const sure: Answer[] = [
+      { saved: true },
+      { saved: true, replayed: true },
+      { error: "This stock item no longer exists." },
+      { error: "Changed by Owen Marchetti to 8. Nothing was saved.", changed: { threshold: 8 } },
+    ];
     for (const answer of sure) expect(settles(answer)).toBe(true);
     // Maybe committed (a dropped connection, a gateway error): Retry or Save with 5 again replays the same key.
-    const kept = { key: "key-1", value: 5 };
+    const kept = { key: "key-1", value: 5, expected: 10 };
     const unsure = { error: "Couldn't save.", unsure: true };
     expect(settles(unsure)).toBe(false);
-    expect(attemptFor(settles(unsure) ? null : kept, 5, () => "key-2")).toBe(kept);
+    expect(attemptFor(settles(unsure) ? null : kept, 5, 10, () => "key-2")).toBe(kept);
   });
 
   it("parses a threshold: a whole number of vials, 0 to 100,000", () => {

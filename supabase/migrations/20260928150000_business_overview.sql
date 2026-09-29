@@ -12,15 +12,20 @@
 --    opening stock included, reads 10.
 --
 --    Only set_business_stock_threshold(p_request_key, p_stock_item_id,
---    p_threshold) changes it: admins only (is_admin(), 42501 otherwise),
---    22023 for a missing key or item or a threshold outside 0..100000, AP002
---    for an unknown item. Every call that commits records who set which
---    threshold when, and the one it replaced, in
---    business_stock_threshold_changes (append-only, admin-readable). The
---    request key is claimed there: the same key with the same item and
---    threshold again returns that result (replayed) and changes nothing, so
---    a retry arriving after a later change never undoes it; the same key
---    with another item or threshold is refused with AP005 (the business
+--    p_expected, p_threshold) changes it: admins only (is_admin(), 42501
+--    otherwise), 22023 for a missing key or item or a threshold (or the
+--    expected one) outside 0..100000, AP002 for an unknown item. It is a
+--    compare-and-set: p_expected is the threshold the admin saw, and under
+--    the item's row lock a current threshold that differs from it is refused
+--    with AP036 ("changed since it was shown"; the message names nothing,
+--    the app reads who set it) and nothing is written, so no retry, reopened
+--    sheet or stale screen can overwrite a newer value. Every call that
+--    commits records who set which threshold when, and the one it replaced,
+--    in business_stock_threshold_changes (append-only, admin-readable). The
+--    request key is claimed there, and checked first: the same key with the
+--    same item, threshold and expected (= replaced) threshold returns that
+--    result (replayed) and changes nothing, even after a later change; the
+--    same key with other details is refused with AP005 (the business
 --    writers' "idempotency key reused for different details").
 --
 -- 2. The append-only guard (business_records_guard, last replaced in
@@ -73,8 +78,9 @@
 -- with sales and purchases of that item and never waits on them in a cycle.
 --
 -- Access (deny by default): the changes table is readable by admins only
--- (RLS) and written only by the function; the reads refuse non-admins. No
--- new refusal SQLSTATE (the existing AP002, AP005, 22023 and 42501).
+-- (RLS) and written only by the function; the reads refuse non-admins. One
+-- new refusal SQLSTATE, AP036 (the threshold changed since it was shown),
+-- beside the existing AP002, AP005, 22023 and 42501.
 
 -- ── 1. Threshold column and its history ────────────────────────────────────
 alter table public.business_stock_items
@@ -144,7 +150,12 @@ create trigger business_stock_threshold_changes_no_truncate before truncate on p
   for each statement execute function public.business_records_guard();
 
 -- ── Admin: set an item's low-stock threshold ───────────────────────────────
-create function public.set_business_stock_threshold(p_request_key uuid, p_stock_item_id uuid, p_threshold integer)
+create function public.set_business_stock_threshold(
+  p_request_key uuid,
+  p_stock_item_id uuid,
+  p_expected integer,
+  p_threshold integer
+)
 returns table (item_id uuid, threshold integer, replayed boolean)
 language plpgsql
 volatile
@@ -167,12 +178,17 @@ begin
   if p_threshold is null or p_threshold not between 0 and 100000 then
     raise exception 'the threshold must be a whole number of vials from 0 to 100000' using errcode = '22023';
   end if;
+  if p_expected is null or p_expected not between 0 and 100000 then
+    raise exception 'the expected threshold must be a whole number of vials from 0 to 100000' using errcode = '22023';
+  end if;
 
   perform pg_advisory_xact_lock(hashtextextended('business_stock_threshold:' || p_request_key::text, 0));
 
   select c.* into v_claim from public.business_stock_threshold_changes c where c.request_key = p_request_key;
+  -- An exact replay returns the saved result first, whatever the threshold is now.
   if found then
-    if v_claim.stock_item_id = p_stock_item_id and v_claim.threshold = p_threshold then
+    if v_claim.stock_item_id = p_stock_item_id and v_claim.threshold = p_threshold
+       and v_claim.previous_threshold = p_expected then
       return query select v_claim.stock_item_id, v_claim.threshold, true;
       return;
     end if;
@@ -184,6 +200,10 @@ begin
   for update;
   if not found then
     raise exception 'unknown stock item' using errcode = 'AP002';
+  end if;
+  -- Compare-and-set, under the item's lock: only over the threshold the admin saw.
+  if v_previous <> p_expected then
+    raise exception 'the threshold changed since it was shown' using errcode = 'AP036';
   end if;
 
   insert into public.business_stock_threshold_changes (stock_item_id, previous_threshold, threshold, request_key, changed_by)
@@ -199,8 +219,8 @@ begin
 end;
 $$;
 
-revoke all on function public.set_business_stock_threshold(uuid, uuid, integer) from public, anon;
-grant execute on function public.set_business_stock_threshold(uuid, uuid, integer) to authenticated;
+revoke all on function public.set_business_stock_threshold(uuid, uuid, integer, integer) from public, anon;
+grant execute on function public.set_business_stock_threshold(uuid, uuid, integer, integer) to authenticated;
 
 -- ── 3. Admin reads ─────────────────────────────────────────────────────────
 

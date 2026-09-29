@@ -1,6 +1,6 @@
 "use client";
 
-import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, ChevronLeft, Plus, Search } from "lucide-react";
 import Link from "@/components/alpha/link";
@@ -50,14 +50,16 @@ export function StockScreen({ items, initialFilter }: { items: StockLevel[]; ini
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>(initialFilter);
   const [sort, setSort] = useState<StockSort>(DEFAULT_SORT);
-  const [openId, setOpenId] = useState<string | null>(null);
-  // Each item's reorder-level submission still waiting for a sure answer.
-  // Kept here, not in its sheet, so a Retry from a toast, or the item opened
-  // again, reuses the request key after the sheet has closed.
-  const attempts = useRef(new Map<string, ThresholdAttempt>());
-  // A submission that finished closes its own item's sheet if that is still
-  // the one open, and never another item's (whose entry may be unsaved).
-  const finished = useCallback((itemId: string) => setOpenId((current) => (current === itemId ? null : current)), []);
+  // The open sheet: its item and this opening's token. A submission that
+  // finishes late (a Retry from a toast) closes only the opening it was made
+  // in, never one opened later, even for the same item.
+  const [sheet, setSheet] = useState<{ itemId: string; token: number } | null>(null);
+  const openings = useRef(0);
+  const openSheet = useCallback((itemId: string) => {
+    openings.current += 1;
+    setSheet({ itemId, token: openings.current });
+  }, []);
+  const finished = useCallback((token: number) => setSheet((current) => (current?.token === token ? null : current)), []);
   const totals = stockTotals(items);
   const low = items.filter(isLow);
   useNavCount("stock", lowCounter(low.length));
@@ -66,7 +68,7 @@ export function StockScreen({ items, initialFilter }: { items: StockLevel[]; ini
   const shown = filter === "low" ? matching.filter(isLow) : matching;
   const lowShown = shown.filter(isLow).sort(byName);
   const restShown = shown.filter((item) => !isLow(item)).sort(byName);
-  const open = items.find((item) => item.id === openId) ?? null;
+  const open = sheet ? (items.find((item) => item.id === sheet.itemId) ?? null) : null;
 
   if (items.length === 0) return <EmptyStock />;
 
@@ -141,7 +143,7 @@ export function StockScreen({ items, initialFilter }: { items: StockLevel[]; ini
             <h2 className="mx-5 mt-5 mb-2 text-[13px] font-semibold text-low">Low · {lowShown.length}</h2>
             <div className="mx-3 divide-y divide-line overflow-hidden rounded-group border border-line bg-surface">
               {lowShown.map((item) => (
-                <StockRow key={item.id} item={item} onOpen={() => setOpenId(item.id)} />
+                <StockRow key={item.id} item={item} onOpen={() => openSheet(item.id)} />
               ))}
             </div>
           </section>
@@ -151,7 +153,7 @@ export function StockScreen({ items, initialFilter }: { items: StockLevel[]; ini
             <h2 className="mx-5 mt-5 mb-2 text-[13px] font-semibold text-ink-2">All items</h2>
             <div className="mx-3 divide-y divide-line overflow-hidden rounded-group border border-line bg-surface">
               {restShown.map((item) => (
-                <StockRow key={item.id} item={item} onOpen={() => setOpenId(item.id)} />
+                <StockRow key={item.id} item={item} onOpen={() => openSheet(item.id)} />
               ))}
             </div>
           </section>
@@ -159,9 +161,9 @@ export function StockScreen({ items, initialFilter }: { items: StockLevel[]; ini
       </div>
 
       {/* D4 laptop: the sortable table. */}
-      {shown.length > 0 ? <StockTable items={shown} all={items} sort={sort} onSort={setSort} onOpen={setOpenId} /> : null}
+      {shown.length > 0 ? <StockTable items={shown} all={items} sort={sort} onSort={setSort} onOpen={openSheet} /> : null}
 
-      <ThresholdSheet item={open} attempts={attempts} onClose={() => setOpenId(null)} onDone={finished} />
+      <ThresholdSheet item={open} token={sheet?.token ?? 0} onClose={() => setSheet(null)} onDone={finished} />
     </main>
   );
 }
@@ -332,33 +334,39 @@ export function EmptyStockPanel({ className }: { className?: string }) {
 const THRESHOLD_FAILED = "Couldn't save. Your entry is still here.";
 
 /** An item's sheet: its figures and its reorder level (the per-item low-stock threshold). */
-type Attempts = RefObject<Map<string, ThresholdAttempt>>;
-
 function ThresholdSheet({
   item,
-  attempts,
+  token,
   onClose,
   onDone,
 }: {
   item: StockLevel | null;
-  attempts: Attempts;
+  /** This opening (each opening is a fresh sheet, even for the same item). */
+  token: number;
   onClose: () => void;
-  /** A submission for this item finished (saved or replayed). */
-  onDone: (itemId: string) => void;
+  /** A submission made in opening `token` finished (saved or replayed). */
+  onDone: (token: number) => void;
 }) {
   return (
     <Sheet open={item !== null} onOpenChange={(next) => (next ? undefined : onClose())}>
-      {item ? <ThresholdContent key={item.id} item={item} attempts={attempts} onDone={onDone} /> : null}
+      {item ? <ThresholdContent key={token} item={item} token={token} onDone={onDone} /> : null}
     </Sheet>
   );
 }
 
-function ThresholdContent({ item, attempts, onDone }: { item: StockLevel; attempts: Attempts; onDone: (itemId: string) => void }) {
+function ThresholdContent({ item, token, onDone }: { item: StockLevel; token: number; onDone: (token: number) => void }) {
   const router = useRouter();
   const toast = useAlphaToast();
   const [text, setText] = useState(String(item.threshold));
+  // The level every Save compares against (compare-and-set in the database):
+  // the one this sheet was opened with, or the one a refusal then showed.
+  // Never taken from a refresh the admin hasn't seen.
+  const [expected, setExpected] = useState(item.threshold);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // The submission still waiting for a sure answer in this opening: Retry and
+  // Save with the same value reuse its request key (a replay if it was saved).
+  const pending = useRef<ThresholdAttempt | null>(null);
   const average = avgCost(item);
   // A Retry from a toast can answer after this sheet has closed.
   const mounted = useRef(false);
@@ -375,15 +383,24 @@ function ThresholdContent({ item, attempts, onDone }: { item: StockLevel; attemp
       toast.error({ message: THRESHOLD_FAILED, action: { label: "Retry", onAction: () => void send(attempt) } });
     setSaving(true);
     try {
-      const result = await setStockThresholdAction({ requestKey: attempt.key, stockItemId: item.id, threshold: attempt.value });
+      const result = await setStockThresholdAction({
+        requestKey: attempt.key,
+        stockItemId: item.id,
+        expected: attempt.expected,
+        threshold: attempt.value,
+      });
       // Saved, replayed or refused: the next submission is a new edit. An
       // unsure answer keeps the attempt (lib/business/stock.ts settles).
-      if (settles(result) && attempts.current.get(item.id) === attempt) attempts.current.delete(item.id);
+      if (settles(result) && pending.current === attempt) pending.current = null;
       if (result.unsure) {
         unsure();
         return;
       }
       if (result.error) {
+        // Changed since it was shown: the sheet stays open with the entry, and
+        // the next Save is a decision over the level the message names.
+        const current = result.changed?.threshold;
+        if (current !== undefined && current !== null) setExpected(current);
         if (mounted.current) setError(result.error);
         else toast.error({ message: `${item.label}: ${result.error}` });
         return;
@@ -394,7 +411,7 @@ function ThresholdContent({ item, attempts, onDone }: { item: StockLevel; attemp
           : `${item.label}: reorder at ${vialCount(result.threshold ?? attempt.value)}`,
       });
       router.refresh();
-      onDone(item.id);
+      onDone(token);
     } catch {
       // No answer at all (the connection dropped).
       unsure();
@@ -410,8 +427,8 @@ function ThresholdContent({ item, attempts, onDone }: { item: StockLevel; attemp
       return;
     }
     setError(null);
-    const attempt = attemptFor(attempts.current.get(item.id) ?? null, parsed.value, () => crypto.randomUUID());
-    attempts.current.set(item.id, attempt);
+    const attempt = attemptFor(pending.current, parsed.value, expected, () => crypto.randomUUID());
+    pending.current = attempt;
     void send(attempt);
   };
 

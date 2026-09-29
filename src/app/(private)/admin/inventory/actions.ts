@@ -45,7 +45,7 @@ import {
   type RecordedPurchase,
 } from "@/lib/inventory/service";
 import { createClient } from "@/lib/supabase/server";
-import { setStockThreshold } from "@/lib/business/service";
+import { setStockThreshold, stockLevelOf } from "@/lib/business/service";
 import { parseThreshold } from "@/lib/business/stock";
 
 export type InventoryActionResult = {
@@ -277,6 +277,11 @@ export type ThresholdActionResult = {
    * request key, so Retry (or Save with the same value) replays it.
    */
   unsure?: boolean;
+  /**
+   * Refused: the level is no longer the one the sheet was opened with. The
+   * current one, when it could be read; the sheet compares against it next.
+   */
+  changed?: { threshold: number | null };
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -286,9 +291,11 @@ const field = (input: unknown, name: string): unknown =>
 /**
  * A3 / D4: an item's reorder level (its low-stock threshold, default 10
  * vials). Admins only: re-checked here and by set_business_stock_threshold,
- * which records who set it and when. Idempotent by the request key the sheet
- * made for this entry: a retry replays, the same key with another value is
- * refused. Stock and the overview are refreshed.
+ * which records who set it and when. A compare-and-set: `expected` is the
+ * level the sheet was opened with, and a level changed since (by anyone) is
+ * refused with who set it to what; nothing is saved. Idempotent by the
+ * request key the sheet made for this entry: a retry replays, the same key
+ * with other details is refused. Stock and the overview are refreshed.
  */
 export async function setStockThresholdAction(input: unknown): Promise<ThresholdActionResult> {
   const admin = await currentAdmin();
@@ -299,11 +306,18 @@ export async function setStockThresholdAction(input: unknown): Promise<Threshold
   if (typeof requestKey !== "string" || !UUID.test(requestKey) || typeof stockItemId !== "string" || !UUID.test(stockItemId)) {
     return { error: THRESHOLD_SAVE_FAILED };
   }
+  const expected = parseThreshold(field(input, "expected"));
+  if (!expected.ok) return { error: THRESHOLD_SAVE_FAILED };
   const threshold = parseThreshold(field(input, "threshold"));
   if (!threshold.ok) return { error: threshold.error };
 
   const db = await createClient();
-  const result = await setStockThreshold(db, { requestKey: requestKey.toLowerCase(), stockItemId, threshold: threshold.value });
+  const result = await setStockThreshold(db, {
+    requestKey: requestKey.toLowerCase(),
+    stockItemId,
+    expected: expected.value,
+    threshold: threshold.value,
+  });
   switch (result.kind) {
     case "saved":
       revalidatePath("/admin/inventory");
@@ -318,13 +332,36 @@ export async function setStockThresholdAction(input: unknown): Promise<Threshold
       return { error: "Enter a whole number of vials, 0 or more." };
     case "not_authorized":
       return { error: THRESHOLD_NOT_ALLOWED };
+    case "changed":
+      revalidatePath("/admin/inventory");
+      revalidatePath("/admin/business");
+      refresh();
+      return thresholdChanged(db, stockItemId);
     case "unsure":
       return { error: THRESHOLD_SAVE_FAILED, unsure: true };
   }
 }
 
+/** "Changed by Owen Marchetti to 8. Nothing was saved." with the level now (nothing was written). */
+async function thresholdChanged(db: Awaited<ReturnType<typeof createClient>>, stockItemId: string): Promise<ThresholdActionResult> {
+  try {
+    const level = await stockLevelOf(db, businessToday(), stockItemId);
+    if (!level) return { error: ITEM_GONE };
+    const to = level.threshold.toLocaleString("en-CA");
+    return {
+      error: level.thresholdChangedBy
+        ? `Changed by ${level.thresholdChangedBy} to ${to}. Nothing was saved.`
+        : `Changed to ${to} since you opened it. Nothing was saved.`,
+      changed: { threshold: level.threshold },
+    };
+  } catch {
+    return { error: THRESHOLD_CHANGED_UNREAD, changed: { threshold: null } };
+  }
+}
+
 const THRESHOLD_SAVE_FAILED = "Couldn't save. Your entry is still here. Try again.";
 const THRESHOLD_NOT_ALLOWED = "Only admins can change reorder levels.";
+const THRESHOLD_CHANGED_UNREAD = "This reorder level was changed since you opened it. Nothing was saved. Close it and open it again.";
 
 /** The toast with the revenue and gross profit the database froze (not the preview's). */
 async function recordedSaleToast(db: Awaited<ReturnType<typeof createClient>>, saleId: string, quantity: number) {

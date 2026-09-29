@@ -387,16 +387,8 @@ test.describe("Stock", () => {
 const thresholdOf = async (itemId: string) =>
   (await serviceClient().from("business_stock_items").select("low_stock_threshold").eq("id", itemId).single()).data!.low_stock_threshold;
 
-test("Stock: a Retry after a saved change lost its answer replays it, and never overwrites a newer change", async ({ page }) => {
-  const item = await newItem(7);
-  await page.setViewportSize(LAPTOP);
-  await signInAdmin(page);
-  await page.goto(`${APP_ORIGIN}/admin/inventory`);
-  await (await hydrated(page.getByRole("searchbox", { name: "Search stock" }))).fill(item.name);
-  await page.getByTestId("stock-table-row").getByRole("button", { name: `${item.name} 10 mg` }).click();
-  const sheet = page.getByRole("dialog", { name: item.label });
-
-  // The first save reaches the server and is saved, but its answer never arrives.
+/** The next Save reaches the server and is saved, but its answer never arrives (the connection resets). */
+async function loseNextSave(page: Page) {
   let lost = 0;
   await page.route(
     (url) => url.pathname.startsWith("/admin/inventory"),
@@ -412,16 +404,51 @@ test("Stock: a Retry after a saved change lost its answer replays it, and never 
       await route.continue();
     },
   );
+}
+
+/** Owen sets `threshold` over `expected`, as another admin would. */
+async function otherAdminSets(itemId: string, expected: number, threshold: number) {
+  const { error } = await (await signedInClient(SECOND.email))
+    .rpc("set_business_stock_threshold", { p_request_key: randomUUID(), p_stock_item_id: itemId, p_expected: expected, p_threshold: threshold })
+    .single();
+  expect(error).toBeNull();
+}
+
+/**
+ * The error toast's Retry. While a sheet is open the page behind it (the toast
+ * too) is aria-hidden, but the toast sits above the sheet's overlay: a click
+ * still checks nothing covers it.
+ */
+const retryOf = (page: Page) =>
+  page
+    .getByRole("alert", { includeHidden: true })
+    .filter({ hasText: "Couldn't save. Your entry is still here." })
+    .getByRole("button", { name: "Retry", includeHidden: true });
+
+/** Waits for the toast to go (the pointer on it holds it; on a laptop it covers the drawer's footer). */
+async function toastGone(page: Page) {
+  await page.mouse.move(10, 10);
+  await expect(page.locator('[data-slot="toast"]')).toBeHidden({ timeout: 15_000 });
+}
+
+test("Stock: a Retry after a saved change lost its answer replays it, and never overwrites a newer change", async ({ page }) => {
+  const item = await newItem(7);
+  await page.setViewportSize(LAPTOP);
+  await signInAdmin(page);
+  await page.goto(`${APP_ORIGIN}/admin/inventory`);
+  await (await hydrated(page.getByRole("searchbox", { name: "Search stock" }))).fill(item.name);
+  await page.getByTestId("stock-table-row").getByRole("button", { name: `${item.name} 10 mg` }).click();
+  const sheet = page.getByRole("dialog", { name: item.label });
+
+  // The first save reaches the server and is saved, but its answer never arrives.
+  await loseNextSave(page);
   await sheet.getByLabel("Reorder at").fill("5");
   await sheet.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("Couldn't save. Your entry is still here.")).toBeVisible();
   await expect.poll(() => thresholdOf(item.id)).toBe(5);
 
   // Meanwhile another admin sets 8.
-  const other = await (await signedInClient(SECOND.email))
-    .rpc("set_business_stock_threshold", { p_request_key: randomUUID(), p_stock_item_id: item.id, p_threshold: 8 })
-    .single();
-  expect(other.error).toBeNull();
+  await otherAdminSets(item.id, 5, 8);
 
   // Retry sends the same request key: the server replays the saved change and 8 stays.
   await page.getByRole("button", { name: "Retry" }).click();
@@ -454,31 +481,12 @@ test("Stock: a late Retry for one item never closes another item's sheet or disc
   const rowOf = (item: { name: string }) => page.getByTestId("stock-table-row").getByRole("button", { name: `${item.name} 10 mg` });
 
   // A's save is saved, but its answer never arrives.
-  let lost = 0;
-  await page.route(
-    (url) => url.pathname.startsWith("/admin/inventory"),
-    async (route) => {
-      const request = route.request();
-      if (lost === 0 && request.method() === "POST" && request.headers()["next-action"]) {
-        lost++;
-        const url = new URL(request.url());
-        await route.fetch({ url: request.url().replace(url.hostname, "127.0.0.1"), headers: { ...request.headers(), host: url.host } });
-        await route.abort("connectionreset");
-        return;
-      }
-      await route.continue();
-    },
-  );
+  await loseNextSave(page);
   await rowOf(a).click();
   const sheetA = page.getByRole("dialog", { name: a.label });
   await sheetA.getByLabel("Reorder at").fill("5");
   await sheetA.getByRole("button", { name: "Save" }).click();
-  // While another sheet is open the page behind it (the toast too) is aria-hidden, but the toast
-  // sits above the sheet's overlay: the click below still checks nothing covers it.
-  const retry = page
-    .getByRole("alert", { includeHidden: true })
-    .filter({ hasText: "Couldn't save. Your entry is still here." })
-    .getByRole("button", { name: "Retry", includeHidden: true });
+  const retry = retryOf(page);
   await expect(retry).toBeVisible();
   await expect.poll(() => thresholdOf(a.id)).toBe(5);
 
@@ -497,12 +505,102 @@ test("Stock: a late Retry for one item never closes another item's sheet or disc
   expect(await thresholdOf(b.id)).toBe(10);
   expect(await thresholdOf(a.id)).toBe(5);
 
-  // B's own save still works and closes B's sheet (once A's toast, over the drawer's footer, has gone).
-  await page.mouse.move(10, 10); // the pointer on the toast holds it
-  await expect(page.locator('[data-slot="toast"]')).toBeHidden({ timeout: 15_000 });
+  // B's own save still works and closes B's sheet.
+  await toastGone(page);
   await sheetB.getByRole("button", { name: "Save" }).click();
   await expect(sheetB).toBeHidden();
   await expect.poll(() => thresholdOf(b.id)).toBe(3);
+});
+
+test("Stock: after an unsure save, a reopened sheet's Save never overwrites a newer change: refused, and the sheet stays", async ({
+  page,
+}) => {
+  const item = await newItem(7);
+  await page.setViewportSize(LAPTOP);
+  await signInAdmin(page);
+  await page.goto(`${APP_ORIGIN}/admin/inventory`);
+  await (await hydrated(page.getByRole("searchbox", { name: "Search stock" }))).fill(item.name);
+  const row = page.getByTestId("stock-table-row").getByRole("button", { name: `${item.name} 10 mg` });
+  const sheet = page.getByRole("dialog", { name: item.label });
+
+  // 5 over the 10 shown: saved, but the answer never arrives.
+  await loseNextSave(page);
+  await row.click();
+  await sheet.getByLabel("Reorder at").fill("5");
+  await sheet.getByRole("button", { name: "Save" }).click();
+  await expect(retryOf(page)).toBeVisible();
+  await expect.poll(() => thresholdOf(item.id)).toBe(5);
+
+  // Closed; Owen sets 8 meanwhile.
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+  await otherAdminSets(item.id, 5, 8);
+
+  // Reopened from the list as it last read, and saved at once: refused, Owen's 8 stays.
+  // (Saved with Enter: the error toast stays up and, on a laptop, sits over the drawer's footer.)
+  await row.click();
+  await sheet.getByLabel("Reorder at").press("Enter");
+  await expect(sheet.getByText(`Changed by ${SECOND.name} to 8. Nothing was saved.`)).toBeVisible();
+  await expect(sheet).toBeVisible();
+  expect(await thresholdOf(item.id)).toBe(8);
+  const changes = await serviceClient()
+    .from("business_stock_threshold_changes")
+    .select("threshold, changed_by")
+    .eq("stock_item_id", item.id)
+    .order("changed_at");
+  expect(changes.data).toEqual([
+    { threshold: 5, changed_by: id.admin },
+    { threshold: 8, changed_by: id.second },
+  ]);
+
+  // A new decision over the 8 it now knows saves.
+  await sheet.getByLabel("Reorder at").fill("6");
+  await sheet.getByLabel("Reorder at").press("Enter");
+  await expect(sheet).toBeHidden();
+  await expect.poll(() => thresholdOf(item.id)).toBe(6);
+});
+
+test("Stock: a late Retry never closes or changes a sheet opened later for the same item", async ({ page }) => {
+  const item = await newItem(7);
+  await page.setViewportSize(LAPTOP);
+  await signInAdmin(page);
+  await page.goto(`${APP_ORIGIN}/admin/inventory`);
+  await (await hydrated(page.getByRole("searchbox", { name: "Search stock" }))).fill(item.name);
+  const row = page.getByTestId("stock-table-row").getByRole("button", { name: `${item.name} 10 mg` });
+  const sheet = page.getByRole("dialog", { name: item.label });
+
+  // 5 over the 10 shown: saved, but the answer never arrives.
+  await loseNextSave(page);
+  await row.click();
+  await sheet.getByLabel("Reorder at").fill("5");
+  await sheet.getByRole("button", { name: "Save" }).click();
+  const retry = retryOf(page);
+  await expect(retry).toBeVisible();
+  await expect.poll(() => thresholdOf(item.id)).toBe(5);
+
+  // Closed, reopened, and 7 typed (not saved yet).
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+  await row.click();
+  await sheet.getByLabel("Reorder at").fill("7");
+
+  // The first opening's Retry is answered (a replay): this opening stays, with its entry.
+  await retry.click();
+  await expect(page.getByText(`${item.label}: this change was already saved. The list shows the current level.`)).toBeVisible();
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByLabel("Reorder at")).toHaveValue("7");
+  expect(await thresholdOf(item.id)).toBe(5);
+
+  // Its own Save compares against the level it was opened with (10, before the answer came):
+  // refused with what happened, then saved over the 5 it now knows.
+  await toastGone(page);
+  await sheet.getByRole("button", { name: "Save" }).click();
+  await expect(sheet.getByText(`Changed by ${ADMIN.name} to 5. Nothing was saved.`)).toBeVisible();
+  await expect(sheet.getByLabel("Reorder at")).toHaveValue("7");
+  expect(await thresholdOf(item.id)).toBe(5);
+  await sheet.getByRole("button", { name: "Save" }).click();
+  await expect(sheet).toBeHidden();
+  await expect.poll(() => thresholdOf(item.id)).toBe(7);
 });
 
 test("a period with only a free sample: sold, no revenue, the loss in missed with its minus sign, no margin", async ({ page }) => {
