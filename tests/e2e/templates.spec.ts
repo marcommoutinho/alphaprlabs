@@ -1,278 +1,204 @@
-// S8 A3 Cycle templates: the admin creates a template with two peptides and a
-// break, hitting the designed validation messages in order with "(+N more)",
-// saves, edits ("updated" moves only on a real change), and keeps editing it
-// after one of its peptides is no longer offered (Marco, 2026-09-26), which
-// then can't be added back; the phone layout; a researcher is sent away. Against the real local Supabase; templates and the library are shared
-// by every run, so rows are found by their unique names.
-import { expect, test, type Locator, type Page } from "@playwright/test";
+// V7 A10 / D7 Templates, against the real local Supabase: an admin creates a
+// template with two peptides and a break (Save template waits until it is
+// valid), edits it ("updated for future copies"), and keeps saving it after
+// one of its peptides stops being offered (Marco, 2026-09-26); once removed,
+// that peptide can't be added back. Phone and laptop, light and dark; a
+// researcher reaches none of it. Templates and the library are shared by
+// every run, so rows are found by their unique names. Exact rules and the
+// SQL checks: tests/integration/templates.test.ts and admin-content.test.ts.
+import { expect, test, type Page } from "@playwright/test";
 import { randomBytes } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import { APP_ORIGIN } from "../../playwright.config";
-import { formatMonthDay } from "../../src/lib/format";
-import { ensureAccount, hydrated, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
+import { ensureAccount, hydrated, ok, serviceClient, signInAs, uniqueEmail } from "../support/local-supabase";
 
-const ADMIN = { email: uniqueEmail("s8-templates-admin"), name: "Templates Admin" };
-const RESEARCHER = { email: uniqueEmail("s8-templates-researcher"), name: "Templates Researcher" };
+const ADMIN = { email: uniqueEmail("v7-tpl-admin"), name: "Templates Admin" };
+const RESEARCHER = { email: uniqueEmail("v7-tpl-researcher"), name: "Templates Researcher" };
+const PHONE = { width: 390, height: 844 };
+const LAPTOP = { width: 1280, height: 820 };
+// Screenshots only when asked for (V7_SHOTS=<directory>).
+const SHOTS = process.env.V7_SHOTS;
 
 test.beforeAll(async () => {
   await ensureAccount({ ...ADMIN, role: "admin" });
   await ensureAccount({ ...RESEARCHER, role: "researcher" });
+  if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 });
 
-const IDLE = "Select a template to inspect or update it.";
-const row = (page: Page, name: string) => page.getByTestId("template-row").filter({ hasText: name });
-const editor = (page: Page) => page.locator("section.app-lib-editor");
-// The inline form error (Next.js adds its own empty route-announcer alert).
-const alert = (page: Page) => page.locator('.app-inline-error[role="alert"]');
-const plan = (page: Page, peptide: string) => editor(page).getByTestId("template-plan").filter({ hasText: peptide });
-const phase = (block: Locator, index: number) => block.getByTestId("template-phase").nth(index);
-const save = (page: Page) => page.getByRole("button", { name: "Save template" }).click();
+const shot = async (page: Page, name: string) => {
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/v7-${name}.png`, style: ".app-tabbar { position: static !important; }" });
+};
+const unique = (label: string) => `${label} ${randomBytes(3).toString("hex")}`;
+const card = (page: Page, name: string) => page.getByTestId("template-card").filter({ hasText: name });
+const peptideCard = (page: Page, name: string) => page.getByTestId("template-peptide").filter({ has: page.getByText(name, { exact: true }) });
+const toast = (page: Page) => page.locator('[data-slot="toast"]');
 
-async function seedPeptide(name: string, available = true) {
-  const { data, error } = await serviceClient()
-    .from("peptides")
-    .insert({ name, information: `[Supplied information for ${name}]`, available })
-    .select("id")
-    .single();
-  if (error || !data) throw new Error(`Could not seed ${name}: ${error?.message ?? "no row"}`);
-  return data.id;
+async function seedPeptide(name: string) {
+  const [row] = await ok(serviceClient().from("peptides").insert({ name, information: `[Supplied information for ${name}]`, available: true }).select("id"), name);
+  return row.id as string;
 }
 
 async function storedTemplate(name: string) {
-  const { data, error } = await serviceClient()
-    .from("cycle_templates")
-    .select("id, updated_at, cycle_template_plans(position, peptide_id, cycle_template_phases(kind, offset_days, length_days, dose_mg::text, schedule_type, every_days, weekdays))")
-    .eq("name", name)
-    .single();
-  if (error || !data) throw new Error(`No template ${name}: ${error?.message ?? "no row"}`);
-  return data;
+  const [row] = await ok(
+    serviceClient()
+      .from("cycle_templates")
+      .select("id, version, guidance, cycle_template_plans(position, peptide_id, cycle_template_phases(kind, offset_days, length_days, dose_mg::text, schedule_type, every_days, weekdays))")
+      .eq("name", name),
+    name,
+  );
+  return row;
 }
 
 async function openTemplates(page: Page) {
   await signInAs(page, APP_ORIGIN, ADMIN.email);
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
-  await page.goto(`${APP_ORIGIN}/admin/templates`);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Cycle templates");
+  await page.goto(`${APP_ORIGIN}/admin/library/templates`);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Library");
+  await expect(page.getByRole("navigation", { name: "Library" }).locator('[aria-current="page"]')).toHaveText(/^Templates · \d+$/);
 }
 
-test("an admin creates and edits a template, which keeps a peptide withdrawn since, as designed", async ({ page }) => {
-  const t = randomBytes(3).toString("hex");
-  const [A, B, C] = [`Compound A ${t}`, `Compound B ${t}`, `Compound C ${t}`];
-  const aId = await seedPeptide(A);
-  const bId = await seedPeptide(B);
-  await seedPeptide(C, false);
-  const name = `Recomp starter ${t}`;
+async function addPeptide(page: Page, name: string) {
+  await page.getByTestId("add-peptide").click();
+  await page.getByTestId("peptide-picker").getByRole("button", { name, exact: true }).click();
+  await expect(page.getByTestId("peptide-picker")).toHaveCount(0);
+}
 
-  await page.setViewportSize({ width: 1280, height: 900 });
+test("laptop: create and edit a template, then keep saving it with a peptide no longer offered", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize(LAPTOP);
+  const [A, W] = [unique("V7 Tpl A"), unique("V7 Tpl W")];
+  await seedPeptide(A);
+  const w = await seedPeptide(W);
+  const name = unique("V7 Recovery template");
   await openTemplates(page);
-  await expect(
-    page.getByText("Starting points researchers copy. Editing a template changes future copies only — existing researcher cycles are untouched."),
-  ).toBeVisible();
-  await expect(page.getByText(IDLE)).toBeVisible();
-  // Templates is a section of Library in the shell (design v3; V7 merges the pages).
-  await expect(page.getByRole("navigation", { name: "Main" }).locator('[aria-current="page"]')).toHaveText("Library");
-  await expect(page.getByRole("navigation", { name: "Library" }).locator('[aria-current="page"]')).toHaveText("Templates");
 
-  // New: the designed first-failure messages.
-  await (await hydrated(page.getByRole("button", { name: "New template" }))).click();
-  await expect(editor(page).getByRole("heading", { level: 2 })).toHaveText("New template");
-  await expect(editor(page).getByText("Days count from the researcher's start date (day 1). They can adjust everything after copying.")).toBeVisible();
-  await expect(editor(page).getByText("Researchers will see this as a starting point.")).toBeVisible();
-  await save(page);
-  await expect(alert(page)).toHaveText("Name is required.");
-  await page.getByLabel("Name", { exact: true }).fill(name);
-  await save(page);
-  await expect(alert(page)).toHaveText("Add at least one peptide — an empty template can't be saved.");
+  await page.getByTestId("library-add-laptop").click();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/library/templates/new`);
+  await expect(page.getByTestId("template-meta")).toHaveText("New · researchers see it once it's saved");
+  await expect(page.getByTestId("template-footer-note")).toHaveText("Researchers will see it as a starting point once it's saved.");
+  await (await hydrated(page.getByTestId("template-name"))).fill(name);
+  await addPeptide(page, A);
+  await addPeptide(page, W);
+  await expect(page.getByTestId("template-timeline")).toBeVisible();
 
-  // Only available peptides can be added, each once.
-  const picker = page.getByLabel("Peptide to add");
-  await expect(picker.locator("option", { hasText: C })).toHaveCount(0);
-  await picker.selectOption({ label: A });
-  await page.getByRole("button", { name: "+ Add peptide" }).click();
-  await picker.selectOption({ label: B });
-  await page.getByRole("button", { name: "+ Add peptide" }).click();
-  await expect(picker.locator("option", { hasText: A })).toHaveCount(0);
-
-  const a = plan(page, A);
-  const b = plan(page, B);
-  await expect(phase(a, 0).locator(".app-tpl-phase-title")).toHaveText("Active phase · day 1–28");
-  await expect(phase(a, 0).getByLabel("Local time")).toHaveValue("08:00");
-  await expect(phase(a, 0).getByLabel("Every (days)")).toHaveValue("5");
-
-  // Every message, in order, the first shown with "(+N more)".
-  await phase(a, 0).getByLabel("Starts on day").fill("0");
-  await phase(a, 0).getByLabel("Length (days)").fill("");
-  await phase(a, 0).getByLabel("Every (days)").fill("0");
-  await save(page);
-  await expect(alert(page)).toHaveText(`${A}, phase 1: start day must be 1 or later. (+4 more)`);
-  await phase(a, 0).getByLabel("Starts on day").fill("1");
-  await save(page);
-  await expect(alert(page)).toHaveText(`${A}, phase 1: length must be at least 1 day. (+3 more)`);
-  await phase(a, 0).getByLabel("Length (days)").fill("28");
-  await save(page);
-  await expect(alert(page)).toHaveText(`${A}, phase 1: enter a dose above 0 mg. (+2 more)`);
-  await phase(a, 0).getByLabel("Dose (mg)").fill("0,4");
-  await save(page);
-  await expect(alert(page)).toHaveText(`${A}, phase 1: interval must be at least 1 day. (+1 more)`);
-  await phase(a, 0).getByLabel("Every (days)").fill("5");
-  await save(page);
-  await expect(alert(page)).toHaveText(`${B}, phase 1: enter a dose above 0 mg.`);
-
-  // A break, then another active phase, each the day after the last one ends.
-  await a.getByRole("button", { name: "+ Break" }).click();
-  await a.getByRole("button", { name: "+ Phase" }).click();
-  await expect(phase(a, 1).locator(".app-tpl-phase-title")).toHaveText("Break · day 29–35");
-  await expect(phase(a, 1).getByLabel("Dose (mg)")).toHaveCount(0);
-  await expect(phase(a, 2).locator(".app-tpl-phase-title")).toHaveText("Active phase · day 36–63");
-  await phase(a, 2).getByLabel("Dose (mg)").fill("0.6");
-  await phase(a, 1).getByLabel("Starts on day").fill("20");
-  await expect(phase(a, 1).locator(".app-tpl-phase-title")).toHaveText("Break · day 20–26");
-  await b.getByTestId("template-phase").getByRole("button", { name: "Remove" }).click();
-  await save(page);
-  await expect(alert(page)).toHaveText(`${A}: phases overlap at day 20. (+1 more)`);
-  await phase(a, 1).getByLabel("Starts on day").fill("29");
-  await save(page);
-  await expect(alert(page)).toHaveText(`${B}: add at least one active phase.`);
-
-  // Fixed weekdays: Mon, Wed, Fri preselected; none selected is refused.
-  await b.getByRole("button", { name: "+ Phase" }).click();
-  await phase(b, 0).getByLabel("Dose (mg)").fill("0.3");
-  await phase(b, 0).getByLabel("Schedule").selectOption({ label: "Fixed weekdays" });
-  await expect(phase(b, 0).getByLabel("Every (days)")).toHaveCount(0);
-  const days = phase(b, 0).getByRole("group", { name: "Weekdays" });
-  await expect(days.getByRole("button")).toHaveText(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
-  for (const day of ["Mon", "Wed", "Fri"]) {
-    await expect(days.getByRole("button", { name: day })).toHaveAttribute("aria-pressed", "true");
-    await days.getByRole("button", { name: day }).click();
-  }
-  await save(page);
-  await expect(alert(page)).toHaveText(`${B}, phase 1: pick at least one weekday.`);
-  await days.getByRole("button", { name: "Tue" }).click();
-  await days.getByRole("button", { name: "Thu" }).click();
-  await phase(b, 0).getByLabel("Local time").fill("07:30");
-
-  await save(page);
-  await expect(page.locator(".app-toast")).toHaveText("Template created.");
-  await expect(editor(page)).toHaveCount(0);
-  await expect(page.getByText(IDLE)).toBeVisible();
+  // A's 28-day phase has no dose yet: Save template shows why and waits.
+  await page.getByTestId("save-template").click();
+  await expect(page.getByTestId("builder-issues")).toBeVisible();
+  await expect(page.getByTestId("save-template")).toBeDisabled();
+  const a = peptideCard(page, A);
+  await a.getByTestId("phase-dose").fill("250");
+  await a.getByTestId("add-break").click();
+  await expect(a.getByTestId("phase-row")).toHaveCount(2);
+  await expect(a.getByTestId("phase-row").nth(1)).toHaveAttribute("data-kind", "break");
+  const wCard = peptideCard(page, W);
+  await wCard.getByTestId("phase-dose").fill("1");
+  await wCard.getByTestId("phase-unit").selectOption("mg");
+  await wCard.getByTestId("phase-schedule").selectOption("weekdays");
+  // Mon, Wed and Fri are on by default.
+  await expect(wCard.getByRole("button", { name: "Mon" })).toHaveAttribute("aria-pressed", "true");
+  await wCard.getByRole("button", { name: "Tue" }).click();
+  await wCard.getByRole("button", { name: "Thu" }).click();
+  await expect(page.getByTestId("builder-issues")).toHaveCount(0);
+  await expect(page.getByTestId("save-template")).toBeEnabled();
+  await page.getByTestId("save-template").click();
+  await expect(toast(page)).toContainText("Template created.");
+  await expect(page).toHaveURL(/\/admin\/library\/templates\/[0-9a-f-]{36}$/);
 
   const created = await storedTemplate(name);
+  expect(created.version).toBe(1);
   const plans = [...created.cycle_template_plans].sort((x, y) => x.position - y.position);
-  expect(plans.map((p) => p.peptide_id)).toEqual([aId, bId]);
-  expect([...plans[0].cycle_template_phases].sort((x, y) => x.offset_days - y.offset_days)).toEqual([
-    { kind: "active", offset_days: 0, length_days: 28, dose_mg: "0.4", schedule_type: "interval", every_days: 5, weekdays: null },
-    { kind: "break", offset_days: 28, length_days: 7, dose_mg: null, schedule_type: null, every_days: null, weekdays: null },
-    { kind: "active", offset_days: 35, length_days: 28, dose_mg: "0.6", schedule_type: "interval", every_days: 5, weekdays: null },
-  ]);
-  expect(plans[1].cycle_template_phases).toEqual([
-    { kind: "active", offset_days: 0, length_days: 28, dose_mg: "0.3", schedule_type: "weekdays", every_days: null, weekdays: [2, 4] },
-  ]);
-  const updated = formatMonthDay(created.updated_at, { timeZone: "America/Toronto" });
-  await expect(row(page, name)).toContainText(`63 days · updated ${updated}`);
-  await expect(row(page, name)).toContainText(`${A} · 2 phase(s) + ${B} · 1 phase(s)`);
-  await expect(row(page, name)).toContainText("0 researcher cycle(s) were started from it — they won't change.");
-  await expect(row(page, name).locator(".app-tpl-row-warn")).toHaveCount(0);
-
-  // Edit: saving unchanged content keeps "updated"; a real change moves it.
-  await row(page, name).click();
-  await expect(row(page, name)).toHaveAttribute("aria-current", "true");
-  await expect(editor(page).getByRole("heading", { level: 2 })).toHaveText(`Edit ${name}`);
-  await expect(editor(page).getByText("Saving updates future copies only. Cycles already created from this template are not changed.")).toBeVisible();
-  await expect(phase(a, 1).locator(".app-tpl-phase-title")).toHaveText("Break · day 29–35");
-  await expect(phase(b, 0).getByRole("button", { name: "Tue" })).toHaveAttribute("aria-pressed", "true");
-  await expect(phase(b, 0).getByRole("button", { name: "Mon" })).toHaveAttribute("aria-pressed", "false");
-  await save(page);
-  await expect(page.locator(".app-toast")).toHaveText("Template updated for future copies. Existing cycles unchanged.");
-  expect((await storedTemplate(name)).updated_at).toBe(created.updated_at);
-  await row(page, name).click();
-  await phase(a, 0).getByLabel("Dose (mg)").fill("0.5");
-  await save(page);
-  await expect(page.locator(".app-toast")).toHaveText("Template updated for future copies. Existing cycles unchanged.");
-  await expect(editor(page)).toHaveCount(0);
-  const edited = await storedTemplate(name);
-  expect(new Date(edited.updated_at).getTime()).toBeGreaterThan(new Date(created.updated_at).getTime());
-
-  // A peptide withdrawn later: the template keeps it, with a warning, and can
-  // still be edited and saved with it (Marco, 2026-09-26); it just can't be
-  // added again once removed.
-  const { error } = await serviceClient().from("peptides").update({ available: false }).eq("id", aId);
-  expect(error).toBeNull();
-  await page.reload();
-  await expect(row(page, name).locator(".app-tpl-row-warn")).toHaveText(
-    "Includes a peptide that is no longer offered — researchers who start from it still get it. It can't be added to other templates.",
-  );
-  await (await hydrated(row(page, name))).click();
-  await expect(plan(page, A)).toHaveCount(1);
-  await expect(picker.locator("option", { hasText: A })).toHaveCount(0);
-  await phase(a, 0).getByLabel("Dose (mg)").fill("0.6");
-  await save(page);
-  await expect(page.locator(".app-toast")).toHaveText("Template updated for future copies. Existing cycles unchanged.");
-  expect((await storedTemplate(name)).cycle_template_plans.map((p) => p.peptide_id)).toContain(aId);
-  await expect(row(page, name).locator(".app-tpl-row-warn")).toHaveCount(1);
-  await row(page, name).click();
-  await plan(page, A).getByRole("button", { name: "Remove peptide" }).click();
-  await save(page);
-  await expect(page.locator(".app-toast")).toHaveText("Template updated for future copies. Existing cycles unchanged.");
-  await expect(row(page, name)).toContainText(`28 days · updated`);
-  await expect(row(page, name)).toContainText(`${B} · 1 phase(s)`);
-  await expect(row(page, name).locator(".app-tpl-row-warn")).toHaveCount(0);
-
-  // A2 counts the template among B's references.
-  await page.goto(`${APP_ORIGIN}/admin/library`);
-  await expect(page.getByTestId("library-row").filter({ hasText: B })).toContainText("referenced by 1");
-});
-
-test("on a phone the editor stacks below the list and fits the screen", async ({ page }) => {
-  const t = randomBytes(3).toString("hex");
-  const peptideId = await seedPeptide(`Phone peptide ${t}`);
-  const name = `Phone template ${t}`;
-  const db = await signedInClient(ADMIN.email);
-  const { error } = await db.rpc("save_cycle_template", {
-    p_name: name,
-    p_guidance: "",
-    p_plans: [
-      {
-        peptide_id: peptideId,
-        phases: [
-          { kind: "active", offset_days: 0, length_days: 28, dose_mg: "0.25", local_time: "21:30", schedule_type: "weekdays", weekdays: [1, 3, 5] },
-          { kind: "break", offset_days: 28, length_days: 7 },
-        ],
-      },
+  expect(plans.map((plan) => plan.cycle_template_phases.map((phase) => [phase.kind, phase.offset_days, phase.length_days, phase.dose_mg === null ? null : Number(phase.dose_mg)]))).toEqual([
+    [
+      ["active", 0, 28, 0.25],
+      ["break", 28, 14, null],
     ],
-  });
-  expect(error).toBeNull();
+    [["active", 0, 28, 1]],
+  ]);
+  expect(plans[0].cycle_template_phases[0]).toMatchObject({ schedule_type: "interval", every_days: 1 });
+  expect(plans[1].cycle_template_phases[0]).toMatchObject({ schedule_type: "weekdays" });
+  expect([...(plans[1].cycle_template_phases[0].weekdays ?? [])].sort()).toEqual([1, 2, 3, 4, 5]);
 
-  await page.setViewportSize({ width: 390, height: 844 });
-  await openTemplates(page);
-  await (await hydrated(row(page, name))).click();
-  await expect(editor(page).getByRole("heading", { level: 2 })).toHaveText(`Edit ${name}`);
-  await expect(editor(page)).toBeInViewport();
-  const boxes = await page.evaluate(() => {
-    const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
-    return {
-      listBottom: box(".app-lib-list").bottom,
-      editorTop: box(".app-lib-editor").top,
-      editorWidth: box(".app-lib-editor").width,
-      scrollWidth: document.documentElement.scrollWidth,
-      viewport: window.innerWidth,
-    };
-  });
-  expect(boxes.editorTop).toBeGreaterThanOrEqual(boxes.listBottom);
-  expect(boxes.editorWidth).toBeGreaterThan(300);
-  expect(boxes.scrollWidth).toBeLessThanOrEqual(boxes.viewport);
-  // Weekday toggles and the small buttons are at least 44px hit targets.
-  for (const target of [
-    editor(page).getByRole("button", { name: "Mon" }),
-    editor(page).getByRole("button", { name: "+ Phase" }),
-    editor(page).getByRole("button", { name: "Remove peptide" }),
-  ]) {
-    const box = (await target.boundingBox())!;
-    expect(box.height).toBeGreaterThanOrEqual(44);
-  }
+  // An edit: "updated for future copies", one version per save.
+  await (await hydrated(page.getByTestId("template-guidance"))).fill("Take in the morning.");
+  await page.getByTestId("save-template").click();
+  await expect(toast(page)).toContainText("Template updated for future copies. Existing cycles unchanged.");
+  await expect.poll(async () => (await storedTemplate(name)).version).toBe(2);
+  expect((await storedTemplate(name)).guidance).toBe("Take in the morning.");
+
+  // W stops being offered: the list and the editor say so, and the template still saves with it.
+  await ok(serviceClient().from("peptides").update({ available: false }).eq("id", w), "withdraw W");
+  await page.goto(`${APP_ORIGIN}/admin/library/templates`);
+  await expect(card(page, name)).toHaveAttribute("data-withdrawn", "");
+  await expect(card(page, name).getByTestId("template-withdrawn")).toHaveText(`Includes ${W}, no longer offered`);
+  await card(page, name).click();
+  await expect(page.getByTestId("template-withdrawn-notice")).toHaveText(
+    `${W} is no longer offered. The template keeps it and researchers who start from it still get it; once removed, it can't be added back.`,
+  );
+  await (await hydrated(page.getByTestId("template-guidance"))).fill("Take in the morning, with water.");
+  await page.getByTestId("save-template").click();
+  await expect(toast(page)).toContainText("Template updated for future copies. Existing cycles unchanged.");
+  await expect.poll(async () => (await storedTemplate(name)).version).toBe(3);
+  expect((await storedTemplate(name)).cycle_template_plans).toHaveLength(2);
+
+  // Removed, W can't be added back: the picker offers only peptides still offered.
+  await peptideCard(page, W).getByTestId("remove-peptide").click();
+  await expect(page.getByTestId("template-withdrawn-notice")).toHaveCount(0);
+  await page.getByTestId("add-peptide").click();
+  const picker = page.getByTestId("peptide-picker");
+  await expect(picker.getByRole("button", { name: A, exact: true })).toHaveCount(0);
+  await expect(picker.getByRole("button", { name: W, exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(picker).toHaveCount(0);
+  await page.getByTestId("save-template").click();
+  await expect(toast(page)).toContainText("Template updated for future copies. Existing cycles unchanged.");
+  await expect.poll(async () => (await storedTemplate(name)).cycle_template_plans.length).toBe(1);
+  await page.goto(`${APP_ORIGIN}/admin/library/templates`);
+  await expect(card(page, name)).not.toHaveAttribute("data-withdrawn", "");
 });
 
-test("a researcher cannot open the templates editor", async ({ page }) => {
+for (const scheme of ["light", "dark"] as const) {
+  test(`templates on a phone and a laptop (${scheme})`, async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.setViewportSize(PHONE);
+    const A = unique("V7 Tpl Phone");
+    await seedPeptide(A);
+    const name = unique(`V7 Phone template ${scheme}`);
+    await openTemplates(page);
+    await expect(page.getByTestId("templates")).toBeVisible();
+    await shot(page, `templates-list-phone-${scheme}`);
+
+    // The phone's round + opens the full-screen editor.
+    await page.getByTestId("library-add").click();
+    await expect(page).toHaveURL(`${APP_ORIGIN}/admin/library/templates/new`);
+    await (await hydrated(page.getByTestId("template-name"))).fill(name);
+    await page.getByTestId("add-peptide-phone").click();
+    await page.getByTestId("peptide-picker").getByRole("button", { name: A, exact: true }).click();
+    await peptideCard(page, A).getByTestId("phase-dose").fill("500");
+    await shot(page, `templates-editor-phone-${scheme}`);
+    await page.getByTestId("save-template").click();
+    await expect(page).toHaveURL(`${APP_ORIGIN}/admin/library/templates`);
+    await expect(toast(page)).toContainText("Template created.");
+    await expect(card(page, name)).toContainText("28 days");
+
+    await page.setViewportSize(LAPTOP);
+    await page.reload();
+    await expect(card(page, name)).toBeVisible();
+    await shot(page, `templates-list-laptop-${scheme}`);
+    await card(page, name).click();
+    await expect(page.getByTestId("template-editor")).toBeVisible();
+    await expect(page.getByTestId("template-footer-note")).toHaveText("Saving changes future copies only. No cycle has been started from this template yet.");
+    await shot(page, `templates-editor-laptop-${scheme}`);
+  });
+}
+
+test("a researcher reaches none of the templates admin", async ({ page }) => {
+  await page.setViewportSize(LAPTOP);
   await signInAs(page, APP_ORIGIN, RESEARCHER.email);
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
-  await page.goto(`${APP_ORIGIN}/admin/templates`);
-  await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
+  const [any] = await ok(serviceClient().from("cycle_templates").select("id").limit(1), "a template");
+  for (const path of ["/admin/templates", "/admin/library/templates", "/admin/library/templates/new", ...(any ? [`/admin/library/templates/${any.id}`] : [])]) {
+    await page.goto(`${APP_ORIGIN}${path}`);
+    await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
+  }
 });

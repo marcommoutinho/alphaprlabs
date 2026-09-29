@@ -1,11 +1,11 @@
-// S17 R11 Me and A8 Researcher support, against the real local Supabase: the
-// handoff's support scenario end to end, simplified to a team share (Marco,
+// R11 Me and V7 A11 People / A12 Researcher history, against the real local
+// Supabase: the support scenario end to end, as a team share (Marco,
 // 2026-09-27). The researcher shares read-only with the Alpha PR Labs team
 // from Me (behind a confirm step), never naming or seeing an admin; the
-// admin opens Support, then the history, and sees every card (a peptide no
-// longer offered keeps its name; a deleted mixture keeps its setups) with
-// nothing to edit; the researcher stops sharing (behind a confirm step), and
-// the admin's next request and next navigation show the denied state.
+// admin finds them in People, opens the history and sees their numbers and
+// recent doses and check-ins with nothing to edit; the researcher stops
+// sharing (behind a confirm step), and the admin's next request and next
+// navigation show the denied state.
 // Cycles use a fixed-offset zone where it is about 12:00 now
 // (tests/support/noon); check-ins and supplements use Toronto days.
 import { randomUUID } from "node:crypto";
@@ -123,7 +123,8 @@ test("share with the team, read the full history read-only, stop, and the admin'
   const adminContext = await browser.newContext();
   const me = await researcherContext.newPage();
   const admin = await adminContext.newPage();
-  const history = `${APP_ORIGIN}/admin/support/${s.researcherId}`;
+  const history = `${APP_ORIGIN}/admin/people/${s.researcherId}`;
+  const DENIED = "Jordan hasn't shared their history. Only they can turn it on, from Me.";
   /** Researchers never see which admin it is: no admin's name anywhere on Me. */
   const expectNoAdminNamed = async () => {
     for (const name of [s.admin.name, s.other.name, "Marco"]) await expect(me.locator("body")).not.toContainText(name);
@@ -145,16 +146,18 @@ test("share with the team, read the full history read-only, stop, and the admin'
   await expect(me.getByTestId("share-event")).toHaveCount(0);
   await expectNoAdminNamed();
 
-  // Not shared: Support doesn't list the researcher, and the history is denied.
+  // Not shared: People lists the researcher as private, with no way in; the history is denied.
   await signInAs(admin, APP_ORIGIN, s.admin.email);
   await expect(admin).toHaveURL(`${APP_ORIGIN}/app/today`);
-  await admin.goto(`${APP_ORIGIN}/admin/support`);
-  const row = admin.getByTestId("support-row").filter({ hasText: s.researcher.email });
-  await expect(admin.getByRole("heading", { level: 1 })).toHaveText("Researcher support");
-  await expect(row).toHaveCount(0);
+  await admin.goto(`${APP_ORIGIN}/admin/people`);
+  const row = admin.getByTestId("person-line").filter({ hasText: s.researcher.email });
+  await expect(admin.getByRole("heading", { level: 1 })).toHaveText("People");
+  await expect(row.getByTestId("person-status")).toHaveText("Private");
+  await expect(row.getByTestId("view-history")).toHaveCount(0);
   await admin.goto(history);
-  await expect(admin.getByTestId("support-denied")).toContainText(`${s.researcher.name} isn't sharing their history`);
-  await expect(admin.getByTestId("support-denied")).toContainText("hasn't shared their history with the team");
+  await expect(admin.getByTestId("history-denied")).toBeVisible();
+  await expect(admin.getByRole("heading", { level: 1 })).toHaveText(s.researcher.name);
+  await expect(admin.getByTestId("denied-text")).toHaveText(DENIED);
 
   // Share: the switch opens R17, which names the team, never an admin.
   await (await hydrated(sharingSwitch)).click();
@@ -176,32 +179,22 @@ test("share with the team, read the full history read-only, stop, and the admin'
   await expect(me.getByTestId("share-event")).toHaveText([/^Shared with Alpha PR Labs admins\w{3}, /]);
   await expectNoAdminNamed();
 
-  // A8: Support lists the researcher; the history shows every card, read-only.
-  await admin.goto(`${APP_ORIGIN}/admin/support`);
-  await expect(row).toContainText("Sharing");
-  await expect(row).toContainText("Read-only since");
-  await row.click();
+  // A11: People shows the share; A12 shows the history, read-only.
+  await admin.goto(`${APP_ORIGIN}/admin/people`);
+  await expect(row.getByTestId("person-status")).toHaveText(/^Shared since \w{3} \d+$/);
+  await expect(row.getByTestId("person-status")).toHaveAttribute("data-tone", "shared");
+  await row.getByTestId("view-history").click();
+  await expect(admin).toHaveURL(history);
   await expect(admin.getByRole("heading", { level: 1 })).toHaveText(s.researcher.name);
-  await expect(admin.getByText(/^Read-only · shared /)).toBeVisible();
-  await expect(admin.getByText(`${s.researcher.email} · full profile history · nothing here can be edited`)).toBeVisible();
-  const cycles = admin.getByTestId("history-cycles");
-  await expect(cycles).toContainText(s.cycleName);
-  await expect(cycles).toContainText(`${s.A} + ${s.W} · goal: Leaner by October`);
-  await expect(admin.getByTestId("history-doses")).toContainText(`${s.A} · 0.4 mg`);
-  const checkIns = admin.getByTestId("history-checkins");
-  await expect(checkIns).toContainText("feeling 4/5 · Headache, Other: dizzy");
-  await expect(checkIns).toContainText("“Slept better.”");
-  await expect(checkIns).toContainText("Measurements: Weight 82.4 kg");
-  const supplies = admin.getByTestId("history-supplies");
-  await expect(supplies).toContainText(`Supplies tracked: A-01 · ${s.A} 10 mg · est. 10 mg left`);
-  await expect(supplies).toContainText("Supplement routines: Vitamin D3 2000 IU daily 00:00");
-  await expect(supplies).toContainText("Taken · Vitamin D3 · 2000 IU");
-  // The deleted mixture, with each setup it had.
-  const mixture = admin.getByTestId("history-mixture").filter({ hasText: s.W });
-  await expect(mixture).toHaveAttribute("data-deleted", "true");
-  await expect(mixture).toContainText(`${s.W} · 5 mg / 2.5 mL · 1 mL`);
-  await expect(mixture).toContainText(/· saved \w{3} \d+, \d{4} · deleted \w{3} \d+, \d{4}/);
-  await expect(mixture.getByRole("listitem")).toHaveText([/^Setup 1 · 5 mg \/ 2 mL · 1 mL syringe · from /, /^Setup 2 · 5 mg \/ 2\.5 mL · 1 mL syringe · from /]);
+  await expect(admin.getByTestId("history-banner")).toHaveText(/^Read-only · shared by Jordan on \w{3} \d+$/);
+  await expect(admin.getByTestId("history-sub")).toHaveText(new RegExp(`^${s.cycleName} · day \\d+ of 21$`));
+  await expect(admin.getByTestId("history-now")).toContainText("Adherence this cycle");
+  await expect(admin.getByTestId("history-adherence")).toHaveText(/^\d+$/);
+  // The admin's own unit (kg unless they chose lb).
+  await expect(admin.getByTestId("history-weight")).toHaveText(/^(82\.4 kg|181\.\d lb)$/);
+  const recent = admin.getByTestId("recent-row");
+  await expect(recent.filter({ hasText: "Check-in · Good" })).toContainText(/82\.4 kg|181\.\d lb/);
+  await expect(recent.filter({ hasText: `${s.A} · 400 mcg` }).first()).toHaveAttribute("data-kind", "done");
   // Nothing to edit: no buttons, fields or forms in the page.
   const main = admin.getByRole("main");
   await expect(main.getByRole("button")).toHaveCount(0);
@@ -226,16 +219,17 @@ test("share with the team, read the full history read-only, stop, and the admin'
 
   // The admin's open history: the next request is denied ...
   await admin.reload();
-  const denied = admin.getByTestId("support-denied");
-  await expect(denied).toContainText(`${s.researcher.name} isn't sharing their history`);
-  await expect(denied).toContainText(`${s.researcher.name} stopped sharing their history on`);
-  await expect(admin.getByTestId("history-cycles")).toHaveCount(0);
-  // ... Support no longer lists them, and opening them again is denied.
-  await admin.getByRole("link", { name: "‹ Support" }).click();
-  await expect(admin.getByRole("heading", { level: 1 })).toHaveText("Researcher support");
-  await expect(row).toHaveCount(0);
+  await expect(admin.getByTestId("history-denied")).toBeVisible();
+  await expect(admin.getByTestId("denied-text")).toHaveText(DENIED);
+  await expect(admin.getByTestId("researcher-history")).toHaveCount(0);
+  await expect(admin.getByText(s.cycleName)).toHaveCount(0);
+  // ... People shows the revoke and no way in, and opening them again is denied.
+  await admin.getByRole("link", { name: "‹ People" }).click();
+  await expect(admin.getByRole("heading", { level: 1 })).toHaveText("People");
+  await expect(row.getByTestId("person-status")).toHaveText(/^Private · revoked \w{3} \d+$/);
+  await expect(row.getByTestId("view-history")).toHaveCount(0);
   await admin.goto(history);
-  await expect(admin.getByTestId("support-denied")).toContainText("It's private again; only they can share it again, from their own profile.");
+  await expect(admin.getByTestId("denied-text")).toHaveText(DENIED);
   await expect(admin.getByText(s.cycleName)).toHaveCount(0);
 
   await researcherContext.close();

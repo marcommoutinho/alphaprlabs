@@ -216,12 +216,16 @@ for (const scheme of ["light", "dark"] as const) {
 
       await business.getByRole("link", { name: "Library" }).click();
       await expect(page).toHaveURL(`${APP_ORIGIN}/admin/library`);
+      // V7 A8 / A10: the Library has its own "‹ Business" bar and Peptides · N | Templates · M.
+      await expect(business).toHaveCount(0);
       const library = page.getByRole("navigation", { name: "Library" });
-      await expect(library.getByRole("link")).toHaveText(["Peptides", "Templates"]);
-      await library.getByRole("link", { name: "Templates" }).click();
-      await expect(page).toHaveURL(`${APP_ORIGIN}/admin/templates`);
-      await expect(library.locator('[aria-current="page"]')).toHaveText("Templates");
-      await expect(business.locator('[aria-current="page"]')).toHaveText("Library");
+      await expect(library.getByRole("link")).toHaveText([/^Peptides · \d+$/, /^Templates · \d+$/]);
+      await library.getByRole("link", { name: /^Templates/ }).click();
+      await expect(page).toHaveURL(`${APP_ORIGIN}/admin/library/templates`);
+      await expect(library.locator('[aria-current="page"]')).toHaveText(/^Templates · \d+$/);
+      await expect(mainNav(page).locator('[aria-current="page"]')).toHaveText("Business");
+      await page.getByRole("main").getByRole("link", { name: "Business", exact: true }).click();
+      await expect(page).toHaveURL(`${APP_ORIGIN}/admin/business`);
 
       await mainNav(page).getByRole("link", { name: "Me" }).click();
       await expect(page).toHaveURL(`${APP_ORIGIN}/app/me`);
@@ -248,12 +252,12 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(tabBar(page)).toBeHidden();
 
       await mainNav(page).getByRole("link", { name: "People" }).click();
-      await expect(page).toHaveURL(`${APP_ORIGIN}/admin/invitations`);
-      const people = page.getByRole("navigation", { name: "People" });
-      await expect(people.getByRole("link")).toHaveText(["Invitations", "Support"]);
-      await people.getByRole("link", { name: "Support" }).click();
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Researcher support");
+      await expect(page).toHaveURL(`${APP_ORIGIN}/admin/people`);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("People");
       await expect(mainNav(page).locator('[aria-current="page"]')).toHaveText("People");
+      // The old Invitations and Support pages now land on People.
+      await page.goto(`${APP_ORIGIN}/admin/support`);
+      await expect(page).toHaveURL(`${APP_ORIGIN}/admin/people`);
 
       await mainNav(page).getByRole("link", { name: "Overview" }).click();
       await expect(page).toHaveURL(`${APP_ORIGIN}/admin/business`);
@@ -278,7 +282,7 @@ test("a researcher never sees Business and is refused the admin area and the gal
   await signInAs(page, APP_ORIGIN, RESEARCHER.email);
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
   await expect(mainNav(page).getByRole("link", { name: "Overview" })).toHaveCount(0);
-  for (const path of ["/admin", "/admin/inventory", "/admin/invitations", "/admin/design"]) {
+  for (const path of ["/admin", "/admin/inventory", "/admin/invitations", "/admin/people", "/admin/library", "/admin/library/templates", "/admin/design"]) {
     await page.goto(`${APP_ORIGIN}${path}`);
     await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
     await expectNav(page, RESEARCHER_SIDEBAR, "Today");

@@ -1,5 +1,6 @@
-// S2 journeys: invitations (A1), invitation acceptance, sign in, recovery and
-// sign out (C1), against the real local Supabase and its Mailpit inbox.
+// S2 journeys: invitations (V7 D8 People on a laptop), invitation acceptance,
+// sign in, recovery and sign out (C1), against the real local Supabase and
+// its Mailpit inbox.
 import { expect, test, type Page } from "@playwright/test";
 import { APP_ORIGIN } from "../../playwright.config";
 import {
@@ -22,21 +23,23 @@ test.beforeAll(async () => {
   await ensureAccount({ ...RESEARCHER, role: "researcher" });
 });
 
-// The inline form error (Next.js adds its own empty route-announcer alert).
-const alert = (page: Page) => page.locator('.app-inline-error[role="alert"]');
-const toast = (page: Page) => page.locator(".app-toast");
+// D8's invite card, its inline error and the toast.
+const inviteForm = (page: Page) => page.getByTestId("invite-form-card");
+const alert = (page: Page) => inviteForm(page).getByRole("alert");
+const toast = (page: Page) => page.locator('[data-slot="toast"]');
 // Sign-in, recovery and joining are design v3 (V4): their form error and toast.
 const formError = (page: Page) => page.getByTestId("form-error");
 const v3Toast = (page: Page) => page.locator('[data-slot="toast"]');
-const row = (page: Page, email: string) => page.getByTestId("invitation-row").filter({ hasText: email });
+const row = (page: Page, email: string) => page.getByTestId("person-line").filter({ hasText: email });
+const status = (page: Page, email: string) => row(page, email).getByTestId("person-status");
 /** The given emails in the order their rows are listed (a missing row is left out). */
 const rowOrder = async (page: Page, emails: string[]) =>
-  (await page.getByTestId("invitation-row").allTextContents()).flatMap((text) => emails.filter((email) => text.includes(email)));
+  (await page.getByTestId("person-line").allTextContents()).flatMap((text) => emails.filter((email) => text.includes(email)));
 
 async function invite(page: Page, name: string, email: string) {
-  await (await hydrated(page.getByLabel("Name"))).fill(name);
-  await page.getByLabel("Email").fill(email);
-  await page.getByRole("button", { name: "Send invitation" }).click();
+  await (await hydrated(inviteForm(page).getByLabel("Name", { exact: true }))).fill(name);
+  await inviteForm(page).getByLabel("Email", { exact: true }).fill(email);
+  await inviteForm(page).getByTestId("send-invitation").click();
 }
 
 async function signOut(page: Page) {
@@ -52,15 +55,16 @@ test("admin invites; the researcher accepts, sets a password, acknowledges and r
   const email = uniqueEmail("e2e-invitee");
   await signInAs(page, APP_ORIGIN, ADMIN.email);
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
-  await page.goto(`${APP_ORIGIN}/admin/invitations`);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Researcher invitations");
+  await page.setViewportSize({ width: 1280, height: 820 });
+  await page.goto(`${APP_ORIGIN}/admin/people`);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("People");
 
   await invite(page, "Jordan Reyes", "not-an-email");
   await expect(alert(page)).toHaveText("Enter a valid email address.");
   await invite(page, "Jordan Reyes", email.toUpperCase());
-  await expect(toast(page)).toHaveText(`Invitation sent to ${email}`);
+  await expect(toast(page)).toContainText(`Invitation sent to ${email}`);
   await expect(row(page, email)).toContainText("Jordan Reyes");
-  await expect(row(page, email)).toContainText("Pending");
+  await expect(status(page, email)).toHaveText(/^Invited · expires \w{3} \d+$/);
   await invite(page, "Jordan Reyes", email);
   await expect(alert(page)).toHaveText(`${email} already has a pending invitation.`);
 
@@ -110,14 +114,16 @@ test("admin invites; the researcher accepts, sets a password, acknowledges and r
   await expect(v3Toast(researcher)).toHaveCount(0);
 
   // A researcher cannot open admin screens; the used link now says so.
-  await researcher.goto(`${APP_ORIGIN}/admin/invitations`);
+  await researcher.goto(`${APP_ORIGIN}/admin/people`);
   await expect(researcher).toHaveURL(`${APP_ORIGIN}/app/today`);
   await researcher.goto(link!);
   await expect(researcher.getByRole("heading", { level: 1 })).toHaveText("This invitation was already used");
   await expect(researcher.getByText(`An account for ${email} already exists.`)).toBeVisible();
 
+  // Accepted: the invitation becomes the researcher's account, private until they share.
   await page.reload();
-  await expect(row(page, email)).toContainText("Accepted");
+  await expect(row(page, email)).toHaveAttribute("data-kind", "account");
+  await expect(status(page, email)).toHaveText("Private");
   await invite(page, "Jordan Reyes", email);
   await expect(alert(page)).toHaveText(`${email} already has an account. They can sign in or recover access.`);
 
@@ -153,17 +159,18 @@ test("expired, unknown and failed invitations; resend", async ({ page }) => {
 
   await signInAs(page, APP_ORIGIN, ADMIN.email);
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
-  await page.goto(`${APP_ORIGIN}/admin/invitations`);
-  await expect(row(page, expiredEmail).locator('[data-state="expired"]')).toHaveText("Expired");
-  await expect(row(page, expiredEmail).locator('[data-state="expired"]')).toHaveCSS("color", "rgb(251, 191, 36)");
-  await expect(row(page, failedEmail).locator('[data-state="failed"]')).toHaveText("Send failed");
-  await expect(row(page, failedEmail).locator('[data-state="failed"]')).toHaveCSS("color", "rgb(248, 113, 113)");
+  await page.setViewportSize({ width: 1280, height: 820 });
+  await page.goto(`${APP_ORIGIN}/admin/people`);
+  await expect(status(page, expiredEmail)).toHaveText(/^Invite expired \w{3} \d+$/);
+  await expect(status(page, expiredEmail)).toHaveAttribute("data-tone", "expired");
+  await expect(status(page, failedEmail)).toHaveText("Invite not sent");
+  await expect(status(page, failedEmail)).toHaveAttribute("data-tone", "failed");
   // Newest first by the "Sent" date.
   await expect.poll(() => rowOrder(page, [failedEmail, expiredEmail])).toEqual([failedEmail, expiredEmail]);
 
   await (await hydrated(row(page, failedEmail).getByRole("button", { name: "Resend" }))).click();
-  await expect(toast(page)).toHaveText(`Invitation resent to ${failedEmail}`);
-  await expect(row(page, failedEmail)).toContainText("Pending");
+  await expect(toast(page)).toContainText(`Invitation resent to ${failedEmail}`);
+  await expect(status(page, failedEmail)).toHaveText(/^Invited · expires \w{3} \d+$/);
   await expect(row(page, failedEmail).getByRole("button", { name: "Resend" })).toHaveCount(0);
   const resent = await latestEmail(failedEmail);
   expect(resent.text).toContain("You've been invited to Alpha PR Labs Research.");
@@ -171,7 +178,7 @@ test("expired, unknown and failed invitations; resend", async ({ page }) => {
   for (const part of [resent.subject, resent.text, resent.html]) expect(part).not.toContain("Marco");
 
   await row(page, expiredEmail).getByRole("button", { name: "Resend" }).click();
-  await expect(row(page, expiredEmail)).toContainText("Pending");
+  await expect(status(page, expiredEmail)).toHaveText(/^Invited · expires \w{3} \d+$/);
   // Resending moves the older invitation above the newer one.
   await expect.poll(() => rowOrder(page, [failedEmail, expiredEmail])).toEqual([expiredEmail, failedEmail]);
   // The old link died with the resend.

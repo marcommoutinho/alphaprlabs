@@ -175,7 +175,8 @@ describe("researcher-callable functions name no one", () => {
         and pg_get_function_result(p.oid) ~* '(name|email)';
     `);
     // Each refuses a researcher (support-history.test.ts; V5's in business-overview.test.ts; V6's in
-    // records.test.ts), except template_peptides, whose names are peptides'.
+    // records.test.ts; V7's in admin-content.test.ts and people.test.ts), except template_peptides,
+    // whose names are peptides'.
     expect(out.functions.split(",")).toEqual([
       "admin_business_ledger_month_items",
       "admin_business_ledger_purchases",
@@ -185,6 +186,9 @@ describe("researcher-callable functions name no one", () => {
       "admin_business_seller_totals",
       "admin_business_stock",
       "admin_business_stock_levels",
+      "admin_content_last_change",
+      "admin_library_entries",
+      "admin_people",
       "admin_support_researchers",
       "business_buyer_accounts",
       "business_sellers",
