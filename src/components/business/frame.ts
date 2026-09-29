@@ -6,8 +6,11 @@ export const BUSINESS_MAIN =
 
 export const BUSINESS_PATH = "/admin/business";
 export const STOCK_HREF = "/admin/inventory";
-/** The record forms (V6 rebuilds them as A4 / A5 and the laptop drawers). */
-export const SALE_HREF = "/admin/inventory/sale";
-export const PURCHASE_HREF = "/admin/inventory/purchase";
-/** The sales list with every filter and the per-seller totals (Ledger until V6 rebuilds it). */
-export const SALES_HREF = "/admin/sales";
+/** A7 / A14 / D5 Ledger: every sale and purchase, by day or month (V6). */
+export const LEDGER_HREF = "/admin/ledger";
+/** "All sales": the Ledger's Sales tab. */
+export const SALES_HREF = LEDGER_HREF;
+/** The Ledger's Purchases tab. */
+export const PURCHASES_HREF = `${LEDGER_HREF}?tab=purchases`;
+/** Outside buyers' sales, to link to an account. */
+export const OUTSIDE_HREF = "/admin/sales/outside";

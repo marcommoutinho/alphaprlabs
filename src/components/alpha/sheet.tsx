@@ -67,8 +67,13 @@ export function SheetContent({
   /** Mono 13 line above the title ("Due 9:00 AM · Thu"), coloured by state. */
   context?: React.ReactNode;
   contextTone?: "default" | "signal" | "missed";
-  /** Full sheets start 62 px from the top; auto sheets fit their content. */
-  size?: "full" | "auto";
+  /**
+   * Full sheets start 62 px from the top; auto sheets fit their content.
+   * Screen: a full-screen modal on the phone (A4 / A5: a nav bar with
+   * Cancel, the title and the context in mono under it), the same drawer
+   * as the others on a laptop.
+   */
+  size?: "full" | "auto" | "screen";
   /** Pinned above the home indicator: an outline + a primary, or one primary. */
   footer?: React.ReactNode;
   className?: string;
@@ -82,6 +87,27 @@ export function SheetContent({
       <Drawer.Viewport className="alpha-sheet-viewport">
         <Drawer.Popup className={cn("alpha-sheet", className)} data-size={size}>
           <div className="alpha-sheet-grabber" aria-hidden />
+          {size === "screen" ? (
+            <div className="grid h-[52px] shrink-0 grid-cols-[1fr_auto_1fr] items-center px-5 laptop:flex laptop:h-auto laptop:items-center laptop:gap-3 laptop:px-6 laptop:pt-5 laptop:pb-2">
+              <Drawer.Close className="cursor-pointer justify-self-start text-[17px] text-signal-ink laptop:hidden">Cancel</Drawer.Close>
+              <div className="flex min-w-0 flex-col text-center laptop:flex-1 laptop:flex-col-reverse laptop:text-left">
+                <Drawer.Title className="text-[17px] font-semibold laptop:mt-0.5 laptop:text-[24px] laptop:leading-[1.15] laptop:tracking-[-0.025em]">
+                  {title}
+                </Drawer.Title>
+                {context ? (
+                  <div className="font-mono text-[12px] text-ink-3 laptop:text-[13px] laptop:font-medium" data-testid="sheet-context">
+                    {context}
+                  </div>
+                ) : null}
+              </div>
+              <Drawer.Close
+                aria-label="Close"
+                className="hidden size-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-sunken text-ink laptop:flex"
+              >
+                <X className="size-[18px]" aria-hidden />
+              </Drawer.Close>
+            </div>
+          ) : (
           <div className="flex items-start gap-3 px-5 pt-3 pb-2 laptop:items-center laptop:px-6 laptop:pt-5">
             <div className="min-w-0 flex-1">
               {leading ? <div className="mb-3.5">{leading}</div> : null}
@@ -108,6 +134,7 @@ export function SheetContent({
               <X className="size-[18px]" aria-hidden />
             </Drawer.Close>
           </div>
+          )}
           <Drawer.Content className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3.5 laptop:px-6">
             {children}
           </Drawer.Content>

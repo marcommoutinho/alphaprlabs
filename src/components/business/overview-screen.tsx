@@ -29,7 +29,8 @@ import type { SaleRecord } from "@/lib/inventory/service";
 import { cn } from "@/lib/utils";
 import { DayBars, MonthAxis, MonthBars, MonthLegend, PurchaseBars, ShareBar, SplitBar, Swatch } from "./charts";
 import { Fit, longest } from "./fit";
-import { BUSINESS_MAIN, PURCHASE_HREF, SALE_HREF, SALES_HREF, STOCK_HREF } from "./frame";
+import { RecordButton } from "@/components/records/record-provider";
+import { BUSINESS_MAIN, SALES_HREF, STOCK_HREF } from "./frame";
 import { MonthByMonth } from "./month-by-month";
 import { PeriodControl } from "./period-control";
 import { StockNavCount } from "./stock-nav-count";
@@ -122,12 +123,12 @@ function LaptopHeader({ period, today }: { period: Period; today: string }) {
         </a>
       ) : (
         <>
-          <Link href={PURCHASE_HREF} className={cn(buttonVariants({ variant: "outline", size: "sm" }), "rounded-[12px] text-[14px]")}>
+          <RecordButton kind="purchase" variant="outline" size="sm" className="rounded-[12px] text-[14px]">
             Record purchase
-          </Link>
-          <Link href={SALE_HREF} className={cn(buttonVariants({ variant: "primary", size: "sm" }), "rounded-[12px] text-[14px]")}>
+          </RecordButton>
+          <RecordButton kind="sale" variant="primary" size="sm" className="rounded-[12px] text-[14px]">
             Record sale
-          </Link>
+          </RecordButton>
         </>
       )}
     </header>
@@ -210,13 +211,13 @@ function PeriodPhone({
       </NowBlock>
 
       <div className="mx-3 mt-3 grid grid-cols-2 gap-2">
-        <Link href={SALE_HREF} className={cn(buttonVariants({ variant: "primary", size: "lg" }), "gap-1.5 text-base")}>
+        <RecordButton kind="sale" variant="primary" size="lg" className="gap-1.5 text-base">
           <Plus className="size-[18px]" aria-hidden />
           Record sale
-        </Link>
-        <Link href={PURCHASE_HREF} className={cn(buttonVariants({ variant: "outline", size: "lg" }), "text-base")}>
+        </RecordButton>
+        <RecordButton kind="purchase" variant="outline" size="lg" className="text-base">
           Record purchase
-        </Link>
+        </RecordButton>
       </div>
 
       <div className="mx-3 mt-3 grid grid-cols-2 gap-2">

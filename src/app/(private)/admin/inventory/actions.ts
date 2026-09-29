@@ -8,14 +8,11 @@ import { currentAdmin } from "@/lib/auth/session";
 import { usdCadRate } from "@/lib/inventory/fx";
 import {
   ACCOUNT_REQUIRED,
-  calendarDate,
   convertUsdPurchase,
   PURCHASE_DATE_FUTURE,
-  PURCHASE_DATE_REQUIRED,
   SALE_ALREADY_RECORDED,
   SALE_DATE_FUTURE,
   SELLER_NOT_ADMIN,
-  stockChangedMessage,
   validateLink,
   validatePurchase,
   validateSale,
@@ -27,14 +24,13 @@ import { linkSale } from "@/lib/inventory/sellers";
 import {
   businessToday,
   FX_SAVE_UNAVAILABLE,
-  FX_UNAVAILABLE,
   fxNoRateMessage,
   purchaseAlreadyRecordedToast,
-  purchaseRecordedToast,
-  saleRecordedToast,
   SUBMISSION_CONFLICT,
   vials,
 } from "@/lib/inventory/screens";
+import { onlyOnHand, purchaseRecordedToast, saleRecordedToast, SAVE_UNSURE, STOCK_CHANGED } from "@/lib/records/forms";
+import { usdRatePreview, type UsdRatePreview } from "@/lib/records/rate";
 import {
   getSale,
   purchaseByKey,
@@ -53,8 +49,20 @@ export type InventoryActionResult = {
   error?: string;
   toast?: string;
   tone?: ToastTone;
-  /** Recorded (or already recorded by this same submission): open this stock item. */
+  /** Recorded (or already recorded by this same submission): this stock item. */
   stockItemId?: string;
+  /**
+   * No answer from the database, or one it doesn't define: it may have been
+   * recorded. The sheet keeps the request key, so Retry (or Record with the
+   * same entry) replays it and never records twice.
+   */
+  unsure?: boolean;
+  /**
+   * Refused: the stock is not what the preview showed (sold or bought in
+   * between, AP037), or there are fewer vials on hand than asked (AP001).
+   * Nothing was recorded; the sheet asks for a new preview.
+   */
+  stockChanged?: { onHand: number };
 };
 
 /**
@@ -68,7 +76,7 @@ export type InventoryActionResult = {
 function revalidateStock(stockItemId: string) {
   revalidatePath(`/admin/inventory/${stockItemId}`);
   revalidatePath("/admin/inventory");
-  revalidatePath("/admin/sales");
+  revalidatePath("/admin/ledger");
   revalidatePath("/admin/business");
 }
 
@@ -84,7 +92,7 @@ const PEPTIDE_GONE = "This peptide is no longer in the library. The list has bee
  */
 export async function recordPurchaseAction(input: unknown): Promise<InventoryActionResult> {
   const admin = await currentAdmin();
-  if (!admin) redirect(signInUrl({ next: "/admin/inventory/purchase" }));
+  if (!admin) redirect(signInUrl({ next: "/admin/ledger?tab=purchases" }));
 
   const today = businessToday();
   const valid = validatePurchase(input, today);
@@ -118,11 +126,7 @@ export async function recordPurchaseAction(input: unknown): Promise<InventoryAct
         recorded ??= valid.value.currency === "USD" ? await purchaseByKey(db, valid.value.idempotencyKey) : null;
         return { stockItemId: result.stockItemId, toast: purchaseAlreadyRecordedToast(recorded), tone: "warn" };
       }
-      return {
-        stockItemId: result.stockItemId,
-        toast: purchaseRecordedToast(purchase.quantity, purchase.unitCost, purchase.usd?.usdUnitCost),
-        tone: "info",
-      };
+      return { stockItemId: result.stockItemId, toast: purchaseRecordedToast(purchase), tone: "info" };
     case "future_date":
       return { error: PURCHASE_DATE_FUTURE };
     case "rate_changed":
@@ -135,6 +139,8 @@ export async function recordPurchaseAction(input: unknown): Promise<InventoryAct
       return { toast: PEPTIDE_GONE };
     case "conflict":
       return { toast: SUBMISSION_CONFLICT };
+    case "unsure":
+      return { error: SAVE_UNSURE, unsure: true };
     default:
       return { toast: SAVE_FAILED };
   }
@@ -163,24 +169,16 @@ async function recordNewUsdPurchase(
   return attempt!;
 }
 
-export type UsdRatePreview = { rate?: string; rateDate?: string; error?: string };
-
 /**
- * A5 USD preview: the Bank of Canada rate for a date received, fetched on the
- * server through the same module the save uses (fx.ts). Display only: saving
- * fetches the rate again and converts on the server.
+ * A5 USD rate card: the stored Bank of Canada rate for a date received
+ * (lib/records/rate.ts, the lookup the save makes). The sheet reads it from
+ * GET /admin/records/rate; this is the same answer as a Server Function.
  */
 export async function usdRatePreviewAction(receivedOn: unknown): Promise<UsdRatePreview> {
   const admin = await currentAdmin();
-  if (!admin) redirect(signInUrl({ next: "/admin/inventory/purchase" }));
-
-  const today = businessToday();
-  const date = calendarDate(receivedOn);
-  if (!date) return { error: PURCHASE_DATE_REQUIRED };
-  if (date > today) return { error: PURCHASE_DATE_FUTURE };
-  const fx = await usdCadRate(date);
-  if (!fx.ok) return { error: fx.reason === "no_rate" ? fxNoRateMessage(date) : FX_UNAVAILABLE };
-  return { rate: fx.rate, rateDate: fx.rateDate };
+  if (!admin) redirect(signInUrl({ next: "/admin/ledger?tab=purchases" }));
+  const { rate, rateDate, error } = await usdRatePreview(receivedOn);
+  return error ? { error } : { rate, rateDate };
 }
 
 /**
@@ -191,7 +189,7 @@ export async function usdRatePreviewAction(receivedOn: unknown): Promise<UsdRate
  */
 export async function recordSaleAction(input: unknown): Promise<InventoryActionResult> {
   const admin = await currentAdmin();
-  if (!admin) redirect(signInUrl({ next: "/admin/inventory/sale" }));
+  if (!admin) redirect(signInUrl({ next: "/admin/ledger" }));
 
   const valid = validateSale(input, businessToday());
   if (!valid.ok) return { error: valid.error };
@@ -206,8 +204,9 @@ export async function recordSaleAction(input: unknown): Promise<InventoryActionR
       return { stockItemId, toast: await recordedSaleToast(db, result.saleId, valid.value.quantity), tone: "info" };
     }
     case "insufficient":
-      refresh();
-      return { error: stockChangedMessage(result.onHand) };
+      return { error: onlyOnHand(result.onHand), stockChanged: { onHand: result.onHand } };
+    case "stock_changed":
+      return { error: STOCK_CHANGED, stockChanged: { onHand: result.onHand } };
     case "future_date":
       return { error: SALE_DATE_FUTURE };
     case "unknown_buyer":
@@ -221,6 +220,8 @@ export async function recordSaleAction(input: unknown): Promise<InventoryActionR
       return { toast: ITEM_GONE };
     case "conflict":
       return { toast: SUBMISSION_CONFLICT };
+    case "unsure":
+      return { error: SAVE_UNSURE, unsure: true };
     default:
       return { toast: SAVE_FAILED };
   }
@@ -237,7 +238,7 @@ export type LinkActionResult = { error?: string; toast?: string; tone?: ToastTon
  */
 export async function linkSaleAction(input: unknown): Promise<LinkActionResult> {
   const admin = await currentAdmin();
-  if (!admin) redirect(signInUrl({ next: "/admin/sales" }));
+  if (!admin) redirect(signInUrl({ next: "/admin/sales/outside" }));
 
   const valid = validateLink(input);
   if (!valid.ok) return { error: valid.error };
@@ -248,7 +249,7 @@ export async function linkSaleAction(input: unknown): Promise<LinkActionResult> 
     case "linked": {
       // Every stock item page (the pattern, with its route group: Next 16.2 docs, revalidatePath).
       revalidatePath("/(private)/admin/inventory/[itemId]", "page");
-      revalidatePath("/admin/sales");
+      revalidatePath("/admin/ledger");
       revalidatePath("/admin/sales/outside");
       // Overview's recent sales name the buyer.
       revalidatePath("/admin/business");

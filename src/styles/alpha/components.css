@@ -56,6 +56,18 @@
   height: calc(100dvh - 62px);
 }
 
+/* A4 / A5 on the phone: a full-screen modal with its own nav bar (Cancel · title · date). */
+.alpha-sheet[data-size="screen"] {
+  height: 100dvh;
+  max-height: none;
+  border-radius: 0;
+  padding-top: env(safe-area-inset-top);
+}
+
+.alpha-sheet[data-size="screen"] > .alpha-sheet-grabber {
+  display: none;
+}
+
 .alpha-sheet[data-swiping] {
   transition: none;
   user-select: none;
@@ -92,11 +104,13 @@
   }
 
   .alpha-sheet,
-  .alpha-sheet[data-size="full"] {
+  .alpha-sheet[data-size="full"],
+  .alpha-sheet[data-size="screen"] {
     width: 420px;
     height: 100dvh;
     max-height: none;
     border-radius: 0;
+    padding-top: 0;
     box-shadow: var(--drawer-shadow);
     transform: translateX(var(--drawer-swipe-movement-x, 0px));
   }

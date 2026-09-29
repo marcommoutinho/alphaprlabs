@@ -10,7 +10,7 @@ const eslintConfig = defineConfig([
   {
     files: [
       "src/app/(private)/**/*.{ts,tsx}",
-      "src/components/{admin,alpha,app-shell,auth,push,research}/**/*.{ts,tsx}",
+      "src/components/{admin,alpha,app-shell,auth,push,records,research}/**/*.{ts,tsx}",
     ],
     ignores: ["src/components/alpha/link.tsx"],
     rules: {

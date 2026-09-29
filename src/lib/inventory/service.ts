@@ -417,16 +417,30 @@ const REFUSED = {
   // 20260927160000_sellers_admin_invites.sql
   AP029: "seller_not_admin",
   AP030: "not_linkable",
+  // 20260929100000_records.sql: the sale would freeze other lots than its preview showed.
+  AP037: "stock_changed",
 } as const;
 export type Refusal = (typeof REFUSED)[keyof typeof REFUSED] | "error";
 export const refusal = (code: string | undefined): Refusal => REFUSED[code as keyof typeof REFUSED] ?? "error";
 
+/**
+ * The record functions' refusals (nothing was written), or "unsure": no
+ * answer from the database (a dropped connection, a gateway error, a
+ * timeout) or an error they don't define. It may have committed, so the
+ * caller retries with the same idempotency key (a replay), never a new one
+ * (V5's rule: src/lib/business/service.ts).
+ */
+const recordOutcome = (code: string | undefined): Refusal | "unsure" => {
+  const kind = refusal(code);
+  return kind === "error" ? "unsure" : kind;
+};
+
 /** Refusals only a sale or a link can meet: a purchase maps them to "error". */
-type SaleOnly = "insufficient" | "unknown_buyer" | "seller_not_admin" | "not_linkable";
+type SaleOnly = "insufficient" | "unknown_buyer" | "seller_not_admin" | "not_linkable" | "stock_changed";
 
 export type PurchaseResult =
   | { kind: "recorded"; purchaseId: string; stockItemId: string; replayed: boolean }
-  | { kind: Exclude<Refusal, SaleOnly> };
+  | { kind: Exclude<Refusal, SaleOnly> | "unsure" };
 
 /**
  * A5: records a purchase, creating the stock item for a new peptide/strength.
@@ -441,20 +455,26 @@ export async function recordPurchase(db: Db, purchase: ValidPurchase): Promise<P
     p_received_on: purchase.receivedOn,
     p_quantity: purchase.quantity,
     p_unit_cost: purchase.unitCost,
+    ...(purchase.supplier ? { p_supplier: purchase.supplier } : {}),
     ...(purchase.stockItemId
       ? { p_stock_item_id: purchase.stockItemId }
       : { p_peptide_id: purchase.peptideId ?? undefined, p_strength_mg: purchase.strengthMg ?? undefined }),
   };
-  const { data, error } = await (purchase.usd
-    ? db.rpc("record_business_purchase_fx", {
-        ...common,
-        p_original_currency: "USD",
-        p_original_unit_cost: purchase.usd.usdUnitCost,
-        p_fx_rate: purchase.usd.rate,
-        p_fx_rate_date: purchase.usd.rateDate,
-      })
-    : db.rpc("record_business_purchase", common)
-  ).single();
+  // One path for both currencies (20260929100000_records.sql): CAD has no conversion.
+  const { data, error } = await db
+    .rpc(
+      "record_business_purchase_fx",
+      purchase.usd
+        ? {
+            ...common,
+            p_original_currency: "USD",
+            p_original_unit_cost: purchase.usd.usdUnitCost,
+            p_fx_rate: purchase.usd.rate,
+            p_fx_rate_date: purchase.usd.rateDate,
+          }
+        : { ...common, p_original_currency: "CAD" },
+    )
+    .single();
   return purchaseResult(data, error);
 }
 
@@ -463,9 +483,9 @@ function purchaseResult(
   error: { code?: string } | null,
 ): PurchaseResult {
   if (error || !data) {
-    const kind = refusal(error?.code);
-    const saleOnly: readonly Refusal[] = ["insufficient", "unknown_buyer", "seller_not_admin", "not_linkable"];
-    return { kind: saleOnly.includes(kind) ? "error" : (kind as Exclude<Refusal, SaleOnly>) };
+    const kind = recordOutcome(error?.code);
+    const saleOnly: readonly (Refusal | "unsure")[] = ["insufficient", "unknown_buyer", "seller_not_admin", "not_linkable", "stock_changed"];
+    return { kind: saleOnly.includes(kind) ? "error" : (kind as Exclude<Refusal, SaleOnly> | "unsure") };
   }
   return { kind: "recorded", purchaseId: data.purchase_id, stockItemId: data.stock_item_id, replayed: data.replayed };
 }
@@ -522,6 +542,7 @@ export async function replayUsdPurchase(db: Db, entry: UsdPurchaseEntry): Promis
       p_quantity: entry.quantity,
       p_original_currency: "USD",
       p_original_unit_cost: entry.usdUnitCost,
+      ...(entry.supplier ? { p_supplier: entry.supplier } : {}),
       ...(entry.stockItemId
         ? { p_stock_item_id: entry.stockItemId }
         : { p_peptide_id: entry.peptideId ?? undefined, p_strength_mg: entry.strengthMg ?? undefined }),
@@ -532,8 +553,8 @@ export async function replayUsdPurchase(db: Db, entry: UsdPurchaseEntry): Promis
 
 export type SaleResult =
   | { kind: "recorded"; saleId: string; replayed: boolean }
-  | { kind: "insufficient"; onHand: number }
-  | { kind: Exclude<Refusal, "insufficient" | "unknown_peptide" | "rate_changed" | "not_linkable"> };
+  | { kind: "insufficient" | "stock_changed"; onHand: number }
+  | { kind: Exclude<Refusal, "insufficient" | "stock_changed" | "unknown_peptide" | "rate_changed" | "not_linkable"> | "unsure" };
 
 /**
  * A6: records a sale with its FIFO allocation, revenue and cost frozen, in one
@@ -557,11 +578,14 @@ export async function recordSale(db: Db, sale: ValidSale): Promise<SaleResult> {
       p_unit_price: sale.unitPrice,
       p_seller_id: sale.sellerId,
       ...(sale.buyer.type === "account" ? { p_buyer_profile_id: sale.buyer.profileId } : { p_buyer_name: sale.buyer.name }),
+      ...(sale.expectedAllocation
+        ? { p_expected_allocation: sale.expectedAllocation.map((lot) => ({ purchase_id: lot.purchaseId, quantity: lot.quantity })) }
+        : {}),
     })
     .single();
   if (error) {
-    const kind = refusal(error.code);
-    if (kind === "insufficient") return { kind, onHand: Number(error.details) || 0 };
+    const kind = recordOutcome(error.code);
+    if (kind === "insufficient" || kind === "stock_changed") return { kind, onHand: Number(error.details) || 0 };
     return { kind: kind === "unknown_peptide" || kind === "rate_changed" || kind === "not_linkable" ? "error" : kind };
   }
   return { kind: "recorded", saleId: data.sale_id, replayed: data.replayed };

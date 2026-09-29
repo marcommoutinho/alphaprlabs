@@ -18,7 +18,7 @@
 import Decimal from "decimal.js";
 import { Dec, normalizeDecimal } from "@/lib/calculator/decimal";
 
-export const INVENTORY_LIMITS = { vials: 100_000, amount: "1000000", buyerName: 120 } as const;
+export const INVENTORY_LIMITS = { vials: 100_000, amount: "1000000", buyerName: 120, supplier: 120 } as const;
 
 // A5 Record purchase (handoff copy, first failure wins).
 export const PURCHASE_ITEM_REQUIRED = "Choose a stock item.";
@@ -50,6 +50,9 @@ export const AMOUNT_TOO_LARGE = "Amounts can be at most CAD 1,000,000.00 per via
 export const USD_AMOUNT_CENTS = "Enter USD amounts in dollars and cents (at most 2 decimal places).";
 export const USD_AMOUNT_TOO_LARGE = "Amounts can be at most USD 1,000,000.00 per vial.";
 export const BUYER_NAME_TOO_LONG = "The buyer name or reference can be up to 120 characters.";
+// V6 (design v3 A4 / A5).
+export const SUPPLIER_TOO_LONG = "The supplier can be up to 120 characters.";
+export const PREVIEW_INVALID = "The cost preview is out of date. Check it and record again.";
 /** The same submission was already recorded (idempotent replay): a warn toast. */
 export const SALE_ALREADY_RECORDED = "This sale was already recorded a moment ago. No duplicate created.";
 export const PURCHASE_ALREADY_RECORDED = "This purchase was already recorded a moment ago. No duplicate created.";
@@ -87,21 +90,56 @@ export function calendarDate(value: unknown): string | null {
 }
 
 /** Whole vials 1..100,000 (a whole-number string), or the error. */
-function vials(value: unknown): { ok: true; value: number } | { ok: false; error: string } {
+export function parseVials(value: unknown): { ok: true; value: number } | { ok: false; error: string } {
   const raw = text(value);
   if (!/^\d+$/.test(raw) || Number(raw) < 1) return { ok: false, error: VIALS_INVALID };
   if (Number(raw) > INVENTORY_LIMITS.vials) return { ok: false, error: VIALS_TOO_MANY };
   return { ok: true, value: Number(raw) };
 }
+const vials = parseVials;
 
-/** A CAD amount 0..1,000,000.00 with at most 2 decimals, normalized to `12.50`, or the error. */
-function amount(value: unknown, invalid: string): { ok: true; value: string } | { ok: false; error: string } {
-  const raw = text(value);
-  if (!AMOUNT.test(raw)) return { ok: false, error: invalid };
+/**
+ * A CAD amount 0..1,000,000.00 with at most 2 decimals, normalized to
+ * `12.50`, or the error. A comma works as the decimal point ("12,5" = 12.50)
+ * and "1,000"-style grouping is refused rather than guessed (Marco,
+ * 2026-09-26, the calculator's rules: normalizeDecimal), as for USD costs.
+ */
+export function parseCad(value: unknown, invalid: string): { ok: true; value: string } | { ok: false; error: string } {
+  const raw = normalizeDecimal(value);
+  if (raw === null || !AMOUNT.test(raw)) return { ok: false, error: invalid };
   const decimal = new Decimal(raw);
   if (decimal.decimalPlaces() > 2) return { ok: false, error: AMOUNT_CENTS };
   if (decimal.gt(INVENTORY_LIMITS.amount)) return { ok: false, error: AMOUNT_TOO_LARGE };
   return { ok: true, value: decimal.toFixed(2) };
+}
+const amount = parseCad;
+
+/** A purchase's supplier as typed: trimmed, blank as none (null), at most 120 characters. */
+export function parseSupplier(value: unknown): { ok: true; value: string | null } | { ok: false; error: string } {
+  const raw = text(value);
+  if (!raw) return { ok: true, value: null };
+  if (raw.length > INVENTORY_LIMITS.supplier) return { ok: false, error: SUPPLIER_TOO_LONG };
+  return { ok: true, value: raw };
+}
+
+/** The lots a sale's preview showed, in FIFO order: what the sale must freeze (A4 / D4). */
+export type ExpectedLot = { purchaseId: string; quantity: number };
+
+/** The preview's lots sent with a sale, or null when none were sent (an older caller); undefined when malformed. */
+function expectedLots(value: unknown): ExpectedLot[] | null | undefined {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value)) return undefined;
+  const lots: ExpectedLot[] = [];
+  for (const entry of value) {
+    const raw = (typeof entry === "object" && entry !== null ? entry : {}) as Record<string, unknown>;
+    const purchaseId = uuid(raw.purchaseId);
+    const quantity = raw.quantity;
+    if (!purchaseId || typeof quantity !== "number" || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > INVENTORY_LIMITS.vials) {
+      return undefined;
+    }
+    lots.push({ purchaseId, quantity });
+  }
+  return lots;
 }
 
 /** A vial strength in mg above 0, at most 3 decimals and 100,000 mg, as `8` or `2.5`; or null. */
@@ -153,6 +191,8 @@ export type ValidPurchase = {
   /** A purchase entered in USD: how `unitCost` was converted. */
   usd?: UsdConversion;
   currency?: undefined;
+  /** Who it was bought from (trimmed), or null: optional (V6). */
+  supplier?: string | null;
 };
 
 /** A validated USD purchase before its rate is known (the server fetches it: fx.ts). */
@@ -171,7 +211,7 @@ export function convertUsdPurchase(
 ): { ok: true; value: ValidPurchase } | { ok: false; error: string } {
   const unitCost = usdToCad(entry.usdUnitCost, fx.rate);
   if (new Decimal(unitCost).gt(INVENTORY_LIMITS.amount)) return { ok: false, error: AMOUNT_TOO_LARGE };
-  const { idempotencyKey, stockItemId, peptideId, strengthMg, receivedOn, quantity, usdUnitCost } = entry;
+  const { idempotencyKey, stockItemId, peptideId, strengthMg, receivedOn, quantity, usdUnitCost, supplier } = entry;
   return {
     ok: true,
     value: {
@@ -183,6 +223,7 @@ export function convertUsdPurchase(
       quantity,
       unitCost,
       usd: { usdUnitCost, rate: fx.rate, rateDate: fx.rateDate },
+      supplier: supplier ?? null,
     },
   };
 }
@@ -228,7 +269,9 @@ export function validatePurchase(input: unknown, today: string): { ok: true; val
   if (!unitCost.ok) return unitCost;
   const strengthMg = isNew ? vialStrength(raw.strengthMg) : null;
   if (isNew && !strengthMg) return { ok: false, error: PURCHASE_STRENGTH_INVALID };
-  const purchase = { idempotencyKey, stockItemId, peptideId, strengthMg, receivedOn, quantity: quantity.value };
+  const supplier = parseSupplier(raw.supplier);
+  if (!supplier.ok) return supplier;
+  const purchase = { idempotencyKey, stockItemId, peptideId, strengthMg, receivedOn, quantity: quantity.value, supplier: supplier.value };
   return {
     ok: true,
     value: currency === "USD" ? { ...purchase, currency, usdUnitCost: unitCost.value } : { ...purchase, unitCost: unitCost.value },
@@ -244,6 +287,8 @@ export type ValidSale = {
   /** The admin who made the sale (required; the database checks they are a current admin). */
   sellerId: string;
   buyer: { type: "account"; profileId: string } | { type: "outside"; name: string };
+  /** The lots the preview showed (A4 / D4); the database refuses the sale if it would freeze others. Null: not checked. */
+  expectedAllocation?: ExpectedLot[] | null;
 };
 
 /**
@@ -280,9 +325,11 @@ export function validateSale(input: unknown, today: string): { ok: true; value: 
   } else {
     return { ok: false, error: BUYER_TYPE_REQUIRED };
   }
+  const expectedAllocation = expectedLots(raw.expectedAllocation);
+  if (expectedAllocation === undefined) return { ok: false, error: PREVIEW_INVALID };
   return {
     ok: true,
-    value: { idempotencyKey, stockItemId, soldOn, sellerId, quantity: quantity.value, unitPrice: unitPrice.value, buyer },
+    value: { idempotencyKey, stockItemId, soldOn, sellerId, quantity: quantity.value, unitPrice: unitPrice.value, buyer, expectedAllocation },
   };
 }
 

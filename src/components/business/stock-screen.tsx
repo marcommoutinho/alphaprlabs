@@ -34,7 +34,8 @@ import {
   type ThresholdAttempt,
 } from "@/lib/business/stock";
 import { cn } from "@/lib/utils";
-import { BUSINESS_MAIN, BUSINESS_PATH, PURCHASE_HREF, SALE_HREF } from "./frame";
+import { RecordButton } from "@/components/records/record-provider";
+import { BUSINESS_MAIN, BUSINESS_PATH } from "./frame";
 
 type Filter = "all" | "low";
 
@@ -86,9 +87,9 @@ export function StockScreen({ items, initialFilter }: { items: StockLevel[]; ini
           <ChevronLeft className="size-[26px]" aria-hidden />
           Business
         </Link>
-        <Link href={PURCHASE_HREF} aria-label="Record purchase" className={cn(buttonVariants({ variant: "soft", size: "icon" }))}>
+        <RecordButton kind="purchase" variant="soft" size="icon" aria-label="Record purchase">
           <Plus className="size-5" aria-hidden />
-        </Link>
+        </RecordButton>
       </div>
 
       <header className="px-5 pt-1 laptop:flex laptop:items-end laptop:gap-3 laptop:px-0 laptop:pt-0">
@@ -99,12 +100,12 @@ export function StockScreen({ items, initialFilter }: { items: StockLevel[]; ini
           <h1 className="text-[34px] leading-[1.1] font-semibold tracking-[-0.03em] laptop:mt-0.5">Stock</h1>
         </div>
         <div className="ml-auto hidden gap-3 laptop:flex">
-          <Link href={PURCHASE_HREF} className={cn(buttonVariants({ variant: "outline", size: "sm" }), "rounded-[12px] text-[14px]")}>
+          <RecordButton kind="purchase" variant="outline" size="sm" className="rounded-[12px] text-[14px]">
             Record purchase
-          </Link>
-          <Link href={SALE_HREF} className={cn(buttonVariants({ variant: "primary", size: "sm" }), "rounded-[12px] text-[14px]")}>
+          </RecordButton>
+          <RecordButton kind="sale" variant="primary" size="sm" className="rounded-[12px] text-[14px]">
             Record sale
-          </Link>
+          </RecordButton>
         </div>
       </header>
 
@@ -324,9 +325,9 @@ export function EmptyStockPanel({ className }: { className?: string }) {
       <p className="mt-1.5 text-[15px] leading-[1.45] text-ink-2">
         Record a purchase to add the first peptide and vial strength. Sales can be recorded once there&apos;s stock.
       </p>
-      <Link href={PURCHASE_HREF} className={cn(buttonVariants({ variant: "ink", size: "lg", block: true }), "mt-[18px] text-base")}>
+      <RecordButton kind="purchase" variant="ink" size="lg" className="mt-[18px] w-full text-base">
         Record a purchase
-      </Link>
+      </RecordButton>
     </section>
   );
 }

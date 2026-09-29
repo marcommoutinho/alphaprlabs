@@ -88,6 +88,7 @@ export type Database = {
           recorded_by: string
           recorded_order: number
           stock_item_id: string
+          supplier: string | null
           total_cost: number | null
           unit_cost: number
         }
@@ -105,6 +106,7 @@ export type Database = {
           recorded_by: string
           recorded_order?: never
           stock_item_id: string
+          supplier?: string | null
           total_cost?: number | null
           unit_cost: number
         }
@@ -122,6 +124,7 @@ export type Database = {
           recorded_by?: string
           recorded_order?: never
           stock_item_id?: string
+          supplier?: string | null
           total_cost?: number | null
           unit_cost?: number
         }
@@ -1829,6 +1832,79 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_business_ledger_month_items: {
+        Args: {
+          p_from: string
+          p_kind: string
+          p_seller?: string
+          p_stock_item_id?: string
+          p_to: string
+        }
+        Returns: {
+          cost: string
+          entries: number
+          gross_profit: string
+          month: string
+          no_supplier: number
+          peptide_name: string
+          revenue: string
+          row_key: string
+          stock_item_id: string
+          strength_mg: string
+          supplier: string
+          supplier_count: number
+          total: string
+          vials: number
+        }[]
+      }
+      admin_business_ledger_purchases: {
+        Args: { p_from: string; p_stock_item_id?: string; p_to: string }
+        Returns: {
+          fx_rate: string
+          fx_rate_date: string
+          original_currency: string
+          original_unit_cost: string
+          peptide_name: string
+          purchase_id: string
+          quantity: number
+          received_on: string
+          recorded_at: string
+          sort_key: string
+          stock_item_id: string
+          strength_mg: string
+          supplier: string
+          total_cost: string
+          unit_cost: string
+        }[]
+      }
+      admin_business_ledger_sales: {
+        Args: {
+          p_from: string
+          p_seller?: string
+          p_stock_item_id?: string
+          p_to: string
+        }
+        Returns: {
+          buyer_name: string
+          buyer_profile_id: string
+          buyer_type: string
+          cost: string
+          gross_profit: string
+          original_buyer_name: string
+          peptide_name: string
+          quantity: number
+          recorded_at: string
+          revenue: string
+          sale_id: string
+          seller_id: string
+          seller_name: string
+          sold_on: string
+          sort_key: string
+          stock_item_id: string
+          strength_mg: string
+          unit_price: string
+        }[]
+      }
       admin_business_lots: {
         Args: { p_stock_item_id: string }
         Returns: {
@@ -1879,6 +1955,10 @@ export type Database = {
           supplier_name: string
           total: string
         }[]
+      }
+      admin_business_sale_preview: {
+        Args: { p_quantity: number; p_stock_item_id: string }
+        Returns: Json
       }
       admin_business_sales_by_day: {
         Args: { p_from: string; p_to: string }
@@ -1956,6 +2036,15 @@ export type Database = {
           value_at_cost: string
         }[]
       }
+      admin_business_suppliers: {
+        Args: never
+        Returns: {
+          last_received: string
+          orders: number
+          supplier: string
+          supplier_key: string
+        }[]
+      }
       admin_cycle_template_usage: {
         Args: never
         Returns: {
@@ -2001,6 +2090,16 @@ export type Database = {
         }[]
       }
       business_check_sale: { Args: { p_sale_id: string }; Returns: undefined }
+      business_fifo_allocation: {
+        Args: { p_quantity: number; p_stock_item_id: string }
+        Returns: {
+          purchase_id: string
+          quantity: number
+          received_on: string
+          recorded_order: number
+          unit_cost: number
+        }[]
+      }
       business_latest_date: { Args: never; Returns: string }
       business_sellers: {
         Args: never
@@ -2304,6 +2403,7 @@ export type Database = {
           p_received_on: string
           p_stock_item_id?: string
           p_strength_mg?: string
+          p_supplier?: string
           p_unit_cost?: string
         }
         Returns: {
@@ -2316,6 +2416,7 @@ export type Database = {
         Args: {
           p_buyer_name?: string
           p_buyer_profile_id?: string
+          p_expected_allocation?: Json
           p_idempotency_key: string
           p_quantity: number
           p_seller_id?: string
