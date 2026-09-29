@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Combobox } from "@base-ui/react/combobox";
 import { Button } from "@/components/alpha/button";
+import { isOnline } from "@/components/alpha/online";
 import { buttonVariants } from "@/components/alpha/button-variants";
 import { Checkbox } from "@/components/alpha/field";
 import { useAlphaPortal } from "@/components/alpha/root";
@@ -36,6 +37,7 @@ export function LinkSaleSheet({ saleId, buyerName, accounts }: { saleId: string;
   const selected = accounts.find((account) => account.id === profileId) ?? null;
 
   const link = async () => {
+    if (!isOnline()) return; // offline: the button says so; nothing is sent
     // Only the account the field shows is linked.
     const id = selected && accountLabel(selected) === text ? selected.id : "";
     setSaving(true);
@@ -78,7 +80,7 @@ export function LinkSaleSheet({ saleId, buyerName, accounts }: { saleId: string;
           footer={
             <>
               <SheetClose className={cn(buttonVariants({ variant: "outline", size: "lg" }), "w-[100px] laptop:h-12")}>Cancel</SheetClose>
-              <Button size="lg" className="laptop:h-12" saving={saving} onClick={() => void link()}>
+              <Button size="lg" className="laptop:h-12" saving={saving} needsConnection onClick={() => void link()}>
                 {LINK_SUBMIT}
               </Button>
             </>

@@ -74,7 +74,7 @@ export function AccountSetupForm({
         </p>
       </div>
       <AuthActions>
-        <Button type="submit" variant="ink" size="lg" block saving={pending}>
+        <Button type="submit" variant="ink" size="lg" block needsConnection saving={pending}>
           Continue
         </Button>
         <p className="mt-3 text-center text-[13px] text-ink-3">
@@ -113,7 +113,7 @@ export function AcknowledgementForm() {
       </label>
       <FormError className="mx-4 mt-3 laptop:mx-0">{error}</FormError>
       <AuthActions>
-        <Button type="submit" variant="ink" size="lg" block saving={pending} disabled={!accepted} data-testid="agree">
+        <Button type="submit" variant="ink" size="lg" block needsConnection saving={pending} disabled={!accepted} data-testid="agree">
           Agree and continue
         </Button>
       </AuthActions>

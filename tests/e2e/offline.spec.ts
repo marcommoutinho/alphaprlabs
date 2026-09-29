@@ -62,6 +62,41 @@ test("offline, the bar says so and Taken waits with the reason; back online, the
   await expect(page.getByRole("status").filter({ hasText: `${A} · 400 mcg logged at ` })).toBeVisible();
 });
 
+test("offline, the calculator's Save mixture and a saved mixture's Delete wait with the reason, and send nothing", async ({ context, page }) => {
+  const { A } = await signIn(page, "offline-calc");
+  await page.goto(`${APP_ORIGIN}/app/calculator`);
+  await expect(heading(page)).toHaveText("Calculator");
+  await (await hydrated(page.getByRole("combobox", { name: "Peptide", exact: true }))).selectOption({ label: A });
+  await page.getByLabel("Vial strength (mg per vial)").fill("8");
+  await page.getByLabel("Liquid added (mL)").fill("2");
+  await page.getByLabel("Intended dose (mg) · entered by you").fill("0.25");
+  await expect(page.getByTestId("calc-units")).toHaveText("6.25");
+  const save = page.getByRole("button", { name: "Save mixture" });
+  const remove = page.getByTestId("saved-mixture").filter({ hasText: A }).getByRole("button", { name: "Delete" });
+  await expect(save).toBeEnabled();
+  await expect(remove).toBeEnabled();
+  const actions: string[] = [];
+  page.on("request", (request) => {
+    if (request.headers()["next-action"]) actions.push(new URL(request.url()).pathname);
+  });
+
+  await context.setOffline(true);
+  await expect(page.getByTestId("offline-bar")).toBeVisible();
+  for (const control of [save, remove]) {
+    await expect(control).toBeDisabled();
+    await expect(control).toHaveAttribute("aria-description", OFFLINE_REASON);
+    await control.click({ force: true });
+  }
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(500);
+  expect(actions).toEqual([]);
+
+  await context.setOffline(false);
+  await expect(page.getByTestId("offline-bar")).toHaveCount(0);
+  await expect(save).toBeEnabled();
+  await expect(remove).toBeEnabled();
+});
+
 test("a tab tapped offline doesn't leave the page; it opens once the connection is back", async ({ context, page }) => {
   await signIn(page, "offline-tab");
   await hydrated(tab(page, "Cycles"));
@@ -83,6 +118,33 @@ test("a tab tapped offline doesn't leave the page; it opens once the connection 
   await expect(page.getByTestId("offline-bar")).toHaveCount(0);
   // A client-side navigation: the document was never replaced.
   expect(documents.every((url) => !url.endsWith("/offline.html"))).toBe(true);
+});
+
+test("a tab tapped offline is dropped by Back: back online, the page stays where the person went", async ({ context, page }) => {
+  await signIn(page, "offline-tab-back");
+  await (await hydrated(tab(page, "Cycles"))).tap();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/app/cycles`);
+  await expect(heading(page)).toHaveText("Cycles");
+  await hydrated(tab(page, "Library"));
+
+  await context.setOffline(true);
+  await tab(page, "Library").tap();
+  await expect(page.getByTestId("offline-bar")).toBeVisible();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/app/cycles`);
+  await page.goBack();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
+  await expect(heading(page)).toHaveText("Today");
+  const later: string[] = [];
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) later.push(frame.url());
+  });
+
+  await context.setOffline(false);
+  await expect(page.getByTestId("offline-bar")).toHaveCount(0);
+  await page.waitForTimeout(1_500); // time enough for a replayed tap to go out
+  await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
+  await expect(heading(page)).toHaveText("Today");
+  expect(later).toEqual([]);
 });
 
 test("opening the app with no network shows the offline page; back online, Try again opens Today", async ({ context, page }) => {

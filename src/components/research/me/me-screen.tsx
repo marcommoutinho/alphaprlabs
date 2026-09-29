@@ -9,7 +9,7 @@ import { applyAppearance } from "@/components/alpha/appearance";
 import { buttonVariants } from "@/components/alpha/button-variants";
 import { Switch } from "@/components/alpha/field";
 import Link from "@/components/alpha/link";
-import { useOnline } from "@/components/alpha/online";
+import { OFFLINE_REASON, useOnline } from "@/components/alpha/online";
 import { Group, GroupLabel } from "@/components/alpha/list";
 import { Sheet, SheetContent } from "@/components/alpha/sheet";
 import { useSignOut } from "@/components/app-shell/use-sign-out";
@@ -392,14 +392,15 @@ function PreferencesGroup({ view }: { view: MeView }) {
 
 /** R8 "Account": the research-use disclaimer (read-only) and Sign out. */
 function Account() {
-  const { pending, signOut } = useSignOut();
+  const { pending, offline, signOut } = useSignOut();
   return (
     <Group className="mx-3 mt-6 laptop:mx-0">
       <SettingRow label="Research-use disclaimer" value="" href="/app/me/disclaimer" testId="me-disclaimer" />
       <button
         type="button"
-        disabled={pending}
+        disabled={pending || offline}
         aria-busy={pending || undefined}
+        title={offline ? OFFLINE_REASON : undefined}
         onClick={signOut}
         className="flex h-14 w-full cursor-pointer items-center justify-center gap-2 font-semibold text-missed hover:bg-[color-mix(in_oklab,var(--ink)_3%,transparent)] disabled:opacity-60"
       >

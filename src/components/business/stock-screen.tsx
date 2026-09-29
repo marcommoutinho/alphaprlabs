@@ -380,6 +380,7 @@ function ThresholdContent({ item, token, onDone }: { item: StockLevel; token: nu
   }, []);
 
   const send = async (attempt: ThresholdAttempt) => {
+    if (!isOnline()) return; // offline: the toast's Retry waits for the connection; nothing is sent
     // It may have been saved: Retry sends the same attempt (the same request key).
     const unsure = () =>
       toast.error({ message: THRESHOLD_FAILED, action: { label: "Retry", onAction: () => void send(attempt) } });

@@ -146,6 +146,7 @@ function PurchaseEntry({
   };
 
   const send = async (payload: Record<string, unknown>, attempt: RecordAttempt) => {
+    if (!isOnline()) return; // offline: the toast's Retry waits for the connection; nothing is sent
     const unsure = (text: string) =>
       toast.error({ message: text, action: { label: "Retry", onAction: () => void send(payload, attempt) } });
     setSaving(true);

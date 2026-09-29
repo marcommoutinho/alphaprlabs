@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { saveDevice, turnOffDevice, type SaveDeviceResult } from "@/app/(private)/app/notifications/actions";
 import { signOut } from "@/app/(private)/auth/actions";
 import { signOutDevice } from "@/lib/push/sign-out";
+import { isOnline } from "@/components/alpha/online";
 import {
   base64UrlToBytes,
   deviceLabel,
@@ -94,7 +95,8 @@ function thisDeviceId(): string {
 /**
  * Runs `listener` whenever the app comes back to the foreground: a phone app
  * reopened from the background is shown again, not reloaded (visibilitychange),
- * and a page restored from the back/forward cache fires pageshow.
+ * and a page restored from the back/forward cache fires pageshow. Coming
+ * back online counts too: what was skipped offline runs then.
  */
 export function onForeground(listener: () => void): () => void {
   const onVisible = () => {
@@ -105,9 +107,11 @@ export function onForeground(listener: () => void): () => void {
   };
   document.addEventListener("visibilitychange", onVisible);
   window.addEventListener("pageshow", onPageShow);
+  window.addEventListener("online", listener);
   return () => {
     document.removeEventListener("visibilitychange", onVisible);
     window.removeEventListener("pageshow", onPageShow);
+    window.removeEventListener("online", listener);
   };
 }
 
@@ -270,6 +274,8 @@ async function runSync(userId: string, vapidPublicKey: string): Promise<DeviceSt
     await registerWorker().catch(() => undefined);
     return { facts, subscribed: false, failed: false };
   }
+  // Offline: skipped, never a failure (it runs again once online, onForeground).
+  if (!isOnline()) return null;
   try {
     const subscription = await ensureSubscription(vapidPublicKey);
     if (!current()) return null;
@@ -288,7 +294,7 @@ async function runSync(userId: string, vapidPublicKey: string): Promise<DeviceSt
   } catch {
     // fall through
   }
-  if (!current()) return null;
+  if (!current() || !isOnline()) return null;
   localFlag.set(FAILURES_KEY, String(failures + 1));
   return { facts, subscribed: false, failed: failures + 1 >= FAILURES_BEFORE_NOTICE };
 }

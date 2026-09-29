@@ -43,7 +43,7 @@ export function SignInForm({ next }: { next?: string }) {
         <FormError>{error}</FormError>
       </div>
       <AuthActions>
-        <Button type="submit" variant="ink" size="lg" block saving={pending} savingLabel="Signing in…">
+        <Button type="submit" variant="ink" size="lg" block needsConnection saving={pending} savingLabel="Signing in…">
           Sign in
         </Button>
         <p className="mt-3 text-center text-[13px] text-ink-3">
@@ -96,7 +96,7 @@ export function RecoverForm() {
         </Field>
       </div>
       <AuthActions>
-        <Button type="submit" variant="ink" size="lg" block saving={pending} savingLabel="Sending…">
+        <Button type="submit" variant="ink" size="lg" block needsConnection saving={pending} savingLabel="Sending…">
           Send recovery link
         </Button>
         <p className="mt-3 text-center text-[13px] text-ink-3">
@@ -136,7 +136,7 @@ export function NewPasswordForm() {
         <FormError>{error}</FormError>
       </div>
       <AuthActions>
-        <Button type="submit" variant="ink" size="lg" block saving={pending}>
+        <Button type="submit" variant="ink" size="lg" block needsConnection saving={pending}>
           Save password
         </Button>
       </AuthActions>
@@ -157,7 +157,7 @@ export function ConfirmRecoveryForm({ tokenHash }: { tokenHash: string }) {
       }}
     >
       <AuthActions>
-        <Button type="submit" variant="ink" size="lg" block saving={pending} savingLabel="Continuing…">
+        <Button type="submit" variant="ink" size="lg" block needsConnection saving={pending} savingLabel="Continuing…">
           Continue to reset password
         </Button>
       </AuthActions>

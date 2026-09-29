@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { createPortal } from "react-dom";
 import { Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { OFFLINE_REASON, useOnline } from "./online";
 
 /** Success toasts dismiss themselves after this long (design v3 §7.15). */
 export const TOAST_SUCCESS_MS = 4000;
@@ -130,6 +131,8 @@ export function ToastSlot({ open, footer }: { open: boolean; footer: boolean }) 
 function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
   const [held, setHeld] = useState(false);
   const success = toast.tone === "success";
+  // Every toast action (Retry, Undo, Reload) needs the server: offline it waits, with the reason.
+  const online = useOnline();
 
   useEffect(() => {
     if (!success || held) return;
@@ -169,7 +172,11 @@ function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
       {toast.action ? (
         <button
           type="button"
-          className="h-11 shrink-0 rounded-[12px] px-3 text-[15px] font-semibold text-on-ink-signal-ink"
+          className="h-11 shrink-0 rounded-[12px] px-3 text-[15px] font-semibold text-on-ink-signal-ink disabled:opacity-50"
+          disabled={!online}
+          data-offline={online ? undefined : ""}
+          title={online ? undefined : OFFLINE_REASON}
+          aria-description={online ? undefined : OFFLINE_REASON}
           onClick={() => {
             toast.action?.onAction();
             onDismiss();

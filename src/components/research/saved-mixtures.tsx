@@ -51,7 +51,7 @@ export function SavedMixtures({
                   <Button variant="soft" size="sm" onClick={() => onLoad(mixture)}>
                     Load
                   </Button>
-                  <Button variant="outline" size="sm" disabled={busy} onClick={() => onDelete(mixture)}>
+                  <Button variant="outline" size="sm" disabled={busy} needsConnection onClick={() => onDelete(mixture)}>
                     Delete
                   </Button>
                 </div>

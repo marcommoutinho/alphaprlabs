@@ -311,6 +311,7 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
 
   /** Undo a Taken or a skip just recorded (the toast's action): undo_dose, with its own request key. */
   const undo = (entryId: string, detail: DoseDetail) => {
+    if (!isOnline()) return; // offline: the toast's Undo waits for the connection; nothing is sent
     startTransition(async () => {
       let result;
       try {

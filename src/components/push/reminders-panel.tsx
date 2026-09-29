@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { sendTestNotification } from "@/app/(private)/app/notifications/actions";
 import { Bell, ChevronLeft } from "lucide-react";
 import { Button } from "@/components/alpha/button";
+import { isOnline } from "@/components/alpha/online";
 import { Group } from "@/components/alpha/list";
 import { useAlphaToast } from "@/components/alpha/toast";
 import { AuthActions } from "@/components/auth/auth-frame";
@@ -78,6 +79,7 @@ export function RemindersStep({ userId, vapidPublicKey }: Props) {
   const router = useRouter();
   const { checking, status, canInstall } = reminders;
   const turnOn = async () => {
+    if (!isOnline()) return; // offline: the button says so; nothing is sent
     const outcome = await reminders.turnOn();
     if (outcome === "enabled") toast.success({ message: COPY.on });
     else if (outcome === "failed") toast.error({ message: COPY.failed });
@@ -105,7 +107,7 @@ export function RemindersStep({ userId, vapidPublicKey }: Props) {
       {note ? <p className="mx-5 mt-3 text-[14px] leading-[20px] text-ink-2 laptop:mx-0">{note}</p> : null}
       <AuthActions className="flex flex-col gap-2.5">
         {!checking && (status === "not-requested" || status === "failed") ? (
-          <Button variant="primary" size="lg" block saving={reminders.busy === "on"} savingLabel="Turning on…" onClick={turnOn}>
+          <Button variant="primary" size="lg" block saving={reminders.busy === "on"} savingLabel="Turning on…" needsConnection onClick={turnOn}>
             Turn on reminders
           </Button>
         ) : null}
@@ -142,15 +144,18 @@ export function RemindersSettings({ userId, vapidPublicKey, testEnabled }: Props
   const { checking, status, canInstall } = reminders;
 
   const turnOn = async () => {
+    if (!isOnline()) return; // offline: the button says so; nothing is sent
     const outcome = await reminders.turnOn();
     if (outcome === "enabled") toast.success({ message: COPY.on });
     else if (outcome === "failed") toast.error({ message: COPY.failed });
   };
   const turnOff = async () => {
+    if (!isOnline()) return; // offline: the button says so; nothing is sent
     if (await reminders.turnOff()) toast.success({ message: COPY.off });
     else toast.error({ message: COPY.offFailed });
   };
-  const sendTest = () =>
+  const sendTest = () => {
+    if (!isOnline()) return; // offline: the button says so; nothing is sent
     startTest(async () => {
       try {
         const result = await sendTestNotification();
@@ -160,6 +165,7 @@ export function RemindersSettings({ userId, vapidPublicKey, testEnabled }: Props
         toast.error({ message: "Could not send the test notification. Try again." });
       }
     });
+  };
   const warning = status === "denied" ? COPY.deniedSettings : status === "failed" ? COPY.failedSettings : null;
   const note = status === "unsupported" ? COPY.unsupportedSettings : status === "needs-install" ? COPY.installSettings : null;
 
@@ -195,12 +201,12 @@ export function RemindersSettings({ userId, vapidPublicKey, testEnabled }: Props
         {note ? <p className="mx-5 mt-3 text-[14px] leading-[20px] text-ink-2 laptop:mx-0">{note}</p> : null}
         <div className="mx-3 mt-6 flex flex-col gap-2.5 laptop:mx-0 laptop:flex-row laptop:flex-wrap">
           {!checking && (status === "not-requested" || status === "failed") ? (
-            <Button variant="primary" size="lg" block saving={reminders.busy === "on"} savingLabel="Turning on…" onClick={turnOn} className="laptop:w-auto">
+            <Button variant="primary" size="lg" block saving={reminders.busy === "on"} savingLabel="Turning on…" needsConnection onClick={turnOn} className="laptop:w-auto">
               Turn on reminders
             </Button>
           ) : null}
           {status === "enabled" ? (
-            <Button variant="outline" size="lg" block saving={reminders.busy === "off"} savingLabel="Turning off…" onClick={turnOff} className="laptop:w-auto">
+            <Button variant="outline" size="lg" block saving={reminders.busy === "off"} savingLabel="Turning off…" needsConnection onClick={turnOff} className="laptop:w-auto">
               Turn off reminders
             </Button>
           ) : null}
@@ -210,7 +216,7 @@ export function RemindersSettings({ userId, vapidPublicKey, testEnabled }: Props
             </Button>
           ) : null}
           {testEnabled ? (
-            <Button variant="outline" size="lg" block saving={testing} savingLabel="Sending…" onClick={sendTest} className="laptop:w-auto">
+            <Button variant="outline" size="lg" block saving={testing} savingLabel="Sending…" needsConnection onClick={sendTest} className="laptop:w-auto">
               Send test notification
             </Button>
           ) : null}

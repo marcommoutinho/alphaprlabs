@@ -21,6 +21,9 @@ let followUp: (() => void) | null = null;
 const listeners = new Set<() => void>();
 
 const PROBE_MS = [1_000, 3_000] as const;
+export const PROBE_TIMEOUT_MS = 5_000;
+/** The page's own fetch, before it is observed: the connection check isn't a request of the app's. */
+let baseFetch: typeof fetch | null = null;
 
 const browserOnline = () => typeof navigator === "undefined" || navigator.onLine !== false;
 const snapshot = () => browserOnline() && !networkDown;
@@ -40,7 +43,11 @@ function setNetworkDown(down: boolean) {
   if (snapshot()) cameOnline();
 }
 
-/** While only a failed request says offline, check now and then (any answer is online). */
+/**
+ * While only a failed request says offline, check now and then (any answer is
+ * online). A check that gets no answer within PROBE_TIMEOUT_MS is cancelled
+ * and counts as still offline, so a stalled one never leaves the app offline.
+ */
 function scheduleProbe(attempt: number) {
   if (probe) clearTimeout(probe);
   probe = setTimeout(
@@ -48,9 +55,24 @@ function scheduleProbe(attempt: number) {
       probe = null;
       if (!networkDown) return;
       if (!browserOnline()) return scheduleProbe(attempt + 1);
-      fetch("/manifest.webmanifest", { method: "HEAD", cache: "no-store" })
-        .then(() => setNetworkDown(false))
-        .catch(() => scheduleProbe(attempt + 1));
+      const controller = new AbortController();
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const timedOut = new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          reject(new Error("The connection check got no answer."));
+        }, PROBE_TIMEOUT_MS);
+      });
+      const check = (baseFetch ?? fetch)("/manifest.webmanifest", { method: "HEAD", cache: "no-store", signal: controller.signal });
+      Promise.race([check, timedOut])
+        .then(
+          () => setNetworkDown(false),
+          () => {
+            if (networkDown && !probe) scheduleProbe(attempt + 1);
+          },
+        )
+        .finally(() => clearTimeout(timeout));
+      check.catch(() => undefined);
     },
     PROBE_MS[Math.min(attempt, PROBE_MS.length - 1)],
   );
@@ -74,6 +96,7 @@ function install() {
   });
   window.addEventListener("offline", notify);
   const original = window.fetch.bind(window);
+  baseFetch = original;
   window.fetch = async (...args: Parameters<typeof fetch>) => {
     try {
       const response = await original(...args);
@@ -97,10 +120,16 @@ export function useOnline(): boolean {
   return useSyncExternalStore(subscribe, snapshot, () => true);
 }
 
-/** Runs `run` once the app is online again (a later call replaces it): a navigation tapped while offline. */
-export function whenOnline(run: () => void) {
+/**
+ * Runs `run` once the app is online again (a later call replaces it): a
+ * navigation tapped while offline. Returns a cancel.
+ */
+export function whenOnline(run: () => void): () => void {
   install();
   followUp = run;
+  return () => {
+    if (followUp === run) followUp = null;
+  };
 }
 
 /** Whether the app can reach the server now, outside React. */

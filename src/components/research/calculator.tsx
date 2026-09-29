@@ -6,6 +6,7 @@ import { useId, useMemo, useState, useTransition } from "react";
 import { deleteMixtureAction, saveMixtureAction } from "@/app/(private)/app/calculator/actions";
 import { BackBar } from "@/components/alpha/back-bar";
 import { Button } from "@/components/alpha/button";
+import { isOnline } from "@/components/alpha/online";
 import { Checkbox, Field, NumberInput } from "@/components/alpha/field";
 import { Segmented } from "@/components/alpha/segmented";
 import { useAlphaToast } from "@/components/alpha/toast";
@@ -150,6 +151,7 @@ export function Calculator({
   }
 
   function saveMixture() {
+    if (!isOnline()) return; // offline: the button says so; nothing is sent
     const planIds = offered.filter((plan) => linked.has(plan.planId)).map((plan) => plan.planId);
     run(
       startSave,
@@ -175,6 +177,7 @@ export function Calculator({
   }
 
   function deleteMixture(mixture: Mixture) {
+    if (!isOnline()) return; // offline: the button says so; nothing is sent
     run(
       startRemove,
       () => deleteMixtureAction({ id: mixture.id, version: mixture.version }),
@@ -294,7 +297,7 @@ export function Calculator({
                 </div>
               ) : null}
               <div className="flex flex-col gap-2 laptop:flex-row laptop:items-center laptop:gap-4">
-                <Button variant="primary" size="lg" className="laptop:h-12 laptop:shrink-0" saving={saving} onClick={saveMixture}>
+                <Button variant="primary" size="lg" className="laptop:h-12 laptop:shrink-0" saving={saving} needsConnection onClick={saveMixture}>
                   {saveLabel(loaded !== null)}
                 </Button>
                 <span className="px-2 text-[13px] leading-[18px] text-ink-3 laptop:px-0">{SAVE_NOTE}</span>

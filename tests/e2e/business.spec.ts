@@ -483,6 +483,8 @@ for (const [device, viewport] of [
     // within the sheet's focus trap.
     await expect(sheet.getByRole("alert")).toContainText("Couldn't save. Your entry is still here.");
     await expect(sheet.getByRole("button", { name: "Retry" })).toBeVisible();
+    // A lost answer is a network error: the app reads as offline (N1: Retry waits) until its connection check answers.
+    await expect(retry).toBeEnabled();
     await level.focus();
     let reached = false;
     for (let i = 0; i < 12 && !reached; i++) {

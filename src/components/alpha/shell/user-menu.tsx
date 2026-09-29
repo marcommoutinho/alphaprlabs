@@ -23,7 +23,7 @@ const itemClass = cn(
 export function UserMenu({ identity, pathname }: { identity: AppIdentity; pathname: string }) {
   const container = useAlphaPortal();
   const [openAt, setOpenAt] = useState<string | null>(null);
-  const { pending: signingOut, signOut } = useSignOut();
+  const { pending: signingOut, offline, signOut } = useSignOut();
   const onAccountPage = ACCOUNT_LINKS.some((link) => isUnder(pathname, link.href));
 
   return (
@@ -68,7 +68,7 @@ export function UserMenu({ identity, pathname }: { identity: AppIdentity; pathna
               ))}
             </div>
             <Menu.Separator className="mx-1 mb-1.5 h-px bg-line" />
-            <Menu.Item className={cn(itemClass, "text-missed data-highlighted:text-missed")} disabled={signingOut} onClick={signOut}>
+            <Menu.Item className={cn(itemClass, "text-missed data-highlighted:text-missed")} disabled={signingOut || offline} onClick={signOut}>
               Sign out
             </Menu.Item>
           </Menu.Popup>

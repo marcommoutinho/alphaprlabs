@@ -4,6 +4,7 @@ import { Info } from "lucide-react";
 import Image from "next/image";
 import { unstable_rethrow, useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { isOnline } from "@/components/alpha/online";
 import { useAlphaToast } from "@/components/alpha/toast";
 import { SAVE_FAILED_MESSAGE } from "@/lib/app/save";
 import { cn } from "@/lib/utils";
@@ -108,7 +109,8 @@ type SubmitResult = { error?: string; toast?: string; tone?: "error" | "success"
  * Calls an auth server action without resetting the form: an inline error,
  * or a v3 toast; a redirect or `redirectTo` navigates (still pending until
  * the page arrives); a failed request shows the save-failure toast and keeps
- * what was typed.
+ * what was typed. Offline nothing is sent (the submit buttons wait for the
+ * connection, with the reason).
  */
 export function useAuthSubmit<Input, Result extends SubmitResult>(action: (input: Input) => Promise<Result>) {
   const toast = useAlphaToast();
@@ -117,6 +119,7 @@ export function useAuthSubmit<Input, Result extends SubmitResult>(action: (input
   const [error, setError] = useState<string | undefined>();
 
   function submit(input: Input, onResult?: (result: Result) => void) {
+    if (!isOnline()) return; // offline: the button says so (needsConnection); nothing is sent
     startTransition(async () => {
       let result: Result;
       try {

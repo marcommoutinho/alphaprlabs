@@ -29,8 +29,39 @@ export { useLinkStatus } from "next/link";
  *
  * Offline (online.ts), a tap doesn't navigate: Next.js would fall back to a
  * full page load, the offline page. The offline bar says why, and the page
- * opens once the connection is back.
+ * opens once the connection is back, if that is soon (LINK_WAIT_MS) and the
+ * person is still on the page where they tapped it (followOnceOnline).
  */
+export const LINK_WAIT_MS = 10_000;
+
+/** Cancels the link tapped offline that waits for the connection, if any. */
+let cancelPending: (() => void) | null = null;
+
+/**
+ * Follows `link` as a normal tap once the connection is back. Cancelled by a
+ * later tap, by Back or Forward, after LINK_WAIT_MS, or when the page changed
+ * meanwhile (another URL, or the link is gone): never a navigation later
+ * than the person expects.
+ */
+function followOnceOnline(link: HTMLAnchorElement) {
+  cancelPending?.();
+  const from = window.location.href;
+  const stop = () => {
+    clearTimeout(timer);
+    window.removeEventListener("popstate", stop);
+    cancelFollow();
+    if (cancelPending === stop) cancelPending = null;
+  };
+  const cancelFollow = whenOnline(() => {
+    const stillHere = window.location.href === from && link.isConnected;
+    stop();
+    if (stillHere) link.click();
+  });
+  const timer = setTimeout(stop, LINK_WAIT_MS);
+  window.addEventListener("popstate", stop);
+  cancelPending = stop;
+}
+
 export default function Link({ prefetch = false, onClick, ...props }: ComponentProps<typeof NextLink>) {
   return (
     <NextLink
@@ -38,14 +69,12 @@ export default function Link({ prefetch = false, onClick, ...props }: ComponentP
       {...props}
       onClick={(event) => {
         onClick?.(event);
+        // Any other tap replaces a link still waiting for the connection.
+        cancelPending?.();
         if (event.defaultPrevented || isOnline()) return;
         if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || props.target) return;
         event.preventDefault();
-        // Back online, the same link is followed as a normal tap (if it's still on the page).
-        const link = event.currentTarget;
-        whenOnline(() => {
-          if (link.isConnected) link.click();
-        });
+        followOnceOnline(event.currentTarget);
       }}
     />
   );
