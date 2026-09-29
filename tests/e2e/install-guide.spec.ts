@@ -24,6 +24,8 @@ const UA = {
     "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1",
   iosChrome:
     "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/140.0.7339.101 Mobile/15E148 Safari/604.1",
+  // iPadOS asks for the desktop site: a Mac with touch.
+  ipadSafari26: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
   iosInstagram:
     "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 390.0.0.28.85 (iPhone15,3; iOS 18_5; en_US; en-US; scale=3.00; 1290x2796; 755829410)",
   androidChrome: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36",
@@ -94,7 +96,7 @@ async function joinToStepThree(page: Page, label: string) {
 }
 
 // iOS 26 keeps Share in the toolbar with the Bottom and Top tab layouts, behind ••• with Compact.
-const SHARE_26_NOTE = "Don't see it? Tap •••More first, then Share.";
+const SHARE_26_NOTE = "Don't see it? Tap •••the three-dot button first (Page Menu on iOS 27), then Share.";
 // Missing from the iPhone share sheet (Safari and Chrome): added from Edit Actions.
 const EDIT_ACTIONS_NOTE = "Don't see it? Scroll down, tap Edit Actions, and add Add to Home Screen.";
 const JOINS: { device: Device; title: string; tab: string; first: string; firstNote?: string; steps: number }[] = [
@@ -278,6 +280,37 @@ test("inside another app's browser: open this page in Safari comes first", async
   await ctx.close();
 });
 
+test("on an iPad: Share, then More, then Add to Home Screen; no iPhone Edit Actions fallback", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 820, height: 1180 }, userAgent: UA.ipadSafari26, hasTouch: true });
+  // iPadOS reports five touch points.
+  await ctx.addInitScript(() => Object.defineProperty(Navigator.prototype, "maxTouchPoints", { configurable: true, get: () => 5 }));
+  const page = await ctx.newPage();
+  await openGuide(page, await account("ipad"));
+  await expect(page.getByTestId("install-guide")).toHaveAttribute("data-platform", "ios");
+  await expect(selectedTab(page)).toHaveAttribute("data-tab", "ios-safari");
+  await expect(selectedTab(page).getByTestId("install-this-phone")).toHaveText("This iPad");
+  await expect(stepTexts(page)).toHaveText([
+    "Tap Share.",
+    "Tap More, then Add to Home Screen.",
+    "Keep Open as Web App on.",
+    "Tap Add.",
+    "Open Alpha from your Home Screen.",
+  ]);
+  await expect(page.getByRole("tabpanel").getByTestId("install-step-note")).toHaveText([
+    SHARE_26_NOTE,
+    "Sign in once more there. The Home Screen app keeps its own sign-in.",
+  ]);
+  await expect(page.getByRole("tabpanel")).not.toContainText("Edit Actions");
+  await shot(page, "tab-ipad-safari-light");
+  // An iPhone keeps the Edit Actions fallback.
+  const phone = await context(browser, IOS26);
+  const iphone = await phone.newPage();
+  await openGuide(iphone, await account("ipad-vs-iphone"));
+  await expect(iphone.getByRole("tabpanel").getByTestId("install-step-note").nth(1)).toHaveText(EDIT_ACTIONS_NOTE);
+  await phone.close();
+  await ctx.close();
+});
+
 test("on a laptop: the QR code for Today and the steps to read ahead", async ({ browser }) => {
   for (const scheme of ["light", "dark"] as const) {
     const ctx = await context(browser, LAPTOP_CHROME, { colorScheme: scheme });
@@ -293,6 +326,8 @@ test("on a laptop: the QR code for Today and the steps to read ahead", async ({ 
     expect(colors).toEqual({ tile: "rgb(242, 242, 238)", modules: "rgb(13, 14, 16)" });
     await expect(page.getByTestId("install-this-phone")).toHaveCount(0);
     await expect(selectedTab(page)).toHaveAttribute("data-tab", "ios-safari");
+    // Read ahead for an iPhone: the iPhone's Edit Actions fallback.
+    await expect(page.getByRole("tabpanel").getByTestId("install-step-note").nth(1)).toHaveText(EDIT_ACTIONS_NOTE);
     await shot(page, `laptop-qr-${scheme}`);
     await ctx.close();
   }

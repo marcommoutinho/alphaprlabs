@@ -40,6 +40,12 @@ function B({ children }: { children: React.ReactNode }) {
   return <b className="font-semibold text-ink">{children}</b>;
 }
 
+/**
+ * Safari's ••• button, named for screen readers by its look: its own label
+ * changes between versions (More on iOS 26, Page Menu on iOS 27).
+ */
+const THREE_DOTS = "the three-dot button";
+
 /** A button drawn as a symbol (•••, ⋮, ☰), with its name for screen readers. */
 function Key({ glyph, name }: { glyph: string; name: string }) {
   return (
@@ -68,9 +74,33 @@ const openAlpha = (iphone: boolean): Step => ({
  */
 const SHARE_IOS26: Step = {
   text: <>Tap <B>Share</B>.</>,
-  note: <>Don&apos;t see it? Tap <Key glyph="•••" name="More" /> first, then <B>Share</B>.</>,
+  note: (
+    <>
+      Don&apos;t see it? Tap <Key glyph="•••" name={THREE_DOTS} /> first (Page Menu on iOS 27), then <B>Share</B>.
+    </>
+  ),
   sketch: "safari-share",
 };
+
+/**
+ * iPad Safari (iPadOS 26, Apple's steps): Share, then More, then Add to
+ * Home Screen. iPad Safari has a compact layout too, so Share keeps the •••
+ * note; the iPhone's Edit Actions fallback doesn't apply.
+ */
+const IPAD_SAFARI_STEPS: Step[] = [
+  SHARE_IOS26,
+  {
+    text: (
+      <>
+        Tap <B>More</B>, then <B>Add to Home Screen</B>.
+      </>
+    ),
+    sketch: "share-sheet",
+  },
+  { text: <>Keep <B>Open as Web App</B> on.</>, sketch: "web-app-switch" },
+  { text: <>Tap <B>Add</B>.</>, sketch: "add-button" },
+  openAlpha(true),
+];
 
 /**
  * Add to Home Screen in the iPhone share sheet (Safari and Chrome both use
@@ -156,7 +186,11 @@ const SAMSUNG: Section = {
 };
 
 function sectionsFor(tab: GuideTab, device: InstallDevice): Section[] {
-  if (tab === "ios-safari") return [{ key: "safari", steps: safariSteps(device.platform === "ios" && device.browser === "safari" ? device.layout : "unknown") }];
+  if (tab === "ios-safari") {
+    // An iPad gets its own steps; everyone else (a laptop reading ahead included) is setting up an iPhone.
+    if (device.platform === "ios" && device.tablet) return [{ key: "safari-ipad", steps: IPAD_SAFARI_STEPS }];
+    return [{ key: "safari", steps: safariSteps(device.platform === "ios" && device.browser === "safari" ? device.layout : "unknown") }];
+  }
   if (tab === "ios-chrome") return [{ key: "chrome-ios", steps: CHROME_IOS_STEPS }];
   return device.platform === "android" && device.browser === "samsung" ? [SAMSUNG, CHROME_ANDROID] : [CHROME_ANDROID, SAMSUNG];
 }
@@ -168,7 +202,7 @@ export function installTitle(device: InstallDevice, joining = false): string {
 }
 
 export function installLead(device: InstallDevice): string {
-  if (device.platform === "ios") return "It opens full screen like any app, and it's the only way iPhone allows dose reminders.";
+  if (device.platform === "ios") return `It opens full screen like any app, and it's the only way ${device.tablet ? "iPad" : "iPhone"} allows dose reminders.`;
   if (device.platform === "android") return "It opens full screen like any app, and faster.";
   return "Alpha is made for your phone. Scan the code with your phone's camera, then add it to your Home Screen.";
 }
@@ -239,7 +273,7 @@ function OpenElsewhere({ target, first, link }: { target: "Safari" | "Chrome"; f
   const how =
     target === "Safari" ? (
       <>
-        Look for <B>Open in Safari</B> in this app&apos;s menu (often <Key glyph="•••" name="More" /> or <B>Share</B>), or copy the link and paste it into Safari.
+        Look for <B>Open in Safari</B> in this app&apos;s menu (often <Key glyph="•••" name={THREE_DOTS} /> or <B>Share</B>), or copy the link and paste it into Safari.
       </>
     ) : (
       <>

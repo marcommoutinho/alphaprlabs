@@ -322,6 +322,8 @@ switches to the back office and back.
   is in use); iOS 18 and earlier keep "Tap Share in the toolbar". When Add to
   Home Screen is missing from the iPhone share sheet (Safari and Chrome), the
   guide says to scroll down, tap Edit Actions and add it (review, 2026-09-29).
+  An iPad gets Apple's iPadOS steps instead: Share, then More, then Add to
+  Home Screen; a laptop reading ahead keeps the iPhone's.
   Android Chrome gets a one-tap Install app button when the browser offers
   one, and the manual steps always. Inside another app's browser the guide
   first says to open the page in Safari or Chrome, with a Copy link to
