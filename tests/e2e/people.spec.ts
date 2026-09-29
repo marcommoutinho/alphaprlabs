@@ -7,17 +7,15 @@
 // Invitations and Support URLs; a researcher reaches none of it. The full
 // share / stop journey from Me is tests/e2e/support.spec.ts.
 import { expect, test, type Page } from "@playwright/test";
-import { mkdirSync } from "node:fs";
 import { APP_ORIGIN } from "../../playwright.config";
 import { createCycle, createPeptide, day, interval, plan, tag } from "../support/cycles";
 import { ensureAccount, hydrated, latestEmail, ok, seedInvitation, serviceClient, signedInClient, signInAs, TEST_PASSWORD, uniqueEmail } from "../support/local-supabase";
+import { shot as saveShot, STATIC_TAB_BAR } from "../support/shots";
 
 const ADMIN = { email: uniqueEmail("v7-people-admin"), name: "Marco Moutinho" };
 const RESEARCHER = { email: uniqueEmail("v7-people-researcher"), name: `Jordan Reyes ${tag()}` };
 const PHONE = { width: 390, height: 844 };
 const LAPTOP = { width: 1280, height: 820 };
-// Screenshots only when asked for (V7_SHOTS=<directory>).
-const SHOTS = process.env.V7_SHOTS;
 const DENIED = "Jordan hasn't shared their history. Only they can turn it on, from Me.";
 
 const id = { admin: "", researcher: "" };
@@ -25,12 +23,10 @@ const id = { admin: "", researcher: "" };
 test.beforeAll(async () => {
   id.admin = await ensureAccount({ ...ADMIN, role: "admin" });
   id.researcher = await ensureAccount({ ...RESEARCHER, role: "researcher" });
-  if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 });
 
-const shot = async (page: Page, name: string) => {
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/v7-${name}.png`, style: ".app-tabbar { position: static !important; }" });
-};
+/** Screenshots only when asked for (SHOTS_DIR, tests/support/shots.ts). */
+const shot = (page: Page, name: string) => saveShot(page, `v7-${name}`, { style: STATIC_TAB_BAR });
 const toast = (page: Page) => page.locator('[data-slot="toast"]');
 /** A laptop table row (D8). */
 const line = (page: Page, text: string) => page.getByTestId("person-line").filter({ hasText: text });

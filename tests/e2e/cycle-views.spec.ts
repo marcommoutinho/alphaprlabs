@@ -9,6 +9,7 @@ import { APP_ORIGIN } from "../../playwright.config";
 import { dateRange } from "../../src/lib/cycles/geometry";
 import { createCycle, interval, pause, plan, saveCycle, tag, weekdays } from "../support/cycles";
 import { ensureAccount, hydrated, ok, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
+import { shot as saveShot } from "../support/shots";
 import { d, NOON } from "../support/noon";
 import { saveTemplateAs } from "../support/admin-writers";
 
@@ -252,7 +253,7 @@ test("R6 hides withdrawn peptides; a template names one and is still a starting 
   await expect(notice).toHaveAttribute("role", "note");
   const plans = page.getByTestId("template-plan");
   expect((await notice.boundingBox())!.y).toBeLessThan((await plans.first().boundingBox())!.y);
-  if (process.env.V4_SHOTS) await page.screenshot({ path: `${process.env.V4_SHOTS}/v4-template-withdrawn-notice.png`, fullPage: true });
+  await saveShot(page, "v4-template-withdrawn-notice", { fullPage: true });
   await expect(plans.getByRole("heading", { level: 2 })).toHaveText([A, `${W}No longer offered for new cycles.`]);
   await expect(plans.nth(0)).not.toContainText("No longer offered for new cycles.");
   await expect(plans.nth(0).locator("[data-slot=group] > div")).toHaveText([

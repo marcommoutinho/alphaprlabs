@@ -34,7 +34,7 @@ import {
 import { builderTitle, fromTemplateNote, saveLabel } from "@/lib/cycles/display";
 import { plusDays } from "@/lib/cycles/geometry";
 import { type CyclePeptide, PEPTIDE_REQUIRED, tomorrowIn } from "@/lib/cycles/rules";
-import { SAVE_FAILED_MESSAGE } from "@/components/app-shell/toast";
+import { SAVE_FAILED_MESSAGE } from "@/lib/app/save";
 import { isValidTimeZone } from "@/lib/schedule/zone";
 import { cn } from "@/lib/utils";
 import { Footer, Issues, PlanChips } from "./parts";

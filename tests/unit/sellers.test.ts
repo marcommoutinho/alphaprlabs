@@ -5,7 +5,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { SaleEntry } from "@/components/admin/inventory-views";
-import { ToastProvider } from "@/components/app-shell/toast";
+import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
+import { ToastProvider } from "@/components/alpha/toast";
 import {
   LINK_ACCOUNT_REQUIRED,
   SALE_DATE_REQUIRED,
@@ -103,8 +104,11 @@ describe("linking an outside buyer's sale", () => {
   });
 });
 
-/** Rendered inside the app shell's toast provider (forms use it). */
-const html = (element: React.ReactElement) => renderToStaticMarkup(createElement(ToastProvider, null, element));
+/** A router that does nothing: "Link to account…" (a client sheet) refreshes the page after linking. */
+const router = { back() {}, forward() {}, refresh() {}, push() {}, replace() {}, prefetch() {} } as unknown as React.ContextType<typeof AppRouterContext>;
+/** Rendered as the app renders it: under the router and the v3 toasts (the link sheet uses both). */
+const html = (element: React.ReactElement) =>
+  renderToStaticMarkup(createElement(AppRouterContext.Provider, { value: router }, createElement(ToastProvider, null, element)));
 const text = (markup: string) => markup.replace(/<[^>]+>/g, "");
 
 const SALE: SaleRecord = {

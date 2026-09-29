@@ -13,7 +13,7 @@
 // Cycles use a fixed-offset zone where it is about 12:00 now (tests/support/noon).
 import { expect, test, type Page } from "@playwright/test";
 import { APP_ORIGIN, SERVER_ORIGIN } from "../../playwright.config";
-import { SAVE_FAILED_MESSAGE } from "../../src/components/app-shell/toast";
+import { SAVE_FAILED_MESSAGE } from "../../src/lib/app/save";
 import { NO_VIALS, TRACKING_OFF } from "../../src/lib/supplies/rules";
 import { createCycle, interval, plan, tag } from "../support/cycles";
 import { d, NOON } from "../support/noon";

@@ -5,7 +5,7 @@ import Image from "next/image";
 import { unstable_rethrow } from "next/navigation";
 import { useState, useTransition } from "react";
 import { useAlphaToast } from "@/components/alpha/toast";
-import { SAVE_FAILED_MESSAGE } from "@/components/app-shell/toast";
+import { SAVE_FAILED_MESSAGE } from "@/lib/app/save";
 import { cn } from "@/lib/utils";
 
 // Design v3 joining and sign-in (R14–R16, and sign-in / recovery in the same

@@ -3,7 +3,7 @@
 import { useTransition } from "react";
 import { signOutThisDevice } from "@/components/push/use-reminders";
 import { SIGN_IN_PATH } from "@/lib/auth/paths";
-import { useToast } from "./toast";
+import { useAlphaToast } from "@/components/alpha/toast";
 
 const SIGN_OUT_FAILED = "Could not sign out: reminders are still on for this phone. Try again.";
 
@@ -15,11 +15,11 @@ const SIGN_OUT_FAILED = "Could not sign out: reminders are still on for this pho
  */
 export function useSignOut() {
   const [pending, start] = useTransition();
-  const toast = useToast();
+  const toast = useAlphaToast();
   const signOut = () =>
     start(async () => {
       if ((await signOutThisDevice()) !== "signed-out") {
-        toast(SIGN_OUT_FAILED, "error");
+        toast.error({ message: SIGN_OUT_FAILED });
         return;
       }
       window.location.replace(SIGN_IN_PATH);

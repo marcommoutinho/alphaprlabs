@@ -12,10 +12,11 @@ import { useNavChoice } from "./nav-choice";
  * Library, People) above the page, since the tab bar has one Business tab
  * and A1 links only to Stock and the Ledger from its content. Pages with
  * their own "‹ Business" bar (A3 Stock, A7 Ledger, A8 Library, A11 People
- * and the screens under them) leave it out. Laptops use the sidebar.
+ * and the screens under them, A4's stock item included) leave it out.
+ * Laptops use the sidebar.
  */
-const OWN_BACK_BAR = ["/admin/inventory", "/admin/ledger", "/admin/ledger/outside"];
-const OWN_BACK_BAR_UNDER = ["/admin/library", "/admin/people"];
+const OWN_BACK_BAR = ["/admin/ledger", "/admin/ledger/outside"];
+const OWN_BACK_BAR_UNDER = ["/admin/inventory", "/admin/library", "/admin/people"];
 
 export function SectionNav({ role }: { role: AppRole }) {
   const pathname = usePathname();

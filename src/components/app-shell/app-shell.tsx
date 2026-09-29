@@ -28,23 +28,3 @@ export function AppShell({ identity, children }: { identity: AppIdentity; childr
     </div>
   );
 }
-
-type PageWidth = "list" | "form" | "support" | "narrow";
-
-/**
- * One legacy screen's <main>, inside the legacy style scope (.app-root, see
- * src/styles/app/tokens.css): page padding, max width and the fadeUp enter
- * motion. Widths: list 1040, form 640, support 860, narrow 760.
- *
- * TODO(V1–V7): each slice rebuilds its screens on the v3 components without
- * this frame; the close removes it with the legacy styles.
- */
-export function AppPage({ width = "list", children }: { width?: PageWidth; children: React.ReactNode }) {
-  return (
-    <div className="app-root" data-legacy-page="">
-      <main className="app-page" data-width={width}>
-        {children}
-      </main>
-    </div>
-  );
-}

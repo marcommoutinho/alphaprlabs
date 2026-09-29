@@ -9,6 +9,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { APP_ORIGIN } from "../../playwright.config";
 import { createCycle, interval, plan, tag } from "../support/cycles";
 import { ensureAccount, hydrated, ok, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
+import { shot as saveShot } from "../support/shots";
 import { d, NOON } from "../support/noon";
 import { seedPeptide } from "../support/today";
 
@@ -17,9 +18,9 @@ const LAPTOP = { width: 1280, height: 820 };
 const PAPER = { light: "rgb(242, 242, 238)", dark: "rgb(12, 13, 15)" };
 const noSideScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
 const background = (page: Page) => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-/** Screenshots for review, only when V4_SHOTS names a folder. */
+/** Screenshots for review, only when SHOTS_DIR names a folder (tests/support/shots.ts). */
 const shot = async (page: Page, name: string) => {
-  if (process.env.V4_SHOTS) await page.screenshot({ path: `${process.env.V4_SHOTS}/v4-${name}.png`, fullPage: true });
+  await saveShot(page, `v4-${name}`, { fullPage: true });
 };
 
 async function account(label: string) {

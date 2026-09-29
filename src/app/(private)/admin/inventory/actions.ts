@@ -2,7 +2,7 @@
 
 import { refresh, revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import type { ToastTone } from "@/components/app-shell/toast";
+import type { ToastTone } from "@/lib/app/save";
 import { OUTSIDE_HREF } from "@/components/business/frame";
 import { signInUrl } from "@/lib/auth/paths";
 import { currentAdmin } from "@/lib/auth/session";

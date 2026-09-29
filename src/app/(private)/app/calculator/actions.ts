@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { SAVE_FAILED_MESSAGE, type ToastTone } from "@/components/app-shell/toast";
+import { SAVE_FAILED_MESSAGE, type ToastTone } from "@/lib/app/save";
 import { signInUrl } from "@/lib/auth/paths";
 import { currentResearcher } from "@/lib/auth/session";
 import { listCyclePeptides } from "@/lib/cycles/service";

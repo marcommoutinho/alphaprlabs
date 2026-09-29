@@ -1,5 +1,4 @@
 import { notFound } from "next/navigation";
-import { AppPage } from "@/components/app-shell/app-shell";
 import { StockItemView } from "@/components/admin/inventory-views";
 import { requireAdmin } from "@/lib/auth/session";
 import { getStockItem, listBuyerAccounts } from "@/lib/inventory/service";
@@ -19,9 +18,5 @@ export default async function StockItemPage({ params }: { params: Params }) {
   const detail = await getStockItem(db, itemId);
   if (!detail) notFound();
   const linkAccounts = detail.sales.some((sale) => sale.buyerType === "outside") ? await listBuyerAccounts(db) : undefined;
-  return (
-    <AppPage>
-      <StockItemView detail={detail} linkAccounts={linkAccounts} />
-    </AppPage>
-  );
+  return <StockItemView detail={detail} linkAccounts={linkAccounts} />;
 }

@@ -13,7 +13,7 @@ import { getMixture } from "@/lib/mixtures/service";
 import { type Client, createCycle, createPeptide, interval, plan, saveCycle, tag } from "../support/cycles";
 import { confirmArgsSeen, d, NOON, occurrenceOn } from "../support/doses";
 import { ensureAccount, ok, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
-import { psql, psqlAsync, quote } from "../support/psql";
+import { HOLD_FUNCTION, holdingLocks, holdUntilWaited, psql, psqlAsync, quote } from "../support/psql";
 
 const researcher = { email: uniqueEmail("s12-locks"), name: "Lock Researcher", role: "researcher" } as const;
 const admin = { email: uniqueEmail("s12-locks-admin"), name: "Lock Admin", role: "admin" } as const;
@@ -43,37 +43,27 @@ async function setUp() {
   return { cycleId, planId, mixtureId, today, shown: await confirmArgsSeen(db, today) };
 }
 
-/** `call` (a function call) as the researcher, in a transaction held open for `seconds` after it returns; its result is `saved`. */
-function slowCall(call: string, seconds: number) {
+/**
+ * `call` (a function call) as the researcher, in a transaction held open
+ * after it returns until another session waits on its locks: its result is
+ * `saved`, and `waited` is t once a call sent meanwhile was seen waiting for
+ * it (tests/support/psql.ts).
+ */
+function slowCall(call: string) {
   const claims = JSON.stringify({ sub: uid, role: "authenticated" });
   return psqlAsync(`
     begin;
+    ${HOLD_FUNCTION}
     set local role authenticated;
     select 'claims', set_config('request.jwt.claims', ${quote(claims)}, true) is not null;
     select 'saved', ${call};
-    select 'slept', pg_sleep(${seconds}) is null;
+    ${holdUntilWaited()}
     commit;
   `);
 }
 
-/** save_mixture as the researcher in a transaction held open for `seconds` after it returns. */
-const slowSave = (args: string, seconds: number) => slowCall(`public.save_mixture(${args})`, seconds);
-
-/** Waits until the psql session is sleeping inside its transaction (so it holds its locks). */
-async function holdingLocks(sleep = "pg_sleep(2)") {
-  for (let i = 0; i < 100; i++) {
-    const out = psql(`select 'n', count(*) from pg_stat_activity where state = 'active' and query like '%${sleep}%' and pid <> pg_backend_pid();`);
-    if (out.n !== "0") return;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error("The psql session never reached its sleep");
-}
-
-async function timed<T>(call: () => Promise<T>) {
-  const start = Date.now();
-  const value = await call();
-  return { value, ms: Date.now() - start };
-}
+/** save_mixture as the researcher in a transaction held open until a call waits on it. */
+const slowSave = (args: string) => slowCall(`public.save_mixture(${args})`);
 
 describe("confirm_dose waits for a mixture save on the same plan", () => {
   it("that changes the setup, then refuses the confirmation made from the old one", async () => {
@@ -82,14 +72,13 @@ describe("confirm_dose waits for a mixture save on the same plan", () => {
     const save = slowSave(
       `p_peptide_id => ${quote(peptideId)}, p_vial_mg => '10', p_liquid_ml => '4', p_syringe_units => 100, p_line_spacing => '2',
        p_plan_ids => array[${quote(planId)}]::uuid[], p_mixture_id => ${quote(mixtureId)}, p_version => ${v1.version}`,
-      2,
     );
     await holdingLocks();
-    const confirmed = await timed(() => sqlState(db.rpc("confirm_dose", shown), "confirm during save"));
+    const confirmed = await sqlState(db.rpc("confirm_dose", shown), "confirm during save");
     expect((await save).saved).toBe(mixtureId);
     // It waited for the save's commit (the plan row lock), then saw the new setup.
-    expect(confirmed.ms).toBeGreaterThan(1000);
-    expect(confirmed.value).toBe("AP020");
+    expect((await save).waited).toBe("t");
+    expect(confirmed).toBe("AP020");
     expect(await ok(serviceClient().from("dose_records").select("id").eq("cycle_id", cycleId), "doses")).toEqual([]);
     // With the page refreshed, the new setup is recorded.
     const fresh = await confirmArgsSeen(db, await occurrenceOn(db, cycleId, d(0)));
@@ -105,14 +94,13 @@ describe("confirm_dose waits for a mixture save on the same plan", () => {
     const save = slowSave(
       `p_peptide_id => ${quote(peptideId)}, p_vial_mg => '10', p_liquid_ml => '2', p_syringe_units => 100, p_line_spacing => '2',
        p_plan_ids => '{}'::uuid[], p_mixture_id => ${quote(mixtureId)}, p_version => ${v1.version}`,
-      2,
     );
     await holdingLocks();
-    const confirmed = await timed(() => sqlState(db.rpc("confirm_dose", shown), "confirm during unlink"));
+    const confirmed = await sqlState(db.rpc("confirm_dose", shown), "confirm during unlink");
     expect((await save).saved).toBe(mixtureId);
     // It waited on the mixture row, then found no mixture in effect: not the one it was shown.
-    expect(confirmed.ms).toBeGreaterThan(1000);
-    expect(confirmed.value).toBe("AP020");
+    expect((await save).waited).toBe("t");
+    expect(confirmed).toBe("AP020");
     expect(await ok(serviceClient().from("dose_records").select("id").eq("cycle_id", cycleId), "doses")).toEqual([]);
     const fresh = await confirmArgsSeen(db, await occurrenceOn(db, cycleId, d(0)));
     expect(fresh.p_seen_mixture_version_id).toBeNull();
@@ -137,12 +125,12 @@ describe("confirm_dose waits for a vial write on the vial it would deduct from",
 
   it("that finishes it: the dose is recorded, with no deduction from the closed vial", async () => {
     const { cycleId, vialId, shown } = await withVial();
-    const finish = slowCall(`public.finish_personal_vial(${quote(vialId)})`, 2);
+    const finish = slowCall(`public.finish_personal_vial(${quote(vialId)})`);
     await holdingLocks();
-    const confirmed = await timed(() => ok(db.rpc("confirm_dose", shown), "confirm during finish"));
+    const confirmed = await ok(db.rpc("confirm_dose", shown), "confirm during finish");
     expect((await finish).saved).toBe("t");
-    expect(confirmed.ms).toBeGreaterThan(1000);
-    const dose = confirmed.value as unknown as { deduction: Deduction; mixture_version_id: string };
+    expect((await finish).waited).toBe("t");
+    const dose = confirmed as unknown as { deduction: Deduction; mixture_version_id: string };
     expect(dose.mixture_version_id).toBe(shown.p_seen_mixture_version_id);
     expect(dose.deduction).toBeNull();
     expect(await deductionsOf(vialId)).toEqual([]);
@@ -157,13 +145,12 @@ describe("confirm_dose waits for a vial write on the vial it would deduct from",
     ))!;
     const move = slowCall(
       `public.save_personal_vial(p_label => 'Moved', p_peptide_id => ${quote(peptideId)}, p_strength_mg => '10', p_mixture_id => ${quote(other)}, p_vial_id => ${quote(vialId)})`,
-      2,
     );
     await holdingLocks();
-    const confirmed = await timed(() => ok(db.rpc("confirm_dose", shown), "confirm during move"));
+    const confirmed = await ok(db.rpc("confirm_dose", shown), "confirm during move");
     expect((await move).saved).toBe(vialId);
-    expect(confirmed.ms).toBeGreaterThan(1000);
-    expect((confirmed.value as unknown as { deduction: Deduction }).deduction).toBeNull();
+    expect((await move).waited).toBe("t");
+    expect((confirmed as unknown as { deduction: Deduction }).deduction).toBeNull();
     expect(await deductionsOf(vialId)).toEqual([]);
   });
 
@@ -173,18 +160,19 @@ describe("confirm_dose waits for a vial write on the vial it would deduct from",
     const label = `N-${tag()}`;
     const swap = psqlAsync(`
       begin;
+      ${HOLD_FUNCTION}
       set local role authenticated;
       select 'claims', set_config('request.jwt.claims', ${quote(JSON.stringify({ sub: uid, role: "authenticated" }))}, true) is not null;
       select 'finished', public.finish_personal_vial(${quote(vialId)});
       select 'opened', public.save_personal_vial(p_label => ${quote(label)}, p_peptide_id => ${quote(peptideId)}, p_strength_mg => '10', p_mixture_id => ${quote(mixtureId)});
-      select 'slept', pg_sleep(2) is null;
+      ${holdUntilWaited()}
       commit;
     `);
     await holdingLocks();
-    const confirmed = await timed(() => ok(db.rpc("confirm_dose", shown), "confirm during swap"));
+    const confirmed = await ok(db.rpc("confirm_dose", shown), "confirm during swap");
     const opened = (await swap).opened;
-    expect(confirmed.ms).toBeGreaterThan(1000);
-    expect((confirmed.value as unknown as { deduction: Deduction }).deduction).toMatchObject({ vial_label: label, amount_mg: "0.4" });
+    expect((await swap).waited).toBe("t");
+    expect((confirmed as unknown as { deduction: Deduction }).deduction).toMatchObject({ vial_label: label, amount_mg: "0.4" });
     expect(await deductionsOf(vialId)).toEqual([]);
     expect(await deductionsOf(opened)).toHaveLength(1);
   });
@@ -210,24 +198,26 @@ describe("save_cycle locks a cycle's plans in id order", () => {
     }
     expect(cycleId).not.toBe("");
 
-    // Another writer: the lower plan, a pause, then the higher one.
+    // Another writer: the lower plan, held until the edit waits on it, then the higher one.
     const writer = psqlAsync(`
       begin;
+      ${HOLD_FUNCTION}
       select 'low', id from public.cycle_plans where id = ${quote(low)} for no key update;
-      select 'slept', pg_sleep(1.5) is null;
+      ${holdUntilWaited()}
       select 'high', id from public.cycle_plans where id = ${quote(high)} for no key update;
       commit;`);
-    await holdingLocks("pg_sleep(1.5)");
+    await holdingLocks();
     const cycle = (await getCycle(db, cycleId))!;
     const plans = cycle.revisions[0].plans.map((p) => ({
       ...p,
       effectiveFrom: d(0),
       phases: p.phases.map((phase) => (phase.kind === "active" ? { ...phase, doseMg: "0.5" } : phase)),
     }));
-    const edit = await timed(() => sqlState(saveCycle(db, { cycleId, version: cycle.version, timeZone: NOON, plans: plansArgument(plans) as unknown[] }), "edit"));
-    expect(await writer).toMatchObject({ low, high });
-    expect(edit.value).toBe("ok");
-    expect(edit.ms).toBeGreaterThan(700);
+    const edit = await sqlState(saveCycle(db, { cycleId, version: cycle.version, timeZone: NOON, plans: plansArgument(plans) as unknown[] }), "edit");
+    // The edit waited on the lower plan (it takes them in id order); had it
+    // taken the higher one first, the writer's next lock would deadlock.
+    expect(await writer).toMatchObject({ low, high, waited: "t" });
+    expect(edit).toBe("ok");
     expect((await getCycle(db, cycleId))!.revisions).toHaveLength(2);
   });
 });

@@ -3,7 +3,7 @@
 import { unstable_rethrow } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
 import { takeSupplementAction, type TakenActionResult } from "@/app/(private)/app/supplements/actions";
-import { SAVE_FAILED_MESSAGE, type ToastTone, useToast } from "@/components/app-shell/toast";
+import { SAVE_FAILED_MESSAGE, type ToastTone } from "@/lib/app/save";
 import { type Wall, wallLabel, wallOf } from "@/lib/doses/rules";
 import { takenToast } from "@/lib/supplements/rules";
 import type { SupplementDetail } from "@/lib/supplements/view";
@@ -17,9 +17,7 @@ import type { SupplementDetail } from "@/lib/supplements/view";
 /** Where the hook reports (Today and R13 pass the v3 toasts). */
 export type SupplementNotify = (message: string, tone: ToastTone) => void;
 
-export function useTakeSupplement(notify?: SupplementNotify) {
-  const legacy = useToast();
-  const toast = notify ?? legacy;
+export function useTakeSupplement(toast: SupplementNotify) {
   const [pending, startTransition] = useTransition();
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const requestKeys = useRef(new Map<string, string>());

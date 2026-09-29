@@ -9,7 +9,7 @@ import { ChipGroup } from "@/components/alpha/chip";
 import { Field, NumberInput, TextArea, TextInput } from "@/components/alpha/field";
 import { Sheet, SheetContent } from "@/components/alpha/sheet";
 import { useAlphaToast } from "@/components/alpha/toast";
-import { SAVE_FAILED_MESSAGE } from "@/components/app-shell/toast";
+import { SAVE_FAILED_MESSAGE } from "@/lib/app/save";
 import { CHECK_IN_SAVED, type Effect, EFFECTS, FEELING_WORDS, FEELINGS, MEASUREMENTS, type MeasurementName, OTHER, toggleEffect, unitFor as suggestedUnit } from "@/lib/progress/rules";
 import type { FormStart } from "@/lib/progress/screen";
 import { DEFAULT_PREFERENCES, type WeightUnit } from "@/lib/preferences/rules";

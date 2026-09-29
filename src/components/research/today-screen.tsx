@@ -18,7 +18,7 @@ import { NowActions, NowBlock, NowHeader, NowReading } from "@/components/alpha/
 import { StateGlyph, type GlyphState } from "@/components/alpha/state-glyph";
 import { lowCounter, useNavCount } from "@/components/alpha/shell/nav-counts";
 import { useAlphaToast } from "@/components/alpha/toast";
-import { SAVE_FAILED_MESSAGE } from "@/components/app-shell/toast";
+import { SAVE_FAILED_MESSAGE } from "@/lib/app/save";
 import { AppBadge } from "@/components/push/app-badge";
 import { clock12, massLabel, untilLabel, wallWhen } from "@/lib/alpha/format";
 import { dayProgress, dayRail, type RailEntry } from "@/lib/doses/board";
@@ -50,6 +50,18 @@ type Props = {
 };
 
 type Busy = { key: string; kind: "confirm" | "skip" } | null;
+
+/**
+ * A Taken or Skip the server refused because the dose changed (or was already
+ * recorded or skipped): the action also refreshed the page, and the dose's
+ * sheet opens with its current details. The action's answer arrives before
+ * the refreshed page does (Next.js resolves the call, then applies the new
+ * tree), so the sheet waits for a view other than the one the refused entry
+ * was made from; until then the dose stays busy. Opening at once showed the
+ * refusal ("The details below are current") over the old details, e.g. the
+ * old syringe units, for as long as the refreshed page took to arrive.
+ */
+type Reopen = { key: string; notice: string | null; from: TodayView };
 
 /** The time now, ticking every 30 s after hydration (the server's render time before, so both render alike). */
 function useNowMs(initial: number): number {
@@ -101,11 +113,20 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
   const [checkInOpen, setCheckInOpen] = useState(false);
   const [supplementSheet, setSupplementSheet] = useState<SupplementDetail | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
+  const [reopen, setReopen] = useState<Reopen | null>(null);
   const [, startTransition] = useTransition();
   const confirmKeys = useRequestKeys();
   const skipKeys = useRequestKeys();
 
   useEffect(() => rememberLoaded(view.renderedAt, view.timeZone), [view.renderedAt, view.timeZone]);
+
+  if (reopen && reopen.from !== view) {
+    // The refreshed page is here: its sheet shows the dose as it is now.
+    setReopen(null);
+    setBusy(null);
+    setSheetKey(reopen.key);
+    setSheetNotice(reopen.notice);
+  }
 
   const supplement = useTakeSupplement((message, tone) => (tone === "error" ? toast.error({ message }) : toast.success({ message })));
 
@@ -144,6 +165,8 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
 
   const confirm = (detail: DoseDetail, submission: SheetSubmission, fromSheet: boolean, retried = false) => {
     if (busy) return;
+    // The page the entry was made from (see Reopen).
+    const shown = view;
     setBusy({ key: detail.key, kind: "confirm" });
     setSheetError(null);
     startTransition(async () => {
@@ -164,6 +187,12 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
         setBusy(null);
         return;
       }
+      if (result.outcome === "changed" || result.outcome === "already" || result.outcome === "skipped") {
+        // The page refreshed: once it's here, the sheet shows the dose as it is now (see Reopen).
+        setReopen({ key: detail.key, notice: result.outcome === "changed" ? (result.error ?? null) : null, from: shown });
+        if (result.outcome === "skipped" && result.error) toast.error({ message: result.error });
+        return;
+      }
       setBusy(null);
       if (result.outcome === "recorded" && result.actualAt && result.doseId) {
         const doseId = result.doseId;
@@ -182,17 +211,6 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
         confirm(detail, submission, fromSheet, true);
         return;
       }
-      if (result.outcome === "changed" || result.outcome === "already") {
-        // The page refreshed: the sheet shows the dose as it is now.
-        setSheetKey(detail.key);
-        setSheetNotice(result.outcome === "changed" ? (result.error ?? null) : null);
-        return;
-      }
-      if (result.outcome === "skipped") {
-        setSheetKey(detail.key);
-        if (result.error) toast.error({ message: result.error });
-        return;
-      }
       if (result.outcome === "gone") {
         closeSheet();
         if (result.toast) toast.error({ message: result.toast });
@@ -208,6 +226,7 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
 
   const skip = (detail: DoseDetail, fromSheet: boolean) => {
     if (busy) return;
+    const shown = view;
     setBusy({ key: detail.key, kind: "skip" });
     setSheetError(null);
     startTransition(async () => {
@@ -223,6 +242,11 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
         unstable_rethrow(error);
         toast.error({ message: SAVE_FAILED_MESSAGE });
         setBusy(null);
+        return;
+      }
+      if (result.outcome === "changed" || result.outcome === "taken") {
+        // The page refreshed: once it's here, the sheet shows the dose as it is now (see Reopen).
+        setReopen({ key: detail.key, notice: result.error ?? null, from: shown });
         return;
       }
       setBusy(null);
@@ -242,11 +266,6 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
       }
       if (result.outcome === "already_skipped") {
         if (fromSheet) closeSheet();
-        return;
-      }
-      if (result.outcome === "changed" || result.outcome === "taken") {
-        setSheetKey(detail.key);
-        setSheetNotice(result.error ?? null);
         return;
       }
       if (result.outcome === "gone") {

@@ -8,13 +8,14 @@ import { expect, test, type Page } from "@playwright/test";
 import { APP_ORIGIN } from "../../playwright.config";
 import { createCycle, interval, plan, tag } from "../support/cycles";
 import { ensureAccount, hydrated, ok, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
+import { shot as saveShot } from "../support/shots";
 import { d, NOON } from "../support/noon";
 
 const PHONE = { width: 390, height: 844 };
 const LAPTOP = { width: 1280, height: 820 };
 const noSideScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
 const shot = async (page: Page, name: string) => {
-  if (process.env.V4_SHOTS) await page.screenshot({ path: `${process.env.V4_SHOTS}/v4-${name}.png`, fullPage: true });
+  await saveShot(page, `v4-${name}`, { fullPage: true });
 };
 
 async function peptide(name: string, fields: { information: string; cycling_off_guidance?: string; supplement_guidance?: string; available?: boolean }) {

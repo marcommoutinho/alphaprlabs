@@ -1,3 +1,4 @@
+import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 import { appTestEnv } from "./tests/support/local-supabase";
 
@@ -39,6 +40,10 @@ export default defineConfig({
     timeout: 180_000,
     env: {
       ...appTestEnv(),
+      // app.localhost and www.localhost resolve for the server too (a Server
+      // Action's redirect fetches its target from the request's host): see
+      // tests/support/resolve-localhost.cjs.
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require ${path.join(__dirname, "tests/support/resolve-localhost.cjs")}`].filter(Boolean).join(" "),
       APP_HOST: `app.localhost:${port}`,
       PUBLIC_HOST: `www.localhost:${port}`,
       // Bank of Canada USD→CAD rates served by the local stub (src/lib/inventory/fx.ts),

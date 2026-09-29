@@ -8,7 +8,7 @@ import { Button } from "@/components/alpha/button";
 import { SegmentedLinks } from "@/components/alpha/segmented";
 import { Skeleton, SkeletonRegion } from "@/components/alpha/skeleton";
 import { useAlphaToast } from "@/components/alpha/toast";
-import { SAVE_FAILED_MESSAGE } from "@/components/app-shell/toast";
+import { SAVE_FAILED_MESSAGE } from "@/lib/app/save";
 import { cn } from "@/lib/utils";
 import { CYCLES_MAIN } from "../cycles/cycles-list";
 

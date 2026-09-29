@@ -8,26 +8,22 @@
 // SQL checks: tests/integration/templates.test.ts and admin-content.test.ts.
 import { expect, test, type Page } from "@playwright/test";
 import { randomBytes } from "node:crypto";
-import { mkdirSync } from "node:fs";
 import { APP_ORIGIN } from "../../playwright.config";
 import { ensureAccount, hydrated, ok, serviceClient, signInAs, uniqueEmail } from "../support/local-supabase";
+import { shot as saveShot, STATIC_TAB_BAR } from "../support/shots";
 
 const ADMIN = { email: uniqueEmail("v7-tpl-admin"), name: "Templates Admin" };
 const RESEARCHER = { email: uniqueEmail("v7-tpl-researcher"), name: "Templates Researcher" };
 const PHONE = { width: 390, height: 844 };
 const LAPTOP = { width: 1280, height: 820 };
-// Screenshots only when asked for (V7_SHOTS=<directory>).
-const SHOTS = process.env.V7_SHOTS;
 
 test.beforeAll(async () => {
   await ensureAccount({ ...ADMIN, role: "admin" });
   await ensureAccount({ ...RESEARCHER, role: "researcher" });
-  if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 });
 
-const shot = async (page: Page, name: string) => {
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/v7-${name}.png`, style: ".app-tabbar { position: static !important; }" });
-};
+/** Screenshots only when asked for (SHOTS_DIR, tests/support/shots.ts). */
+const shot = (page: Page, name: string) => saveShot(page, `v7-${name}`, { style: STATIC_TAB_BAR });
 const unique = (label: string) => `${label} ${randomBytes(3).toString("hex")}`;
 const card = (page: Page, name: string) => page.getByTestId("template-card").filter({ hasText: name });
 /** A peptide's card: a region named after the peptide (its heading may carry "Not offered"). */

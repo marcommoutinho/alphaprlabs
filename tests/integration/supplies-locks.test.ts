@@ -15,7 +15,7 @@ import { getMixture } from "@/lib/mixtures/service";
 import { type Client, createCycle, createPeptide, interval, plan, tag } from "../support/cycles";
 import { confirmArgsSeen, d, NOON, occurrenceOn } from "../support/doses";
 import { ensureAccount, ok, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
-import { psql, psqlAsync, quote } from "../support/psql";
+import { HOLD_FUNCTION, holdingLocks, holdUntilWaited, psqlAsync, quote } from "../support/psql";
 
 const researcher = { email: uniqueEmail("s14-locks"), name: "Supply Lock Researcher", role: "researcher" } as const;
 const admin = { email: uniqueEmail("s14-locks-admin"), name: "Supply Lock Admin", role: "admin" } as const;
@@ -55,33 +55,22 @@ async function setUp(linked: boolean) {
   return { cycleId, mixtureId, vialId };
 }
 
-/** `call` as the researcher, in a transaction held open for 2 s after it returns; its result is `saved`. */
+/**
+ * `call` as the researcher, in a transaction held open after it returns until
+ * another session waits on its locks: its result is `saved`, and `waited` is
+ * t once a call sent meanwhile was seen waiting for it (tests/support/psql.ts).
+ */
 function slowCall(call: string) {
   const claims = JSON.stringify({ sub: uid, role: "authenticated" });
   return psqlAsync(`
     begin;
+    ${HOLD_FUNCTION}
     set local role authenticated;
     select 'claims', set_config('request.jwt.claims', ${quote(claims)}, true) is not null;
     select 'saved', ${call};
-    select 'slept', pg_sleep(2) is null;
+    ${holdUntilWaited()}
     commit;
   `);
-}
-
-/** Waits until the psql session is sleeping inside its transaction (so it holds its locks). */
-async function holdingLocks() {
-  for (let i = 0; i < 100; i++) {
-    const out = psql(`select 'n', count(*) from pg_stat_activity where state = 'active' and query like '%pg_sleep(2)%' and pid <> pg_backend_pid();`);
-    if (out.n !== "0") return;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error("The psql session never reached its sleep");
-}
-
-async function timed<T>(call: () => Promise<T>) {
-  const start = Date.now();
-  const value = await call();
-  return { value, ms: Date.now() - start };
 }
 
 const vialRow = (vialId: string) =>
@@ -99,11 +88,11 @@ describe("reopen_personal_vial and confirm_dose", () => {
     const shown = await confirmArgsSeen(db, await occurrenceOn(db, cycleId, d(0)));
     const reopen = slowCall(`public.reopen_personal_vial(${quote(vialId)})`);
     await holdingLocks();
-    const confirmed = await timed(() => ok(db.rpc("confirm_dose", shown), "confirm during reopen"));
+    const confirmed = await ok(db.rpc("confirm_dose", shown), "confirm during reopen");
     expect((await reopen).saved).toBe("reopened");
-    // It waited on the mixture, then found the vial open under its locks.
-    expect(confirmed.ms).toBeGreaterThan(1000);
-    expect((confirmed.value as unknown as Dose).deduction).toMatchObject({ vial_id: vialId, amount_mg: "0.4" });
+    // It waited on the mixture (the reopen's transaction held it), then found the vial open under its locks.
+    expect((await reopen).waited).toBe("t");
+    expect((confirmed as unknown as Dose).deduction).toMatchObject({ vial_id: vialId, amount_mg: "0.4" });
     expect(await deductionsOf(vialId)).toEqual([{ amount_mg: "0.4", remaining_after_mg: "9.6" }]);
     expect(await vialRow(vialId)).toMatchObject({ mixture_id: mixtureId, finished_at: null });
   });
@@ -117,10 +106,10 @@ describe("reopen_personal_vial and confirm_dose", () => {
          p_seen_mixture_version_id => ${quote(String(shown.p_seen_mixture_version_id))}, p_amount_mg => ${quote(shown.p_amount_mg)}))->>'deduction'`,
     );
     await holdingLocks();
-    const reopened = await timed(() => ok(db.rpc("reopen_personal_vial", { p_vial_id: vialId }), "reopen during confirm"));
+    const reopened = await ok(db.rpc("reopen_personal_vial", { p_vial_id: vialId }), "reopen during confirm");
     expect((await confirm).saved).toBe("");
-    expect(reopened.ms).toBeGreaterThan(1000);
-    expect(reopened.value).toBe("reopened");
+    expect((await confirm).waited).toBe("t");
+    expect(reopened).toBe("reopened");
     expect(await deductionsOf(vialId)).toEqual([]);
     expect(await vialRow(vialId)).toMatchObject({ mixture_id: mixtureId, finished_at: null });
     expect(await ok(serviceClient().from("dose_records").select("id").eq("cycle_id", cycleId), "doses")).toHaveLength(1);
@@ -132,12 +121,13 @@ describe("reopen_personal_vial and save_personal_vial on the same mixture", () =
     const { mixtureId, vialId } = await setUp(false);
     const reopen = slowCall(`public.reopen_personal_vial(${quote(vialId)})`);
     await holdingLocks();
-    const added = await timed(() =>
-      sqlState(db.rpc("save_personal_vial", { p_label: `N-${tag()}`, p_peptide_id: peptideId, p_strength_mg: "10", p_mixture_id: mixtureId }), "add during reopen"),
+    const added = await sqlState(
+      db.rpc("save_personal_vial", { p_label: `N-${tag()}`, p_peptide_id: peptideId, p_strength_mg: "10", p_mixture_id: mixtureId }),
+      "add during reopen",
     );
     expect((await reopen).saved).toBe("reopened");
-    expect(added.ms).toBeGreaterThan(1000);
-    expect(added.value).toBe("AP015");
+    expect((await reopen).waited).toBe("t");
+    expect(added).toBe("AP015");
     expect((await openOn(mixtureId)).map((v) => v.id)).toEqual([vialId]);
   });
 
@@ -147,10 +137,10 @@ describe("reopen_personal_vial and save_personal_vial on the same mixture", () =
       `public.save_personal_vial(p_label => ${quote(`N-${tag()}`)}, p_peptide_id => ${quote(peptideId)}, p_strength_mg => '10', p_mixture_id => ${quote(mixtureId)})`,
     );
     await holdingLocks();
-    const reopened = await timed(() => ok(db.rpc("reopen_personal_vial", { p_vial_id: vialId }), "reopen during add"));
+    const reopened = await ok(db.rpc("reopen_personal_vial", { p_vial_id: vialId }), "reopen during add");
     const newVial = (await add).saved;
-    expect(reopened.ms).toBeGreaterThan(1000);
-    expect(reopened.value).toBe("unlinked");
+    expect((await add).waited).toBe("t");
+    expect(reopened).toBe("unlinked");
     expect((await openOn(mixtureId)).map((v) => v.id)).toEqual([newVial]);
     expect(await vialRow(vialId)).toMatchObject({ mixture_id: null, finished_at: null });
   });
@@ -162,10 +152,10 @@ describe("reopen_personal_vial and delete_mixture", () => {
     const { version } = (await getMixture(db, mixtureId))!;
     const remove = slowCall(`public.delete_mixture(${quote(mixtureId)}, ${version})`);
     await holdingLocks();
-    const reopened = await timed(() => ok(db.rpc("reopen_personal_vial", { p_vial_id: vialId }), "reopen during delete"));
+    const reopened = await ok(db.rpc("reopen_personal_vial", { p_vial_id: vialId }), "reopen during delete");
     expect((await remove).saved).toBe("t");
-    expect(reopened.ms).toBeGreaterThan(1000);
-    expect(reopened.value).toBe("unlinked");
+    expect((await remove).waited).toBe("t");
+    expect(reopened).toBe("unlinked");
     expect(await vialRow(vialId)).toMatchObject({ mixture_id: null, finished_at: null });
   });
 
@@ -174,10 +164,10 @@ describe("reopen_personal_vial and delete_mixture", () => {
     const { version } = (await getMixture(db, mixtureId))!;
     const reopen = slowCall(`public.reopen_personal_vial(${quote(vialId)})`);
     await holdingLocks();
-    const deleted = await timed(() => ok(db.rpc("delete_mixture", { p_mixture_id: mixtureId, p_version: version }), "delete during reopen"));
+    const deleted = await ok(db.rpc("delete_mixture", { p_mixture_id: mixtureId, p_version: version }), "delete during reopen");
     expect((await reopen).saved).toBe("reopened");
-    expect(deleted.ms).toBeGreaterThan(1000);
-    expect(deleted.value).toBe(true);
+    expect((await reopen).waited).toBe("t");
+    expect(deleted).toBe(true);
     // Open, and not linked to the mixture now deleted.
     expect(await vialRow(vialId)).toMatchObject({ mixture_id: null, finished_at: null });
     expect(await openOn(mixtureId)).toEqual([]);

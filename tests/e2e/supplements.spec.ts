@@ -10,7 +10,7 @@
 // any cycle uses it; nothing touches peptide stock. Days are America/Toronto days.
 import { expect, test, type Page } from "@playwright/test";
 import { APP_ORIGIN, SERVER_ORIGIN } from "../../playwright.config";
-import { SAVE_FAILED_MESSAGE } from "../../src/components/app-shell/toast";
+import { SAVE_FAILED_MESSAGE } from "../../src/lib/app/save";
 import { addDays } from "../../src/lib/cycles/rules";
 import { formatMonthDay } from "../../src/lib/format";
 import { checkInDay } from "../../src/lib/progress/rules";

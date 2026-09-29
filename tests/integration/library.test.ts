@@ -210,14 +210,16 @@ describe("table reads return available entries only, for everyone; A2 lists all 
     const [on, off] = [await create(adminClient, `Listed ${tag()}`), await create(adminClient, `Listed off ${tag()}`, false)];
     const { data, error } = await adminClient
       .rpc("admin_library_peptides")
-      .select("id, available, created_at")
+      .select("id, available")
       .in("id", [on, off])
-      .order("created_at");
+      .order("id");
     expect(error).toBeNull();
-    expect(data!.map((row) => [row.id, row.available])).toEqual([
-      [on, true],
-      [off, false],
-    ]);
+    expect(data!.map((row) => [row.id, row.available])).toEqual(
+      [
+        [on, true],
+        [off, false],
+      ].sort(([a], [b]) => (String(a) < String(b) ? -1 : 1)),
+    );
     await expectOneRowPerEntry(() => adminClient.rpc("admin_library_peptides", undefined, { count: "exact", head: true }));
     // ... while the admin's plain table read has only the available ones.
     const plain = await adminClient.from("peptides").select("id").in("id", [on, off]);

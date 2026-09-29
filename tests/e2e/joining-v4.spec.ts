@@ -8,6 +8,7 @@ import { expect, test, type Browser, type Page } from "@playwright/test";
 import { APP_ORIGIN } from "../../playwright.config";
 import { emulatePermission } from "../support/fake-push";
 import { ensureAccount, hydrated, seedInvitation, serviceClient, signInAs, TEST_PASSWORD, uniqueEmail } from "../support/local-supabase";
+import { shot as saveShot } from "../support/shots";
 
 const PHONE = { width: 390, height: 844 };
 const LAPTOP = { width: 1280, height: 820 };
@@ -17,7 +18,7 @@ const PAPER = { light: "rgb(242, 242, 238)", dark: "rgb(12, 13, 15)" };
 const background = (page: Page) => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
 const noSideScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
 const shot = async (page: Page, name: string) => {
-  if (process.env.V4_SHOTS) await page.screenshot({ path: `${process.env.V4_SHOTS}/v4-${name}.png`, fullPage: true });
+  await saveShot(page, `v4-${name}`, { fullPage: true });
 };
 
 /** Runs in the page before any script: the app reports itself as launched from the Home Screen. */

@@ -6,7 +6,7 @@
 // 1,000+ sales: tests/integration/business-overview-owner.test.ts.
 import { expect, test, type Page } from "@playwright/test";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import Decimal from "decimal.js";
 import { APP_ORIGIN } from "../../playwright.config";
 import { money } from "../../src/lib/alpha/format";
@@ -16,6 +16,7 @@ import { addDays, monthsLabel, monthStart, rangeLabel, sameDaysWindow } from "..
 import { PAUSED_NOTE } from "../../src/components/business/stock-load-error";
 import { businessToday } from "../../src/lib/inventory/screens";
 import { ensureAccount, hydrated, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
+import { shot as saveShot, STATIC_TAB_BAR } from "../support/shots";
 import { recordPreviewedSale } from "../support/sales";
 
 const ADMIN = { email: uniqueEmail("v5-biz-admin"), name: "Priya Sandhu" };
@@ -24,7 +25,6 @@ const BUYER = { email: uniqueEmail("v5-biz-buyer"), name: "Jordan Reyes" };
 const RESEARCHER = { email: uniqueEmail("v5-biz-researcher"), name: "V5 Researcher" };
 const PHONE = { width: 390, height: 844 };
 const LAPTOP = { width: 1280, height: 820 };
-const SHOTS = "/tmp/claude-1000/-home-marcomoutinho-personal-alphaprlabs/23b1f178-9ec7-4a18-b70d-a767abceb0f7/scratchpad/shots";
 
 const id = { admin: "", second: "", buyer: "" };
 
@@ -33,13 +33,34 @@ test.beforeAll(async () => {
   id.second = await ensureAccount({ ...SECOND, role: "admin" });
   id.buyer = await ensureAccount({ ...BUYER, role: "researcher" });
   await ensureAccount({ ...RESEARCHER, role: "researcher" });
-  mkdirSync(SHOTS, { recursive: true });
 });
+
+/**
+ * An item's threshold audit (threshold and who), oldest first, in the order of
+ * its compare-and-set chain from the default 10: each change's previous level
+ * is the one the change before it set. Not by changed_at, the clock's, which
+ * can step back between two changes a moment apart.
+ */
+async function thresholdChanges(itemId: string) {
+  const { data } = await serviceClient()
+    .from("business_stock_threshold_changes")
+    .select("previous_threshold, threshold, changed_by")
+    .eq("stock_item_id", itemId);
+  const rows = data ?? [];
+  const chain: typeof rows = [];
+  let level = 10;
+  while (chain.length < rows.length) {
+    const next = rows.filter((row) => !chain.includes(row) && row.previous_threshold === level);
+    if (next.length !== 1) throw new Error(`The audit doesn't form one chain from ${level}: ${JSON.stringify(rows)}`);
+    chain.push(next[0]);
+    level = next[0].threshold;
+  }
+  return chain.map(({ threshold, changed_by }) => ({ threshold, changed_by }));
+}
 
 const h1 = (page: Page) => page.getByRole("heading", { level: 1 });
 /** A full-page screenshot for review; the phone tab bar is drawn at the page's end instead of floating mid-page. */
-const shot = (page: Page, name: string) =>
-  page.screenshot({ path: `${SHOTS}/v5-${name}.png`, fullPage: true, style: ".app-tabbar { position: static !important; }" });
+const shot = (page: Page, name: string) => saveShot(page, `v5-${name}`, { fullPage: true, style: STATIC_TAB_BAR });
 
 async function signInAdmin(page: Page) {
   await signInAs(page, APP_ORIGIN, ADMIN.email);
@@ -506,12 +527,7 @@ test("Stock: a Retry after a saved change lost its answer replays it, and never 
   await expect(sheet).toBeHidden();
   expect(await thresholdOf(item.id)).toBe(8);
   await expect(page.getByText(`${item.label}: this change was already saved. The list shows the current level.`)).toBeVisible();
-  const changes = await serviceClient()
-    .from("business_stock_threshold_changes")
-    .select("threshold, changed_by")
-    .eq("stock_item_id", item.id)
-    .order("changed_at");
-  expect(changes.data).toEqual([
+  expect(await thresholdChanges(item.id)).toEqual([
     { threshold: 5, changed_by: id.admin },
     { threshold: 8, changed_by: id.second },
   ]);
@@ -600,12 +616,7 @@ test("Stock: after an unsure save, a reopened sheet's Save never overwrites a ne
   await expect(sheet.getByText(`Changed by ${SECOND.name} to 8. Nothing was saved.`)).toBeVisible();
   await expect(sheet).toBeVisible();
   expect(await thresholdOf(item.id)).toBe(8);
-  const changes = await serviceClient()
-    .from("business_stock_threshold_changes")
-    .select("threshold, changed_by")
-    .eq("stock_item_id", item.id)
-    .order("changed_at");
-  expect(changes.data).toEqual([
+  expect(await thresholdChanges(item.id)).toEqual([
     { threshold: 5, changed_by: id.admin },
     { threshold: 8, changed_by: id.second },
   ]);
@@ -886,7 +897,7 @@ test("the A6 states in light and dark: empty, loading, and couldn't load (record
     .evaluateAll((els) => els.map((el) => getComputedStyle(el).backgroundColor));
   expect(tints).toHaveLength(2);
   expect(tints[0]).not.toBe(tints[1]);
-  await page.getByTestId("gallery-stock-states").first().screenshot({ path: `${SHOTS}/v5-states.png` });
+  await saveShot(page.getByTestId("gallery-stock-states").first(), "v5-states");
 });
 
 test("a researcher can't reach Business, Stock or the export", async ({ page }) => {

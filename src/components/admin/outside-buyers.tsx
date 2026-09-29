@@ -1,7 +1,8 @@
 import Form from "next/form";
-import { ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { ChevronRight, Search } from "lucide-react";
 import Link from "@/components/alpha/link";
 import { buttonVariants } from "@/components/alpha/button-variants";
+import { BackBar } from "@/components/alpha/back-bar";
 import { BUSINESS_MAIN, LEDGER_HREF, OUTSIDE_HREF } from "@/components/business/frame";
 import { LinkSaleSheet } from "@/components/records/link-sheet";
 import { money, shortDate } from "@/lib/alpha/format";
@@ -22,17 +23,6 @@ import { cn } from "@/lib/utils";
 
 export const OUTSIDE_PATH = OUTSIDE_HREF;
 const namePath = (name: string) => `${OUTSIDE_PATH}?${new URLSearchParams({ name })}`;
-
-function BackBar({ href, label }: { href: string; label: string }) {
-  return (
-    <div className="flex h-11 items-center pr-3 pl-1.5 laptop:mb-2 laptop:h-auto laptop:pl-0">
-      <Link href={href} className="flex items-center gap-0.5 text-[17px] text-signal-ink laptop:text-[15px]">
-        <ChevronLeft className="size-[26px] laptop:size-5" aria-hidden />
-        {label}
-      </Link>
-    </div>
-  );
-}
 
 /**
  * Outside buyers (Marco, 2026-09-27; restyled in design v3 for V6): every

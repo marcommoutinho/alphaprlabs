@@ -68,14 +68,32 @@ async function newItem(quantity = 6): Promise<string> {
 
 const levelOf = async (itemId: string) =>
   (await listStockLevels(await signedInClient(admin.email), businessToday())).find((level) => level.id === itemId)!;
-const changesOf = async (itemId: string) =>
-  ok(
+/**
+ * An item's threshold audit, oldest first. Ordered by the compare-and-set
+ * chain itself, not by changed_at: each change's previous_threshold is the
+ * level the change before it set, starting from the default (10). changed_at
+ * is clock_timestamp(), and this machine's clock steps back now and then, so
+ * two changes a moment apart could sort the wrong way round. A chain that
+ * can't be followed one way only (a missing link, or two rows over the same
+ * level) fails the test.
+ */
+const changesOf = async (itemId: string) => {
+  const rows = await ok(
     (await signedInClient(admin.email))
       .from("business_stock_threshold_changes")
       .select("previous_threshold, threshold, request_key, changed_by")
-      .eq("stock_item_id", itemId)
-      .order("changed_at"),
+      .eq("stock_item_id", itemId),
   );
+  const chain: typeof rows = [];
+  let level = 10;
+  while (chain.length < rows.length) {
+    const next = rows.filter((row) => !chain.includes(row) && row.previous_threshold === level);
+    if (next.length !== 1) throw new Error(`The audit doesn't form one chain from ${level}: ${JSON.stringify(rows)}`);
+    chain.push(next[0]);
+    level = next[0].threshold;
+  }
+  return chain;
+};
 
 describe("set_business_stock_threshold", () => {
   it("an admin sets it; the same request again replays; every call is audited with who and the previous value", async () => {

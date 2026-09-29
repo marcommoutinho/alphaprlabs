@@ -7,28 +7,24 @@
 // names. Exact rules and the SQL checks: tests/integration/admin-content.test.ts.
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
 import { APP_ORIGIN } from "../../playwright.config";
 import { ensureAccount, hydrated, ok, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
+import { shot as saveShot, STATIC_TAB_BAR } from "../support/shots";
 
 const ADMIN = { email: uniqueEmail("v7-lib-admin"), name: "Priya Sandhu" };
 const SECOND = { email: uniqueEmail("v7-lib-second"), name: "Owen Marchetti" };
 const RESEARCHER = { email: uniqueEmail("v7-lib-researcher"), name: "V7 Library Researcher" };
 const PHONE = { width: 390, height: 844 };
 const LAPTOP = { width: 1280, height: 820 };
-// Screenshots only when asked for (V7_SHOTS=<directory>).
-const SHOTS = process.env.V7_SHOTS;
 
 test.beforeAll(async () => {
   await ensureAccount({ ...ADMIN, role: "admin" });
   await ensureAccount({ ...SECOND, role: "admin" });
   await ensureAccount({ ...RESEARCHER, role: "researcher" });
-  if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 });
 
-const shot = async (page: Page, name: string) => {
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/v7-${name}.png`, style: ".app-tabbar { position: static !important; }" });
-};
+/** Screenshots only when asked for (SHOTS_DIR, tests/support/shots.ts). */
+const shot = (page: Page, name: string) => saveShot(page, `v7-${name}`, { style: STATIC_TAB_BAR });
 const unique = (label: string) => `${label} ${randomBytes(3).toString("hex")}`;
 const row = (page: Page, name: string) => page.getByTestId("library-row").filter({ hasText: name });
 const editor = (page: Page) => page.getByTestId("peptide-editor");

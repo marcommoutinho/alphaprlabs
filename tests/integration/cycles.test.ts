@@ -8,7 +8,7 @@
 // session is swapped for a signed-in client.
 import { randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { SAVE_FAILED_MESSAGE } from "@/components/app-shell/toast";
+import { SAVE_FAILED_MESSAGE } from "@/lib/app/save";
 import { editWindow } from "@/lib/cycles/revise";
 import { formFromTemplate, formOfCycle, validateCycle } from "@/lib/cycles/rules";
 import { cycleOccurrences } from "@/lib/cycles/schedule";

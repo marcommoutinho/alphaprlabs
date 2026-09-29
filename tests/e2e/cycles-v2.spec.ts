@@ -7,10 +7,10 @@
 // screenshot of each screen there (v2-<screen>-<device>.png).
 import { expect, test, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import path from "node:path";
 import { APP_ORIGIN } from "../../playwright.config";
 import { createCycle, interval, pause, plan, tag } from "../support/cycles";
 import { ensureAccount, hydrated, ok, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
+import { shot as saveShot } from "../support/shots";
 import { d, NOON, noonZoneInstant } from "../support/noon";
 import { saveTemplateAs } from "../support/admin-writers";
 
@@ -27,10 +27,9 @@ const noSideScroll = (page: Page) => page.evaluate(() => document.documentElemen
 const paper = (page: Page) => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
 
 async function shot(page: Page, name: string, device: string, fullPage = true) {
-  const dir = process.env.SHOTS_DIR;
-  if (!dir) return;
+  if (!process.env.SHOTS_DIR) return;
   await page.evaluate(() => document.fonts.ready);
-  await page.screenshot({ path: path.join(dir, `v2-${name}-${device}.png`), fullPage, animations: "disabled" });
+  await saveShot(page, `v2-${name}-${device}`, { fullPage, animations: "disabled" });
 }
 
 async function seedPeptide(name: string, cyclingOff = "") {

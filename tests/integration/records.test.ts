@@ -118,7 +118,7 @@ const salesOf = async (stockItemId: string) =>
   (
     await serviceClient()
       .from("business_sales")
-      .select("id, quantity, revenue, cost, gross_profit, sold_on, business_sale_allocations(purchase_id, quantity, unit_cost)")
+      .select("id, idempotency_key, quantity, revenue, cost, gross_profit, sold_on, business_sale_allocations(purchase_id, quantity, unit_cost)")
       .eq("stock_item_id", stockItemId)
       .order("recorded_at")
   ).data!;
@@ -280,9 +280,12 @@ describe("A4: stock changed between the preview and Record", () => {
 
     const fresh = await preview(item, 3);
     expect(fresh.cost).toBe("50.00");
-    expect(await recordSaleAction({ ...entry, idempotencyKey: randomUUID(), expectedAllocation: expectedAllocation(fresh) })).toMatchObject({ tone: "info" });
+    const key = randomUUID();
+    expect(await recordSaleAction({ ...entry, idempotencyKey: key, expectedAllocation: expectedAllocation(fresh) })).toMatchObject({ tone: "info" });
+    // This sale, found by its own key (recorded_at is the clock's, which can step back between two sales).
     const sales = await salesOf(item);
-    expect(frozen(sales[1])).toEqual(shownLots(fresh));
+    expect(sales).toHaveLength(2);
+    expect(frozen(sales.find((sale) => sale.idempotency_key === key)!)).toEqual(shownLots(fresh));
   });
 
   it("an older purchase recorded in between changes the lots too; stock short of the vials is still AP001, checked first", async () => {

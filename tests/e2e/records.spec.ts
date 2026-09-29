@@ -6,12 +6,12 @@
 // tests/integration/records.test.ts and records-owner.test.ts.
 import { expect, test, type Page } from "@playwright/test";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
 import { APP_ORIGIN } from "../../playwright.config";
 import { addDays, monthStart } from "../../src/lib/business/period";
 import { businessToday } from "../../src/lib/inventory/screens";
 import { BUYER_HELPER, BUYER_REQUIRED } from "../../src/lib/records/forms";
 import { ensureAccount, hydrated, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
+import { shot as saveShot, STATIC_TAB_BAR } from "../support/shots";
 import { recordPreviewedSale } from "../support/sales";
 
 const ADMIN = { email: uniqueEmail("v6-rec-admin"), name: "Priya Sandhu" };
@@ -20,7 +20,6 @@ const BUYER = { email: uniqueEmail("v6-rec-buyer"), name: `Jordan Reyes ${random
 const RESEARCHER = { email: uniqueEmail("v6-rec-researcher"), name: "V6 Researcher" };
 const PHONE = { width: 390, height: 844 };
 const LAPTOP = { width: 1280, height: 820 };
-const SHOTS = "/tmp/claude-1000/-home-marcomoutinho-personal-alphaprlabs/23b1f178-9ec7-4a18-b70d-a767abceb0f7/scratchpad/shots";
 
 const id = { admin: "", second: "", buyer: "" };
 const today = businessToday();
@@ -30,11 +29,9 @@ test.beforeAll(async () => {
   id.second = await ensureAccount({ ...SECOND, role: "admin" });
   id.buyer = await ensureAccount({ ...BUYER, role: "researcher" });
   await ensureAccount({ ...RESEARCHER, role: "researcher" });
-  mkdirSync(SHOTS, { recursive: true });
 });
 
-const shot = (page: Page, name: string, fullPage = true) =>
-  page.screenshot({ path: `${SHOTS}/v6-${name}.png`, fullPage, style: ".app-tabbar { position: static !important; }" });
+const shot = (page: Page, name: string, fullPage = true) => saveShot(page, `v6-${name}`, { fullPage, style: STATIC_TAB_BAR });
 
 async function signInAdmin(page: Page) {
   await signInAs(page, APP_ORIGIN, ADMIN.email);

@@ -1,21 +1,18 @@
 // The CSS shared with the public site (Inter, globals.css) comes first, in the
-// public layout's order; the private CSS follows, and the v3 fonts come last,
-// between private stylesheets, so the build's CSS chunking never merges them
-// into the chunk the public site loads (which would preload Geist there).
+// public layout's order; the private CSS (design v3, src/styles/alpha)
+// follows, and the v3 fonts come last, so the build's CSS chunking never
+// merges them into the chunk the public site loads (which would preload
+// Geist there).
 import { BODY_CLASS, HTML_CLASS } from "../document";
 import "../globals.css";
 import "@/styles/alpha/app.css";
 import "@/styles/alpha/tokens.css";
 import "@/styles/alpha/components.css";
 import { geist, geistMono } from "./fonts";
-import "@/styles/app/tokens.css";
-import "@/styles/app/shell.css";
-import "@/styles/app/primitives.css";
 import type { Metadata, Viewport } from "next";
 import { cookies } from "next/headers";
 import { AppearanceSync } from "@/components/alpha/appearance-sync";
 import { AlphaRoot } from "@/components/alpha/root";
-import { AppRoot } from "@/components/app-shell/app-root";
 import { APPEARANCE_COOKIE, htmlClassFor, parseAppearance, themeColorFor } from "@/lib/alpha/appearance";
 import { getSessionPerson } from "@/lib/auth/session";
 import { resolveAppearance } from "@/lib/preferences/rules";
@@ -72,7 +69,7 @@ export default async function PrivateLayout({ children }: Readonly<{ children: R
     <html lang="en" className={forced ? `${HTML_CLASS} ${forced}` : HTML_CLASS}>
       <body className={BODY_CLASS}>
         <AlphaRoot className={`${geist.variable} ${geistMono.variable}`}>
-          <AppRoot>{children}</AppRoot>
+          {children}
           <AppearanceSync account={account} />
         </AlphaRoot>
       </body>

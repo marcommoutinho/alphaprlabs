@@ -1,4 +1,3 @@
-import { AppPage } from "@/components/app-shell/app-shell";
 import { Calculator } from "@/components/research/calculator";
 import { requireResearcher } from "@/lib/auth/session";
 import { listCycles, listCyclePeptides } from "@/lib/cycles/service";
@@ -7,14 +6,13 @@ import { linkablePlans } from "@/lib/mixtures/plans";
 import { blankForm, type CalculatorForm, formFromMixture } from "@/lib/mixtures/rules";
 import { getSupplyTracking, listMixtures, listPersonalVials } from "@/lib/mixtures/service";
 import { createClient } from "@/lib/supabase/server";
-import "@/styles/app/calculator.css";
 
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 
 const one = (value: string | string[] | undefined) => (typeof value === "string" ? value.toLowerCase() : null);
 
 /**
- * R7 Calculator. Converts the dose the researcher enters (S7's math; nothing
+ * R7 Calculator (design v3). Converts the dose the researcher enters (S7's math; nothing
  * is rounded) and saves the setup as a mixture linked to cycle peptide plans.
  * `?mixture=<id>` opens a saved mixture; `?plan=<id>` opens a cycle plan's
  * mixture (or a new one for its peptide) with its dose today, else its next
@@ -56,16 +54,14 @@ export default async function CalculatorPage({ searchParams }: { searchParams: S
   if (tracking) for (const vial of vials) if (vial.mixtureId && !vial.finishedAt) trackedVials[vial.mixtureId] = vial.label;
 
   return (
-    <AppPage>
-      <Calculator
-        key={`${mixtureParam ?? ""}/${planParam ?? ""}`}
-        initial={initial}
-        initialLinked={linked}
-        peptides={peptides}
-        mixtures={mixtures}
-        plans={plans}
-        trackedVials={trackedVials}
-      />
-    </AppPage>
+    <Calculator
+      key={`${mixtureParam ?? ""}/${planParam ?? ""}`}
+      initial={initial}
+      initialLinked={linked}
+      peptides={peptides}
+      mixtures={mixtures}
+      plans={plans}
+      trackedVials={trackedVials}
+    />
   );
 }
