@@ -18,7 +18,7 @@ import { NO_VIALS, TRACKING_OFF } from "../../src/lib/supplies/rules";
 import { createCycle, interval, plan, tag } from "../support/cycles";
 import { d, NOON } from "../support/noon";
 import { ensureAccount, hydrated, ok, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
-import { seedPeptide } from "../support/today";
+import { savedAMinuteAgo, seedPeptide } from "../support/today";
 
 const PHONE = { width: 390, height: 844 };
 const LAPTOP = { width: 1280, height: 820 };
@@ -39,10 +39,11 @@ async function seed(label: string) {
   const db = await signedInClient(email);
   const cycleId = await createCycle(db, { name: `Supplies cycle ${t}`, timeZone: NOON, plans: [plan(aId, [interval(d(-2), d(20), "0.4", 2, "08:00")])] });
   const [{ id: planId }] = await ok(db.from("cycle_plans").select("id").eq("cycle_id", cycleId), "plan");
-  await ok(
+  const mixtureId = (await ok(
     db.rpc("save_mixture", { p_peptide_id: aId, p_vial_mg: "0.7", p_liquid_ml: "1", p_syringe_units: 100, p_line_spacing: "2", p_plan_ids: [planId] }),
     "mixture",
-  );
+  ))!;
+  savedAMinuteAgo(mixtureId);
   return { email, A, aId, cycleId, db };
 }
 

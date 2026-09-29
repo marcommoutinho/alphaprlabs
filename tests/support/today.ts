@@ -3,6 +3,19 @@
 import { createCycle, interval, plan, tag, weekdays } from "./cycles";
 import { d, NOON } from "./noon";
 import { ensureAccount, ok, serviceClient, signedInClient, uniqueEmail } from "./local-supabase";
+import { psql } from "./psql";
+
+/**
+ * Records a mixture seeded a moment ago (its versions and plan links) as
+ * saved a minute earlier. confirm_dose uses the mix in effect at its own
+ * clock_timestamp(), and this machine's clock steps back about 2 s now and
+ * then: a Taken a second after the seed could otherwise find no mix in
+ * effect yet and be refused as changed (AP020).
+ */
+export function savedAMinuteAgo(mixtureId: string) {
+  psql(`update public.mixture_versions set created_at = created_at - interval '1 minute' where mixture_id = '${mixtureId}';
+update public.cycle_plan_mixtures set linked_at = linked_at - interval '1 minute' where mixture_id = '${mixtureId}';`);
+}
 
 export async function seedPeptide(name: string) {
   const { data, error } = await serviceClient()
@@ -46,6 +59,7 @@ export async function seedToday(label: string, options: { vial?: { mg: string; m
     }),
     "mixture",
   ))!;
+  savedAMinuteAgo(mixtureId);
   let vialLabel: string | null = null;
   if (options.vial) {
     vialLabel = `V-${t}`;
