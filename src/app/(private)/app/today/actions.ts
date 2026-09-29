@@ -6,7 +6,6 @@ import { SAVE_FAILED_MESSAGE, type ToastTone } from "@/lib/app/save";
 import { signInUrl } from "@/lib/auth/paths";
 import { parseDecimal, plain } from "@/lib/calculator/decimal";
 import { currentResearcher } from "@/lib/auth/session";
-import { listCycles } from "@/lib/cycles/service";
 import {
   ALREADY_SKIPPED,
   confirmFormError,
@@ -22,8 +21,7 @@ import {
   UNDO_TOO_LATE,
   wallOf,
 } from "@/lib/doses/rules";
-import { confirmDose, ownerConfirmations, skipDose, undoDose } from "@/lib/doses/service";
-import { pendingDoses } from "@/lib/doses/today";
+import { confirmDose, skipDose, undoDose } from "@/lib/doses/service";
 import { isValidTimeZone, resolveLocal } from "@/lib/schedule/zone";
 import { createClient } from "@/lib/supabase/server";
 
@@ -237,15 +235,3 @@ export async function undoDoseAction(input: unknown): Promise<UndoActionResult> 
   }
 }
 
-/**
- * The app icon badge: doses awaiting confirmation for the signed-in
- * researcher (see pendingDoses), or null when signed out. Read on app open
- * and on return to the foreground.
- */
-export async function pendingDoseCount(): Promise<number | null> {
-  const person = await currentResearcher();
-  if (!person) return null;
-  const db = await createClient();
-  const [cycles, confirmations] = await Promise.all([listCycles(db, person.id), ownerConfirmations(db, person.id)]);
-  return pendingDoses(cycles, confirmations, new Date());
-}

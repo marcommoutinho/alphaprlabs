@@ -111,6 +111,17 @@ test("Today confirms the due dose in one tap and the badge follows", async ({ pa
   const both = await doses(cycleId);
   expect(both).toHaveLength(2);
   expect(both.map((dose) => dose.site).sort()).toEqual(["Abdomen L", "Abdomen R"]);
+
+  // Opening the app on another screen reads the count too (BadgeSync), with a
+  // plain GET: no Server Action, which would hold up a navigation made meanwhile.
+  const actions: string[] = [];
+  page.on("request", (request) => {
+    if (request.headers()["next-action"]) actions.push(request.url());
+  });
+  await page.goto(`${APP_ORIGIN}/app/cycles`);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Cycles");
+  await expect.poll(() => lastBadge(page)).toBe(2);
+  expect(actions).toEqual([]);
 });
 
 test("the sheet records an earlier time, the amount, a site and notes", async ({ page }) => {

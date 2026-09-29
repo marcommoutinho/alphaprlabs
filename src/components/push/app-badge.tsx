@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect } from "react";
-import { pendingDoseCount } from "@/app/(private)/app/today/actions";
 import { onForeground } from "./use-reminders";
+
+/** GET → { count } (src/app/(private)/app/today/badge/route.ts). */
+const BADGE_PATH = "/app/today/badge";
 
 type BadgingNavigator = Navigator & {
   setAppBadge?: (count?: number) => Promise<void>;
@@ -39,9 +41,11 @@ export function BadgeSync() {
   useEffect(() => {
     let live = true;
     const run = () =>
-      pendingDoseCount()
-        .then((count) => {
-          if (live && count !== null) setAppBadge(count);
+      // Signed out, the proxy answers with a redirect to sign-in: nothing to show.
+      fetch(BADGE_PATH, { cache: "no-store", redirect: "manual" })
+        .then((response) => (response.ok ? (response.json() as Promise<{ count: number | null }>) : null))
+        .then((body) => {
+          if (live && typeof body?.count === "number") setAppBadge(body.count);
         })
         .catch(() => {});
     void run();
