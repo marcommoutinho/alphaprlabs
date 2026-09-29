@@ -30,7 +30,8 @@ const shot = async (page: Page, name: string) => {
 };
 const unique = (label: string) => `${label} ${randomBytes(3).toString("hex")}`;
 const card = (page: Page, name: string) => page.getByTestId("template-card").filter({ hasText: name });
-const peptideCard = (page: Page, name: string) => page.getByTestId("template-peptide").filter({ has: page.getByText(name, { exact: true }) });
+/** A peptide's card: a region named after the peptide (its heading may carry "Not offered"). */
+const peptideCard = (page: Page, name: string) => page.getByRole("region", { name, exact: true }).and(page.getByTestId("template-peptide"));
 const toast = (page: Page) => page.locator('[data-slot="toast"]');
 
 async function seedPeptide(name: string) {
@@ -86,6 +87,7 @@ test("laptop: create and edit a template, then keep saving it with a peptide no 
   await expect(page.getByTestId("save-template")).toBeDisabled();
   const a = peptideCard(page, A);
   await a.getByTestId("phase-dose").fill("250");
+  await a.getByTestId("phase-unit").selectOption("mcg");
   await a.getByTestId("add-break").click();
   await expect(a.getByTestId("phase-row")).toHaveCount(2);
   await expect(a.getByTestId("phase-row").nth(1)).toHaveAttribute("data-kind", "break");
