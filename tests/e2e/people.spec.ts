@@ -211,6 +211,43 @@ test("a shared history opens read-only; after the share stops, the next request 
   }
 });
 
+test("a history opened a moment ago is asked for again: back through People after the share stops, it's denied", async ({ page }) => {
+  // Its own researcher: the test above shares and stops Jordan's.
+  const researcher = { email: uniqueEmail("v7-people-revisit"), name: `Jordan Revisit ${tag()}` };
+  const researcherId = await ensureAccount({ ...researcher, role: "researcher" });
+  const researcherDb = await signedInClient(researcher.email);
+  const peptide = await createPeptide(await signedInClient(ADMIN.email), `V7 Revisit peptide ${tag()}`);
+  const cycleName = `Revisit protocol ${tag()}`;
+  await createCycle(researcherDb, { name: cycleName, plans: [plan(peptide, [interval(day(-3), day(24), "0.25", 1)])] });
+  await ok(researcherDb.rpc("share_with_team"), "share");
+  const history = `${APP_ORIGIN}/admin/people/${researcherId}`;
+  await page.setViewportSize(PHONE);
+  await openPeople(page);
+
+  // People → the shared history → People again, all within the app.
+  await (await hydrated(phoneRow(page, researcher.name))).click();
+  await expect(page).toHaveURL(history);
+  await expect(page.getByTestId("history-banner")).toBeVisible();
+  await expect(page.getByText(cycleName).first()).toBeVisible();
+  await (await hydrated(page.getByRole("main").getByRole("link", { name: "People", exact: true }))).click();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/people`);
+  // People itself, not its loading skeleton: the row links to the history (the share is still on).
+  await expect(phoneRow(page, researcher.name)).toHaveAttribute("href", `/admin/people/${researcherId}`);
+
+  // The researcher stops sharing; seconds later the admin follows the row still on screen to the history.
+  await ok(researcherDb.rpc("stop_sharing_with_team"), "stop");
+  // 3 s on (within the 30 s asked about): Next.js drops a visited page by the wall clock, which on this
+  // machine steps back about 2 s now and then, and would then keep it for that long.
+  await page.waitForTimeout(3_000);
+  const asked = page.waitForRequest((request) => new URL(request.url()).pathname === `/admin/people/${researcherId}` && Boolean(request.headers()["rsc"]));
+  await phoneRow(page, researcher.name).click();
+  await asked;
+  await expect(page).toHaveURL(history);
+  await expect(page.getByTestId("history-denied")).toBeVisible();
+  await expect(page.getByText(cycleName)).toHaveCount(0);
+  await expect(page.getByTestId("history-banner")).toHaveCount(0);
+});
+
 test("the old Invitations, Support and Templates URLs land on their V7 screens", async ({ page }) => {
   await page.setViewportSize(LAPTOP);
   await signInAs(page, APP_ORIGIN, ADMIN.email);

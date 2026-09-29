@@ -193,6 +193,36 @@ describe("refreshWaits (one screen's waits)", () => {
     expect(calls).toEqual({ load: 0, refresh: 1, giveUp: 1 });
   });
 
+  it("keyed waits run side by side: a second key keeps the first's wait, and arrived(key) stops only that one", () => {
+    const waits = refreshWaits();
+    const gaveUp: string[] = [];
+    const start = (key: string) => waits.start({ key, refresh: () => undefined, giveUp: () => void gaveUp.push(key) });
+    waits.mount();
+    start("A");
+    vi.advanceTimersByTime(REFRESH_WAIT_MS / 2);
+    start("B");
+    vi.advanceTimersByTime(REFRESH_WAIT_MS * 1.5);
+    // A's two rounds are over; B has half a round left.
+    expect(gaveUp).toEqual(["A"]);
+    vi.advanceTimersByTime(REFRESH_WAIT_MS / 2);
+    expect(gaveUp).toEqual(["A", "B"]);
+
+    start("A");
+    start("B");
+    waits.arrived("A");
+    vi.advanceTimersByTime(REFRESH_WAIT_MS * 5);
+    expect(gaveUp).toEqual(["A", "B", "B"]);
+    // Unnamed, arrived() ends every wait; leaving the screen does too.
+    start("A");
+    start("B");
+    waits.arrived();
+    start("C");
+    waits.unmount();
+    vi.advanceTimersByTime(REFRESH_WAIT_MS * 5);
+    expect(gaveUp).toEqual(["A", "B", "B"]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("works again after a remount (React's development double effects)", () => {
     const { waits, calls, start } = screen();
     waits.mount();

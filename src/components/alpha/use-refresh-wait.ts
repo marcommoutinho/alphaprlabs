@@ -6,8 +6,10 @@ import { REFRESH_STALLED, refreshWaits } from "@/lib/app/save";
 import { useAlphaToast } from "./toast";
 
 type Start = {
-  /** What the answer said, before the stalled message ("Saved."). */
-  lead: string;
+  /** Which of the screen's waits (one per key: see refreshWaits); unnamed, the screen's one wait. */
+  key?: string;
+  /** What the answer said, before the stalled message ("Saved."); a function is read on giving up. */
+  lead: string | (() => string);
   /** What the screen does on giving up (e.g. stop being busy). */
   onGiveUp: () => void;
   /** A navigation to run now and again as the retry (never the save); none: the action's refresh is on its way, and the retry is router.refresh(). */
@@ -34,19 +36,20 @@ export function useRefreshWait() {
   }, [waits]);
   return useMemo(
     () => ({
-      start: ({ lead, onGiveUp, load, reloadTo }: Start) =>
+      start: ({ key, lead, onGiveUp, load, reloadTo }: Start) =>
         waits.start({
+          key,
           load,
           refresh: () => router.refresh(),
           giveUp: () => {
             onGiveUp();
             toast.error({
-              message: `${lead} ${REFRESH_STALLED}`,
+              message: `${typeof lead === "function" ? lead() : lead} ${REFRESH_STALLED}`,
               action: { label: "Reload", onAction: () => (reloadTo ? window.location.assign(reloadTo) : window.location.reload()) },
             });
           },
         }),
-      arrived: () => waits.arrived(),
+      arrived: (key?: string) => waits.arrived(key),
     }),
     [router, toast, waits],
   );

@@ -83,6 +83,8 @@ export function waitForRefresh({
 }
 
 export type RefreshWaitStart = {
+  /** Which of the screen's waits this is (one per key; unnamed: the screen's one wait). */
+  key?: string;
   /** A navigation to run now and again as the retry; none: the action's own refresh is on its way, and the retry is `refresh`. */
   load?: () => void;
   refresh: () => void;
@@ -95,14 +97,19 @@ export type RefreshWaitStart = {
  * navigated away while it was in flight): start() then does nothing at all,
  * so no navigation, refresh or toast reaches the screen now shown. Leaving
  * stops the wait in progress, and its retry and give-up run only while the
- * screen that started it is still here.
+ * screen that started it is still here. A screen waiting on several saves
+ * at once (Today's refused doses) keys them: each key has its own wait, and
+ * starting one replaces only the wait of the same key.
  */
 export function refreshWaits(make: typeof waitForRefresh = waitForRefresh) {
   let live = false;
-  let current: RefreshWait | null = null;
-  const stop = () => {
-    current?.arrived();
-    current = null;
+  const current = new Map<string, RefreshWait>();
+  const stop = (key?: string) => {
+    for (const [name, wait] of current) {
+      if (key !== undefined && name !== key) continue;
+      wait.arrived();
+      current.delete(name);
+    }
   };
   return {
     mount() {
@@ -113,18 +120,21 @@ export function refreshWaits(make: typeof waitForRefresh = waitForRefresh) {
       stop();
     },
     /** Whether a wait started: false once the screen is gone. */
-    start({ load, refresh, giveUp }: RefreshWaitStart): boolean {
+    start({ key = "", load, refresh, giveUp }: RefreshWaitStart): boolean {
       if (!live) return false;
-      stop();
+      stop(key);
       load?.();
-      current = make({
+      const wait = make({
         retry: () => (live ? (load ?? refresh)() : undefined),
         giveUp: () => {
+          if (current.get(key) === wait) current.delete(key);
           if (live) giveUp();
         },
       });
+      current.set(key, wait);
       return true;
     },
-    arrived: stop,
+    /** The refreshed page is here: `key`'s wait ends (every wait, unnamed). */
+    arrived: (key?: string) => stop(key),
   };
 }

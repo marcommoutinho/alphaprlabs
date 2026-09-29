@@ -20,10 +20,9 @@ export { useLinkStatus } from "next/link";
  * tests/perf/prefetch-stress.spec.ts against a build with it on.
  *
  * With it off, a tap still answers on the next frame: the tab turns active
- * and the route's skeleton shows while the page loads (shell/pending-nav.tsx),
- * and a tab visited in the last 30 s comes back from the router's cache
- * (staleTimes.dynamic, next.config.ts). tests/e2e/navigation.spec.ts moves
- * quickly through the tabs and cycle pages and fails on any prefetch request.
+ * and the route's skeleton shows while the page loads (shell/pending-nav.tsx).
+ * tests/e2e/navigation.spec.ts moves quickly through the tabs and cycle
+ * pages and fails on any prefetch request.
  */
 export default function Link({ prefetch = false, ...props }: ComponentProps<typeof NextLink>) {
   return <NextLink prefetch={prefetch} {...props} />;

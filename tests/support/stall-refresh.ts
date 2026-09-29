@@ -49,6 +49,23 @@ export async function stallRefresh(page: Page, match: PathMatch) {
 
 /**
  * The next Server Action on the page reaches the app (the save is made), but
+ * its answer is lost on the way back (the connection drops): the page sees a
+ * failed request. Later actions go through. `actions` counts the actions sent.
+ */
+export async function loseAnswer(page: Page, match: PathMatch) {
+  const counts = { actions: 0 };
+  await page.route(matcher(match), async (route) => {
+    if (!(await isAction(route))) return route.fallback();
+    counts.actions += 1;
+    if (counts.actions > 1) return route.fallback();
+    await fetchAction(route);
+    await route.abort("connectionreset");
+  });
+  return counts;
+}
+
+/**
+ * The next Server Action on the page reaches the app (the save is made), but
  * its answer reaches the page only on release(): a save still in flight
  * while the person moves on. `actions` counts the actions sent.
  */
