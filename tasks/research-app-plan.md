@@ -893,3 +893,12 @@ Deploys: after V4 (researcher side complete) and after the close.
 The supporting-library selection above is an implementation recommendation
 within the approved TypeScript stack. Exact compatible versions are pinned at
 setup and must not be changed independently by parallel makers.
+- Install guide and calculator access (Marco, 2026-09-29) merged at `3159b73`
+  and deployed on 2026-09-29, no migration. One guide at /app/install, on join
+  step 3 for everyone outside the installed app, in Me and the account menu:
+  the detected phone's steps first, tabs for iPhone/iPad Safari and Chrome and
+  Android, drawings, an in-app-browser note with Copy link (origin +
+  /app/today only), a QR code on a laptop. Review corrected the iOS 26 Share
+  wording (by tab layout), the Edit Actions fallback and the iPad More path.
+  The vial calculator is reachable again from a Cycles header button, a Me
+  row and the account menu. Real-device wording check pending (Marco).
