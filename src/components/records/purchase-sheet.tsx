@@ -10,7 +10,7 @@ import { Segmented } from "@/components/alpha/segmented";
 import { Sheet, SheetClose, SheetContent } from "@/components/alpha/sheet";
 import { useAlphaToast } from "@/components/alpha/toast";
 import { recordPurchaseAction } from "@/app/(private)/admin/inventory/actions";
-import { money, shortDate } from "@/lib/alpha/format";
+import { money } from "@/lib/alpha/format";
 import {
   COST_INVALID,
   parseCad,
@@ -71,7 +71,6 @@ function PurchaseContent({ opening, onDone }: { opening: Opening; onDone: (token
     <SheetContent
       title="Record purchase"
       size="screen"
-      context={data ? shortDate(data.today) : " "}
       footer={data ? undefined : <SheetClose className={cn(buttonVariants({ variant: "outline", size: "lg" }), "laptop:h-12")}>Cancel</SheetClose>}
       footerOn="laptop"
     >

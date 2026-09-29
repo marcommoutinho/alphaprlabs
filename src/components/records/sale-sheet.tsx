@@ -339,7 +339,12 @@ function SaleEntry({
         </div>
       </div>
 
-      <NowBlock className="rounded-[24px] px-[18px] pt-4 pb-3 laptop:rounded-[24px]" data-testid="sale-now" aria-live="polite">
+      <NowBlock
+        className="rounded-[24px] px-[18px] pt-4 pb-3 laptop:rounded-[24px]"
+        data-testid="sale-now"
+        aria-live="polite"
+        aria-busy={previewPending || undefined}
+      >
         <div className="text-[13px] text-on-ink-2">Gross profit on this sale</div>
         <div className="mt-1.5 flex items-baseline gap-1.5">
           <span className="text-[40px] leading-none font-semibold tracking-[-0.04em]" data-testid="sale-gross-profit">

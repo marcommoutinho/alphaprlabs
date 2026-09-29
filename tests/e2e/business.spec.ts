@@ -145,8 +145,9 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(phone.getByTestId("now-rows")).toContainText("Revenue");
       await expect(phone.getByTestId("now-rows")).toContainText("Cost of stock sold");
       await expect(phone.getByTestId("now-rows")).toContainText("Gross profit");
-      await expect(phone.getByRole("link", { name: "Record sale" })).toBeVisible();
-      await expect(phone.getByRole("link", { name: "Record purchase" })).toBeVisible();
+      // V6: the record sheets open over the page.
+      await expect(phone.getByRole("button", { name: "Record sale" })).toBeVisible();
+      await expect(phone.getByRole("button", { name: "Record purchase" })).toBeVisible();
       await expect(phone.getByTestId("tile-stock")).toContainText("Stock value");
       await expect(phone.getByTestId("revenue-by-day").locator("i")).toHaveCount(Number(today.slice(8)));
       await expect(phone.getByTestId("revenue-by-day").locator("i").last()).toHaveAttribute("data-today", "true");
@@ -155,7 +156,7 @@ for (const scheme of ["light", "dark"] as const) {
       expect(await lowRows.count()).toBeGreaterThan(0);
       expect(await lowRows.count()).toBeLessThanOrEqual(5);
       expect(await phone.getByTestId("recent-sale").count()).toBeLessThanOrEqual(3);
-      await expect(phone.getByRole("link", { name: "All sales" })).toHaveAttribute("href", "/admin/sales");
+      await expect(phone.getByRole("link", { name: "All sales" })).toHaveAttribute("href", "/admin/ledger");
       // The Stock tab's counter follows what Business loaded.
       await shot(page, `business-month-phone-${scheme}`);
 
@@ -242,8 +243,8 @@ test("laptop: A2 Overview for a period, D9 12 months with its month table and Ex
   await expect(nav.locator('[aria-current="page"]')).toHaveText("Overview");
   const header = page.getByTestId("business-header-laptop");
   await expect(header).toContainText(rangeLabel({ from: monthStart(today), to: today }, "header"));
-  await expect(header.getByRole("link", { name: "Record purchase" })).toBeVisible();
-  await expect(header.getByRole("link", { name: "Record sale" })).toBeVisible();
+  await expect(header.getByRole("button", { name: "Record purchase" })).toBeVisible();
+  await expect(header.getByRole("button", { name: "Record sale" })).toBeVisible();
   const laptop = page.getByTestId("period-laptop");
   await expect(laptop.getByTestId("revenue-by-day")).toBeVisible();
   await expect(laptop.getByTestId("low-stock-table")).toBeVisible();
@@ -298,7 +299,12 @@ test.describe("Stock", () => {
       await expect(page.getByRole("navigation", { name: "Business" })).toHaveCount(0);
       const stock = page.getByTestId("stock");
       await expect(stock.getByRole("link", { name: "Business", exact: true })).toHaveAttribute("href", "/admin/business");
-      await expect(stock.getByRole("link", { name: "Record purchase" })).toHaveAttribute("href", "/admin/inventory/purchase");
+      // Record purchase opens its sheet over Stock (V6).
+      await (await hydrated(stock.getByRole("button", { name: "Record purchase" }))).click();
+      await expect(page.getByRole("dialog").getByRole("heading", { name: "Record purchase" })).toBeVisible();
+      await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory`);
+      await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
       await shot(page, `stock-phone-${scheme}`);
 
       const search = await hydrated(page.getByRole("searchbox", { name: "Search stock" }));
@@ -770,9 +776,9 @@ test("7-figure amounts: every tile and Now-block figure shows its exact amount i
   // Stock value past $1M and 12 months of purchases past $3M. On two past days
   // no other test uses: a $1,050,000 loss (free samples), then $1.6M of
   // revenue. The sales are spread over four items and both admins so no item's
-  // or seller's all-time totals pass six figures: the older Sales page
-  // (/admin/sales, rebuilt in step 7) lists those on one line, and
-  // inventory.spec checks it fits a phone.
+  // or seller's all-time totals pass six figures: the Ledger's seller menu
+  // lists those on one line, and inventory.spec checks the Ledger fits a
+  // phone.
   const items = await Promise.all([1, 2, 3, 4].map(() => newItem(30_000, "15")));
   await newItem(90_000, "15"); // $1,350,000 held
   const [loss, gain] = await freeDays();
@@ -861,7 +867,7 @@ test("the A6 states in light and dark: empty, loading, and couldn't load (record
   for (const pane of ["Light", "Dark"]) {
     const states = page.getByRole("region", { name: pane }).getByTestId("gallery-stock-states");
     await expect(states).toContainText("No stock recorded yet");
-    await expect(states.getByRole("link", { name: "Record a purchase" })).toHaveAttribute("href", "/admin/inventory/purchase");
+    await expect(states.getByRole("button", { name: "Record a purchase" })).toBeVisible();
     await expect(states.getByTestId("stock-skeleton").locator("> div")).toHaveCount(5);
     const failed = states.getByRole("alert");
     await expect(failed).toContainText("Couldn't load stock");

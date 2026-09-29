@@ -89,7 +89,8 @@ describe("the sellers migration", () => {
       drop function public.business_sellers();
       drop function public.admin_business_seller_totals(date, date, uuid);
       drop function public.admin_business_outside_buyers(text);
-      drop function public.record_business_sale(uuid, uuid, date, integer, text, uuid, text, uuid);
+      -- With its expected allocation since 20260929100000.
+      drop function public.record_business_sale(uuid, uuid, date, integer, text, uuid, text, uuid, jsonb);
       drop function public.invite_researcher(text, text, text, public.app_role);
       drop trigger business_sales_seller on public.business_sales;
       drop function public.business_sale_seller_check();

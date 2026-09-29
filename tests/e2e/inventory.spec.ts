@@ -1,12 +1,18 @@
-// S6 inventory and sales screens (A4-A7) against the real local Supabase: the
-// handoff FIFO scenario in the browser, the designed validation order, a
-// double-clicked save, the stock-changed refusal, A7's filters and empty
-// states, the phone layout, and researchers kept out. The database is shared
-// by every run, so each test works on its own library peptide.
-import { expect, test, type Locator, type Page } from "@playwright/test";
+// S6 inventory and sales against the real local Supabase, through V6's
+// Record sale / Record purchase sheets (A4 / A5) and the Ledger (A7): the
+// handoff FIFO scenario in the browser, the validation messages, a
+// double-clicked save, the stock-changed refusal, the phone layout, a
+// preview that never records the wrong item's cost, and researchers kept
+// out. The database is shared by every run, so each test works on its own
+// library peptide.
+import { expect, test, type Page } from "@playwright/test";
 import { randomBytes, randomUUID } from "node:crypto";
 import { APP_ORIGIN } from "../../playwright.config";
+import { addDays, monthStart } from "../../src/lib/business/period";
+import { PURCHASE_ALREADY_RECORDED, SALE_ALREADY_RECORDED } from "../../src/lib/inventory/rules";
 import { businessToday } from "../../src/lib/inventory/screens";
+import { BUYER_PLACEHOLDER, BUYER_REQUIRED } from "../../src/lib/records/forms";
+import { LEDGER_EMPTY } from "../../src/lib/records/ledger";
 import { ensureAccount, hydrated, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
 
 const ADMIN = { email: uniqueEmail("s6-inv-admin"), name: "Inventory Admin" };
@@ -22,13 +28,11 @@ test.beforeAll(async () => {
   await ensureAccount({ ...RESEARCHER, role: "researcher" });
 });
 
-const alert = (page: Page) => page.locator('.app-inline-error[role="alert"]');
-const toast = (page: Page) => page.locator(".app-toast");
 const h1 = (page: Page) => page.getByRole("heading", { level: 1 });
+const sheet = (page: Page) => page.getByRole("dialog");
+const toast = (page: Page, text: string) => page.getByRole("status").filter({ hasText: text });
 const activeNav = (page: Page) => page.getByRole("navigation", { name: "Main" }).locator('[aria-current="page"]');
-const select = (page: Page, name: string) => page.locator(`select[name="${name}"]`);
-const tomorrow = () => new Date(Date.parse(`${businessToday()}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
-const ITEM_URL = new RegExp(`^${APP_ORIGIN}/admin/inventory/([0-9a-f-]{36})$`);
+const tomorrow = () => addDays(businessToday(), 1);
 
 async function newPeptide(): Promise<string> {
   const name = `Compound ${randomBytes(3).toString("hex")}`;
@@ -37,33 +41,25 @@ async function newPeptide(): Promise<string> {
   return name;
 }
 
+/** The stock item of a peptide (one strength). */
+async function itemOf(peptide: string): Promise<string> {
+  const { data: found } = await serviceClient().from("peptides").select("id").eq("name", peptide).single();
+  const { data } = await serviceClient().from("business_stock_items").select("id").eq("peptide_id", found!.id).single();
+  return data!.id;
+}
+
 async function signInAdmin(page: Page) {
   await signInAs(page, APP_ORIGIN, ADMIN.email);
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
 }
 
-/** Submits and expects the designed inline message (first failure wins). */
-async function expectError(page: Page, button: Locator, message: string) {
-  await button.click();
-  await expect(alert(page)).toHaveText(message);
+async function openSheet(page: Page, name: "Record sale" | "Record purchase") {
+  await (await hydrated(page.getByRole("button", { name }).first())).click();
+  await expect(sheet(page).getByRole("heading", { name })).toBeVisible();
+  return sheet(page);
 }
 
-/** A5 through the UI for a new peptide / strength; returns the new stock item's id. */
-async function purchaseNewItem(page: Page, peptide: string, strength: string, receivedOn: string, quantity: string, cost: string) {
-  await page.goto(`${APP_ORIGIN}/admin/inventory/purchase`);
-  await hydrated(page.getByLabel("Vials", { exact: true }));
-  await select(page, "stockItemId").selectOption({ label: "New peptide / strength…" });
-  await select(page, "peptideId").selectOption({ label: peptide });
-  await page.getByLabel("Vial strength (mg)").fill(strength);
-  await page.getByLabel("Received").fill(receivedOn);
-  await page.getByLabel("Vials", { exact: true }).fill(quantity);
-  await page.getByLabel("Cost per vial (CAD)").fill(cost);
-  await page.getByRole("button", { name: "Record purchase" }).click();
-  await expect(page).toHaveURL(ITEM_URL);
-  return ITEM_URL.exec(page.url())![1];
-}
-
-test("the handoff FIFO scenario: two purchases, a sale of 12, 8 left, 9 more blocked, A7 totals", async ({ page }) => {
+test("the handoff FIFO scenario: two purchases, a sale of 12, 8 left, 9 more blocked, the Ledger", async ({ page }) => {
   const peptide = await newPeptide();
   const label = `${peptide} · 8 mg`;
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -74,111 +70,108 @@ test("the handoff FIFO scenario: two purchases, a sale of 12, 8 left, 9 more blo
   await expect(h1(page)).toHaveText("Stock");
   await expect(page.getByTestId("stock-summary")).toHaveText(/^[\d,]+ vials? · \$[\d,]+\.\d{2} at cost$/);
   await expect(activeNav(page)).toHaveText(/^Stock(\d+ low)?$/);
-  // A7 and A4 are visited before anything is recorded: after each purchase and
-  // sale they must show fresh data, never the client's copy of this visit.
+  // The Ledger and Stock are visited before anything is recorded: after each
+  // purchase and sale they must show fresh data, never the client's copy of this visit.
   const nav = page.getByRole("navigation", { name: "Main" });
   await nav.getByRole("link", { name: "Ledger" }).click();
-  await expect(h1(page)).toHaveText("Sales & gross profit");
+  await expect(h1(page)).toHaveText("Sales and purchases");
   await nav.getByRole("link", { name: "Stock" }).click();
   await expect(h1(page)).toHaveText("Stock");
   await expect(page.getByTestId("stock-table-row").filter({ hasText: peptide })).toHaveCount(0);
-  await page.getByRole("link", { name: "Record purchase" }).click();
 
-  // A5, validation in the designed order.
-  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory/purchase`);
-  await expect(h1(page)).toHaveText("Record purchase");
-  // With Stock's low counter once loaded ("3 low").
-  await expect(activeNav(page)).toHaveText(/^Stock(\d+ low)?$/);
-  const save = page.getByRole("button", { name: "Record purchase" });
-  await hydrated(page.getByLabel("Vials", { exact: true }));
-  await expect(page.getByLabel("Received")).toHaveValue(businessToday());
-  await select(page, "stockItemId").selectOption({ label: "New peptide / strength…" });
-  await select(page, "peptideId").selectOption({ label: peptide });
-  await page.getByLabel("Received").fill("");
-  await expectError(page, save, "Enter the date received.");
-  await page.getByLabel("Received").fill(tomorrow());
-  await expectError(page, save, "The date received can't be in the future.");
-  await page.getByLabel("Received").fill("2026-08-15");
-  await expectError(page, save, "Vials must be a whole number greater than 0.");
-  await page.getByLabel("Vials", { exact: true }).fill("10");
-  await page.getByLabel("Cost per vial (CAD)").fill("-1");
-  await expect(page.getByTestId("purchase-total")).toHaveText("Total purchase cost—");
-  await expectError(page, save, "Enter the cost per vial in CAD (0 or more).");
-  await page.getByLabel("Cost per vial (CAD)").fill("20");
-  await expect(page.getByTestId("purchase-total")).toHaveText("Total purchase costCAD 200.00");
-  await expectError(page, save, "Enter the vial strength in mg for the new item.");
-  await page.getByLabel("Vial strength (mg)").fill("8");
+  // A5 over Stock: each missing or wrong value is named.
+  let dialog = await openSheet(page, "Record purchase");
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory`);
+  const date = dialog.getByTestId("purchase-date");
+  await expect(date).toHaveValue(businessToday());
+  const save = dialog.getByTestId("record-purchase");
+  await dialog.getByTestId("purchase-item").selectOption("new");
+  await dialog.getByTestId("purchase-peptide").selectOption({ label: peptide });
   await save.click();
+  await expect(dialog.getByText("Enter the vial strength in mg for the new item.")).toBeVisible();
+  await expect(dialog.getByTestId("purchase-vials-error")).toHaveText("Vials must be a whole number greater than 0.");
+  await expect(dialog.getByTestId("purchase-cost-error")).toHaveText("Enter the cost per vial in CAD (0 or more).");
+  await dialog.getByTestId("purchase-strength").fill("8");
+  await dialog.getByTestId("purchase-vials").fill("10");
+  await dialog.getByTestId("purchase-cost").fill("-1");
+  await expect(dialog.getByTestId("purchase-total")).toHaveText("—");
+  await save.click();
+  await expect(dialog.getByTestId("purchase-cost-error")).toHaveText("Enter the cost per vial in CAD (0 or more).");
+  await expect(dialog.getByText("Enter the vial strength in mg for the new item.")).toHaveCount(0);
+  await dialog.getByTestId("purchase-cost").fill("20");
+  await expect(dialog.getByTestId("purchase-total")).toHaveText("$200.00");
+  await date.fill("");
+  await save.click();
+  await expect(dialog.getByTestId("purchase-message")).toHaveText("Enter the date received.");
+  await date.fill(tomorrow());
+  await save.click();
+  await expect(dialog.getByTestId("purchase-message")).toHaveText("The date received can't be in the future.");
+  await date.fill("2026-08-15");
+  await save.click();
+  await expect(toast(page, "Purchase recorded · 10 vials · $200.00")).toBeVisible();
+  await expect(sheet(page)).toHaveCount(0);
+  await expect(page.getByTestId("stock-table-row").filter({ hasText: peptide })).toHaveCount(1);
 
   // A4 Stock item: no sales yet.
-  await expect(toast(page)).toHaveText("Purchase recorded · 10 vials at CAD 20.00");
-  await expect(page).toHaveURL(ITEM_URL);
-  const itemId = ITEM_URL.exec(page.url())![1];
+  const itemId = await itemOf(peptide);
+  await page.goto(`${APP_ORIGIN}/admin/inventory/${itemId}`);
   await expect(h1(page)).toHaveText(label);
   await expect(page.getByTestId("on-hand")).toHaveText("10");
   await expect(page.getByTestId("sales")).toContainText("No sales yet.");
   await expect(page.getByTestId("purchase-row")).toHaveText(["Aug 15, 2026 · 10 vials at CAD 20.00None allocated yetCAD 200.00"]);
 
   // The second purchase, preselected from the item; a double click records it once.
-  await page.getByRole("link", { name: "Record purchase" }).click();
-  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory/purchase?item=${itemId}`);
-  await hydrated(page.getByLabel("Vials", { exact: true }));
-  await expect(select(page, "stockItemId")).toHaveValue(itemId);
-  await page.getByLabel("Received").fill("2026-08-20");
-  await page.getByLabel("Vials", { exact: true }).fill("10");
-  await page.getByLabel("Cost per vial (CAD)").fill("25.00");
-  await page.getByRole("button", { name: "Record purchase" }).dblclick();
-  await expect(toast(page)).toHaveText("Purchase recorded · 10 vials at CAD 25.00");
-  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory/${itemId}`);
+  dialog = await openSheet(page, "Record purchase");
+  await expect(dialog.getByTestId("purchase-item")).toHaveValue(itemId);
+  await dialog.getByTestId("purchase-date").fill("2026-08-20");
+  await dialog.getByTestId("purchase-vials").fill("10");
+  await dialog.getByTestId("purchase-cost").fill("25.00");
+  await dialog.getByTestId("record-purchase").dblclick();
+  await expect(toast(page, "Purchase recorded · 10 vials · $250.00")).toBeVisible();
+  await expect(sheet(page)).toHaveCount(0);
   await expect(page.getByTestId("on-hand")).toHaveText("20");
+  await expect(toast(page, PURCHASE_ALREADY_RECORDED)).toHaveCount(0);
   expect((await serviceClient().from("business_purchases").select("id").eq("stock_item_id", itemId)).data).toHaveLength(2);
 
-  // A6: 12 × CAD 40 to Jordan; the live preview is what the database then freezes.
-  await page.getByRole("link", { name: "Record sale" }).click();
-  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory/sale?item=${itemId}`);
-  await expect(h1(page)).toHaveText("Record sale");
-  const preview = page.getByTestId("sale-preview");
-  await expect(preview.getByRole("heading")).toHaveText(`Preview · ${label}`);
-  await expect(preview.locator("dd")).toHaveText(["20 vials", "—", "—", "—"]);
-  await hydrated(page.getByLabel("Vials", { exact: true }));
-  await expect(page.getByRole("button", { name: "Researcher account" })).toHaveAttribute("aria-pressed", "true");
-  await page.getByLabel("Vials", { exact: true }).fill("12");
-  await page.getByLabel("Price per vial (CAD)").fill("40");
-  await expect(preview.locator("dd")).toHaveText(["20 vials", "CAD 480.00", "CAD 250.00", "CAD 230.00"]);
-  await expect(page.getByTestId("allocation")).toHaveText(
-    "Cost allocation, oldest stock first" +
-      "10 × CAD 20.00 from the Aug 15, 2026 purchase" +
-      "2 × CAD 25.00 from the Aug 20, 2026 purchase",
-  );
-  // The buyer account starts blank and is searched by part of the email.
-  const account = page.getByRole("combobox", { name: /^Account/ });
-  await expect(account).toHaveValue("");
-  await expect(account).toHaveAttribute("placeholder", "Search by name or email");
-  const recordSale = page.getByRole("button", { name: "Record sale" });
-  await expectError(page, recordSale, "Choose the buyer's researcher account.");
-  // Admins are in the buyer list (admins are researchers too).
-  await account.fill(ADMIN.email.split("@")[0]);
-  await page.getByRole("option", { name: `${ADMIN.name} · ${ADMIN.email}` }).click();
-  await expect(account).toHaveValue(`${ADMIN.name} · ${ADMIN.email}`);
-  // Typing another name without choosing it unlinks the admin: nothing is recorded.
-  await account.fill(JORDAN.name);
-  await expect(page.getByRole("option").first()).toBeVisible();
-  // The open list can cover Record sale (in a full parallel run on a fresh
-  // database it holds many accounts): close it first, then save. (While it is
-  // open it hides the rest of the page from the accessibility tree, so Esc
-  // goes to the focused field through the keyboard.)
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("listbox")).toHaveCount(0);
-  await expectError(page, recordSale, "Choose the buyer's researcher account.");
-  expect((await serviceClient().from("business_sales").select("id").eq("stock_item_id", itemId)).data).toEqual([]);
-  await account.fill(JORDAN.email.split("@")[0].slice(4));
-  const jordanOption = page.getByRole("option", { name: `${JORDAN.name} · ${JORDAN.email}` });
-  await expect(page.getByRole("option")).toHaveCount(1);
-  await jordanOption.click();
-  await expect(account).toHaveValue(`${JORDAN.name} · ${JORDAN.email}`);
+  // A4 Record sale: 12 × $40 to Jordan; the Now block lists every lot the database then freezes.
+  dialog = await openSheet(page, "Record sale");
+  await expect(dialog.getByTestId("sale-item")).toHaveValue(itemId);
+  await expect(dialog.getByText("20 on hand", { exact: true })).toBeVisible();
+  await dialog.getByTestId("sale-vials").fill("12");
+  await dialog.getByTestId("sale-price").fill("40");
+  const lots = dialog.getByTestId("sale-cost-line");
+  await expect(lots).toHaveCount(2);
+  await expect(lots.nth(0)).toContainText("Cost · 10 from Aug 15 lot at $20.00");
+  await expect(lots.nth(0)).toContainText("− $200.00");
+  await expect(lots.nth(1)).toContainText("Cost · 2 from Aug 20 lot at $25.00");
+  await expect(lots.nth(1)).toContainText("− $50.00");
+  await expect(dialog.getByTestId("sale-revenue")).toContainText("Revenue · 12 × $40.00$480.00");
+  await expect(dialog.getByTestId("sale-gross-profit")).toHaveText("$230.00");
+  const recordSale = dialog.getByTestId("record-sale");
+  await expect(recordSale).toHaveText("Record sale · $480.00");
+  // The buyer starts blank and is required.
+  const buyer = dialog.getByTestId("buyer-input");
+  await expect(buyer).toHaveValue("");
+  await expect(buyer).toHaveAttribute("placeholder", BUYER_PLACEHOLDER);
   await recordSale.click();
-  await expect(toast(page)).toHaveText("Sale recorded · 12 vials · revenue CAD 480.00 · gross profit CAD 230.00");
-  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory/${itemId}`);
+  await expect(dialog.getByTestId("sale-buyer-error")).toHaveText(BUYER_REQUIRED);
+  expect((await serviceClient().from("business_sales").select("id").eq("stock_item_id", itemId)).data).toEqual([]);
+  // Admins are in the buyer list (admins are researchers too), searched by part of the email.
+  await buyer.fill(ADMIN.email.split("@")[0]);
+  await page.getByRole("option", { name: new RegExp(`${ADMIN.name}.*${ADMIN.email}`) }).click();
+  await expect(buyer).toHaveValue(ADMIN.name);
+  await expect(dialog.getByTestId("buyer-researcher")).toBeVisible();
+  // Typing another name unlinks the account: it would be an outside buyer's name.
+  await buyer.fill(JORDAN.name);
+  await expect(dialog.getByTestId("buyer-researcher")).toHaveCount(0);
+  await buyer.fill(JORDAN.email.split("@")[0].slice(4));
+  await expect(page.getByRole("option")).toHaveCount(1);
+  await page.getByRole("option", { name: new RegExp(JORDAN.email) }).click();
+  await expect(buyer).toHaveValue(JORDAN.name);
+  await expect(dialog.getByTestId("buyer-researcher")).toHaveText("Researcher");
+  await recordSale.click();
+  await expect(toast(page, "Sale recorded · 12 vials · $480.00 · gross profit $230.00")).toBeVisible();
+  await expect(sheet(page)).toHaveCount(0);
   await expect(page.getByTestId("on-hand")).toHaveText("8");
   expect((await serviceClient().from("business_sales").select("buyer_type, buyer_profile_id").eq("stock_item_id", itemId)).data).toEqual([
     { buyer_type: "account", buyer_profile_id: jordanId },
@@ -195,163 +188,35 @@ test("the handoff FIFO scenario: two purchases, a sale of 12, 8 left, 9 more blo
   ]);
 
   // Stock lists it: 8 on hand (low, under the default 10), the 8 left of the
-  // CAD 25.00 lot at cost, and the 12 sold today.
+  // $25.00 lot at cost, and the 12 sold today.
   await page.getByRole("link", { name: "‹ Stock" }).click();
   await expect(page.getByTestId("stock-table-row").filter({ hasText: peptide })).toHaveText(`${peptide} 8 mg8Low$200.00$25.0012`);
 
-  // A7 for this item: totals match; last month has none of its sales.
+  // The Ledger for this item: totals match; last month has none of its sales.
   await nav.getByRole("link", { name: "Ledger" }).click();
-  await expect(h1(page)).toHaveText("Sales & gross profit");
-  await expect(page.getByTestId("sales-list")).toContainText(`${label} · 12 vials · ${JORDAN.name} (account)`);
-  await hydrated(page.getByLabel("Item"));
-  await page.getByLabel("Item").selectOption({ label });
-  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/sales?item=${itemId}`);
-  const kpis = page.getByTestId("kpis").locator(".app-inv-kpi-value");
-  await expect(kpis).toHaveText(["12", "CAD 480.00", "CAD 250.00", "CAD 230.00"]);
-  await expect(page.getByTestId("by-item")).toHaveText(`${label}12 vialsCAD 480.00CAD 250.00CAD 230.00`);
-  // On wider screens the money columns show "CAD".
-  expect(await page.getByTestId("by-item").locator(".app-inv-cad").first().evaluate((el) => el.getBoundingClientRect().width)).toBeGreaterThan(10);
-  await expect(page.getByTestId("sales-list").getByTestId("sale-row")).toHaveCount(1);
-  await expect(page.getByTestId("sales-list")).toContainText(`${label} · 12 vials · ${JORDAN.name} (account)`);
-  await page.getByLabel("Period").selectOption({ label: "This month" });
-  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/sales?period=month&item=${itemId}`);
-  await expect(kpis).toHaveText(["12", "CAD 480.00", "CAD 250.00", "CAD 230.00"]);
-  await page.getByLabel("Period").selectOption({ label: "Last month" });
-  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/sales?period=prev&item=${itemId}`);
-  await expect(page.getByText("No sales match this period and item.")).toBeVisible();
-  await expect(kpis).toHaveText(["0", "CAD 0.00", "CAD 0.00", "CAD 0.00"]);
-  await expect(page.getByText("Sales in this view")).toHaveCount(0);
+  await expect(h1(page)).toHaveText("Sales and purchases");
+  await expect(page.getByTestId("ledger-table-row").filter({ hasText: label })).toHaveCount(1);
+  await page.goto(`${APP_ORIGIN}/admin/ledger?item=${itemId}`);
+  await expect(page.getByTestId("item-chip")).toContainText(label);
+  await expect(page.getByTestId("ledger-tab-sales")).toHaveText("Sales · 12 vials");
+  await expect(page.getByTestId("ledger-summary")).toHaveText("1 sale · 12 vials · $480.00 · GP $230.00");
+  await expect(page.getByTestId("ledger-table-row")).toHaveCount(1);
+  const today = businessToday();
+  await page.goto(`${APP_ORIGIN}/admin/ledger?from=${monthStart(today, -1)}&to=${addDays(monthStart(today), -1)}&item=${itemId}`);
+  await expect(page.getByTestId("ledger-empty")).toHaveText(LEDGER_EMPTY.sales);
+  await expect(page.getByTestId("ledger-tab-sales")).toHaveText("Sales · 0 vials");
 
-  // An outside buyer for 9: blocked before saving with the designed message.
-  await page.goto(`${APP_ORIGIN}/admin/inventory/sale?item=${itemId}`);
-  await hydrated(page.getByLabel("Vials", { exact: true }));
-  await page.getByRole("button", { name: "Outside buyer" }).click();
-  await page.getByLabel("Buyer name or reference").fill("K. Osei");
-  await page.getByLabel("Vials", { exact: true }).fill("9");
-  await page.getByLabel("Price per vial (CAD)").fill("40");
-  await expect(alert(page)).toHaveText(`Only 8 vials are on hand for ${label}. Reduce the quantity or record a purchase first.`);
-  await expect(page.getByRole("button", { name: "Record sale" })).toBeDisabled();
-  await expect(preview.locator("dd")).toHaveText(["8 vials", "CAD 360.00", "—", "—"]);
-  expect((await serviceClient().from("business_sales").select("id").eq("stock_item_id", itemId)).data).toHaveLength(1);
-});
-
-test("A6 validation order, a future date, and stock that changes before saving", async ({ page }) => {
-  const peptide = await newPeptide();
-  await signInAdmin(page);
-  const itemId = await purchaseNewItem(page, peptide, "2.5", "2026-08-15", "3", "20");
-  await page.goto(`${APP_ORIGIN}/admin/inventory/sale?item=${itemId}`);
-  await hydrated(page.getByLabel("Vials", { exact: true }));
-  await expect(page.getByLabel("Sale date")).toHaveValue(businessToday());
-  const save = page.getByRole("button", { name: "Record sale" });
-  await page.getByRole("button", { name: "Outside buyer" }).click();
-  await expect(page.getByLabel("Buyer name or reference")).toHaveAttribute("placeholder", "No app account needed");
-  await page.getByLabel("Sale date").fill("");
-  await expectError(page, save, "Enter the sale date.");
-  await page.getByLabel("Sale date").fill(tomorrow());
-  await expectError(page, save, "The sale date can't be in the future.");
-  // A sale may be dated before the purchase whose stock it uses.
-  await page.getByLabel("Sale date").fill("2026-08-01");
-  await expectError(page, save, "Vials must be a whole number greater than 0.");
-  await page.getByLabel("Vials", { exact: true }).fill("3");
-  await page.getByLabel("Price per vial (CAD)").fill("abc");
-  await expectError(page, save, "Enter the selling price per vial in CAD.");
-  await page.getByLabel("Price per vial (CAD)").fill("40");
-  await expectError(page, save, "Name or reference the outside buyer.");
-  await page.getByLabel("Buyer name or reference").fill("Walk-in");
-
-  // Another sale takes a vial meanwhile: the database refuses, nothing is recorded.
-  const other = await (await signedInClient(ADMIN.email)).rpc("record_business_sale", {
-    p_idempotency_key: randomUUID(),
-    p_stock_item_id: itemId,
-    p_sold_on: "2026-08-20",
-    p_quantity: 1,
-    p_unit_price: "40",
-    p_buyer_name: "Elsewhere",
-    p_seller_id: adminId,
-  });
-  expect(other.error).toBeNull();
-  await save.click();
-  await expect(alert(page)).toHaveText("Stock changed before saving — only 2 on hand now. Nothing was recorded.");
-  // The page data was refreshed: the preview now shows what is left.
-  await expect(page.getByTestId("sale-preview").locator("dd").first()).toHaveText("2 vials");
-  await expect(save).toBeDisabled();
-  expect((await serviceClient().from("business_sales").select("quantity").eq("stock_item_id", itemId)).data).toEqual([{ quantity: 1 }]);
-
-  // Two vials fit: the sale dated before its purchase is recorded.
-  await page.getByLabel("Vials", { exact: true }).fill("2");
-  await save.click();
-  await expect(toast(page)).toHaveText("Sale recorded · 2 vials · revenue CAD 80.00 · gross profit CAD 40.00");
-  await expect(page.getByTestId("on-hand")).toHaveText("0");
-  await expect(page.getByRole("button", { name: "Record sale" })).toBeDisabled();
-});
-
-test("phone: tables fit, columns stack, KPIs in two columns", async ({ page }) => {
-  const peptide = await newPeptide();
-  await signInAdmin(page);
-  const itemId = await purchaseNewItem(page, peptide, "10", "2026-08-15", "4", "1250.50");
-  // Wide amounts: CAD 5,002.00 purchased, CAD 7,999.96 revenue.
-  const sold = await (await signedInClient(ADMIN.email)).rpc("record_business_sale", {
-    p_idempotency_key: randomUUID(),
-    p_stock_item_id: itemId,
-    p_sold_on: "2026-08-20",
-    p_quantity: 4,
-    p_unit_price: "1999.99",
-    p_buyer_name: "A buyer with a rather long reference name for the phone layout",
-    p_seller_id: adminId,
-  });
-  expect(sold.error).toBeNull();
-  await page.setViewportSize({ width: 390, height: 844 });
-  const fits = () =>
-    page.evaluate(() =>
-      [...document.querySelectorAll("main *")].every((el) => el.getBoundingClientRect().right <= window.innerWidth + 0.5),
-    );
-
-  for (const path of ["/admin/inventory", `/admin/inventory/${itemId}`, "/admin/inventory/purchase", `/admin/sales?item=${itemId}`]) {
-    await page.goto(`${APP_ORIGIN}${path}`);
-    await expect(page.locator(".app-tabbar")).toBeVisible();
-    expect(await fits(), path).toBe(true);
-  }
+  // An outside buyer for 9: blocked before saving, with the vials on hand named.
   await page.goto(`${APP_ORIGIN}/admin/inventory/${itemId}`);
-  const [purchases, sales] = await Promise.all([page.getByTestId("purchases").boundingBox(), page.getByTestId("sales").boundingBox()]);
-  expect(sales!.y).toBeGreaterThanOrEqual(purchases!.y + purchases!.height);
-
-  await page.goto(`${APP_ORIGIN}/admin/inventory/sale?item=${itemId}`);
-  expect(await fits()).toBe(true);
-  const [form, preview] = await Promise.all([page.locator("form.app-inv-form").boundingBox(), page.getByTestId("sale-preview").boundingBox()]);
-  expect(preview!.y).toBeGreaterThanOrEqual(form!.y + form!.height);
-  expect(preview!.width).toBeGreaterThan(330);
-
-  // A7 money columns drop "CAD" and keep each amount on one line.
-  await page.goto(`${APP_ORIGIN}/admin/sales?item=${itemId}`);
-  const row = page.getByTestId("by-item").locator(".app-inv-item-row");
-  await expect(row).toHaveText(/^.+4 vialsCAD 7,999\.96CAD 5,002\.00CAD 2,997\.96$/);
-  const cells = await row.evaluate((el) => ({
-    cad: [...el.querySelectorAll(".app-inv-cad")].map((cad) => cad.getBoundingClientRect().width),
-    heights: [...el.querySelectorAll(".app-inv-num")].map((cell) => cell.getBoundingClientRect().height),
-    shown: [...el.querySelectorAll(".app-inv-amount")].map((amount) => (amount as HTMLElement).innerText),
-  }));
-  expect(cells.cad).toHaveLength(3);
-  for (const width of cells.cad) expect(width).toBeLessThanOrEqual(1);
-  for (const height of cells.heights) expect(height).toBeLessThan(24);
-  expect(cells.shown).toEqual(["7,999.96", "5,002.00", "2,997.96"]);
-  // The KPI numbers drop the visible "CAD" too, and each stays on one line.
-  const kpis = await page.getByTestId("kpis").evaluate((el) => ({
-    cad: [...el.querySelectorAll(".app-inv-cad")].map((cad) => cad.getBoundingClientRect().width),
-    shown: [...el.querySelectorAll(".app-inv-kpi-value .app-inv-amount")].map((value) => (value as HTMLElement).innerText),
-    heights: [...el.querySelectorAll(".app-inv-kpi-value")].map((value) => value.getBoundingClientRect().height),
-  }));
-  // 26px numbers: one line is about 32px high.
-  for (const height of kpis.heights) expect(height).toBeLessThan(45);
-  expect(kpis.cad).toHaveLength(3);
-  for (const width of kpis.cad) expect(width).toBeLessThanOrEqual(1);
-  expect(kpis.shown).toEqual(["7,999.96", "5,002.00", "2,997.96"]);
-  expect(await fits()).toBe(true);
-
-  await page.goto(`${APP_ORIGIN}/admin/sales`);
-  const tops = await page.getByTestId("kpis").locator(".app-inv-kpi-value").evaluateAll((els) => els.map((el) => el.getBoundingClientRect().top));
-  expect(tops[0]).toBe(tops[1]);
-  expect(tops[2]).toBeGreaterThan(tops[0]);
-  expect(await fits()).toBe(true);
+  dialog = await openSheet(page, "Record sale");
+  await dialog.getByTestId("buyer-input").fill("K. Osei");
+  await dialog.getByTestId("sale-vials").fill("9");
+  await dialog.getByTestId("sale-price").fill("40");
+  await expect(dialog.getByTestId("sale-vials-error")).toHaveText("Only 8 on hand.");
+  await expect(dialog.getByTestId("record-sale")).toBeDisabled();
+  await expect(dialog.getByTestId("sale-revenue")).toContainText("$360.00");
+  await expect(dialog.getByTestId("sale-cost-line")).toHaveText("Cost · not enough stock—");
+  expect((await serviceClient().from("business_sales").select("id").eq("stock_item_id", itemId)).data).toHaveLength(1);
 });
 
 /** A stock item of a new peptide with one purchase lot, recorded directly as the admin; returns its id and label. */
@@ -377,86 +242,212 @@ async function seedItem(quantity: number, unitCost: string) {
   return { id: bought.data.stock_item_id, label: `${name} · 5 mg` };
 }
 
+test("A4 validation, a future date, and stock that changes before saving", async ({ page }) => {
+  const item = await seedItem(3, "20");
+  await signInAdmin(page);
+  await page.goto(`${APP_ORIGIN}/admin/inventory/${item.id}`);
+  const dialog = await openSheet(page, "Record sale");
+  const date = dialog.getByTestId("sale-date");
+  await expect(date).toHaveValue(businessToday());
+  const save = dialog.getByTestId("record-sale");
+  await dialog.getByTestId("sale-vials").fill("");
+  await save.click();
+  await expect(dialog.getByTestId("sale-vials-error")).toHaveText("Vials must be a whole number greater than 0.");
+  await expect(dialog.getByTestId("sale-price-error")).toHaveText("Enter the selling price per vial in CAD.");
+  await expect(dialog.getByTestId("sale-buyer-error")).toHaveText(BUYER_REQUIRED);
+  await dialog.getByTestId("sale-vials").fill("3");
+  await dialog.getByTestId("sale-price").fill("abc");
+  await save.click();
+  await expect(dialog.getByTestId("sale-vials-error")).toHaveCount(0);
+  await expect(dialog.getByTestId("sale-price-error")).toHaveText("Enter the selling price per vial in CAD.");
+  await dialog.getByTestId("sale-price").fill("40");
+  await dialog.getByTestId("buyer-input").fill("Walk-in");
+  // The date is never empty: cleared, it's today again.
+  await date.fill("");
+  await expect(date).toHaveValue(businessToday());
+  await date.fill(tomorrow());
+  await save.click();
+  await expect(dialog.getByTestId("sale-message")).toHaveText("The sale date can't be in the future.");
+  // A sale may be dated before the purchase whose stock it uses.
+  await date.fill("2026-08-01");
+
+  // Another sale takes a vial meanwhile: the database refuses, nothing is recorded.
+  const other = await (await signedInClient(ADMIN.email)).rpc("record_business_sale", {
+    p_idempotency_key: randomUUID(),
+    p_stock_item_id: item.id,
+    p_sold_on: "2026-08-20",
+    p_quantity: 1,
+    p_unit_price: "40",
+    p_buyer_name: "Elsewhere",
+    p_seller_id: adminId,
+  });
+  expect(other.error).toBeNull();
+  await save.click();
+  await expect(dialog.getByTestId("sale-message")).toHaveText("Stock changed before saving — only 2 on hand now. Nothing was recorded.");
+  // The counts were read again: the sheet now shows what is left.
+  await expect(dialog.getByTestId("sale-vials-error")).toHaveText("Only 2 on hand.");
+  await expect(save).toBeDisabled();
+  expect((await serviceClient().from("business_sales").select("quantity").eq("stock_item_id", item.id)).data).toEqual([{ quantity: 1 }]);
+
+  // Two vials fit: the sale dated before its purchase is recorded.
+  await dialog.getByTestId("sale-vials").fill("2");
+  await save.click();
+  await expect(toast(page, "Sale recorded · 2 vials · $80.00 · gross profit $40.00")).toBeVisible();
+  await expect(sheet(page)).toHaveCount(0);
+  await expect(page.getByTestId("on-hand")).toHaveText("0");
+  await expect(page.getByRole("button", { name: "Record sale" })).toBeDisabled();
+  expect((await serviceClient().from("business_sales").select("sold_on").eq("stock_item_id", item.id).eq("sold_on", "2026-08-01")).data).toHaveLength(1);
+});
+
+test("phone: pages and sheets fit, sections stack, wide amounts stay on one line", async ({ page }) => {
+  const item = await seedItem(4, "1250.50");
+  // Wide amounts: $5,002.00 purchased, $7,999.96 revenue.
+  const sold = await (await signedInClient(ADMIN.email)).rpc("record_business_sale", {
+    p_idempotency_key: randomUUID(),
+    p_stock_item_id: item.id,
+    p_sold_on: "2026-08-20",
+    p_quantity: 4,
+    p_unit_price: "1999.99",
+    p_buyer_name: "A buyer with a rather long reference name for the phone layout",
+    p_seller_id: adminId,
+  });
+  expect(sold.error).toBeNull();
+  await signInAdmin(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const fits = (scope = "main") =>
+    page.evaluate(
+      (selector) => [...document.querySelectorAll(`${selector} *`)].every((el) => el.getBoundingClientRect().right <= window.innerWidth + 0.5),
+      scope,
+    );
+
+  const august = `from=2026-08-01&to=2026-08-31&item=${item.id}`;
+  for (const path of [
+    "/admin/inventory",
+    `/admin/inventory/${item.id}`,
+    `/admin/ledger?${august}`,
+    `/admin/ledger?tab=purchases&${august}`,
+    `/admin/ledger?group=month&item=${item.id}`,
+  ]) {
+    await page.goto(`${APP_ORIGIN}${path}`);
+    await expect(page.locator(".app-tabbar")).toBeVisible();
+    expect(await fits(), path).toBe(true);
+  }
+  await page.goto(`${APP_ORIGIN}/admin/inventory/${item.id}`);
+  const [purchases, sales] = await Promise.all([page.getByTestId("purchases").boundingBox(), page.getByTestId("sales").boundingBox()]);
+  expect(sales!.y).toBeGreaterThanOrEqual(purchases!.y + purchases!.height);
+
+  // The sheets are full-screen and fit; the Now block comes after the entry.
+  for (const kind of ["sale", "purchase"] as const) {
+    await page.goto(`${APP_ORIGIN}/admin/inventory?record=${kind}&recordItem=${item.id}`);
+    const dialog = sheet(page);
+    await expect(dialog.getByTestId(`${kind}-now`)).toBeVisible();
+    const box = await dialog.boundingBox();
+    expect(box).toMatchObject({ x: 0, width: 390 });
+    expect(await fits('[role="dialog"]'), kind).toBe(true);
+    const [entry, now] = await Promise.all([dialog.getByTestId(`${kind}-${kind === "sale" ? "price" : "cost"}`).boundingBox(), dialog.getByTestId(`${kind}-now`).boundingBox()]);
+    expect(now!.y).toBeGreaterThanOrEqual(entry!.y + entry!.height);
+    expect(now!.width).toBeGreaterThan(330);
+  }
+
+  // The Ledger's day: totals and amounts on one line each.
+  await page.goto(`${APP_ORIGIN}/admin/ledger?from=2026-08-20&to=2026-08-20&item=${item.id}`);
+  await expect(page.getByTestId("ledger-summary")).toHaveText("1 sale · 4 vials · $7,999.96 · GP $2,997.96");
+  const total = page.getByTestId("ledger-day-total");
+  await expect(total).toHaveText("$7,999.96");
+  expect((await total.boundingBox())!.height).toBeLessThan(30);
+  await expect(page.getByTestId("ledger-sale-row")).toContainText("$7,999.96");
+  expect(await fits()).toBe(true);
+});
+
 test("switching the stock item blocks saving until that item's preview has loaded", async ({ page }) => {
   const [first, second] = [await seedItem(3, "10"), await seedItem(5, "12")];
   await signInAdmin(page);
-  await page.goto(`${APP_ORIGIN}/admin/inventory/sale?item=${first.id}`);
-  await hydrated(page.getByLabel("Vials", { exact: true }));
-  await page.getByRole("button", { name: "Outside buyer" }).click();
-  await page.getByLabel("Buyer name or reference").fill("Walk-in");
-  await page.getByLabel("Vials", { exact: true }).fill("2");
-  await page.getByLabel("Price per vial (CAD)").fill("30");
-  const save = page.getByRole("button", { name: "Record sale" });
-  const preview = page.getByTestId("sale-preview");
+  await page.goto(`${APP_ORIGIN}/admin/inventory?record=sale&recordItem=${first.id}`);
+  const dialog = sheet(page);
+  await expect(dialog.getByTestId("sale-item")).toHaveValue(first.id);
+  await dialog.getByTestId("buyer-input").fill("Walk-in");
+  await dialog.getByTestId("sale-vials").fill("2");
+  await dialog.getByTestId("sale-price").fill("30");
+  const save = dialog.getByTestId("record-sale");
+  const now = dialog.getByTestId("sale-now");
   await expect(save).toBeEnabled();
-  await expect(preview.locator("dd")).toHaveText(["3 vials", "CAD 60.00", "CAD 20.00", "CAD 40.00"]);
+  await expect(dialog.getByTestId("sale-gross-profit")).toHaveText("$40.00");
+  await expect(dialog.getByTestId("sale-cost-line")).toHaveText(["Cost · 2 from Aug 15 lot at $10.00− $20.00"]);
 
-  // Hold the second item's data until the save attempts are done.
+  // Hold the second item's preview until the save attempts are done.
   let release!: () => void;
   const held = new Promise<void>((resolve) => (release = resolve));
   await page.route(
-    (url) => url.pathname === "/admin/inventory/sale" && url.searchParams.get("item") === second.id,
+    (url) => url.pathname === "/admin/records/sale-preview" && url.searchParams.get("item") === second.id,
     async (route) => {
-      if (route.request().headers()["rsc"]) await held;
+      await held;
       await route.continue();
     },
   );
-  await select(page, "stockItemId").selectOption(second.id);
-  await expect(preview.getByRole("heading")).toHaveText(`Preview · ${second.label}`);
-  await expect(preview).toHaveAttribute("aria-busy", "true");
-  await expect(preview.locator("dd")).toHaveText(["5 vials", "CAD 60.00", "—", "—"]);
+  await dialog.getByTestId("sale-item").selectOption(second.id);
+  await expect(dialog.getByText("5 on hand", { exact: true })).toBeVisible();
+  await expect(now).toHaveAttribute("aria-busy", "true");
+  await expect(dialog.getByTestId("sale-gross-profit")).toHaveText("—");
+  await expect(dialog.getByTestId("sale-revenue")).toContainText("$60.00");
   await expect(save).toBeDisabled();
   // Neither Enter in a field nor a direct form submission records anything.
-  await page.getByLabel("Price per vial (CAD)").press("Enter");
-  await page.locator("form.app-inv-form").evaluate((form) => (form as HTMLFormElement).requestSubmit());
-  await expect(save).toHaveText("Record sale");
+  await dialog.getByTestId("sale-price").press("Enter");
+  await dialog.getByTestId("sale-form").evaluate((form) => (form as HTMLFormElement).requestSubmit());
+  await expect(save).toHaveText("Record sale · $60.00");
 
   release();
-  await expect(preview).not.toHaveAttribute("aria-busy", "true");
-  await expect(preview.locator("dd")).toHaveText(["5 vials", "CAD 60.00", "CAD 24.00", "CAD 36.00"]);
+  await expect(now).not.toHaveAttribute("aria-busy", "true");
+  await expect(dialog.getByTestId("sale-gross-profit")).toHaveText("$36.00");
+  await expect(dialog.getByTestId("sale-cost-line")).toHaveText(["Cost · 2 from Aug 15 lot at $12.00− $24.00"]);
   await expect(save).toBeEnabled();
-  for (const item of [first, second]) {
-    expect((await serviceClient().from("business_sales").select("id").eq("stock_item_id", item.id)).data).toEqual([]);
+  for (const seeded of [first, second]) {
+    expect((await serviceClient().from("business_sales").select("id").eq("stock_item_id", seeded.id)).data).toEqual([]);
   }
-  await expect(toast(page)).toHaveCount(0);
+  await expect(page.getByRole("status").filter({ hasText: "Sale recorded" })).toHaveCount(0);
+  await expect(toast(page, SALE_ALREADY_RECORDED)).toHaveCount(0);
 });
 
 test("a slow response for a previously chosen item never replaces the current item's preview", async ({ page }) => {
   const [first, slow, current] = [await seedItem(3, "10"), await seedItem(5, "12"), await seedItem(7, "14")];
   await signInAdmin(page);
-  await page.goto(`${APP_ORIGIN}/admin/inventory/sale?item=${first.id}`);
-  await hydrated(page.getByLabel("Vials", { exact: true }));
-  await page.getByLabel("Vials", { exact: true }).fill("2");
-  await page.getByLabel("Price per vial (CAD)").fill("30");
-  const preview = page.getByTestId("sale-preview");
-  await expect(preview.locator("dd")).toHaveText(["3 vials", "CAD 60.00", "CAD 20.00", "CAD 40.00"]);
+  await page.goto(`${APP_ORIGIN}/admin/inventory?record=sale&recordItem=${first.id}`);
+  const dialog = sheet(page);
+  await expect(dialog.getByTestId("sale-item")).toHaveValue(first.id);
+  await dialog.getByTestId("sale-vials").fill("2");
+  await dialog.getByTestId("sale-price").fill("30");
+  const now = dialog.getByTestId("sale-now");
+  await expect(dialog.getByTestId("sale-gross-profit")).toHaveText("$40.00");
 
-  // The second item's data is held back; the third item's arrives first.
+  // The second item's preview is held back; the third item's arrives first.
   let release!: () => void;
   const held = new Promise<void>((resolve) => (release = resolve));
-  const isSlow = (url: URL) => url.pathname === "/admin/inventory/sale" && url.searchParams.get("item") === slow.id;
-  await page.route(isSlow, async (route) => {
-    if (route.request().headers()["rsc"]) await held;
-    await route.continue().catch(() => {});
-  });
-  await select(page, "stockItemId").selectOption(slow.id);
-  await expect(preview).toHaveAttribute("aria-busy", "true");
-  await select(page, "stockItemId").selectOption(current.id);
-  await expect(preview.getByRole("heading")).toHaveText(`Preview · ${current.label}`);
-  await expect(preview.locator("dd")).toHaveText(["7 vials", "CAD 60.00", "CAD 28.00", "CAD 32.00"]);
+  await page.route(
+    (url) => url.pathname === "/admin/records/sale-preview" && url.searchParams.get("item") === slow.id,
+    async (route) => {
+      await held;
+      await route.continue().catch(() => {});
+    },
+  );
+  await dialog.getByTestId("sale-item").selectOption(slow.id);
+  await expect(now).toHaveAttribute("aria-busy", "true");
+  await dialog.getByTestId("sale-item").selectOption(current.id);
+  await expect(dialog.getByText("7 on hand", { exact: true })).toBeVisible();
+  await expect(dialog.getByTestId("sale-gross-profit")).toHaveText("$32.00");
+  await expect(dialog.getByTestId("sale-cost-line")).toHaveText(["Cost · 2 from Aug 15 lot at $14.00− $28.00"]);
 
   // The late response arrives: the chosen item and its preview stay as they are.
   release();
   await page.waitForTimeout(1_000);
-  await expect(select(page, "stockItemId")).toHaveValue(current.id);
-  await expect(preview.getByRole("heading")).toHaveText(`Preview · ${current.label}`);
-  await expect(preview.locator("dd")).toHaveText(["7 vials", "CAD 60.00", "CAD 28.00", "CAD 32.00"]);
-  await expect(preview).not.toHaveAttribute("aria-busy", "true");
-  await expect(page.getByRole("button", { name: "Record sale" })).toBeEnabled();
-  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory/sale?item=${current.id}`);
+  await expect(dialog.getByTestId("sale-item")).toHaveValue(current.id);
+  await expect(dialog.getByTestId("sale-gross-profit")).toHaveText("$32.00");
+  await expect(dialog.getByTestId("sale-cost-line")).toHaveText(["Cost · 2 from Aug 15 lot at $14.00− $28.00"]);
+  await expect(now).not.toHaveAttribute("aria-busy", "true");
+  await dialog.getByTestId("buyer-input").fill("Walk-in");
+  await expect(dialog.getByTestId("record-sale")).toBeEnabled();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/inventory`);
 });
 
-test("a researcher cannot reach inventory or sales", async ({ page }) => {
+test("a researcher cannot reach inventory, the Ledger or the old sale pages", async ({ page }) => {
   await signInAs(page, APP_ORIGIN, RESEARCHER.email);
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
   for (const path of [
@@ -464,6 +455,8 @@ test("a researcher cannot reach inventory or sales", async ({ page }) => {
     `/admin/inventory/${randomUUID()}`,
     "/admin/inventory/purchase",
     "/admin/inventory/sale",
+    "/admin/inventory?record=sale",
+    "/admin/ledger",
     "/admin/sales",
     "/admin/sales?period=month",
   ]) {

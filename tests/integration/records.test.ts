@@ -15,7 +15,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { addDays } from "@/lib/business/period";
 import { PURCHASE_ALREADY_RECORDED, SALE_ALREADY_RECORDED, stockChangedMessage, SUPPLIER_TOO_LONG } from "@/lib/inventory/rules";
 import { SUBMISSION_CONFLICT } from "@/lib/inventory/screens";
-import { recordPurchase, type Db } from "@/lib/inventory/service";
+import type { Db } from "@/lib/inventory/service";
 import { expectedAllocation, recordAttempt, SAVE_UNSURE, STOCK_CHANGED, type RecordAttempt, type SalePreview } from "@/lib/records/forms";
 import { byDay, byMonth, saleTotals } from "@/lib/records/ledger";
 import { ledgerMonthItems, ledgerPurchases, ledgerSales } from "@/lib/records/ledger-service";
@@ -187,9 +187,9 @@ describe("A4: the preview is the allocation the sale freezes", () => {
     const usd = await buy(item, "2026-08-26", 10, "11.00", { currency: "USD", supplier: "Northwind Records" });
     expect(usd.toast).toBe("Purchase recorded · 10 vials · $152.60 · US$ 11.00 at 1.3876");
     const shown = await preview(item, 4);
-    expect(shown.lots.map(({ purchaseId: _, ...lot }) => lot)).toEqual([
-      { quantity: 1, unitCost: "5.00", receivedOn: "2026-08-01", currency: "CAD", usdUnitCost: null, fxRate: null, supplier: null },
-      { quantity: 3, unitCost: "15.26", receivedOn: "2026-08-26", currency: "USD", usdUnitCost: "11.00", fxRate: "1.3876", supplier: "Northwind Records" },
+    expect(shown.lots.map((lot) => ({ ...lot, purchaseId: undefined }))).toEqual([
+      { purchaseId: undefined, quantity: 1, unitCost: "5.00", receivedOn: "2026-08-01", currency: "CAD", usdUnitCost: null, fxRate: null, supplier: null },
+      { purchaseId: undefined, quantity: 3, unitCost: "15.26", receivedOn: "2026-08-26", currency: "USD", usdUnitCost: "11.00", fxRate: "1.3876", supplier: "Northwind Records" },
     ]);
     expect(shown.cost).toBe("50.78");
     await previewThenSell(item, 4, "30");

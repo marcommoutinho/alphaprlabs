@@ -50,6 +50,10 @@ const EXCLUSIVE = [
   "tests/integration/business-overview-owner.test.ts",
   // Read-only owner SQL through psql (the catalog: anon holds no public table privilege), plus one rolled-back table.
   "tests/integration/anon-privileges.test.ts",
+  // Owner-level psql records 1,050 sales and 1,010 purchases (committed, in a past year no other test uses) to prove V6's
+  // Ledger reads, sales late in the Toronto evening, and re-applies the records migration on recorded purchases (dropping
+  // and re-adding a business_purchases column), always rolled back.
+  "tests/integration/records-owner.test.ts",
 ];
 
 /** How many shared integration files run at once (see the integration project). */

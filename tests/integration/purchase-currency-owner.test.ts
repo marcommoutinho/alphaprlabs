@@ -63,8 +63,8 @@ describe("the purchase currency migration", () => {
     const item = quote(fixture.itemId);
     const out = psql(`
       begin;
-      -- The schema as it was before 20260927140000 (production today).
-      drop function public.record_business_purchase_fx(uuid, date, integer, text, text, text, text, date, uuid, uuid, text);
+      -- The schema as it was before 20260927140000 (the function with its supplier since 20260929100000).
+      drop function public.record_business_purchase_fx(uuid, date, integer, text, text, text, text, date, uuid, uuid, text, text);
       drop function public.store_fx_rates(jsonb);
       drop table public.fx_rates;
       drop function public.fx_rates_guard();

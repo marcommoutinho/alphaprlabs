@@ -121,7 +121,8 @@ for (const scheme of ["light", "dark"] as const) {
     await dialog.getByTestId("sale-vials").fill("7");
     await dialog.getByTestId("sale-price").fill("120");
     await expect(dialog.getByTestId("buyer-helper")).toHaveText(BUYER_HELPER);
-    await dialog.getByTestId("buyer-input").fill(BUYER.name.slice(0, 10));
+    // By part of the email (other runs have their own Jordan Reyes accounts).
+    await dialog.getByTestId("buyer-input").fill(BUYER.email.split("@")[0]);
     await page.getByRole("option", { name: new RegExp(BUYER.name) }).click();
     await expect(dialog.getByTestId("buyer-researcher")).toHaveText("Researcher");
 

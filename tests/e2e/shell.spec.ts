@@ -259,11 +259,11 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(page).toHaveURL(`${APP_ORIGIN}/admin/business`);
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Overview");
       await expect(mainNav(page).locator('[aria-current="page"]')).toHaveText("Overview");
-      // Ledger opens Sales & gross profit until V6: it alone is then current.
+      // Ledger opens the V6 Ledger (D5 on a laptop): it alone is then current.
       await mainNav(page).getByRole("link", { name: "Ledger" }).click();
-      await expect(page).toHaveURL(`${APP_ORIGIN}/admin/sales`);
+      await expect(page).toHaveURL(`${APP_ORIGIN}/admin/ledger`);
       await expect(mainNav(page).locator('[aria-current="page"]')).toHaveText("Ledger");
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sales & gross profit");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sales and purchases");
       await mainNav(page).getByRole("link", { name: "Overview" }).click();
       await expect(mainNav(page).locator('[aria-current="page"]')).toHaveText("Overview");
       await mainNav(page).getByRole("link", { name: "Today" }).click();

@@ -174,9 +174,12 @@ describe("researcher-callable functions name no one", () => {
         and has_function_privilege('authenticated', p.oid, 'EXECUTE')
         and pg_get_function_result(p.oid) ~* '(name|email)';
     `);
-    // Each refuses a researcher (support-history.test.ts; V5's in business-overview.test.ts), except
-    // template_peptides, whose names are peptides'.
+    // Each refuses a researcher (support-history.test.ts; V5's in business-overview.test.ts; V6's in
+    // records.test.ts), except template_peptides, whose names are peptides'.
     expect(out.functions.split(",")).toEqual([
+      "admin_business_ledger_month_items",
+      "admin_business_ledger_purchases",
+      "admin_business_ledger_sales",
       "admin_business_outside_buyers",
       "admin_business_purchase_suppliers",
       "admin_business_seller_totals",
