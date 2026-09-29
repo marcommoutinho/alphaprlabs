@@ -60,7 +60,9 @@ describe("A11 / D8 People", () => {
   });
 
   it("a researcher who doesn't share leaks no record through People", async () => {
-    await seedInvitation({ email: uniqueEmail("v7-people-invite"), name: "Dana Lin", sentDaysAgo: 40 });
+    // Its own name: the e2e suite invites a "Dana Lin" too.
+    const dana = `Dana Lin ${tag()}`;
+    await seedInvitation({ email: uniqueEmail("v7-people-invite"), name: dana, sentDaysAgo: 40 });
     const [people, invitations] = await Promise.all([listPeople(adminDb), listInvitations(adminDb)]);
     const view = peopleView(people, invitations, id.admin);
     const payload = JSON.stringify({ people, invitations, view });
@@ -69,7 +71,7 @@ describe("A11 / D8 People", () => {
     expect(payload).not.toContain("Kim's own goal");
     const kimRow = view.researchers.find((row) => row.id === id.kim)!;
     expect(kimRow).toMatchObject({ status: { tone: "private", text: "Private" }, historyHref: null });
-    expect(view.researchers.find((row) => row.name === "Dana Lin")).toMatchObject({ kind: "invite", canResend: true, status: { tone: "expired" } });
+    expect(view.researchers.find((row) => row.name === dana)).toMatchObject({ kind: "invite", canResend: true, status: { tone: "expired" } });
   });
 
   it("is admin-only", async () => {
