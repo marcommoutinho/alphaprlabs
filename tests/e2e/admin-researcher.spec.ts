@@ -37,8 +37,10 @@ test("an admin acknowledges, turns on reminders, uses the research side and swit
   await (await hydrated(page.getByRole("checkbox", { name: "I've read this and I'm using the app as a researcher." }))).click();
   await page.getByRole("button", { name: "Agree and continue" }).click();
 
-  // R16 is for iPhone Safari only, and the push prompt opens by itself only
-  // on a Home Screen launch: this browser goes straight on to Today.
+  // R16, the install guide, for admins too ("I'll do it later"); the push
+  // prompt opens by itself only on a Home Screen launch, never here.
+  await expect(page).toHaveURL(`${APP_ORIGIN}/auth/install`);
+  await (await hydrated(page.getByRole("button", { name: "I'll do it later" }))).click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
   const { data: profile } = await serviceClient().from("profiles").select("role, acknowledged_at").eq("id", adminId).single();
   expect(profile?.role).toBe("admin");

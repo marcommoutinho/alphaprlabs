@@ -108,7 +108,10 @@ test("admin invites; the researcher accepts, sets a password, acknowledges and r
   await researcher.getByRole("checkbox", { name: "I've read this and I'm using the app as a researcher." }).click();
   await expect(agree).toBeEnabled();
   await agree.click();
-  // R16 is for iPhone Safari only: a desktop browser goes straight on to Today.
+  // R16: on a laptop, "Get the app on your phone"; later goes on to Today.
+  await expect(researcher).toHaveURL(`${APP_ORIGIN}/auth/install`);
+  await expect(researcher.getByRole("heading", { level: 1 })).toHaveText("Get the app on your phone");
+  await (await hydrated(researcher.getByRole("button", { name: "I'll do it later" }))).click();
   await expect(researcher).toHaveURL(`${APP_ORIGIN}/app/today`);
   await expect(researcher.getByRole("heading", { level: 1 })).toHaveText("Today");
   await expect(v3Toast(researcher)).toHaveCount(0);

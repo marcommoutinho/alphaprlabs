@@ -128,8 +128,9 @@ const setInstallState = (next: Partial<InstallState>) => {
 
 let capturing = false;
 /**
- * Researcher area only (PushSync and the C2 screens call it on mount): keeps
- * the browser's one-per-page install prompt for the "Install app" button.
+ * Researcher area only (PushSync, the C2 screens and the install guide call
+ * it on mount): keeps the browser's one-per-page install prompt for the
+ * "Install app" buttons.
  */
 export function captureInstallPrompt() {
   if (capturing) return;
@@ -151,6 +152,30 @@ function useInstallState(): InstallState {
     () => installState,
     () => SERVER_INSTALL_STATE,
   );
+}
+
+/** Opens the browser's install prompt kept by captureInstallPrompt (it can be used once). */
+async function promptInstall() {
+  const prompt = installState.prompt;
+  if (!prompt) return;
+  await prompt.prompt();
+  const choice = await prompt.userChoice.catch(() => ({ outcome: "dismissed" }));
+  // A prompt can be used only once; accepted also fires "appinstalled".
+  setInstallState({ prompt: null, installed: installState.installed || choice.outcome === "accepted" });
+}
+
+/**
+ * The browser's own install prompt (Android / Chromium), for the install
+ * guide's "Install app" button: the same one-per-page prompt the reminder
+ * screens use, never a second listener. `canInstall` once the browser has
+ * offered it; `installed` once accepted here.
+ */
+export function useInstallPrompt(): { canInstall: boolean; installed: boolean; install: () => Promise<void> } {
+  const install = useInstallState();
+  useEffect(() => {
+    captureInstallPrompt();
+  }, []);
+  return { canInstall: !install.installed && install.prompt !== null, installed: install.installed, install: promptInstall };
 }
 
 // ── Device facts and subscription ──────────────────────────────────────────
@@ -441,15 +466,6 @@ export function useReminders(userId: string, vapidPublicKey: string): Reminders 
       setBusy(null);
     }
   }, [show]);
-
-  const promptInstall = useCallback(async () => {
-    const prompt = installState.prompt;
-    if (!prompt) return;
-    await prompt.prompt();
-    const choice = await prompt.userChoice.catch(() => ({ outcome: "dismissed" }));
-    // A prompt can be used only once; accepted also fires "appinstalled".
-    setInstallState({ prompt: null, installed: installState.installed || choice.outcome === "accepted" });
-  }, []);
 
   const facts = device?.facts;
   const installed = Boolean(facts?.standalone) || install.installed;

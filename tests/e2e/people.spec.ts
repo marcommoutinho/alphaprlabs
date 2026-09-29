@@ -92,6 +92,9 @@ test("laptop: an admin invites an admin (confirm first), who accepts from the em
   await invitee.getByRole("button", { name: "Continue" }).click();
   await (await hydrated(invitee.getByRole("checkbox", { name: "I've read this and I'm using the app as a researcher." }))).click();
   await invitee.getByRole("button", { name: "Agree and continue" }).click();
+  // R16, the install guide: later.
+  await expect(invitee).toHaveURL(`${APP_ORIGIN}/auth/install`);
+  await (await hydrated(invitee.getByRole("button", { name: "I'll do it later" }))).click();
   await expect(invitee).toHaveURL(`${APP_ORIGIN}/app/today`);
   await invitee.goto(`${APP_ORIGIN}/admin/people`);
   await expect(invitee.getByRole("heading", { level: 1 })).toHaveText("People");

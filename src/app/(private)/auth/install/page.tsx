@@ -7,8 +7,9 @@ import { getSessionPerson } from "@/lib/auth/session";
 
 /**
  * R16 Put Alpha on your Home Screen (step 3 of 3), right after R15. The page
- * decides in the browser: iPhone / iPad Safari sees the steps; anything
- * else goes on to Today.
+ * decides in the browser: the install guide for this phone and browser (a
+ * laptop gets the QR code); already in the installed app, it goes on to
+ * Today.
  */
 export default async function InstallPage() {
   const person = await getSessionPerson();

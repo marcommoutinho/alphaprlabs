@@ -310,6 +310,23 @@ switches to the back office and back.
   entered in and are converted exactly for display (1 lb = 0.45359237 kg).
 - Marco is away during the rebuild; Main decides review escalations on the
   safer option and records each one for him.
+- Installing the app gets very explicit instructions (Marco, 2026-09-29,
+  approving Main's proposal): one install guide that detects the phone and
+  browser and opens on those steps, with tabs for the others (iPhone ·
+  Safari, iPhone · Chrome, Android; the detected one marked "This phone").
+  Each step is one short sentence with the button's name in bold, beside a
+  drawing in the app's style (not screenshots) with the button to tap
+  highlighted. Safari's steps follow iOS 26's layout (Share behind •••) when
+  Safari's version says so, and cover both layouts when it can't be told.
+  Android Chrome gets a one-tap Install app button when the browser offers
+  one, and the manual steps always. Inside another app's browser the guide
+  first says to open the page in Safari or Chrome, with a Copy link to
+  Today (never the current URL). On a laptop it is "Get the app on your
+  phone": a QR code for Today, generated locally, plus the tabs. It shows at
+  joining (step 3, now for everyone not already in the installed app, not
+  only iPhone Safari; "I'll do it later" still goes on to Today) and as an
+  item in Me and the account menu for researchers and admins, hidden inside
+  the installed app. The reminders screens link to it.
 
 ### Launch exclusions
 

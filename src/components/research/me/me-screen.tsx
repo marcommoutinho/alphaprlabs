@@ -13,8 +13,10 @@ import { OFFLINE_REASON, useOnline } from "@/components/alpha/online";
 import { Group, GroupLabel } from "@/components/alpha/list";
 import { Sheet, SheetContent } from "@/components/alpha/sheet";
 import { useSignOut } from "@/components/app-shell/use-sign-out";
+import { useThisDevice } from "@/components/push/use-install";
 import { rememberedReminders } from "@/components/push/use-reminders";
 import type { Appearance } from "@/lib/alpha/appearance";
+import { INSTALL_GUIDE_PATH, installItemLabel } from "@/lib/install/detect";
 import { SYRINGE_CAPACITIES, type SyringeCapacity } from "@/lib/calculator/calculator";
 import {
   APPEARANCE_LABEL,
@@ -390,11 +392,23 @@ function PreferencesGroup({ view }: { view: MeView }) {
   );
 }
 
-/** R8 "Account": the research-use disclaimer (read-only) and Sign out. */
+/**
+ * "Install the app" (a phone or tablet) or "Get the app on your phone" (a
+ * laptop): the install guide. Only in a browser tab: decided in the browser,
+ * so the installed app never shows it, not even for a moment.
+ */
+function InstallRow() {
+  const device = useThisDevice();
+  if (!device || device.installed) return null;
+  return <SettingRow label={installItemLabel(device)} value="" href={INSTALL_GUIDE_PATH} testId="me-install" />;
+}
+
+/** R8 "Account": the install guide (in a browser tab), the research-use disclaimer (read-only) and Sign out. */
 function Account() {
   const { pending, offline, signOut } = useSignOut();
   return (
     <Group className="mx-3 mt-6 laptop:mx-0">
+      <InstallRow />
       <SettingRow label="Research-use disclaimer" value="" href="/app/me/disclaimer" testId="me-disclaimer" />
       <button
         type="button"

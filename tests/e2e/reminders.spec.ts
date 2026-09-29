@@ -321,7 +321,8 @@ test.describe("designed device states", () => {
     await signInAs(page, APP_ORIGIN, RESEARCHER.email);
     await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
     await page.goto(`${APP_ORIGIN}/app/notifications`);
-    await expect(page.getByText("On iPhone, add the app to your home screen first: Share → Add to Home Screen.")).toBeVisible();
+    await expect(page.getByText("On iPhone, reminders need the app on your Home Screen.")).toBeVisible();
+    await expect(page.getByRole("link", { name: "See how to install it" })).toHaveAttribute("href", "/app/install");
     await expect(page.getByText("I've added it")).toHaveCount(0);
     await expect(statusValue(page, "Installed to home screen")).toHaveText("Not yet");
     await expect(page.getByRole("button", { name: "Turn on reminders" })).toHaveCount(0);

@@ -1,7 +1,8 @@
 // V4 joining (R14–R16) and sign-in in design v3, against the real local
 // Supabase: an invitation link → name and password (R14) → the research-use
 // disclaimer, stored with its version and time (R15) → Put Alpha on your
-// Home Screen on iPhone Safari only (R16) → Today; the first launch from
+// Home Screen, the install guide (R16; every device is in
+// install-guide.spec.ts) → Today; the first launch from
 // the Home Screen opens the push permission prompt once, and never in a
 // browser tab. Phone and laptop, light and dark.
 import { expect, test, type Browser, type Page } from "@playwright/test";
@@ -100,12 +101,14 @@ test("an invitation on iPhone Safari: R14, R15 stored with its version, R16, the
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth/install`);
   await expect(page.getByRole("progressbar", { name: "Step 3 of 3" })).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Put Alpha on your Home Screen");
-  await expect(page.getByTestId("install-steps").getByRole("listitem")).toHaveText([
-    "1Tap Share in Safari's toolbar",
-    "2Choose Add to Home Screen",
-    "3Open Alpha from your Home Screen",
+  await expect(page.getByRole("tab", { selected: true })).toHaveAttribute("data-tab", "ios-safari");
+  await expect(page.getByRole("tabpanel").getByTestId("install-step-text")).toHaveText([
+    "Tap Share in the toolbar.",
+    "Scroll down and choose Add to Home Screen.",
+    "Tap Add.",
+    "Open Alpha from your Home Screen.",
   ]);
-  await expect(page.getByText("We'll ask about reminders the first time you open it from there.")).toBeVisible();
+  await expect(page.getByTestId("install-reminders")).toHaveText("Dose reminders only work from the Home Screen app.");
   const { data: profile } = await serviceClient().from("profiles").select("acknowledged_at, acknowledgement_version").eq("email", email).single();
   expect(profile?.acknowledgement_version).toBe("2026-09-placeholder");
   expect(Date.parse(profile!.acknowledged_at!)).toBeGreaterThan(before - 60_000);

@@ -78,7 +78,7 @@ const ME: NavItem = {
   label: "Me",
   href: "/app/me",
   icon: "me",
-  match: ["/app/me", "/app/notifications", "/app/supplies", "/app/supplements"],
+  match: ["/app/me", "/app/notifications", "/app/install", "/app/supplies", "/app/supplements"],
 };
 
 // ── Business (admins) ───────────────────────────────────
@@ -160,15 +160,27 @@ export function activeKey(
   return (owners.find((item) => item.key === chosen) ?? owners[0])?.key ?? null;
 }
 
+export type AccountLink = {
+  label: string;
+  href: string;
+  /**
+   * The install guide: shown only in a browser tab, never in the installed
+   * app, and named for the device ("Install the app" on a phone, "Get the
+   * app on your phone" on a laptop). Decided in the browser.
+   */
+  install?: true;
+};
+
 /**
  * The signed-in person's account pages, in the laptop user menu (the phone
  * reaches them from Me). Sign out follows them.
  */
-export const ACCOUNT_LINKS: readonly { label: string; href: string }[] = [
+export const ACCOUNT_LINKS: readonly AccountLink[] = [
   { label: "Profile & support access", href: "/app/me" },
   { label: "Notifications", href: "/app/notifications" },
   { label: "Personal supplies", href: "/app/supplies" },
   { label: "Supplements", href: "/app/supplements" },
+  { label: "Install the app", href: "/app/install", install: true },
 ];
 
 /** The role word under the name in the sidebar. */

@@ -4,8 +4,10 @@ import { useState } from "react";
 import Link from "@/components/alpha/link";
 import { Menu } from "@base-ui/react/menu";
 import { useSignOut } from "@/components/app-shell/use-sign-out";
+import { useThisDevice } from "@/components/push/use-install";
 import { ACCOUNT_LINKS, isUnder, roleLabel } from "@/lib/alpha/nav";
 import { initialsOf, type AppIdentity } from "@/lib/app/identity";
+import { installItemLabel } from "@/lib/install/detect";
 import { cn } from "@/lib/utils";
 import { useAlphaPortal } from "../root";
 
@@ -25,6 +27,11 @@ export function UserMenu({ identity, pathname }: { identity: AppIdentity; pathna
   const [openAt, setOpenAt] = useState<string | null>(null);
   const { pending: signingOut, offline, signOut } = useSignOut();
   const onAccountPage = ACCOUNT_LINKS.some((link) => isUnder(pathname, link.href));
+  // The install guide's item: only in a browser tab (never in the installed app), named for the device.
+  const device = useThisDevice();
+  const links = ACCOUNT_LINKS.flatMap((link) =>
+    !link.install ? [link] : device && !device.installed ? [{ ...link, label: installItemLabel(device) }] : [],
+  );
 
   return (
     <Menu.Root open={openAt === pathname} onOpenChange={(open) => setOpenAt(open ? pathname : null)} modal={false}>
@@ -55,7 +62,7 @@ export function UserMenu({ identity, pathname }: { identity: AppIdentity; pathna
               <div className="mt-0.5 truncate font-mono text-[12px] text-ink-3">{identity.email}</div>
             </div>
             <div className="py-1.5">
-              {ACCOUNT_LINKS.map((link) => (
+              {links.map((link) => (
                 <Menu.LinkItem
                   key={link.href}
                   closeOnClick

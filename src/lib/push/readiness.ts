@@ -30,20 +30,15 @@ export function isAppleMobile(userAgent: string, maxTouchPoints: number): boolea
   return /iPhone|iPad|iPod/.test(userAgent) || (/Macintosh/.test(userAgent) && maxTouchPoints > 1);
 }
 
-/** Other browsers on iPhone/iPad name themselves in the user agent; Safari doesn't. */
-const OTHER_APPLE_BROWSER = /CriOS|FxiOS|EdgiOS|OPiOS|OPT\/|GSA\/|YaBrowser|DuckDuckGo|Brave|FBAN|FBAV|Instagram|Line\//;
-
-/** Safari on iPhone / iPad (the only place R16's Share → Add to Home Screen steps apply). */
-export function isAppleSafari(userAgent: string, maxTouchPoints: number): boolean {
-  return isAppleMobile(userAgent, maxTouchPoints) && /Safari\//.test(userAgent) && !OTHER_APPLE_BROWSER.test(userAgent);
-}
-
 /**
- * R16 Put Alpha on your Home Screen: shown in iPhone / iPad Safari only,
- * and skipped when already running from the Home Screen.
+ * R16 Put Alpha on your Home Screen: shown to everyone not already in the
+ * installed app, on every phone, browser and laptop (the install guide opens
+ * on this device's steps; a laptop gets the QR code), and skipped when
+ * already running from the Home Screen (Marco, 2026-09-29; it was iPhone
+ * Safari only).
  */
-export function showsInstallStep(facts: Pick<DeviceFacts, "userAgent" | "maxTouchPoints" | "standalone">): boolean {
-  return !facts.standalone && isAppleSafari(facts.userAgent, facts.maxTouchPoints);
+export function showsInstallStep(facts: Pick<DeviceFacts, "standalone">): boolean {
+  return !facts.standalone;
 }
 
 /**

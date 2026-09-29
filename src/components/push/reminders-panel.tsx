@@ -12,6 +12,7 @@ import { useAlphaToast } from "@/components/alpha/toast";
 import { AuthActions } from "@/components/auth/auth-frame";
 import { CYCLES_MAIN } from "@/components/research/cycles/cycles-list";
 import { RESEARCH_HOME } from "@/lib/auth/paths";
+import { INSTALL_GUIDE_PATH } from "@/lib/install/detect";
 import { STATUS_LABEL, statusTone } from "@/lib/push/readiness";
 import { cn } from "@/lib/utils";
 import { readinessSeen, useReminders, type Reminders } from "./use-reminders";
@@ -26,8 +27,7 @@ const COPY = {
     "Denied at the OS level. Restore it in Settings → Notifications → Alpha PR Labs, then return here. The app can't change this for you; your schedule still works without reminders.",
   failedSettings:
     "Permission was granted but this device couldn't be registered for reminders. Try again; if it keeps failing, reminders stay off and Today still shows what's due.",
-  installStep: "On iPhone, reminders require the app on your home screen: Share → Add to Home Screen.",
-  installSettings: "On iPhone, add the app to your home screen first: Share → Add to Home Screen.",
+  install: "On iPhone, reminders need the app on your Home Screen.",
   on: "Reminders on for this device.",
   off: "Reminders off. Your schedule is unchanged.",
   failed: "Permission granted, but registering this device failed. Try again.",
@@ -35,6 +35,18 @@ const COPY = {
 };
 
 type Props = { userId: string; vapidPublicKey: string };
+
+/** "Needs install": the one line, and the install guide (/app/install) for the steps. */
+function InstallNote() {
+  return (
+    <>
+      {COPY.install}{" "}
+      <Link href={INSTALL_GUIDE_PATH} className="font-semibold text-signal-ink" data-testid="reminders-install-guide">
+        See how to install it
+      </Link>
+    </>
+  );
+}
 
 type Tone = "good" | "bad" | "neutral";
 
@@ -89,7 +101,7 @@ export function RemindersStep({ userId, vapidPublicKey }: Props) {
     router.push(RESEARCH_HOME);
   };
   const note =
-    status === "unsupported" ? COPY.unsupportedStep : status === "denied" ? COPY.deniedStep : status === "needs-install" ? COPY.installStep : null;
+    status === "unsupported" ? COPY.unsupportedStep : status === "denied" ? COPY.deniedStep : status === "needs-install" ? <InstallNote /> : null;
 
   return (
     <>
@@ -167,7 +179,7 @@ export function RemindersSettings({ userId, vapidPublicKey, testEnabled }: Props
     });
   };
   const warning = status === "denied" ? COPY.deniedSettings : status === "failed" ? COPY.failedSettings : null;
-  const note = status === "unsupported" ? COPY.unsupportedSettings : status === "needs-install" ? COPY.installSettings : null;
+  const note = status === "unsupported" ? COPY.unsupportedSettings : status === "needs-install" ? <InstallNote /> : null;
 
   return (
     <main className={CYCLES_MAIN}>

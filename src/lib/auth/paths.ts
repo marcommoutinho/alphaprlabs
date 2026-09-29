@@ -28,9 +28,10 @@ export const ACKNOWLEDGEMENT_VERSION = "2026-09-placeholder";
 export const REMINDERS_READINESS_PATH = "/auth/reminders";
 
 /**
- * R16 Put Alpha on your Home Screen (step 3 of 3): iPhone / iPad Safari
- * only; anywhere else (or already running from the Home Screen) it goes
- * straight on to Today.
+ * R16 Put Alpha on your Home Screen (step 3 of 3): the install guide for
+ * everyone not already in the installed app (a laptop gets "Get the app on
+ * your phone"); already running from the Home Screen it goes straight on to
+ * Today.
  */
 export const INSTALL_PATH = "/auth/install";
 

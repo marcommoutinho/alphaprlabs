@@ -24,7 +24,7 @@ import {
   weightUnitOf,
 } from "@/lib/preferences/rules";
 import { unitFor } from "@/lib/progress/rules";
-import { type DeviceFacts, isAppleSafari, promptsOnLaunch, showsInstallStep } from "@/lib/push/readiness";
+import { type DeviceFacts, promptsOnLaunch, showsInstallStep } from "@/lib/push/readiness";
 import { shareEvents, sharingSince } from "@/lib/support/view";
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -312,15 +312,12 @@ const facts = (userAgent: string, extra: Partial<DeviceFacts> = {}): DeviceFacts
 });
 
 describe("R16 Put Alpha on your Home Screen", () => {
-  it("shows in iPhone and iPad Safari only, and not once running from the Home Screen", () => {
-    expect(isAppleSafari(IPHONE_SAFARI, 5)).toBe(true);
-    expect(isAppleSafari(IPAD_SAFARI, 5)).toBe(true);
-    expect(isAppleSafari(IPAD_SAFARI, 0)).toBe(false); // a Mac
-    expect(isAppleSafari(IPHONE_CHROME, 5)).toBe(false);
-    expect(showsInstallStep(facts(IPHONE_SAFARI))).toBe(true);
-    expect(showsInstallStep(facts(IPHONE_SAFARI, { standalone: true }))).toBe(false);
-    expect(showsInstallStep(facts(ANDROID_CHROME))).toBe(false);
-    expect(showsInstallStep(facts(IPHONE_CHROME))).toBe(false);
+  it("shows to everyone not already in the installed app, on every phone, browser and laptop", () => {
+    for (const userAgent of [IPHONE_SAFARI, IPAD_SAFARI, IPHONE_CHROME, ANDROID_CHROME]) {
+      expect(showsInstallStep(facts(userAgent))).toBe(true);
+      expect(showsInstallStep(facts(userAgent, { standalone: true }))).toBe(false);
+    }
+    expect(showsInstallStep(facts(IPAD_SAFARI, { maxTouchPoints: 0 }))).toBe(true); // a Mac: the QR code
   });
 
   it("the push prompt opens by itself only on the first standalone launch", () => {
