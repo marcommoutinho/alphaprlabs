@@ -8,6 +8,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { randomBytes, randomUUID } from "node:crypto";
 import { APP_ORIGIN } from "../../playwright.config";
 import { ensureAccount, hydrated, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
+import { recordPreviewedSale } from "../support/sales";
 
 const tag = randomBytes(2).toString("hex");
 const MARCO = { email: uniqueEmail("e2e-sel-marco"), name: `Marco Seller ${tag}` };
@@ -52,7 +53,7 @@ async function seedItem() {
 test("a sale records the seller chosen; the Ledger's seller menu shows each seller's totals for the range and item", async ({ page }) => {
   const item = await seedItem();
   // An earlier sale by Marco, recorded directly.
-  const earlier = await (await signedInClient(MARCO.email)).rpc("record_business_sale", {
+  const earlier = await recordPreviewedSale(await signedInClient(MARCO.email), {
     p_idempotency_key: randomUUID(),
     p_stock_item_id: item.id,
     p_sold_on: "2026-09-10",
@@ -95,19 +96,27 @@ test("a sale records the seller chosen; the Ledger's seller menu shows each sell
     { seller_id: id.natasha, seller_name: NATASHA.name },
   ]);
 
-  // The Ledger for this item in September: the seller menu lists each seller with their totals, by name.
+  // The Ledger for this item in September: the seller menu lists each seller by name with their vials,
+  // revenue, FIFO cost and gross profit (A7 "By seller").
   await page.goto(`${APP_ORIGIN}/admin/ledger?from=2026-09-01&to=2026-09-30&item=${item.id}`);
   await expect(h1(page)).toHaveText("Sales and purchases");
   const sellers = page.getByTestId("seller-select").locator("option");
   await expect(sellers).toHaveText([
     "All sellers",
-    `${MARCO.name} · 2 vials · $100.00 · GP $60.00`,
-    `${NATASHA.name} · 3 vials · $120.00 · GP $60.00`,
+    `${MARCO.name} · 2 vials · $100.00 · cost $40.00 · GP $60.00`,
+    `${NATASHA.name} · 3 vials · $120.00 · cost $60.00 · GP $60.00`,
   ]);
-  await expect(page.getByTestId("ledger-summary")).toHaveText("2 sales · 5 vials · $220.00 · GP $120.00");
+  await expect(page.getByTestId("ledger-summary")).toHaveText("2 sales · 5 vials · $220.00 · cost $100.00 · GP $120.00");
   await page.getByTestId("seller-select").selectOption(id.natasha);
   await expect(page).toHaveURL(new RegExp(`seller=${id.natasha}`));
-  await expect(page.getByTestId("ledger-summary")).toHaveText("1 sale · 3 vials · $120.00 · GP $60.00");
+  const natashaTotals = "1 sale · 3 vials · $120.00 · cost $60.00 · GP $60.00";
+  await expect(page.getByTestId("ledger-summary")).toHaveText(natashaTotals);
+  // The same seller's totals, cost included, on a phone.
+  const laptop = page.viewportSize()!;
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByTestId("ledger-summary")).toBeInViewport();
+  await expect(page.getByTestId("ledger-summary")).toHaveText(natashaTotals);
+  await page.setViewportSize(laptop);
   // Another range: August has none of these sales, so no seller either.
   await page.goto(`${APP_ORIGIN}/admin/ledger?from=2026-08-01&to=2026-08-31&item=${item.id}`);
   await expect(page.getByTestId("ledger-empty")).toBeVisible();
@@ -119,7 +128,7 @@ test("Outside buyers: an outside buyer is found by name from the Ledger and thei
   const marco = await signedInClient(MARCO.email);
   const name = `Finder Osei ${randomBytes(2).toString("hex")}`;
   for (const [soldOn, quantity] of [["2026-09-03", 1], ["2026-09-07", 2]] as const) {
-    const sold = await marco.rpc("record_business_sale", {
+    const sold = await recordPreviewedSale(marco, {
       p_idempotency_key: randomUUID(),
       p_stock_item_id: item.id,
       p_sold_on: soldOn,
@@ -133,22 +142,26 @@ test("Outside buyers: an outside buyer is found by name from the Ledger and thei
 
   await signInAs(page, APP_ORIGIN, MARCO.email);
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
-  // The old address leads to the Ledger, which links to Outside buyers.
+  // The old address leads to the Ledger, which links to Outside buyers, under the Ledger.
   await page.goto(`${APP_ORIGIN}/admin/sales`);
   await expect(page).toHaveURL(new RegExp(`^${APP_ORIGIN}/admin/ledger`));
   await page.getByRole("link", { name: "Outside buyers" }).click();
-  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/sales/outside`);
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/ledger/outside`);
   await expect(h1(page)).toHaveText("Outside buyers");
   await (await hydrated(page.getByLabel("Find a buyer"))).fill(name.toLowerCase());
   await page.getByRole("button", { name: "Find", exact: true }).click();
-  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/sales/outside?${new URLSearchParams({ q: name.toLowerCase() })}`);
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/ledger/outside?${new URLSearchParams({ q: name.toLowerCase() })}`);
   const found = page.getByTestId("outside-buyer");
   await expect(found).toHaveCount(1);
   await expect(found).toContainText(`${name}2 sales · 3 vials · last Mon, Sep 7`);
   await expect(found).toContainText("$90.00");
 
   await found.click();
-  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/sales/outside?${new URLSearchParams({ name })}`);
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/ledger/outside?${new URLSearchParams({ name })}`);
+  await expect(h1(page)).toHaveText(name);
+  // The old address of the same buyer redirects here, the buyer kept.
+  await page.goto(`${APP_ORIGIN}/admin/sales/outside?${new URLSearchParams({ name })}`);
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/ledger/outside?${new URLSearchParams({ name })}`);
   await expect(h1(page)).toHaveText(name);
   const rows = page.getByTestId("sale-row");
   await expect(rows).toHaveCount(2);
@@ -174,7 +187,7 @@ test("an outside buyer's past sale is linked to their account; nothing else abou
   const marco = await signedInClient(MARCO.email);
   const name = `K. Osei ${randomBytes(2).toString("hex")}`;
   for (const soldOn of ["2026-09-05", "2026-09-06"]) {
-    const sold = await marco.rpc("record_business_sale", {
+    const sold = await recordPreviewedSale(marco, {
       p_idempotency_key: randomUUID(),
       p_stock_item_id: item.id,
       p_sold_on: soldOn,
@@ -212,8 +225,9 @@ test("an outside buyer's past sale is linked to their account; nothing else abou
   const after = (await serviceClient().from("business_sales").select("id, revenue, cost, quantity, sold_on, seller_id").eq("stock_item_id", item.id).order("sold_on")).data;
   expect(after).toEqual(before);
 
-  // Outside buyers no longer lists the name.
+  // Outside buyers no longer lists the name (reached by the old address: it redirects, the search kept).
   await page.goto(`${APP_ORIGIN}/admin/sales/outside?${new URLSearchParams({ q: name })}`);
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/ledger/outside?${new URLSearchParams({ q: name })}`);
   await expect(page.getByText(`No outside buyer matches “${name}”.`)).toBeVisible();
 
   // Kwame's own view gains nothing: no admin screen, and the researcher side shows no business record.

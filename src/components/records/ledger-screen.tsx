@@ -52,7 +52,7 @@ import { cn } from "@/lib/utils";
 import { useJson } from "./parts";
 import { RecordButton } from "./record-provider";
 
-export type LedgerSeller = { key: string; name: string | null; vials: number; revenue: string; grossProfit: string };
+export type LedgerSeller = { key: string; name: string | null; vials: number; revenue: string; cost: string; grossProfit: string };
 
 export type LedgerData = {
   today: string;
@@ -156,7 +156,7 @@ export function LedgerScreen({ data }: { data: LedgerData }) {
         </div>
       </div>
 
-      <p className="mx-5 mt-3 font-mono text-[13px] text-ink-2 laptop:mx-0" data-testid="ledger-summary">
+      <p className="mx-5 mt-3 font-mono text-[13px] text-balance text-ink-2 laptop:mx-0" data-testid="ledger-summary">
         {summaryLine(view, totals)}
       </p>
 
@@ -192,15 +192,22 @@ function totalsOf(data: LedgerData): Totals {
 /** Exact sum of two money strings. */
 const add = (a: string, b: string) => new Decimal(a).plus(b).toFixed(2);
 
-/** "32 vials · $3,840.00 · GP $3,412.10" or "4 orders · 170 vials · $2,475.21". */
+/**
+ * "12 sales · 32 vials · $3,840.00 · cost $427.90 · GP $3,412.10" (the FIFO
+ * cost frozen with each sale, for every seller or the one chosen) or
+ * "4 orders · 170 vials · $2,475.21".
+ */
 function summaryLine(view: LedgerView, totals: Totals): string {
   const vials = `${totals.vials.toLocaleString("en-CA")} vial${totals.vials === 1 ? "" : "s"}`;
   if (view.tab === "sales") {
     const sales = `${totals.entries.toLocaleString("en-CA")} sale${totals.entries === 1 ? "" : "s"}`;
-    return `${sales} · ${vials} · ${money(totals.revenue)} · ${gpLabel(totals.grossProfit)}`;
+    return `${sales} · ${vials} · ${money(totals.revenue)} · ${costLabel(totals.cost)} · ${gpLabel(totals.grossProfit)}`;
   }
   return `${totals.entries.toLocaleString("en-CA")} order${totals.entries === 1 ? "" : "s"} · ${vials} · ${money(totals.total)}`;
 }
+
+/** "cost $427.90": the FIFO cost of the vials sold. */
+const costLabel = (cost: string) => `cost ${money(cost)}`;
 
 function emptyText(view: LedgerView): string {
   if (view.tab === "purchases") return LEDGER_EMPTY.purchases;
@@ -209,13 +216,13 @@ function emptyText(view: LedgerView): string {
 
 // ── Filters ───────────────────────────────────────────────────────────────
 
-/** "All sellers ▾": a native select over the chip; each option shows the seller's revenue for the range. */
+/** "All sellers ▾": a native select over the chip; each option shows the seller's vials, revenue, cost and GP for the range. */
 function SellerChip({ view, sellers }: { view: LedgerView; sellers: LedgerSeller[] }) {
   const router = useRouter();
   const current = sellers.find((seller) => seller.key === view.seller);
   const label = view.seller ? (view.seller === NO_SELLER ? "Seller not recorded" : (current?.name ?? "One seller")) : "All sellers";
   const options = [...sellers];
-  if (view.seller && !current) options.push({ key: view.seller, name: view.seller === NO_SELLER ? null : "One seller", vials: 0, revenue: "0.00", grossProfit: "0.00" });
+  if (view.seller && !current) options.push({ key: view.seller, name: view.seller === NO_SELLER ? null : "One seller", vials: 0, revenue: "0.00", cost: "0.00", grossProfit: "0.00" });
   return (
     <span className={chipClass}>
       <span className="max-w-[160px] truncate" aria-hidden>
@@ -232,7 +239,7 @@ function SellerChip({ view, sellers }: { view: LedgerView; sellers: LedgerSeller
         <option value="">All sellers</option>
         {options.map((seller) => (
           <option key={seller.key} value={seller.key}>
-            {`${seller.name ?? "Seller not recorded"} · ${seller.vials.toLocaleString("en-CA")} vials · ${money(seller.revenue)} · ${gpLabel(seller.grossProfit)}`}
+            {`${seller.name ?? "Seller not recorded"} · ${seller.vials.toLocaleString("en-CA")} vials · ${money(seller.revenue)} · ${costLabel(seller.cost)} · ${gpLabel(seller.grossProfit)}`}
           </option>
         ))}
       </select>

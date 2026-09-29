@@ -8,7 +8,8 @@
 // transaction, which locks the table until the rollback.
 import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import { recordPurchase, recordSale } from "@/lib/inventory/service";
+import { recordPurchase } from "@/lib/inventory/service";
+import { recordSale } from "../support/previewed-sale";
 import { psql, quote } from "../support/psql";
 import { ensureAccount, signedInClient, uniqueEmail } from "../support/local-supabase";
 

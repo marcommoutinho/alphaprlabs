@@ -23,12 +23,15 @@ export function StockLoadError({
   error,
   retry,
   back,
+  note,
 }: {
   title: React.ReactNode;
   heading: string;
   error: Error & { digest?: string };
   retry: () => void;
   back?: { href: string; label: string };
+  /** What is safe meanwhile (default: A6c's recording note). */
+  note?: string;
 }) {
   useEffect(() => {
     console.error(error);
@@ -46,20 +49,20 @@ export function StockLoadError({
       <header className="px-5 pt-1 laptop:px-0 laptop:pt-0">
         <h1 className="text-[34px] leading-[1.15] font-semibold tracking-[-0.03em]">{title}</h1>
       </header>
-      <LoadErrorPanel heading={heading} retry={retry} className="mx-3 mt-4 laptop:mx-0" />
+      <LoadErrorPanel heading={heading} retry={retry} note={note} className="mx-3 mt-4 laptop:mx-0" />
     </main>
   );
 }
 
 /** A6c's block on its own (the screens above, and the component gallery). */
-export function LoadErrorPanel({ heading, retry, className }: { heading: string; retry: () => void; className?: string }) {
+export function LoadErrorPanel({ heading, retry, note = PAUSED_NOTE, className }: { heading: string; retry: () => void; note?: string; className?: string }) {
   return (
     <section role="alert" className={cn("rounded-now bg-missed-tint px-5 pt-[22px] pb-5 laptop:max-w-[560px]", className)}>
       <span aria-hidden className="flex size-11 items-center justify-center rounded-[14px] bg-surface text-[20px] font-bold text-missed">
         !
       </span>
       <h2 className="mt-4 text-[22px] font-semibold tracking-[-0.015em]">{heading}</h2>
-      <p className="mt-1.5 text-[15px] leading-[1.45] text-ink-2">{PAUSED_NOTE}</p>
+      <p className="mt-1.5 text-[15px] leading-[1.45] text-ink-2">{note}</p>
       <Button variant="ink" size="lg" block className="mt-[18px] text-base" onClick={() => retry()}>
         <RefreshCw className="size-[18px]" aria-hidden />
         Try again

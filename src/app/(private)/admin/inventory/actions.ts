@@ -3,6 +3,7 @@
 import { refresh, revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { ToastTone } from "@/components/app-shell/toast";
+import { OUTSIDE_HREF } from "@/components/business/frame";
 import { signInUrl } from "@/lib/auth/paths";
 import { currentAdmin } from "@/lib/auth/session";
 import { usdCadRate } from "@/lib/inventory/fx";
@@ -242,7 +243,7 @@ export type LinkActionResult = { error?: string; toast?: string; tone?: ToastTon
  */
 export async function linkSaleAction(input: unknown): Promise<LinkActionResult> {
   const admin = await currentAdmin();
-  if (!admin) redirect(signInUrl({ next: "/admin/sales/outside" }));
+  if (!admin) redirect(signInUrl({ next: OUTSIDE_HREF }));
 
   const valid = validateLink(input);
   if (!valid.ok) return { error: valid.error };
@@ -254,7 +255,7 @@ export async function linkSaleAction(input: unknown): Promise<LinkActionResult> 
       // Every stock item page (the pattern, with its route group: Next 16.2 docs, revalidatePath).
       revalidatePath("/(private)/admin/inventory/[itemId]", "page");
       revalidatePath("/admin/ledger");
-      revalidatePath("/admin/sales/outside");
+      revalidatePath(OUTSIDE_HREF);
       // Overview's recent sales name the buyer.
       revalidatePath("/admin/business");
       refresh();

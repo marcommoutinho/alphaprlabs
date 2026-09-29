@@ -380,7 +380,7 @@ function SellersPhone({ sellers }: { sellers: SellerTotals[] }) {
             <span className="min-w-0 flex-1">
               <span className={cn("block text-[15px] font-semibold", !row.sellerName && "text-ink-2")}>{row.sellerName ?? NO_SELLER}</span>
               <span className="mt-0.5 block font-mono text-[12px] text-ink-3">
-                {vialCount(row.vials)} · rev {money(row.revenue)}
+                {vialCount(row.vials)} · rev {money(row.revenue)} · cost {money(row.cost)}
               </span>
             </span>
             <span className="text-right">

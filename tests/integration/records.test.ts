@@ -13,7 +13,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import Decimal from "decimal.js";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { addDays } from "@/lib/business/period";
-import { PURCHASE_ALREADY_RECORDED, SALE_ALREADY_RECORDED, stockChangedMessage, SUPPLIER_TOO_LONG } from "@/lib/inventory/rules";
+import { PREVIEW_REQUIRED, PURCHASE_ALREADY_RECORDED, SALE_ALREADY_RECORDED, stockChangedMessage, SUPPLIER_TOO_LONG } from "@/lib/inventory/rules";
 import { SUBMISSION_CONFLICT } from "@/lib/inventory/screens";
 import type { Db } from "@/lib/inventory/service";
 import { expectedAllocation, recordAttempt, SAVE_UNSURE, STOCK_CHANGED, type RecordAttempt, type SalePreview } from "@/lib/records/forms";
@@ -225,6 +225,43 @@ describe("A4: the preview is the allocation the sale freezes", () => {
   });
 });
 
+describe("A4: every sale is recorded against its preview", () => {
+  it("the action refuses a sale sent without the preview's lots (left out, null or none), and records nothing", async () => {
+    const item = await newItem("2026-08-01", 5, "10");
+    const entry = saleEntry(item, { quantity: "2", unitPrice: "30" });
+    for (const without of [{}, { expectedAllocation: null }, { expectedAllocation: [] }]) {
+      const result = await recordSaleAction({ ...entry, idempotencyKey: randomUUID(), ...without });
+      expect(result, JSON.stringify(without)).toEqual({ error: PREVIEW_REQUIRED });
+    }
+    expect(await salesOf(item)).toHaveLength(0);
+    // With its preview, the same sale records.
+    expect((await previewThenSell(item, 2, "30")).result.tone).toBe("info");
+  });
+
+  it("the database refuses one too: no signature takes a sale without it, and null or none is 22023", async () => {
+    const item = await newItem("2026-08-01", 5, "10");
+    const args = {
+      p_idempotency_key: randomUUID(),
+      p_stock_item_id: item,
+      p_sold_on: "2026-09-02",
+      p_quantity: 2,
+      p_unit_price: "30",
+      p_buyer_name: "Walk-in V6",
+      p_seller_id: id.admin,
+    };
+    // Left out: no function matches the call (the previous signature is dropped).
+    const { error } = await db.rpc("record_business_sale", args as never);
+    expect(error?.code).toBe("PGRST202");
+    for (const empty of [null, []]) {
+      expect(await sqlState(db.rpc("record_business_sale", { ...args, p_expected_allocation: empty as never })), JSON.stringify(empty)).toBe("22023");
+    }
+    expect(await salesOf(item)).toHaveLength(0);
+    const lots = expectedAllocation(await preview(item, 2)).map((lot) => ({ purchase_id: lot.purchaseId, quantity: lot.quantity }));
+    expect((await db.rpc("record_business_sale", { ...args, p_expected_allocation: lots })).error).toBeNull();
+    expect(await salesOf(item)).toHaveLength(1);
+  });
+});
+
 describe("A4: stock changed between the preview and Record", () => {
   it("another sale in between: refused with AP037, nothing recorded, the vials on hand now; the new preview records", async () => {
     const item = await newItem("2026-08-01", 2, "10");
@@ -380,8 +417,12 @@ describe("the Ledger reads", () => {
   it("by day: every sale in the inclusive range, newest first, one seller when asked; by month: the item's totals", async () => {
     const [before, day, after] = await freeDays();
     const item = await newItem(before, 50, "2.50", "Ledger Supplier");
-    const sell = (soldOn: string, quantity: number, unitPrice: string, sellerId = id.admin) =>
-      recordSaleAction({ ...saleEntry(item, { soldOn, quantity: String(quantity), unitPrice, sellerId }), idempotencyKey: randomUUID() });
+    const sell = async (soldOn: string, quantity: number, unitPrice: string, sellerId = id.admin) =>
+      recordSaleAction({
+        ...saleEntry(item, { soldOn, quantity: String(quantity), unitPrice, sellerId }),
+        idempotencyKey: randomUUID(),
+        expectedAllocation: expectedAllocation(await preview(item, quantity)),
+      });
     await sell(before, 1, "9");
     await sell(day, 3, "9");
     await sell(day, 1, "8", id.second);

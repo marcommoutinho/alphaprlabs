@@ -6,7 +6,9 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import { listBuyerAccounts, listSales, listStock, recordPurchase, recordSale } from "@/lib/inventory/service";
+import { listBuyerAccounts, listSales, listStock, recordPurchase } from "@/lib/inventory/service";
+import { recordSale } from "../support/previewed-sale";
+import { previewed } from "../support/sales";
 import { anonClient, ensureAccount, localSupabase, serviceClient, signedInClient, uniqueEmail } from "../support/local-supabase";
 
 type Client = Awaited<ReturnType<typeof signedInClient>>;
@@ -83,8 +85,8 @@ const calls = (db: Client) => ({
       p_fx_rate_date: "2026-08-26",
       p_stock_item_id: fixture.stockItemId,
     }),
-  record_business_sale: () =>
-    db.rpc("record_business_sale", {
+  record_business_sale: async () =>
+    db.rpc("record_business_sale", await previewed(db, {
       p_idempotency_key: randomUUID(),
       p_stock_item_id: fixture.stockItemId,
       p_sold_on: "2026-08-20",
@@ -92,7 +94,7 @@ const calls = (db: Client) => ({
       p_unit_price: "1",
       p_buyer_name: "Forged",
       p_seller_id: fixture.adminId,
-    }),
+    })),
   admin_business_stock: () => db.rpc("admin_business_stock"),
   admin_business_lots: () => db.rpc("admin_business_lots", { p_stock_item_id: fixture.stockItemId }),
   admin_business_sales_totals: () => db.rpc("admin_business_sales_totals", {}),

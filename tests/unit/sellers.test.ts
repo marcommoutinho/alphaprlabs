@@ -42,7 +42,7 @@ const TODAY = "2026-09-27";
 const error = (result: { ok: boolean; error?: string }) => (result.ok ? "ok" : result.error);
 
 describe("A6 seller", () => {
-  const sale = { idempotencyKey: KEY, stockItemId: ITEM, soldOn: "2026-09-20", sellerId: MARCO, quantity: "2", unitPrice: "40", buyerType: "outside", buyerName: "Walk-in" };
+  const sale = { idempotencyKey: KEY, stockItemId: ITEM, soldOn: "2026-09-20", sellerId: MARCO, quantity: "2", unitPrice: "40", buyerType: "outside", buyerName: "Walk-in", expectedAllocation: [{ purchaseId: BRIAN, quantity: 2 }] };
 
   it("is required, as an id, and comes after the date in the designed order", () => {
     expect(validateSale(sale, TODAY)).toMatchObject({ ok: true, value: { sellerId: MARCO } });

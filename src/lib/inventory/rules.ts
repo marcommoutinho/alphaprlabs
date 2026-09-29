@@ -53,6 +53,8 @@ export const BUYER_NAME_TOO_LONG = "The buyer name or reference can be up to 120
 // V6 (design v3 A4 / A5).
 export const SUPPLIER_TOO_LONG = "The supplier can be up to 120 characters.";
 export const PREVIEW_INVALID = "The cost preview is out of date. Check it and record again.";
+/** A sale sent without the lots its preview showed (every sale is recorded against its preview). */
+export const PREVIEW_REQUIRED = "A sale is recorded against its cost preview. Check the cost and record again.";
 /** The same submission was already recorded (idempotent replay): a warn toast. */
 export const SALE_ALREADY_RECORDED = "This sale was already recorded a moment ago. No duplicate created.";
 export const PURCHASE_ALREADY_RECORDED = "This purchase was already recorded a moment ago. No duplicate created.";
@@ -124,9 +126,9 @@ export function parseSupplier(value: unknown): { ok: true; value: string | null 
 /** The lots a sale's preview showed, in FIFO order: what the sale must freeze (A4 / D4). */
 export type ExpectedLot = { purchaseId: string; quantity: number };
 
-/** The preview's lots sent with a sale, or null when none were sent (an older caller); undefined when malformed. */
+/** The preview's lots sent with a sale: null when none were sent (or none listed); undefined when malformed. */
 function expectedLots(value: unknown): ExpectedLot[] | null | undefined {
-  if (value === undefined || value === null) return null;
+  if (value === undefined || value === null || (Array.isArray(value) && value.length === 0)) return null;
   if (!Array.isArray(value)) return undefined;
   const lots: ExpectedLot[] = [];
   for (const entry of value) {
@@ -286,8 +288,11 @@ export type ValidSale = {
   /** The admin who made the sale (required; the database checks they are a current admin). */
   sellerId: string;
   buyer: { type: "account"; profileId: string } | { type: "outside"; name: string };
-  /** The lots the preview showed (A4 / D4); the database refuses the sale if it would freeze others. Null: not checked. */
-  expectedAllocation?: ExpectedLot[] | null;
+  /**
+   * The lots the preview showed (A4 / D4), required: the database refuses a
+   * sale without them, or one that would freeze other lots.
+   */
+  expectedAllocation: ExpectedLot[];
 };
 
 /**
@@ -325,6 +330,7 @@ export function validateSale(input: unknown, today: string): { ok: true; value: 
     return { ok: false, error: BUYER_TYPE_REQUIRED };
   }
   const expectedAllocation = expectedLots(raw.expectedAllocation);
+  if (expectedAllocation === null) return { ok: false, error: PREVIEW_REQUIRED };
   if (expectedAllocation === undefined) return { ok: false, error: PREVIEW_INVALID };
   return {
     ok: true,

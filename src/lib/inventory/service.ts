@@ -578,9 +578,8 @@ export async function recordSale(db: Db, sale: ValidSale): Promise<SaleResult> {
       p_unit_price: sale.unitPrice,
       p_seller_id: sale.sellerId,
       ...(sale.buyer.type === "account" ? { p_buyer_profile_id: sale.buyer.profileId } : { p_buyer_name: sale.buyer.name }),
-      ...(sale.expectedAllocation
-        ? { p_expected_allocation: sale.expectedAllocation.map((lot) => ({ purchase_id: lot.purchaseId, quantity: lot.quantity })) }
-        : {}),
+      // Required: the preview's lots (the database refuses a sale without them).
+      p_expected_allocation: sale.expectedAllocation.map((lot) => ({ purchase_id: lot.purchaseId, quantity: lot.quantity })),
     })
     .single();
   if (error) {

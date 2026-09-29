@@ -12,6 +12,7 @@ import { addDays, monthStart } from "../../src/lib/business/period";
 import { businessToday } from "../../src/lib/inventory/screens";
 import { BUYER_HELPER, BUYER_REQUIRED } from "../../src/lib/records/forms";
 import { ensureAccount, hydrated, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
+import { recordPreviewedSale } from "../support/sales";
 
 const ADMIN = { email: uniqueEmail("v6-rec-admin"), name: "Priya Sandhu" };
 const SECOND = { email: uniqueEmail("v6-rec-second"), name: "Owen Marchetti" };
@@ -75,7 +76,7 @@ async function buyMore(itemId: string, quantity: number, unitCost: string, recei
 }
 
 async function sell(itemId: string, soldOn: string, quantity: number, price: string, seller = id.admin, buyerName = "Walk-in V6") {
-  const { error } = await (await signedInClient(ADMIN.email)).rpc("record_business_sale", {
+  const { error } = await recordPreviewedSale(await signedInClient(ADMIN.email), {
     p_idempotency_key: randomUUID(),
     p_stock_item_id: itemId,
     p_sold_on: soldOn,
@@ -255,7 +256,11 @@ test("A5 validation on a phone: a new peptide needs its strength; the cost refus
   await expect(dialog.getByText("Choose the peptide for the new item.")).toBeVisible();
   await expect(dialog.getByText("Enter the vial strength in mg for the new item.")).toBeVisible();
   await expect(dialog.getByTestId("purchase-vials-error")).toHaveText("Vials must be a whole number greater than 0.");
+  // A date with a Bank of Canada rate (the stub's Aug 26): Record waits for a rate while USD is chosen,
+  // and today's window has none unless some other test happened to store one.
+  await dialog.getByTestId("purchase-date").fill("2026-08-26");
   await dialog.getByRole("button", { name: "USD" }).click();
+  await expect(dialog.getByTestId("fx-rate")).toHaveText("1 USD = 1.3876 CAD");
   await dialog.getByTestId("purchase-cost").fill("1,000");
   await dialog.getByTestId("record-purchase").click();
   await expect(dialog.getByTestId("purchase-cost-error")).toHaveText("Enter the cost per vial in USD (0 or more).");
@@ -278,7 +283,7 @@ test("A7 / A14 / D5 Ledger: by day with day totals, by month with items and thei
   await page.goto(`${APP_ORIGIN}/admin/ledger?${range}&item=${item.id}`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Ledger");
   await expect(page.getByTestId("ledger-tab-sales")).toHaveText("Sales · 6 vials");
-  await expect(page.getByTestId("ledger-summary")).toHaveText("3 sales · 6 vials · $55.00 · GP $25.00");
+  await expect(page.getByTestId("ledger-summary")).toHaveText("3 sales · 6 vials · $55.00 · cost $30.00 · GP $25.00");
   const days = page.getByTestId("ledger-day");
   await expect(days).toHaveCount(2);
   await expect(days.nth(0).getByTestId("ledger-day-total")).toHaveText("$20.00");
@@ -291,7 +296,7 @@ test("A7 / A14 / D5 Ledger: by day with day totals, by month with items and thei
   // The seller menu shows each seller's totals; choosing Owen narrows to his sale.
   await page.getByTestId("seller-select").selectOption(id.second);
   await expect(page).toHaveURL(new RegExp(`seller=${id.second}`));
-  await expect(page.getByTestId("ledger-summary")).toHaveText("1 sale · 1 vial · $8.00 · GP $3.00");
+  await expect(page.getByTestId("ledger-summary")).toHaveText("1 sale · 1 vial · $8.00 · cost $5.00 · GP $3.00");
   await expect(page.getByTestId("ledger-tab-sales")).toHaveText("Sales · 1 vial");
 
   // By month: the month, its item, and the item's sales.
@@ -333,6 +338,14 @@ for (const scheme of ["light", "dark"] as const) {
     await (await hydrated(page.getByRole("button", { name: "Record purchase" }).first())).click();
     await expect(sheet(page).getByRole("heading", { name: "Record purchase" })).toBeVisible();
     await expect(sheet(page).getByTestId("purchase-item")).toBeVisible();
+    // Settled (its slide-in finished), the drawer lies wholly inside the laptop viewport: never clipped at the right edge.
+    await sheet(page).evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((animation) => animation.finished)));
+    await expect
+      .poll(async () => {
+        const box = await sheet(page).boundingBox();
+        return box ? [box.x >= 0, box.y >= 0, box.x + box.width <= LAPTOP.width, box.y + box.height <= LAPTOP.height] : null;
+      })
+      .toEqual([true, true, true, true]);
     await shot(page, `ledger-laptop-drawer-${scheme}`, false);
     await sheet(page).getByRole("button", { name: "Cancel" }).click();
     await expect(sheet(page)).toHaveCount(0);
@@ -367,7 +380,7 @@ test("the range sheet, the group switch and the old /admin/sales addresses", asy
 test("a researcher can't open the Ledger, the record sheets' reads or the old pages", async ({ page }) => {
   await signInAs(page, APP_ORIGIN, RESEARCHER.email);
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
-  for (const path of ["/admin/ledger", "/admin/sales", "/admin/inventory/sale", "/admin/inventory/purchase", "/admin/sales/outside"]) {
+  for (const path of ["/admin/ledger", "/admin/sales", "/admin/inventory/sale", "/admin/inventory/purchase", "/admin/sales/outside", "/admin/ledger/outside"]) {
     await page.goto(`${APP_ORIGIN}${path}`);
     await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
   }

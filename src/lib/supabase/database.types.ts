@@ -2416,7 +2416,7 @@ export type Database = {
         Args: {
           p_buyer_name?: string
           p_buyer_profile_id?: string
-          p_expected_allocation?: Json
+          p_expected_allocation: Json
           p_idempotency_key: string
           p_quantity: number
           p_seller_id?: string

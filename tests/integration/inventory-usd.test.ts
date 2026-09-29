@@ -9,7 +9,8 @@
 // tests/integration/fx-rates.test.ts.
 import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { getStockItem, recordPurchase, recordSale } from "@/lib/inventory/service";
+import { getStockItem, recordPurchase } from "@/lib/inventory/service";
+import { recordSale } from "../support/previewed-sale";
 import { anonClient, ensureAccount, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
 
 const acting = vi.hoisted(() => ({ client: null as unknown, revalidated: [] as string[] }));

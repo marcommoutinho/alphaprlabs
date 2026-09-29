@@ -20,6 +20,7 @@ import { recordPurchase, type Db } from "@/lib/inventory/service";
 import { byDay, defaultRange, readLedgerView } from "@/lib/records/ledger";
 import { ledgerMonthItems, ledgerPurchases, ledgerSales } from "@/lib/records/ledger-service";
 import { mulberry32, psql, quote } from "../support/psql";
+import { previewedLotsSql } from "../support/sales";
 import { ensureAccount, signedInClient, uniqueEmail } from "../support/local-supabase";
 
 const marco = { email: uniqueEmail("rec-owner-marco"), name: "Records Marco" };
@@ -121,7 +122,8 @@ beforeAll(async () => {
     begin
       for i in 1..${SALES} loop
         perform public.record_business_sale(
-          gen_random_uuid(), ${quote(items.sold)}, date '${d("03-01")}' + (i % 61), 1 + (i % 2), ((i % 7) + 10)::text || '.25', null, 'Bulk ' || i,
+          gen_random_uuid(), ${quote(items.sold)}, date '${d("03-01")}' + (i % 61), 1 + (i % 2), ((i % 7) + 10)::text || '.25',
+          ${previewedLotsSql(quote(items.sold), "1 + (i % 2)")}, null, 'Bulk ' || i,
           case when i % 3 = 0 then ${quote(id.brian)}::uuid else ${quote(id.marco)}::uuid end);
       end loop;
       for i in 1..${PURCHASES} loop
@@ -277,7 +279,8 @@ describe("rolled back", () => {
       select s.id, ${quote(lots.sold)}, 2, 2.50, '${d("01-02")}' from s;
       set local session_replication_role = origin;
       ${asAdmin()}
-      select 'new', replayed from public.record_business_sale(gen_random_uuid(), ${quote(items.sold)}, '${d("08-15")}', 1, '10', null, 'New', ${quote(id.marco)});
+      select 'new', replayed from public.record_business_sale(gen_random_uuid(), ${quote(items.sold)}, '${d("08-15")}', 1, '10',
+        ${previewedLotsSql(quote(items.sold), "1")}, null, 'New', ${quote(id.marco)});
       select 'none', string_agg(buyer_name, ',') from public.admin_business_ledger_sales('${d("08-01")}', '${d("08-31")}', '${nil}', ${quote(items.sold)});
       select 'marco', string_agg(buyer_name, ',') from public.admin_business_ledger_sales('${d("08-01")}', '${d("08-31")}', ${quote(id.marco)}, ${quote(items.sold)});
       select 'all', count(*) from public.admin_business_ledger_sales('${d("08-01")}', '${d("08-31")}', null, ${quote(items.sold)});
@@ -325,7 +328,7 @@ describe("rolled back", () => {
       drop function public.admin_business_ledger_month_items(text, date, date, uuid, uuid);
       drop function public.admin_business_ledger_purchases(date, date, uuid);
       drop function public.admin_business_ledger_sales(date, date, uuid, uuid);
-      drop function public.record_business_sale(uuid, uuid, date, integer, text, uuid, text, uuid, jsonb);
+      drop function public.record_business_sale(uuid, uuid, date, integer, text, jsonb, uuid, text, uuid);
       drop function public.admin_business_sale_preview(uuid, integer);
       drop function public.business_fifo_allocation(uuid, integer);
       drop function public.admin_business_suppliers();
@@ -339,11 +342,15 @@ describe("rolled back", () => {
 
       ${snapshot("after")}
       select 'suppliers', count(*) from public.business_purchases where supplier is not null;
+      -- The previous signature is gone: every sale names its preview's lots.
+      select 'signatures', string_agg(pg_get_function_identity_arguments(oid), ' | ') from pg_proc
+        where proname = 'record_business_sale' and pronamespace = 'public'::regnamespace;
       ${asAdmin()}
+      ${attempt("without", `perform public.record_business_sale(p_idempotency_key => gen_random_uuid(), p_stock_item_id => ${quote(items.sold)}, p_sold_on => '${d("09-01")}', p_quantity => 1, p_unit_price => '10', p_buyer_name => 'Old', p_seller_id => ${quote(id.marco)})`)}
+      ${attempt("null", `perform public.record_business_sale(gen_random_uuid(), ${quote(items.sold)}, '${d("09-01")}', 1, '10', null, null, 'Old', ${quote(id.marco)})`)}
       select 'preview', (public.admin_business_sale_preview(${quote(items.sold)}, 2)) ->> 'cost';
-      select 'sale', replayed from public.record_business_sale(gen_random_uuid(), ${quote(items.sold)}, '${d("09-01")}', 2, '10', null, 'After', ${quote(id.marco)},
-        (select jsonb_agg(jsonb_build_object('purchase_id', l ->> 'purchase_id', 'quantity', (l ->> 'quantity')::int))
-         from jsonb_array_elements(public.admin_business_sale_preview(${quote(items.sold)}, 2) -> 'lots') l));
+      select 'sale', replayed from public.record_business_sale(gen_random_uuid(), ${quote(items.sold)}, '${d("09-01")}', 2, '10',
+        ${previewedLotsSql(quote(items.sold), "2")}, null, 'After', ${quote(id.marco)});
       select 'purchase', replayed from public.record_business_purchase_fx(p_idempotency_key => gen_random_uuid(), p_received_on => '${d("09-01")}',
         p_quantity => 1, p_original_currency => 'CAD', p_unit_cost => '1', p_stock_item_id => ${quote(items.bought)}, p_supplier => ' After ');
       select 'cad', replayed from public.record_business_purchase(gen_random_uuid(), '${d("09-02")}', 1, '1', ${quote(items.bought)});
@@ -354,6 +361,12 @@ describe("rolled back", () => {
     expect(out.after_purchases).toBe(out.before_purchases);
     expect(out.after_sales).toBe(out.before_sales);
     expect(Number(out.before_purchases.split("/")[0])).toBeGreaterThan(PURCHASES);
+    expect(out).toMatchObject({
+      signatures:
+        "p_idempotency_key uuid, p_stock_item_id uuid, p_sold_on date, p_quantity integer, p_unit_price text, p_expected_allocation jsonb, p_buyer_profile_id uuid, p_buyer_name text, p_seller_id uuid",
+      without: "42883",
+      null: "22023",
+    });
     expect(out).toMatchObject({ suppliers: "0", preview: "5.00", sale: "f", purchase: "f", cad: "f", listed: "1", ledger: "2" });
   });
 });

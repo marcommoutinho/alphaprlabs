@@ -38,16 +38,22 @@
 --    lot's date and CAD cost (and its USD cost and rate, when entered in
 --    USD). A4 / D4 show that preview, never a re-implementation.
 --
---    record_business_sale gains p_expected_allocation (jsonb, default
---    null): the preview's lots as [{"purchase_id": uuid, "quantity": n}, ...]
---    in FIFO order. For a new sale, when it is given and the allocation the
---    sale would freeze now differs (another sale or a purchase of the item
---    was recorded in between), nothing is recorded and the sale is refused
---    with AP037 (DETAIL: the vials on hand now); the app shows the new
---    preview. Stock short of the vials is still AP001, checked first. A
---    replay (the same idempotency key) is compared with the details entered
---    only, as before, so a retry after a lost answer replays whatever stock
---    has done since. A malformed p_expected_allocation is 22023.
+--    record_business_sale requires p_expected_allocation (jsonb, no
+--    default): the preview's lots as [{"purchase_id": uuid, "quantity": n},
+--    ...] in FIFO order. Every sale is recorded against a preview: the
+--    previous signature (without it) is dropped, and a missing, null, empty
+--    or malformed allocation is refused with 22023, so no API path (the app,
+--    a script, a future import) records a sale whose cost nobody saw; such a
+--    caller calls admin_business_sale_preview first. For a new sale, when the
+--    allocation the sale would freeze now differs (another sale or a
+--    purchase of the item was recorded in between), nothing is recorded and
+--    the sale is refused with AP037 (DETAIL: the vials on hand now); the app
+--    shows the new preview. Stock short of the vials is still AP001, checked
+--    first. A replay (the same idempotency key) is compared with the details
+--    entered only, as before, so a retry after a lost answer replays
+--    whatever stock has done since. The parameter comes right after
+--    p_unit_price (a parameter without a default can't follow ones with
+--    defaults); the API calls it by name.
 --
 -- 3. Ledger reads (A7 / A14 / D5), admins only, each checking is_admin()
 --    itself (42501), amounts as exact decimal text, dates as business dates
@@ -455,10 +461,10 @@ create function public.record_business_sale(
   p_sold_on date,
   p_quantity integer,
   p_unit_price text,
+  p_expected_allocation jsonb,
   p_buyer_profile_id uuid default null,
   p_buyer_name text default null,
-  p_seller_id uuid default null,
-  p_expected_allocation jsonb default null
+  p_seller_id uuid default null
 )
 returns table (sale_id uuid, replayed boolean)
 language plpgsql
@@ -524,26 +530,28 @@ begin
     v_buyer_type := 'outside';
     v_buyer_name := v_outside_name;
   end if;
-  -- The preview's lots, as [{"purchase_id", "quantity"}, ...] in FIFO order.
-  if p_expected_allocation is not null then
-    if jsonb_typeof(p_expected_allocation) <> 'array'
-       or exists (
-         select 1 from jsonb_array_elements(p_expected_allocation) e
-         where jsonb_typeof(e.value) <> 'object'
-            or jsonb_typeof(e.value -> 'purchase_id') is distinct from 'string'
-            or jsonb_typeof(e.value -> 'quantity') is distinct from 'number'
-            or (e.value ->> 'purchase_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-            or (e.value ->> 'quantity') !~ '^[0-9]{1,6}$'
-       ) then
-      raise exception 'the expected allocation must be a list of lots and vials' using errcode = '22023';
-    end if;
-    select coalesce(jsonb_agg(jsonb_build_object(
-             'purchase_id', (e.value ->> 'purchase_id')::uuid,
-             'quantity', (e.value ->> 'quantity')::integer
-           ) order by e.ordinality), '[]'::jsonb)
-      into v_expected
-    from jsonb_array_elements(p_expected_allocation) with ordinality e;
+  -- The preview's lots, as [{"purchase_id", "quantity"}, ...] in FIFO order:
+  -- required, never null or empty (see the header).
+  if p_expected_allocation is null or jsonb_typeof(p_expected_allocation) <> 'array'
+     or jsonb_array_length(p_expected_allocation) = 0 then
+    raise exception 'the expected allocation (the preview''s lots and vials) is required' using errcode = '22023';
   end if;
+  if exists (
+       select 1 from jsonb_array_elements(p_expected_allocation) e
+       where jsonb_typeof(e.value) <> 'object'
+          or jsonb_typeof(e.value -> 'purchase_id') is distinct from 'string'
+          or jsonb_typeof(e.value -> 'quantity') is distinct from 'number'
+          or (e.value ->> 'purchase_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          or (e.value ->> 'quantity') !~ '^[0-9]{1,6}$'
+     ) then
+    raise exception 'the expected allocation must be a list of lots and vials' using errcode = '22023';
+  end if;
+  select jsonb_agg(jsonb_build_object(
+           'purchase_id', (e.value ->> 'purchase_id')::uuid,
+           'quantity', (e.value ->> 'quantity')::integer
+         ) order by e.ordinality)
+    into v_expected
+  from jsonb_array_elements(p_expected_allocation) with ordinality e;
 
   perform pg_advisory_xact_lock(hashtextextended('business_sale:' || p_idempotency_key::text, 0));
 
@@ -611,8 +619,12 @@ begin
   if v_taken <> p_quantity then
     raise exception 'insufficient stock' using errcode = 'AP001', detail = v_on_hand::text;
   end if;
-  -- Frozen as previewed, or not at all.
-  if v_expected is not null and v_expected <> v_actual then
+  -- Frozen as previewed, or not at all. The comparison covers the lots and
+  -- the vials taken from each (the cost the admin agreed to), not the vials
+  -- on hand: two admins who both preview "2 from the Aug 30 lot" each get
+  -- exactly that, so the money matches what each saw. Overselling is AP001's
+  -- job (above), which counts on hand under the item's lock.
+  if v_expected <> v_actual then
     raise exception 'stock changed since the preview' using errcode = 'AP037', detail = v_on_hand::text;
   end if;
 
@@ -634,8 +646,8 @@ begin
 end;
 $$;
 
-revoke all on function public.record_business_sale(uuid, uuid, date, integer, text, uuid, text, uuid, jsonb) from public, anon;
-grant execute on function public.record_business_sale(uuid, uuid, date, integer, text, uuid, text, uuid, jsonb) to authenticated;
+revoke all on function public.record_business_sale(uuid, uuid, date, integer, text, jsonb, uuid, text, uuid) from public, anon;
+grant execute on function public.record_business_sale(uuid, uuid, date, integer, text, jsonb, uuid, text, uuid) to authenticated;
 
 -- ── 3. Ledger reads ────────────────────────────────────────────────────────
 

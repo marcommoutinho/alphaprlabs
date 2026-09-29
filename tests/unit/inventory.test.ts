@@ -9,6 +9,8 @@ import {
   AMOUNT_TOO_LARGE,
   COST_INVALID,
   OUTSIDE_BUYER_REQUIRED,
+  PREVIEW_INVALID,
+  PREVIEW_REQUIRED,
   PRICE_INVALID,
   PURCHASE_DATE_FUTURE,
   PURCHASE_DATE_REQUIRED,
@@ -74,18 +76,33 @@ describe("A5 purchase validation", () => {
 });
 
 describe("A6 sale validation", () => {
-  const valid = { idempotencyKey: KEY, stockItemId: ITEM, soldOn: "2026-08-25", sellerId: SELLER, quantity: "12", unitPrice: "40", buyerType: "outside", buyerName: "  Walk-in\t" };
+  const lots = [{ purchaseId: PEPTIDE, quantity: 12 }];
+  const valid = { idempotencyKey: KEY, stockItemId: ITEM, soldOn: "2026-08-25", sellerId: SELLER, quantity: "12", unitPrice: "40", buyerType: "outside", buyerName: "  Walk-in\t", expectedAllocation: lots };
   const validateSale = (input: unknown) => validateSaleOn(input, TODAY);
 
   it("accepts an outside buyer (trimmed) or an account", () => {
     expect(validateSale(valid)).toEqual({
       ok: true,
-      value: { idempotencyKey: KEY, stockItemId: ITEM, soldOn: "2026-08-25", sellerId: SELLER, quantity: 12, unitPrice: "40.00", buyer: { type: "outside", name: "Walk-in" }, expectedAllocation: null },
+      value: { idempotencyKey: KEY, stockItemId: ITEM, soldOn: "2026-08-25", sellerId: SELLER, quantity: 12, unitPrice: "40.00", buyer: { type: "outside", name: "Walk-in" }, expectedAllocation: lots },
     });
     expect(validateSale({ ...valid, buyerType: "account", buyerProfileId: PEPTIDE })).toMatchObject({
       ok: true,
       value: { buyer: { type: "account", profileId: PEPTIDE } },
     });
+  });
+
+  it("is recorded against its preview: the lots are required, and well formed", () => {
+    for (const expectedAllocation of [undefined, null, []]) {
+      expect(error(validateSale({ ...valid, expectedAllocation })), JSON.stringify(expectedAllocation)).toBe(PREVIEW_REQUIRED);
+    }
+    const withoutLots: Record<string, unknown> = { ...valid };
+    delete withoutLots.expectedAllocation;
+    expect(error(validateSale(withoutLots))).toBe(PREVIEW_REQUIRED);
+    for (const expectedAllocation of [{}, "lots", [{ purchaseId: "x", quantity: 1 }], [{ purchaseId: PEPTIDE, quantity: "12" }], [{ purchaseId: PEPTIDE, quantity: 0 }]]) {
+      expect(error(validateSale({ ...valid, expectedAllocation })), JSON.stringify(expectedAllocation)).toBe(PREVIEW_INVALID);
+    }
+    // The fields come first: a sale missing its item says so, not that the preview is missing.
+    expect(error(validateSale({ ...withoutLots, stockItemId: "" }))).toBe(SALE_ITEM_REQUIRED);
   });
 
   it("first failure wins: item, date, vials, price, buyer", () => {
@@ -160,7 +177,7 @@ describe("FIFO preview and gross profit", () => {
 
 describe("form values are strings only", () => {
   const purchase = { idempotencyKey: KEY, stockItemId: ITEM, receivedOn: "2026-08-15", quantity: "10", unitCost: "20" };
-  const sale = { idempotencyKey: KEY, stockItemId: ITEM, soldOn: "2026-08-25", sellerId: SELLER, quantity: "12", unitPrice: "40", buyerType: "outside", buyerName: "Walk-in" };
+  const sale = { idempotencyKey: KEY, stockItemId: ITEM, soldOn: "2026-08-25", sellerId: SELLER, quantity: "12", unitPrice: "40", buyerType: "outside", buyerName: "Walk-in", expectedAllocation: [{ purchaseId: PEPTIDE, quantity: 12 }] };
 
   it("refuses numbers for amounts, strength, vials and dates instead of converting them", () => {
     for (const unitCost of [20, 0, 20.5, 0.1 + 0.2]) expect(error(validate({ ...purchase, unitCost }, TODAY))).toBe(COST_INVALID);
@@ -182,7 +199,7 @@ describe("form values are strings only", () => {
 
 describe("no future dates", () => {
   const purchase = { idempotencyKey: KEY, stockItemId: ITEM, receivedOn: TODAY, quantity: "10", unitCost: "20" };
-  const sale = { idempotencyKey: KEY, stockItemId: ITEM, soldOn: TODAY, sellerId: SELLER, quantity: "1", unitPrice: "40", buyerType: "outside", buyerName: "Walk-in" };
+  const sale = { idempotencyKey: KEY, stockItemId: ITEM, soldOn: TODAY, sellerId: SELLER, quantity: "1", unitPrice: "40", buyerType: "outside", buyerName: "Walk-in", expectedAllocation: [{ purchaseId: PEPTIDE, quantity: 1 }] };
 
   it("today and earlier are accepted; after the admin's local today is refused", () => {
     expect(error(validate(purchase, TODAY))).toBe("ok");

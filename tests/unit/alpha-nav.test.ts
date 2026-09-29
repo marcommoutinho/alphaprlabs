@@ -65,6 +65,7 @@ describe("app shell navigation (design v3)", () => {
     const business = businessItems();
     expect(activeKey(business, "/admin/business")).toBe("overview");
     expect(activeKey(business, "/admin/business/export")).toBe("overview");
+    expect(activeKey(business, "/admin/ledger/outside")).toBe("ledger");
     expect(activeKey(business, "/admin/sales/outside")).toBe("ledger");
     expect(activeKey(business, "/admin/inventory/abc")).toBe("stock");
     expect(activeKey(business, "/admin/templates")).toBe("admin-library");
@@ -82,6 +83,7 @@ describe("app shell navigation (design v3)", () => {
       expect(activeKey(items, "/admin/ledger")).toBe("ledger");
       expect(activeKey(items, "/admin/sales", "overview")).toBe("ledger");
       expect(activeKey(items, "/admin/sales/outside")).toBe("ledger");
+      expect(activeKey(items, "/admin/ledger/outside")).toBe("ledger");
       // A choice that doesn't own the page is ignored.
       expect(activeKey(items, "/admin/inventory", "ledger")).toBe("stock");
     }

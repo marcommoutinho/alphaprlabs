@@ -9,7 +9,9 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 import { linkSale, listOutsideBuyers, listOutsideSales, listSellers, listSellerTotals } from "@/lib/inventory/sellers";
-import { getSale, getStockItem, listSales, recordPurchase, recordSale } from "@/lib/inventory/service";
+import { getSale, getStockItem, listSales, recordPurchase } from "@/lib/inventory/service";
+import { recordSale } from "../support/previewed-sale";
+import { previewed } from "../support/sales";
 import { anonClient, ensureAccount, ok, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
 
 type Client = Awaited<ReturnType<typeof signedInClient>>;
@@ -82,8 +84,8 @@ describe("every new sale records its seller, a current admin", () => {
     const itemId = await newItem();
     const withoutSeller = { ...sale(itemId, id.marco), sellerId: undefined } as unknown as Parameters<typeof recordSale>[1];
     expect(await recordSale(db.marco, withoutSeller)).toEqual({ kind: "invalid" });
-    const direct = (args: Record<string, unknown>) =>
-      db.marco.rpc("record_business_sale", {
+    const direct = async (args: Record<string, unknown>) =>
+      db.marco.rpc("record_business_sale", await previewed(db.marco, {
         p_idempotency_key: randomUUID(),
         p_stock_item_id: itemId,
         p_sold_on: "2026-09-10",
@@ -91,7 +93,7 @@ describe("every new sale records its seller, a current admin", () => {
         p_unit_price: "40",
         p_buyer_name: "Walk-in",
         ...args,
-      });
+      } as Parameters<typeof previewed>[1]));
     expect(await sqlState(direct({}))).toBe("22023");
     expect(await sqlState(direct({ p_seller_id: null }))).toBe("22023");
     expect(await salesOf(itemId)).toEqual([]);

@@ -41,6 +41,7 @@ export default async function LedgerPage({ searchParams }: { searchParams: Searc
     name: row.sellerName,
     vials: row.vials,
     revenue: row.revenue,
+    cost: row.cost,
     grossProfit: row.grossProfit,
   }));
   const data: LedgerData = {

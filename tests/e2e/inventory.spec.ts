@@ -14,6 +14,7 @@ import { businessToday } from "../../src/lib/inventory/screens";
 import { BUYER_PLACEHOLDER, BUYER_REQUIRED } from "../../src/lib/records/forms";
 import { LEDGER_EMPTY } from "../../src/lib/records/ledger";
 import { ensureAccount, hydrated, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
+import { recordPreviewedSale } from "../support/sales";
 
 const ADMIN = { email: uniqueEmail("s6-inv-admin"), name: "Inventory Admin" };
 const JORDAN = { email: uniqueEmail("s6-inv-jordan"), name: "Jordan Reyes" };
@@ -199,7 +200,7 @@ test("the handoff FIFO scenario: two purchases, a sale of 12, 8 left, 9 more blo
   await page.goto(`${APP_ORIGIN}/admin/ledger?item=${itemId}`);
   await expect(page.getByTestId("item-chip")).toContainText(label);
   await expect(page.getByTestId("ledger-tab-sales")).toHaveText("Sales · 12 vials");
-  await expect(page.getByTestId("ledger-summary")).toHaveText("1 sale · 12 vials · $480.00 · GP $230.00");
+  await expect(page.getByTestId("ledger-summary")).toHaveText("1 sale · 12 vials · $480.00 · cost $250.00 · GP $230.00");
   await expect(page.getByTestId("ledger-table-row")).toHaveCount(1);
   const today = businessToday();
   await page.goto(`${APP_ORIGIN}/admin/ledger?from=${monthStart(today, -1)}&to=${addDays(monthStart(today), -1)}&item=${itemId}`);
@@ -272,7 +273,7 @@ test("A4 validation, a future date, and stock that changes before saving", async
   await date.fill("2026-08-01");
 
   // Another sale takes a vial meanwhile: the database refuses, nothing is recorded.
-  const other = await (await signedInClient(ADMIN.email)).rpc("record_business_sale", {
+  const other = await recordPreviewedSale(await signedInClient(ADMIN.email), {
     p_idempotency_key: randomUUID(),
     p_stock_item_id: item.id,
     p_sold_on: "2026-08-20",
@@ -302,7 +303,7 @@ test("A4 validation, a future date, and stock that changes before saving", async
 test("phone: pages and sheets fit, sections stack, wide amounts stay on one line", async ({ page }) => {
   const item = await seedItem(4, "1250.50");
   // Wide amounts: $5,002.00 purchased, $7,999.96 revenue.
-  const sold = await (await signedInClient(ADMIN.email)).rpc("record_business_sale", {
+  const sold = await recordPreviewedSale(await signedInClient(ADMIN.email), {
     p_idempotency_key: randomUUID(),
     p_stock_item_id: item.id,
     p_sold_on: "2026-08-20",
@@ -351,7 +352,7 @@ test("phone: pages and sheets fit, sections stack, wide amounts stay on one line
 
   // The Ledger's day: totals and amounts on one line each.
   await page.goto(`${APP_ORIGIN}/admin/ledger?from=2026-08-20&to=2026-08-20&item=${item.id}`);
-  await expect(page.getByTestId("ledger-summary")).toHaveText("1 sale · 4 vials · $7,999.96 · GP $2,997.96");
+  await expect(page.getByTestId("ledger-summary")).toHaveText("1 sale · 4 vials · $7,999.96 · cost $5,002.00 · GP $2,997.96");
   const total = page.getByTestId("ledger-day-total");
   await expect(total).toHaveText("$7,999.96");
   expect((await total.boundingBox())!.height).toBeLessThan(30);

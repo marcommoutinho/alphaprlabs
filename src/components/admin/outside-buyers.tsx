@@ -2,7 +2,7 @@ import Form from "next/form";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import Link from "@/components/alpha/link";
 import { buttonVariants } from "@/components/alpha/button-variants";
-import { BUSINESS_MAIN, LEDGER_HREF } from "@/components/business/frame";
+import { BUSINESS_MAIN, LEDGER_HREF, OUTSIDE_HREF } from "@/components/business/frame";
 import { LinkSaleSheet } from "@/components/records/link-sheet";
 import { money, shortDate } from "@/lib/alpha/format";
 import {
@@ -20,7 +20,7 @@ import type { OutsideBuyer } from "@/lib/inventory/sellers";
 import type { BuyerAccount, SaleRecord } from "@/lib/inventory/service";
 import { cn } from "@/lib/utils";
 
-export const OUTSIDE_PATH = "/admin/sales/outside";
+export const OUTSIDE_PATH = OUTSIDE_HREF;
 const namePath = (name: string) => `${OUTSIDE_PATH}?${new URLSearchParams({ name })}`;
 
 function BackBar({ href, label }: { href: string; label: string }) {

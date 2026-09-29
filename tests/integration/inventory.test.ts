@@ -6,7 +6,9 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 import { allocateFifo } from "@/lib/inventory/rules";
 import { businessToday } from "@/lib/inventory/screens";
-import { getStockItem, listBuyerAccounts, listSales, listStock, openLots, recordPurchase, recordSale } from "@/lib/inventory/service";
+import { getStockItem, listBuyerAccounts, listSales, listStock, openLots, recordPurchase } from "@/lib/inventory/service";
+import { recordSale } from "../support/previewed-sale";
+import { previewed } from "../support/sales";
 import { ensureAccount, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
 
 type Client = Awaited<ReturnType<typeof signedInClient>>;
@@ -351,8 +353,8 @@ describe("validation", () => {
         p_stock_item_id: itemId,
         ...args,
       });
-    const sale = (args: Record<string, unknown>) =>
-      db.rpc("record_business_sale", {
+    const sale = async (args: Record<string, unknown>) =>
+      db.rpc("record_business_sale", await previewed(db, {
         p_idempotency_key: randomUUID(),
         p_stock_item_id: itemId,
         p_sold_on: "2026-08-20",
@@ -361,7 +363,7 @@ describe("validation", () => {
         p_buyer_name: "Walk-in",
         p_seller_id: adminId,
         ...args,
-      });
+      } as Parameters<typeof previewed>[1]));
 
     for (const quantity of [0, -1, 100_001, null]) {
       expect(await sqlState(purchase({ p_quantity: quantity })), `purchase qty ${quantity}`).toBe("22023");
@@ -412,7 +414,7 @@ describe("validation", () => {
       });
     }
     // A buyer is an account or an outside name, never both.
-    const both = await db.rpc("record_business_sale", {
+    const both = await db.rpc("record_business_sale", await previewed(db, {
       p_idempotency_key: randomUUID(),
       p_stock_item_id: itemId,
       p_sold_on: "2026-08-20",
@@ -421,7 +423,7 @@ describe("validation", () => {
       p_buyer_profile_id: jordanId,
       p_buyer_name: "Also outside",
       p_seller_id: adminId,
-    });
+    }));
     expect(both.error?.code).toBe("22023");
     expect(await salesOf(itemId)).toEqual([]);
 

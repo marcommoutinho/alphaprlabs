@@ -1,33 +1,19 @@
-import { OutsideBuyersView, OutsideSalesView } from "@/components/admin/outside-buyers";
-import { requireAdmin } from "@/lib/auth/session";
-import { listOutsideBuyers, listOutsideSales } from "@/lib/inventory/sellers";
-import { listBuyerAccounts, listStock } from "@/lib/inventory/service";
-import { createClient } from "@/lib/supabase/server";
-
-export const metadata = { title: "Outside buyers · Alpha PR Labs" };
+import { redirect } from "next/navigation";
+import { OUTSIDE_HREF } from "@/components/business/frame";
 
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 
-const one = (value: string | string[] | undefined) => (typeof value === "string" ? value : "");
-
 /**
- * Outside buyers (admins only): every outside buyer name not yet linked,
- * found by `q` (contains, ignoring case); `name` opens that buyer's sales
- * (exactly that name), each with "Link to account…". Nothing here is capped:
- * an old sale can always be found and linked.
+ * The old Outside buyers address (before V6): it opens the same page under
+ * the Ledger, keeping its search (`q`) and the buyer opened (`name`). The
+ * page there checks the admin.
  */
-export default async function OutsideBuyersPage({ searchParams }: { searchParams: SearchParams }) {
-  await requireAdmin("/admin/sales/outside");
+export default async function OutsideBuyersRedirect({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
-  const db = await createClient();
-  const name = one(params.name);
-
-  if (name) {
-    const [sales, stock] = await Promise.all([listOutsideSales(db, name), listStock(db)]);
-    const accounts = sales.length > 0 ? await listBuyerAccounts(db) : [];
-    return <OutsideSalesView name={name} sales={sales} accounts={accounts} itemLabels={new Map(stock.map((item) => [item.id, item.label]))} />;
+  const kept = new URLSearchParams();
+  for (const key of ["q", "name"]) {
+    const value = params[key];
+    if (typeof value === "string") kept.set(key, value);
   }
-
-  const search = one(params.q);
-  return <OutsideBuyersView buyers={await listOutsideBuyers(db, search)} search={search} />;
+  redirect(kept.size > 0 ? `${OUTSIDE_HREF}?${kept}` : OUTSIDE_HREF);
 }

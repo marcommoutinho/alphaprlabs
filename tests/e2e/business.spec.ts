@@ -16,6 +16,7 @@ import { addDays, monthsLabel, monthStart, rangeLabel, sameDaysWindow } from "..
 import { PAUSED_NOTE } from "../../src/components/business/stock-load-error";
 import { businessToday } from "../../src/lib/inventory/screens";
 import { ensureAccount, hydrated, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
+import { recordPreviewedSale } from "../support/sales";
 
 const ADMIN = { email: uniqueEmail("v5-biz-admin"), name: "Priya Sandhu" };
 const SECOND = { email: uniqueEmail("v5-biz-second"), name: "Owen Marchetti" };
@@ -54,7 +55,7 @@ async function sell(
   seller = id.admin,
   buyer: { profile?: string; name?: string } = { name: "Walk-in V5" },
 ) {
-  const { error } = await (await signedInClient(ADMIN.email)).rpc("record_business_sale", {
+  const { error } = await recordPreviewedSale(await signedInClient(ADMIN.email), {
     p_idempotency_key: randomUUID(),
     p_stock_item_id: itemId,
     p_sold_on: soldOn,
@@ -195,9 +196,9 @@ for (const scheme of ["light", "dark"] as const) {
       // Per-seller totals for the period stay on the overview (and on the Ledger).
       const sellers = phone.getByTestId("seller-row");
       await expect(sellers).toHaveCount(2);
-      await expect(sellers.filter({ hasText: ADMIN.name })).toContainText("4 vials · rev $29.00");
+      await expect(sellers.filter({ hasText: ADMIN.name })).toHaveText(`${ADMIN.name}4 vials · rev $29.00 · cost $20.00$9.00GP`);
       await expect(sellers.filter({ hasText: ADMIN.name })).toContainText("$9.00GP");
-      await expect(sellers.filter({ hasText: SECOND.name })).toContainText("1 vial · rev $8.00");
+      await expect(sellers.filter({ hasText: SECOND.name })).toHaveText(`${SECOND.name}1 vial · rev $8.00 · cost $5.00$3.00GP`);
       await expect(sellers.filter({ hasText: SECOND.name })).toContainText("$3.00GP");
       if (scheme === "light") await shot(page, "business-range-phone");
 

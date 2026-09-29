@@ -24,6 +24,7 @@ import { businessMonths, listStockLevels, purchaseSuppliers, salesByDay, salesSu
 import { linkSale, listSellerTotals } from "@/lib/inventory/sellers";
 import { recordPurchase } from "@/lib/inventory/service";
 import { mulberry32, psql, quote } from "../support/psql";
+import { previewedLotsSql } from "../support/sales";
 import { ensureAccount, ok, serviceClient, signedInClient, uniqueEmail } from "../support/local-supabase";
 
 const marco = { email: uniqueEmail("biz-owner-marco"), name: "Owner Marco" };
@@ -212,7 +213,7 @@ beforeAll(async () => {
   const asMarco = `set local role authenticated;\nset local "request.jwt.claims" to '${JSON.stringify({ sub: id.marco, role: "authenticated" })}';\n`;
   const statements = sales.map((sale) => {
     const buyer = "profileId" in sale.buyer ? `${quote(sale.buyer.profileId)}::uuid, null` : `null, ${quote(sale.buyer.name)}`;
-    return `perform public.record_business_sale(${quote(sale.key)}::uuid, ${quote(items[sale.item])}::uuid, date ${quote(sale.soldOn)}, ${sale.quantity}, ${quote(sale.unitPrice)}, ${buyer}, ${quote(sale.seller)}::uuid);`;
+    return `perform public.record_business_sale(${quote(sale.key)}::uuid, ${quote(items[sale.item])}::uuid, date ${quote(sale.soldOn)}, ${sale.quantity}, ${quote(sale.unitPrice)}, ${previewedLotsSql(`${quote(items[sale.item])}::uuid`, String(sale.quantity))}, ${buyer}, ${quote(sale.seller)}::uuid);`;
   });
   psql(`begin;\n${asMarco}do $$\nbegin\n${statements.join("\n")}\nend $$;\ncommit;\n`);
 

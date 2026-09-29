@@ -5,7 +5,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 import { allocateFifo } from "@/lib/inventory/rules";
-import { getSale, getSaleStock, getStockItem, listSales, listStock, recordPurchase, recordSale } from "@/lib/inventory/service";
+import { getSale, getSaleStock, getStockItem, listSales, listStock, recordPurchase } from "@/lib/inventory/service";
+import { recordSale } from "../support/previewed-sale";
 import { listLibrary } from "@/lib/library/service";
 import { ensureAccount, serviceClient, signedInClient, uniqueEmail } from "../support/local-supabase";
 

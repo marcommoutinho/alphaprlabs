@@ -12,8 +12,10 @@ import { randomBytes, randomUUID } from "node:crypto";
 import Decimal from "decimal.js";
 import { beforeAll, describe, expect, it } from "vitest";
 import { linkSale, listOutsideBuyers, listOutsideSales, listSellerTotals } from "@/lib/inventory/sellers";
-import { getSale, getStockItem, listSales, recordPurchase, recordSale, SALES_PAGE_SIZE } from "@/lib/inventory/service";
+import { getSale, getStockItem, listSales, recordPurchase, SALES_PAGE_SIZE } from "@/lib/inventory/service";
+import { recordSale } from "../support/previewed-sale";
 import { psql, quote } from "../support/psql";
+import { previewedLotsSql } from "../support/sales";
 import { ensureAccount, seedInvitation, signedInClient, uniqueEmail } from "../support/local-supabase";
 
 const marco = { email: uniqueEmail("sel-owner-marco"), name: "Owner Marco" };
@@ -90,7 +92,7 @@ describe("the sellers migration", () => {
       drop function public.admin_business_seller_totals(date, date, uuid);
       drop function public.admin_business_outside_buyers(text);
       -- With its expected allocation since 20260929100000.
-      drop function public.record_business_sale(uuid, uuid, date, integer, text, uuid, text, uuid, jsonb);
+      drop function public.record_business_sale(uuid, uuid, date, integer, text, jsonb, uuid, text, uuid);
       drop function public.invite_researcher(text, text, text, public.app_role);
       drop trigger business_sales_seller on public.business_sales;
       drop function public.business_sale_seller_check();
@@ -235,7 +237,8 @@ describe("A7 past 1,000 sales: per-seller totals and outside buyers", () => {
       begin
         for i in 1..${COUNT} loop
           perform public.record_business_sale(
-            gen_random_uuid(), ${item}, date '2026-09-01' + (i % 20), 1 + (i % 2), ((i % 7) + 10)::text || '.25', null, 'Bulk ' || i,
+            gen_random_uuid(), ${item}, date '2026-09-01' + (i % 20), 1 + (i % 2), ((i % 7) + 10)::text || '.25',
+            ${previewedLotsSql(item, "1 + (i % 2)")}, null, 'Bulk ' || i,
             case when i % 3 = 0 then ${quote(fixture.brianId)}::uuid else ${quote(fixture.marcoId)}::uuid end);
         end loop;
       end $$;

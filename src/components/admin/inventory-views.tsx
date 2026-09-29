@@ -4,6 +4,7 @@
 // decimal text from the service.
 import Link from "@/components/alpha/link";
 import { AppButton, EmptyState } from "@/components/app-shell/form";
+import { OUTSIDE_HREF } from "@/components/business/frame";
 import { formatCurrency, formatDate } from "@/lib/format";
 import {
   allocationSummary,
@@ -155,7 +156,7 @@ function OutsideBuyersLink() {
   return (
     <>
       {OUTSIDE_LINK_NOTE}{" "}
-      <Link href="/admin/sales/outside" className="app-seller-outside-link">
+      <Link href={OUTSIDE_HREF} className="app-seller-outside-link">
         {OUTSIDE_TITLE}
       </Link>
     </>

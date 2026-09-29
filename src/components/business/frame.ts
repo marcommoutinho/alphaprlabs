@@ -12,5 +12,5 @@ export const LEDGER_HREF = "/admin/ledger";
 export const SALES_HREF = LEDGER_HREF;
 /** The Ledger's Purchases tab. */
 export const PURCHASES_HREF = `${LEDGER_HREF}?tab=purchases`;
-/** Outside buyers' sales, to link to an account. */
-export const OUTSIDE_HREF = "/admin/sales/outside";
+/** Outside buyers' sales, to link to an account: under the Ledger (V6; /admin/sales/outside redirects here). */
+export const OUTSIDE_HREF = `${LEDGER_HREF}/outside`;

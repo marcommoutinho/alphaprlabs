@@ -18,6 +18,8 @@ import {
 import { businessToday } from "@/lib/inventory/screens";
 import { LINK_NOT_LINKABLE } from "@/lib/inventory/seller-screens";
 import { ensureAccount, serviceClient, signedInClient, uniqueEmail } from "../support/local-supabase";
+import { withPreview } from "../support/previewed-sale";
+import type { Db } from "@/lib/inventory/service";
 
 const acting = vi.hoisted(() => ({ client: null as unknown, refreshed: 0, revalidated: [] as string[] }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => acting.client }));
@@ -26,7 +28,9 @@ vi.mock("next/cache", () => ({
   revalidatePath: (path: string) => void acting.revalidated.push(path),
 }));
 
-const { linkSaleAction, recordPurchaseAction, recordSaleAction } = await import("@/app/(private)/admin/inventory/actions");
+const { linkSaleAction, recordPurchaseAction, recordSaleAction: recordSaleAsSent } = await import("@/app/(private)/admin/inventory/actions");
+/** The Record sale action, sent as the sheet sends it: with the lots its preview showed (records.test covers a sale sent without them). */
+const recordSaleAction = async (input: Record<string, unknown>) => recordSaleAsSent(await withPreview(acting.client as Db, input));
 
 const admin = { email: uniqueEmail("s6-act-admin"), name: "S6 Action Admin" };
 const jordan = { email: uniqueEmail("s6-act-jordan"), name: "Jordan Reyes" };
@@ -174,7 +178,7 @@ describe("A5 and A6 actions for an admin", () => {
       toast: "Linked 1 sale to Jordan Reyes.",
       tone: "info",
     });
-    expect(acting.revalidated).toEqual(["/(private)/admin/inventory/[itemId]", "/admin/ledger", "/admin/sales/outside", "/admin/business"]);
+    expect(acting.revalidated).toEqual(["/(private)/admin/inventory/[itemId]", "/admin/ledger", "/admin/ledger/outside", "/admin/business"]);
     // A second click: nothing more to link.
     expect(await linkSaleAction({ saleId: data!.id, profileId: jordanId })).toMatchObject({ linked: true, toast: "This sale was already linked to Jordan Reyes." });
     expect(await linkSaleAction({ saleId: data!.id, profileId: researcherId })).toEqual({ toast: LINK_NOT_LINKABLE });
