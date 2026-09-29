@@ -235,7 +235,7 @@ export function Calculator({
                 label: (
                   <span className="flex items-baseline gap-1.5">
                     {SYRINGE_LABEL[capacity]}{" "}
-                    <span className="font-mono text-[12px] font-normal text-ink-3">{capacity}-unit</span>
+                    <span className="font-mono text-[12px] font-normal text-ink-3">{capacity} u</span>
                   </span>
                 ),
               }))}

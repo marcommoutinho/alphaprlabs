@@ -109,14 +109,20 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
     } catch {
       result = { error: SAVE_UNSURE, unsure: true };
     }
-    setSaving(false);
     if (result.saved) {
+      // Still saving (the form inert) while this editor is being replaced:
+      // the action answers before the refreshed page arrives, and that page
+      // remounts the editor at the new version (or another page opens), so
+      // anything typed in between would be silently dropped. An unchanged
+      // save keeps the version: nothing replaces the editor.
       pending.current = null;
       toast.success({ message: result.toast ?? "Template saved." });
       if (!laptop) router.push(TEMPLATES_PATH);
       else if (!template) router.replace(templatePath(result.saved.id));
+      else if (result.saved.version === template.version) setSaving(false);
       return;
     }
+    setSaving(false);
     if (result.unsure) {
       toast.error({ message: result.error ?? SAVE_UNSURE, action: { label: "Retry", onAction: () => void save() } });
       return;
@@ -146,7 +152,7 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
         <span />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6 laptop:overflow-visible">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6 laptop:overflow-visible" inert={saving}>
         <header className="hidden px-9 pt-6 laptop:block">
           <Link href={TEMPLATES_PATH} className="text-[14px] text-signal-ink">
             ‹ Templates
@@ -261,7 +267,14 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
           <span className="hidden min-w-0 flex-1 text-[13px] text-ink-2 laptop:block" data-testid="template-footer-note">
             {footerNote(template)}
           </span>
-          <Button variant="outline" size="md" className="hidden text-[14px] laptop:inline-flex" onClick={() => setPicking(true)} data-testid="add-peptide">
+          <Button
+            variant="outline"
+            size="md"
+            className="hidden text-[14px] laptop:inline-flex"
+            disabled={saving}
+            onClick={() => setPicking(true)}
+            data-testid="add-peptide"
+          >
             + Add peptide
           </Button>
           <Button

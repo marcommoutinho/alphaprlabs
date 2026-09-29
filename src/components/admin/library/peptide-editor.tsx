@@ -90,14 +90,20 @@ export function PeptideEditor({ entry, takenNames }: { entry: AdminPeptide | nul
     } catch {
       result = { error: SAVE_UNSURE, unsure: true };
     }
-    setSaving(null);
     if (result.saved) {
+      // Still saving (the form inert) while this editor is being replaced:
+      // the action answers before the refreshed page arrives, and that page
+      // remounts the editor at the new version (or another page opens), so
+      // anything typed in between would be silently dropped. An unchanged
+      // save keeps the version: nothing replaces the editor.
       pending.current = null;
       toast.success({ message: result.toast ?? "Saved." });
       if (!laptop) router.push(LIBRARY_PATH);
       else if (!entry) router.replace(peptidePath(result.saved.id));
+      else if (result.saved.version === entry.version) setSaving(null);
       return;
     }
+    setSaving(null);
     if (result.unsure) {
       toast.error({ message: result.error ?? SAVE_UNSURE, action: { label: "Retry", onAction: () => void save(publish) } });
       return;
@@ -130,7 +136,7 @@ export function PeptideEditor({ entry, takenNames }: { entry: AdminPeptide | nul
         <span />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" inert={saving !== null}>
         <div className="flex items-end gap-3 px-5 pt-2 laptop:px-8 laptop:pt-6">
           <div className="min-w-0">
             <div className={cn("font-mono text-[13px] font-medium", stateTone)} data-testid="peptide-state-line">
@@ -257,7 +263,7 @@ export function PeptideEditor({ entry, takenNames }: { entry: AdminPeptide | nul
         ) : null}
         <div className="flex items-center gap-3">
           <div className="hidden min-w-0 flex-1 items-center gap-3 laptop:flex">
-            <Switch checked={form.offered} onCheckedChange={(on) => set("offered", on)} aria-labelledby="offered-laptop" />
+            <Switch checked={form.offered} onCheckedChange={(on) => set("offered", on)} disabled={saving !== null} aria-labelledby="offered-laptop" />
             <span className="min-w-0">
               <span id="offered-laptop" className="block text-[14px]">
                 Offered for new cycles

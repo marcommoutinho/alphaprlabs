@@ -357,6 +357,8 @@ test("phone: pages and sheets fit, sections stack, wide amounts stay on one line
   await expect(page.getByTestId("ledger-summary")).toHaveText("1 sale · 4 vials · $7,999.96 · cost $5,002.00 · GP $2,997.96");
   const total = page.getByTestId("ledger-day-total");
   await expect(total).toHaveText("$7,999.96");
+  // Streamed content is matched (text) while still hidden: measure it once shown.
+  await expect(total).toBeVisible();
   expect((await total.boundingBox())!.height).toBeLessThan(30);
   await expect(page.getByTestId("ledger-sale-row")).toContainText("$7,999.96");
   expect(await fits()).toBe(true);
