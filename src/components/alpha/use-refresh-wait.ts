@@ -1,39 +1,43 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef } from "react";
-import { REFRESH_STALLED, type RefreshWait, waitForRefresh } from "@/lib/app/save";
+import { useEffect, useMemo, useState } from "react";
+import { REFRESH_STALLED, refreshWaits } from "@/lib/app/save";
 import { useAlphaToast } from "./toast";
 
 type Start = {
   /** What the answer said, before the stalled message ("Saved."). */
   lead: string;
-  /** Stop being busy (the form usable again). */
+  /** What the screen does on giving up (e.g. stop being busy). */
   onGiveUp: () => void;
-  /** Loads the page once more: router.refresh() unless given (e.g. the navigation again). Never the save. */
-  retry?: () => void;
+  /** A navigation to run now and again as the retry (never the save); none: the action's refresh is on its way, and the retry is router.refresh(). */
+  load?: () => void;
   /** Where Reload goes: this page unless given (e.g. the page a navigation was opening). */
   reloadTo?: string;
 };
 
 /**
  * The bounded wait for the refreshed page after a save the server answered
- * (waitForRefresh): start() when the screen stays busy for it, arrived()
- * when it's here; leaving the screen also stops it. On giving up, the error
- * toast says so and stays: "Saved. Couldn't load the latest version." ·
- * Reload (a full page load).
+ * (waitForRefresh), for this screen only (refreshWaits): start() when the
+ * screen stays busy for it (it does nothing, not even `load`, once the
+ * screen is gone), arrived() when it's here; leaving the screen stops it.
+ * On giving up, the error toast says so and stays: "Saved. Couldn't load
+ * the latest version." · Reload (a full page load).
  */
 export function useRefreshWait() {
   const router = useRouter();
   const toast = useAlphaToast();
-  const current = useRef<RefreshWait | null>(null);
-  useEffect(() => () => current.current?.arrived(), []);
+  const [waits] = useState(() => refreshWaits());
+  useEffect(() => {
+    waits.mount();
+    return () => waits.unmount();
+  }, [waits]);
   return useMemo(
     () => ({
-      start({ lead, onGiveUp, retry, reloadTo }: Start) {
-        current.current?.arrived();
-        current.current = waitForRefresh({
-          retry: retry ?? (() => router.refresh()),
+      start: ({ lead, onGiveUp, load, reloadTo }: Start) =>
+        waits.start({
+          load,
+          refresh: () => router.refresh(),
           giveUp: () => {
             onGiveUp();
             toast.error({
@@ -41,13 +45,9 @@ export function useRefreshWait() {
               action: { label: "Reload", onAction: () => (reloadTo ? window.location.assign(reloadTo) : window.location.reload()) },
             });
           },
-        });
-      },
-      arrived() {
-        current.current?.arrived();
-        current.current = null;
-      },
+        }),
+      arrived: () => waits.arrived(),
     }),
-    [router, toast],
+    [router, toast, waits],
   );
 }

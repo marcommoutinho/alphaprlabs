@@ -1,9 +1,9 @@
 // The bounded wait for the refreshed page after a save the server answered
 // (src/lib/app/save.ts): wait, load it once more, then give up, never twice
-// and never after it arrived. The screens' side: tests/e2e/library.spec.ts
+// and never after it arrived; and only for the screen that started it. The screens' side: tests/e2e/library.spec.ts
 // and tests/e2e/today.spec.ts (the refresh held after the save succeeds).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { REFRESH_STALLED, REFRESH_WAIT_MS, waitForRefresh } from "@/lib/app/save";
+import { REFRESH_STALLED, REFRESH_WAIT_MS, refreshWaits, waitForRefresh } from "@/lib/app/save";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -106,5 +106,100 @@ describe("waitForRefresh", () => {
     const { calls } = start();
     vi.advanceTimersByTime(REFRESH_WAIT_MS * 20);
     expect(calls).toEqual({ retry: 1, giveUp: 1 });
+  });
+});
+
+describe("refreshWaits (one screen's waits)", () => {
+  const screen = () => {
+    const calls = { load: 0, refresh: 0, giveUp: 0 };
+    const waits = refreshWaits();
+    const start = (navigates: boolean) =>
+      waits.start({
+        load: navigates ? () => void (calls.load += 1) : undefined,
+        refresh: () => void (calls.refresh += 1),
+        giveUp: () => void (calls.giveUp += 1),
+      });
+    return { waits, calls, start };
+  };
+
+  it("does nothing at all when the answer comes after the screen was left: no navigation, refresh, toast or timer", () => {
+    const { waits, calls, start } = screen();
+    waits.mount();
+    waits.unmount();
+    expect(start(true)).toBe(false);
+    expect(start(false)).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(REFRESH_WAIT_MS * 5);
+    expect(calls).toEqual({ load: 0, refresh: 0, giveUp: 0 });
+  });
+
+  it("does nothing before the screen is mounted", () => {
+    const { calls, start } = screen();
+    expect(start(false)).toBe(false);
+    vi.advanceTimersByTime(REFRESH_WAIT_MS * 5);
+    expect(calls).toEqual({ load: 0, refresh: 0, giveUp: 0 });
+  });
+
+  it("while mounted: the action's refresh is awaited, then one router refresh, then the give-up", () => {
+    const { waits, calls, start } = screen();
+    waits.mount();
+    expect(start(false)).toBe(true);
+    expect(calls).toEqual({ load: 0, refresh: 0, giveUp: 0 });
+    vi.advanceTimersByTime(REFRESH_WAIT_MS);
+    expect(calls).toEqual({ load: 0, refresh: 1, giveUp: 0 });
+    vi.advanceTimersByTime(REFRESH_WAIT_MS);
+    expect(calls).toEqual({ load: 0, refresh: 1, giveUp: 1 });
+  });
+
+  it("a navigation runs at once and again as the retry, never a refresh", () => {
+    const { waits, calls, start } = screen();
+    waits.mount();
+    start(true);
+    expect(calls).toEqual({ load: 1, refresh: 0, giveUp: 0 });
+    vi.advanceTimersByTime(REFRESH_WAIT_MS * 2);
+    expect(calls).toEqual({ load: 2, refresh: 0, giveUp: 1 });
+  });
+
+  it("leaving the screen stops the wait: no retry or give-up reaches the screen now shown", () => {
+    const { waits, calls, start } = screen();
+    waits.mount();
+    start(false);
+    vi.advanceTimersByTime(REFRESH_WAIT_MS - 1);
+    waits.unmount();
+    vi.advanceTimersByTime(REFRESH_WAIT_MS * 5);
+    expect(calls).toEqual({ load: 0, refresh: 0, giveUp: 0 });
+    expect(vi.getTimerCount()).toBe(0);
+
+    const retrying = screen();
+    retrying.waits.mount();
+    retrying.start(true);
+    vi.advanceTimersByTime(REFRESH_WAIT_MS);
+    retrying.waits.unmount();
+    vi.advanceTimersByTime(REFRESH_WAIT_MS * 5);
+    expect(retrying.calls).toEqual({ load: 2, refresh: 0, giveUp: 0 });
+  });
+
+  it("keeps one wait at a time, and arrived() stops it", () => {
+    const { waits, calls, start } = screen();
+    waits.mount();
+    start(false);
+    vi.advanceTimersByTime(REFRESH_WAIT_MS - 1);
+    start(false);
+    vi.advanceTimersByTime(REFRESH_WAIT_MS * 2);
+    expect(calls).toEqual({ load: 0, refresh: 1, giveUp: 1 });
+    start(false);
+    waits.arrived();
+    vi.advanceTimersByTime(REFRESH_WAIT_MS * 5);
+    expect(calls).toEqual({ load: 0, refresh: 1, giveUp: 1 });
+  });
+
+  it("works again after a remount (React's development double effects)", () => {
+    const { waits, calls, start } = screen();
+    waits.mount();
+    waits.unmount();
+    waits.mount();
+    expect(start(false)).toBe(true);
+    vi.advanceTimersByTime(REFRESH_WAIT_MS * 2);
+    expect(calls).toEqual({ load: 0, refresh: 1, giveUp: 1 });
   });
 });

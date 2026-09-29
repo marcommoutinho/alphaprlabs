@@ -70,6 +70,9 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
   const [issuesOpen, setIssuesOpen] = useState(false);
   const [picking, setPicking] = useState(false);
   const [saving, setSaving] = useState(false);
+  // A new template was saved but its page never came: it exists, this page doesn't know its id (see save).
+  const [reloadNeeded, setReloadNeeded] = useState(false);
+  const locked = saving || reloadNeeded;
   const [notice, setNotice] = useState<{ message: string; changed?: boolean } | null>(null);
   const pending = useRef<RecordAttempt | null>(null);
 
@@ -96,6 +99,7 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
     edit((all) => all.map((plan) => (plan.key !== planKey ? plan : { ...plan, rows: plan.rows.map((row) => (row.key === rowKey ? { ...row, ...patch } : row)) })));
 
   async function save() {
+    if (reloadNeeded) return;
     setTouched(true);
     if (!validation.ok) {
       setIssuesOpen(true);
@@ -126,16 +130,14 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
         return;
       }
       const opening = !laptop ? TEMPLATES_PATH : !template ? templatePath(result.saved.id) : null;
-      const go = opening ? () => (laptop ? router.replace(opening) : router.push(opening)) : undefined;
-      go?.();
       refreshWait.start({
         lead: "Saved.",
-        retry: go,
+        load: opening ? () => (laptop ? router.replace(opening) : router.push(opening)) : undefined,
         reloadTo: opening ?? undefined,
         onGiveUp: () => {
-          // Still a new template here: saving it again unchanged replays this save, never adds another.
-          if (!template) pending.current = attempt;
           setSaving(false);
+          // A new template: saving this form again would add a second one. It stays locked; Reload opens the saved template.
+          if (!template) setReloadNeeded(true);
         },
       });
       return;
@@ -170,7 +172,7 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
         <span />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6 laptop:overflow-visible" inert={saving}>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6 laptop:overflow-visible" inert={locked}>
         <header className="hidden px-9 pt-6 laptop:block">
           <Link href={TEMPLATES_PATH} className="text-[14px] text-signal-ink">
             ‹ Templates
@@ -271,6 +273,11 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
             <Issues issues={issues} open={issuesOpen} onOpenChange={setIssuesOpen} />
           </div>
         ) : null}
+        {reloadNeeded ? (
+          <p role="status" className="mb-3 text-[14px] font-medium text-ink-2" data-testid="template-reload-note">
+            Saved. Reload to open it and keep editing.
+          </p>
+        ) : null}
         {notice ? (
           <div role="alert" className="mb-3 flex items-center gap-3 text-[14px] font-medium text-missed" data-testid="template-notice">
             <span className="min-w-0 flex-1">{notice.message}</span>
@@ -289,7 +296,7 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
             variant="outline"
             size="md"
             className="hidden text-[14px] laptop:inline-flex"
-            disabled={saving}
+            disabled={locked}
             onClick={() => setPicking(true)}
             data-testid="add-peptide"
           >
@@ -299,7 +306,7 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
             variant="ink"
             size="lg"
             className="flex-1 laptop:h-11 laptop:flex-none laptop:rounded-[12px] laptop:px-[18px] laptop:text-[14px]"
-            disabled={saving || (touched && !validation.ok)}
+            disabled={locked || (touched && !validation.ok)}
             saving={saving}
             onClick={() => void save()}
             data-testid="save-template"

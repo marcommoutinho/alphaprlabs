@@ -81,3 +81,50 @@ export function waitForRefresh({
     failed,
   };
 }
+
+export type RefreshWaitStart = {
+  /** A navigation to run now and again as the retry; none: the action's own refresh is on its way, and the retry is `refresh`. */
+  load?: () => void;
+  refresh: () => void;
+  giveUp: () => void;
+};
+
+/**
+ * One screen's waits for the refreshed page, live only while the screen is
+ * mounted. A save's answer can come after the screen was left (the person
+ * navigated away while it was in flight): start() then does nothing at all,
+ * so no navigation, refresh or toast reaches the screen now shown. Leaving
+ * stops the wait in progress, and its retry and give-up run only while the
+ * screen that started it is still here.
+ */
+export function refreshWaits(make: typeof waitForRefresh = waitForRefresh) {
+  let live = false;
+  let current: RefreshWait | null = null;
+  const stop = () => {
+    current?.arrived();
+    current = null;
+  };
+  return {
+    mount() {
+      live = true;
+    },
+    unmount() {
+      live = false;
+      stop();
+    },
+    /** Whether a wait started: false once the screen is gone. */
+    start({ load, refresh, giveUp }: RefreshWaitStart): boolean {
+      if (!live) return false;
+      stop();
+      load?.();
+      current = make({
+        retry: () => (live ? (load ?? refresh)() : undefined),
+        giveUp: () => {
+          if (live) giveUp();
+        },
+      });
+      return true;
+    },
+    arrived: stop,
+  };
+}

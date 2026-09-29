@@ -49,6 +49,9 @@ export function PeptideEditor({ entry, takenNames }: { entry: AdminPeptide | nul
   const [form, setForm] = useState<PeptideForm>(() => (entry ? formOfPeptide(entry) : newPeptideForm()));
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState<"draft" | "publish" | null>(null);
+  // A new entry was saved but its page never came: it exists, this page doesn't know its id (see save).
+  const [reloadNeeded, setReloadNeeded] = useState(false);
+  const locked = saving !== null || reloadNeeded;
   // The attempt in flight or unanswered: a ref, so a toast's Retry (a closure from an earlier render) resends the same key.
   const pending = useRef<RecordAttempt | null>(null);
   const [notice, setNotice] = useState<{ message: string; changed?: boolean } | null>(null);
@@ -79,6 +82,7 @@ export function PeptideEditor({ entry, takenNames }: { entry: AdminPeptide | nul
   };
 
   async function save(publish: boolean) {
+    if (reloadNeeded) return;
     setTouched(true);
     if (Object.keys(problemsFor(publish)).length) return;
     const submission = { ...form, publish };
@@ -107,16 +111,14 @@ export function PeptideEditor({ entry, takenNames }: { entry: AdminPeptide | nul
         return;
       }
       const opening = !laptop ? LIBRARY_PATH : !entry ? peptidePath(result.saved.id) : null;
-      const go = opening ? () => (laptop ? router.replace(opening) : router.push(opening)) : undefined;
-      go?.();
       refreshWait.start({
         lead: "Saved.",
-        retry: go,
+        load: opening ? () => (laptop ? router.replace(opening) : router.push(opening)) : undefined,
         reloadTo: opening ?? undefined,
         onGiveUp: () => {
-          // Still a new entry here: saving it again unchanged replays this save, never adds another.
-          if (!entry) pending.current = attempt;
           setSaving(null);
+          // A new entry: saving this form again would add a second one. It stays locked; Reload opens the saved entry.
+          if (!entry) setReloadNeeded(true);
         },
       });
       return;
@@ -154,7 +156,7 @@ export function PeptideEditor({ entry, takenNames }: { entry: AdminPeptide | nul
         <span />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" inert={saving !== null}>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" inert={locked}>
         <div className="flex items-end gap-3 px-5 pt-2 laptop:px-8 laptop:pt-6">
           <div className="min-w-0">
             <div className={cn("font-mono text-[13px] font-medium", stateTone)} data-testid="peptide-state-line">
@@ -269,6 +271,11 @@ export function PeptideEditor({ entry, takenNames }: { entry: AdminPeptide | nul
 
       <ToastSlot open footer />
       <footer className="flex-none border-t border-line bg-paper px-4 pt-3 pb-[calc(12px+env(safe-area-inset-bottom))] laptop:px-8 laptop:py-4">
+        {reloadNeeded ? (
+          <p role="status" className="mb-3 text-[14px] font-medium text-ink-2" data-testid="peptide-reload-note">
+            Saved. Reload to open it and keep editing.
+          </p>
+        ) : null}
         {notice ? (
           <div role="alert" className="mb-3 flex items-center gap-3 text-[14px] font-medium text-missed" data-testid="peptide-notice">
             <span className="min-w-0 flex-1">{notice.message}</span>
@@ -281,7 +288,7 @@ export function PeptideEditor({ entry, takenNames }: { entry: AdminPeptide | nul
         ) : null}
         <div className="flex items-center gap-3">
           <div className="hidden min-w-0 flex-1 items-center gap-3 laptop:flex">
-            <Switch checked={form.offered} onCheckedChange={(on) => set("offered", on)} disabled={saving !== null} aria-labelledby="offered-laptop" />
+            <Switch checked={form.offered} onCheckedChange={(on) => set("offered", on)} disabled={locked} aria-labelledby="offered-laptop" />
             <span className="min-w-0">
               <span id="offered-laptop" className="block text-[14px]">
                 Offered for new cycles
@@ -296,7 +303,7 @@ export function PeptideEditor({ entry, takenNames }: { entry: AdminPeptide | nul
               variant="outline"
               size="lg"
               className="laptop:h-11 laptop:rounded-[12px] laptop:px-4 laptop:text-[14px]"
-              disabled={!canDraft || saving !== null}
+              disabled={!canDraft || locked}
               saving={saving === "draft"}
               onClick={() => void save(false)}
               data-testid="save-draft"
@@ -308,7 +315,7 @@ export function PeptideEditor({ entry, takenNames }: { entry: AdminPeptide | nul
             variant="ink"
             size="lg"
             className="flex-1 laptop:h-11 laptop:flex-none laptop:rounded-[12px] laptop:px-[18px] laptop:text-[14px]"
-            disabled={!canPublish || saving !== null}
+            disabled={!canPublish || locked}
             saving={saving === "publish"}
             onClick={() => void save(true)}
             data-testid="save-publish"

@@ -95,6 +95,48 @@ test("laptop: a save whose refreshed page never arrives frees the editor after t
   expect(await storedTemplate(name)).toMatchObject({ version: 2, guidance: "Saved during the stall." });
 });
 
+test("laptop: a new template whose page never arrives stays locked until reloaded, so it is created once", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize(LAPTOP);
+  const A = unique("V7 Newstall peptide");
+  await seedPeptide(A);
+  const name = unique("V7 New stalled template");
+  await openTemplates(page);
+  await page.getByTestId("library-add-laptop").click();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/library/templates/new`);
+  await (await hydrated(page.getByTestId("template-name"))).fill(name);
+  await addPeptide(page, A);
+  await peptideCard(page, A).getByTestId("phase-dose").fill("1");
+  await expect(page.getByTestId("builder-issues")).toHaveCount(0);
+
+  // The create is answered; the new template's page never comes.
+  const stall = await stallRefresh(page, (path) => path.startsWith("/admin/library/templates"));
+  await page.getByTestId("save-template").click();
+  await expect(toast(page)).toContainText("Template created.");
+  await expect(toast(page)).toContainText("Saved. Couldn't load the latest version.", { timeout: 30_000 });
+
+  // The template exists but this page doesn't know it: the form stays locked, and says Reload opens it.
+  await expect(page.getByTestId("template-reload-note")).toHaveText("Saved. Reload to open it and keep editing.");
+  await expect(page.getByTestId("save-template")).toBeDisabled();
+  await expect(page.getByTestId("add-peptide")).toBeDisabled();
+  // Inert: nothing in the form takes focus, so nothing can be typed.
+  await expect(page.locator('[inert] [data-testid="template-name"]')).toHaveCount(1);
+  await page.getByTestId("template-name").focus();
+  await expect(page.getByTestId("template-name")).not.toBeFocused();
+  await page.getByTestId("save-template").dispatchEvent("click");
+  await page.waitForTimeout(1_000);
+  expect(stall.actions).toBe(1);
+  const created = await ok(serviceClient().from("cycle_templates").select("id").eq("name", name), "created");
+  expect(created).toHaveLength(1);
+
+  // Reload opens the saved template.
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await toast(page).getByRole("button", { name: "Reload" }).click();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/library/templates/${created[0].id}`);
+  await expect(page.getByTestId("template-name")).toHaveValue(name);
+  expect(await ok(serviceClient().from("cycle_templates").select("id").eq("name", name), "created")).toHaveLength(1);
+});
+
 test("laptop: create and edit a template, then keep saving it with a peptide no longer offered", async ({ page }) => {
   test.setTimeout(90_000);
   await page.setViewportSize(LAPTOP);

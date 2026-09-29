@@ -10,7 +10,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { APP_ORIGIN } from "../../playwright.config";
 import { ensureAccount, hydrated, ok, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
 import { shot as saveShot, STATIC_TAB_BAR } from "../support/shots";
-import { stallRefresh } from "../support/stall-refresh";
+import { holdAction, stallRefresh } from "../support/stall-refresh";
 
 const ADMIN = { email: uniqueEmail("v7-lib-admin"), name: "Priya Sandhu" };
 const SECOND = { email: uniqueEmail("v7-lib-second"), name: "Owen Marchetti" };
@@ -171,6 +171,85 @@ test("laptop: a save whose refreshed page never arrives frees the editor after t
   await expect(toast(page)).toContainText(`Draft saved · ${name}.`);
   await expect.poll(async () => (await stored(name)).version).toBe(3);
   expect(await stored(name)).toMatchObject({ short_description: "After the reload" });
+});
+
+test("laptop: leaving the editor while its save is in flight: nothing reaches the next screen", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize(LAPTOP);
+  const name = unique("V7 Leavide");
+  await openLibrary(page);
+  await page.getByTestId("library-add-laptop").click();
+  await (await hydrated(page.getByTestId("peptide-name"))).fill(name);
+  await page.getByTestId("peptide-short").fill("Before leaving");
+  await page.getByTestId("save-draft").click();
+  await expect(page).toHaveURL(/\/admin\/library\/peptides\/[0-9a-f-]{36}$/);
+  await expect(page.getByTestId("peptide-state-line")).toHaveText("Draft · not visible to researchers");
+  const { id } = await stored(name);
+
+  // The save is made, but its answer comes only after the admin has moved on to Templates.
+  const held = await holdAction(page, `/admin/library/peptides/${id}`);
+  await page.getByTestId("peptide-short").fill("Saved while leaving");
+  await page.getByTestId("save-draft").click();
+  await expect.poll(async () => (await stored(name)).version).toBe(2);
+  await page.getByRole("navigation", { name: "Library" }).getByRole("link", { name: /^Templates · \d+$/ }).click();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/library/templates`);
+  await expect(page.getByTestId("peptide-editor")).toHaveCount(0);
+
+  const loads: number[] = [];
+  page.on("request", (request) => {
+    if (request.headers()["rsc"]) loads.push(Date.now());
+  });
+  held.release();
+  const answered = Date.now();
+  // A waited-for refresh would retry after 8 s and give up after 16 s: nothing of it comes.
+  await page.waitForTimeout(20_000);
+  expect(loads.filter((at) => at - answered > 5_000)).toEqual([]);
+  await expect(toast(page).filter({ hasText: "Couldn't load the latest version" })).toHaveCount(0);
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/library/templates`);
+  expect(held.counts.actions).toBe(1);
+  expect(await stored(name)).toMatchObject({ short_description: "Saved while leaving", version: 2 });
+});
+
+test("laptop: a new peptide whose page never arrives stays locked until reloaded, so it is created once", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize(LAPTOP);
+  const name = unique("V7 Newstallide");
+  await openLibrary(page);
+  await page.getByTestId("library-add-laptop").click();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/library/peptides/new`);
+  await (await hydrated(page.getByTestId("peptide-name"))).fill(name);
+  await page.getByTestId("peptide-short").fill("Created during the stall");
+
+  // The create is answered; the new entry's page never comes.
+  const stall = await stallRefresh(page, (path) => path.startsWith("/admin/library/peptides"));
+  await page.getByTestId("save-draft").click();
+  await expect(toast(page)).toContainText(`Draft saved · ${name}.`);
+  await expect(toast(page)).toContainText("Saved. Couldn't load the latest version.", { timeout: 30_000 });
+
+  // The entry exists but this page doesn't know it: the form stays locked, and says Reload opens it.
+  await expect(page.getByTestId("peptide-reload-note")).toHaveText("Saved. Reload to open it and keep editing.");
+  await expect(page.getByTestId("save-draft")).toBeDisabled();
+  await expect(page.getByTestId("save-publish")).toBeDisabled();
+  // Inert: nothing in the form takes focus, so nothing can be typed.
+  for (const field of ["peptide-name", "peptide-short"]) {
+    await expect(editor(page).locator(`[inert] [data-testid="${field}"]`)).toHaveCount(1);
+    await page.getByTestId(field).focus();
+    await expect(page.getByTestId(field)).not.toBeFocused();
+  }
+  // Submitting the form another way doesn't send it again.
+  await editor(page).locator("form").dispatchEvent("submit");
+  await page.waitForTimeout(1_000);
+  expect(stall.actions).toBe(1);
+  expect(await ok(serviceClient().from("peptides").select("id").eq("name", name), "created")).toHaveLength(1);
+
+  // Reload opens the saved entry.
+  const { id } = await stored(name);
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await toast(page).getByRole("button", { name: "Reload" }).click();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/admin/library/peptides/${id}`);
+  await expect(page.getByTestId("peptide-state-line")).toHaveText("Draft · not visible to researchers");
+  await expect(page.getByTestId("peptide-short")).toHaveValue("Created during the stall");
+  expect(await ok(serviceClient().from("peptides").select("id").eq("name", name), "created")).toHaveLength(1);
 });
 
 for (const scheme of ["light", "dark"] as const) {
