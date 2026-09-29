@@ -18,11 +18,11 @@ type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
  * America/Toronto; all figures are CAD.
  *
  * The skeleton is this page's own Suspense fallback, keyed by the period, not
- * a loading.tsx: with a route loading boundary here, Next.js 16.2 sometimes
- * never committed a period change (a tap on Week or 12 months fetched the new
- * page, then React stayed suspended until another tap; about 1 in 20 under
- * load, 0 in 300 without it). The Ledger's tabs, under their loading.tsx,
- * didn't show it (0 in 100).
+ * a loading.tsx. The route's loading boundary stays on screen across a period
+ * change, and under it Next.js 16.2 (React 19.3 canary) sometimes never
+ * committed the new period: a tap on Week or 12 months fetched the page, then
+ * React stayed suspended until another tap (about 1 in 20 under load). Keyed,
+ * each period mounts a fresh boundary that may show its skeleton: 0 in 200.
  */
 export default async function BusinessPage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
