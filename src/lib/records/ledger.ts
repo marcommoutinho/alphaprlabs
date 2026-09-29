@@ -4,7 +4,7 @@
 // is exact decimal text summed with decimal.js and shown with `money`.
 import Decimal from "decimal.js";
 import { money, monthDay, shortDate } from "@/lib/alpha/format";
-import { buyerShort, sellerFirst } from "@/lib/business/overview";
+import { sellerFirst } from "@/lib/business/overview";
 import {
   addDays,
   checkCustomRange,
@@ -202,7 +202,7 @@ export const entryTitle = (entry: { item: string; quantity: number }) => `${entr
 
 /** "Priya → Jordan Reyes · $120.00 ea" (A7 sale row, mono). */
 export const saleLine = (sale: Pick<LedgerSale, "sellerName" | "buyerName" | "unitPrice">) =>
-  `${sellerFirst(sale.sellerName)} → ${sale.buyerName ? buyerShort(sale.buyerName) === sale.buyerName ? sale.buyerName : sale.buyerName : "Outside buyer"} · ${money(sale.unitPrice)} ea`;
+  `${sellerFirst(sale.sellerName)} → ${sale.buyerName || "Outside buyer"} · ${money(sale.unitPrice)} ea`;
 
 /** "GP $319.86" */
 export const gpLabel = (grossProfit: string) => `GP ${money(grossProfit)}`;

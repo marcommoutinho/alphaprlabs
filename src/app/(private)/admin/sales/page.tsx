@@ -1,43 +1,26 @@
-import { AppPage } from "@/components/app-shell/app-shell";
-import { SalesReportView } from "@/components/admin/inventory-views";
-import { SalesFilters } from "@/components/admin/sales-filters";
+import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth/session";
-import { salesPeriodRange } from "@/lib/inventory/rules";
-import { businessToday, salesPeriodOf } from "@/lib/inventory/screens";
-import { listSellerTotals } from "@/lib/inventory/sellers";
-import { listBuyerAccounts, listSales, listStock } from "@/lib/inventory/service";
-import { createClient } from "@/lib/supabase/server";
+import { addDays, monthStart } from "@/lib/business/period";
+import { businessToday } from "@/lib/inventory/screens";
+import { ledgerHref, readLedgerView } from "@/lib/records/ledger";
 
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 
 /**
- * A7 Sales & gross profit (admins only). Filters come from the URL:
- * `period` (month = this month, prev = last month, else all time; months in
- * the business time zone) and `item` (a stock item, else all). The per-seller
- * totals use the same period and item. An outside buyer's sale in the list
- * offers "Link to account…", so the accounts are loaded only when one is listed.
+ * The old Sales & gross profit page (A7 before V6): its addresses open the
+ * Ledger's Sales. `period=month` is this month (the Ledger's default),
+ * `period=prev` last month, anything else all time, which is the month
+ * view over the longest span (36 months); `item=` keeps its stock item.
+ * Admins only.
  */
-export default async function SalesPage({ searchParams }: { searchParams: SearchParams }) {
+export default async function SalesRedirect({ searchParams }: { searchParams: SearchParams }) {
   await requireAdmin("/admin/sales");
   const params = await searchParams;
-  const period = salesPeriodOf(params.period);
-  const db = await createClient();
-  const stock = await listStock(db);
-  const item = stock.find((entry) => entry.id === params.item) ?? null;
-  const filter = { ...salesPeriodRange(period, businessToday()), stockItemId: item?.id ?? null };
-  const [report, sellers] = await Promise.all([listSales(db, filter), listSellerTotals(db, filter)]);
-  const linkAccounts = report.sales.some((sale) => sale.buyerType === "outside") ? await listBuyerAccounts(db) : undefined;
-
-  return (
-    <AppPage>
-      <SalesFilters period={period} item={item?.id ?? ""} items={stock.map((entry) => ({ id: entry.id, label: entry.label }))}>
-        <SalesReportView
-          report={report}
-          sellers={sellers}
-          linkAccounts={linkAccounts}
-          itemLabels={new Map(stock.map((entry) => [entry.id, entry.label]))}
-        />
-      </SalesFilters>
-    </AppPage>
-  );
+  const today = businessToday();
+  const item = typeof params.item === "string" ? params.item : undefined;
+  const period = params.period;
+  const base = readLedgerView({ item }, today);
+  if (period === "month") redirect(ledgerHref(base));
+  if (period === "prev") redirect(ledgerHref(base, { range: { from: monthStart(today, -1), to: addDays(monthStart(today), -1) } }));
+  redirect(ledgerHref(base, { group: "month", range: { from: monthStart(today, -35), to: today } }));
 }

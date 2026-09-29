@@ -1,6 +1,7 @@
-// A4 Stock item and the A7 report body (the stock list is V5's A3 / D4:
-// src/components/business/stock-screen.tsx): server-rendered views
-// (no client state). Money arrives as exact decimal text from the service.
+// The stock item page (the stock list is V5's A3 / D4:
+// src/components/business/stock-screen.tsx; sales and purchases are V6's
+// Ledger): server-rendered views (no client state). Money arrives as exact
+// decimal text from the service.
 import Link from "@/components/alpha/link";
 import { AppButton, EmptyState } from "@/components/app-shell/form";
 import { formatCurrency, formatDate } from "@/lib/format";
@@ -13,24 +14,18 @@ import {
   profitTone,
   PURCHASES_CAPTION,
   SALES_CAPTION,
-  SALES_NOTE,
-  salesEmptyText,
-  salesTruncatedNote,
   stockSalesTruncatedNote,
   usdConversionLine,
   vials,
 } from "@/lib/inventory/screens";
-import { BY_SELLER_TITLE, OUTSIDE_LINK_NOTE, OUTSIDE_TITLE, sellerLine, sellerRowEmail, sellerRowLabel } from "@/lib/inventory/seller-screens";
-import type { SellerTotals } from "@/lib/inventory/sellers";
-import type { BuyerAccount, SaleRecord, SalesReport, StockItemDetail } from "@/lib/inventory/service";
+import { OUTSIDE_LINK_NOTE, OUTSIDE_TITLE, sellerLine } from "@/lib/inventory/seller-screens";
+import type { BuyerAccount, SaleRecord, StockItemDetail } from "@/lib/inventory/service";
+import { RecordButton } from "@/components/records/record-provider";
 import { LinkSale } from "./link-sale";
 import "@/styles/app/inventory.css";
 import "@/styles/app/sellers.css";
 
-export const PURCHASE_PATH = "/admin/inventory/purchase";
-export const SALE_PATH = "/admin/inventory/sale";
 export const stockItemPath = (id: string) => `/admin/inventory/${id}`;
-const withItem = (path: string, id: string) => `${path}?item=${encodeURIComponent(id)}`;
 
 /** A4 Stock item: on hand, its purchase lots (FIFO order) and its sales (newest first). */
 export function StockItemView({ detail, linkAccounts }: { detail: StockItemDetail; linkAccounts?: BuyerAccount[] }) {
@@ -51,13 +46,13 @@ export function StockItemView({ detail, linkAccounts }: { detail: StockItemDetai
           </div>
         </div>
         <div className="app-inv-actions">
-          <Link href={withItem(PURCHASE_PATH, item.id)} className="app-btn app-btn--secondary app-btn--sm">
+          <RecordButton kind="purchase" itemId={item.id} variant="outline" size="sm" className="rounded-[12px] text-[14px]">
             Record purchase
-          </Link>
+          </RecordButton>
           {item.onHand > 0 ? (
-            <Link href={withItem(SALE_PATH, item.id)} className="app-btn app-btn--primary app-btn--sm">
+            <RecordButton kind="sale" itemId={item.id} variant="primary" size="sm" className="rounded-[12px] text-[14px]">
               Record sale
-            </Link>
+            </RecordButton>
           ) : (
             <AppButton size="sm" disabled>
               Record sale
@@ -155,90 +150,6 @@ export function SaleEntry({
   );
 }
 
-/**
- * A7 below the filters: KPIs, the note, the empty state, the by-item rows,
- * the by-seller rows (Marco, 2026-09-27) and the sales list.
- */
-export function SalesReportView({
-  report,
-  itemLabels,
-  sellers,
-  linkAccounts,
-}: {
-  report: SalesReport;
-  itemLabels: Map<string, string>;
-  /** Totals per seller for the same period and item. */
-  sellers: SellerTotals[];
-  linkAccounts?: BuyerAccount[];
-}) {
-  const empty = salesEmptyText(report);
-  const { totals } = report;
-  return (
-    <>
-      <div className="app-inv-kpis" data-testid="kpis">
-        <Kpi label="Vials sold" value={totals.vials.toLocaleString("en-CA")} />
-        <Kpi label="Revenue" value={<Money amount={totals.revenue} />} />
-        <Kpi label="Cost of vials sold" value={<Money amount={totals.cost} />} />
-        <Kpi label="Gross profit" value={<Money amount={totals.grossProfit} />} tone={profitTone(totals.grossProfit)} accent />
-      </div>
-      <p className="app-inv-note">{SALES_NOTE}</p>
-      <p className="app-inv-note">
-        <OutsideBuyersLink />
-      </p>
-      {empty ? (
-        <div className="app-inv-empty">
-          <EmptyState>{empty}</EmptyState>
-        </div>
-      ) : (
-        <>
-          <div className="app-inv-breakdown" data-testid="by-item">
-            {report.byItem.map((row) => (
-              <div key={row.stockItemId} className="app-inv-item-row">
-                <b>{row.label}</b>
-                <span className="app-inv-num app-inv-muted">{vials(row.vials)}</span>
-                <span className="app-inv-num">
-                  <Money amount={row.revenue} />
-                </span>
-                <span className="app-inv-num app-inv-muted">
-                  <Money amount={row.cost} />
-                </span>
-                <span className="app-inv-num" data-tone={profitTone(row.grossProfit)}>
-                  <Money amount={row.grossProfit} />
-                </span>
-              </div>
-            ))}
-          </div>
-          <h2 className="app-inv-list-title">{BY_SELLER_TITLE}</h2>
-          <div className="app-inv-breakdown" data-testid="by-seller">
-            {sellers.map((row) => (
-              <div key={row.sellerId ?? "none"} className="app-inv-item-row">
-                <SellerCell row={row} rows={sellers} />
-                <span className="app-inv-num app-inv-muted">{vials(row.vials)}</span>
-                <span className="app-inv-num">
-                  <Money amount={row.revenue} />
-                </span>
-                <span className="app-inv-num app-inv-muted">
-                  <Money amount={row.cost} />
-                </span>
-                <span className="app-inv-num" data-tone={profitTone(row.grossProfit)}>
-                  <Money amount={row.grossProfit} />
-                </span>
-              </div>
-            ))}
-          </div>
-          <h2 className="app-inv-list-title">Sales in this view</h2>
-          {report.salesTruncated ? <p className="app-inv-note">{salesTruncatedNote(report.sales.length)}</p> : null}
-          <div data-testid="sales-list">
-            {report.sales.map((sale) => (
-              <SaleEntry key={sale.id} sale={sale} itemLabel={itemLabels.get(sale.stockItemId) ?? "—"} linkAccounts={linkAccounts} />
-            ))}
-          </div>
-        </>
-      )}
-    </>
-  );
-}
-
 /** `Find a past outside buyer's sales to link them to an account: Outside buyers` (every one, however old). */
 function OutsideBuyersLink() {
   return (
@@ -248,49 +159,5 @@ function OutsideBuyersLink() {
         {OUTSIDE_TITLE}
       </Link>
     </>
-  );
-}
-
-/** A7 "By seller" name, with the email under it when two sellers share the name (as A6's select does). */
-function SellerCell({ row, rows }: { row: SellerTotals; rows: SellerTotals[] }) {
-  const email = sellerRowEmail(row, rows);
-  return (
-    <span className="app-seller-cell">
-      <b data-muted={row.sellerId === null || undefined}>{sellerRowLabel(row)}</b>
-      {email ? (
-        <span className="app-seller-email" data-testid="seller-email">
-          {email}
-        </span>
-      ) : null}
-    </span>
-  );
-}
-
-/**
- * An A7 amount (money columns and KPIs): `CAD 480.00`. On phones the "CAD"
- * label is visually dropped (still read by screen readers) so amounts don't
- * wrap (Marco, 2026-09-26).
- */
-function Money({ amount }: { amount: string }) {
-  const text = formatCurrency(amount);
-  if (!text.startsWith("CAD ")) return <>{text}</>;
-  return (
-    <>
-      <span className="app-inv-cad">CAD </span>
-      <span className="app-inv-amount">{text.slice(4)}</span>
-    </>
-  );
-}
-
-function Kpi({ label, value, tone, accent }: { label: string; value: React.ReactNode; tone?: string; accent?: boolean }) {
-  return (
-    <div>
-      <div className="app-inv-kpi-label" data-accent={accent || undefined}>
-        {label}
-      </div>
-      <div className="app-inv-kpi-value" data-tone={tone}>
-        {value}
-      </div>
-    </div>
   );
 }

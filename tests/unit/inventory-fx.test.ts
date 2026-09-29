@@ -352,7 +352,7 @@ describe("USD amounts and conversion (exact decimals)", () => {
     const valid = { idempotencyKey: KEY, stockItemId: ITEM, receivedOn: "2026-08-26", quantity: "10", unitCost: "11,5" };
     expect(validatePurchase({ ...valid, currency: "USD" }, "2026-09-27")).toEqual({
       ok: true,
-      value: { idempotencyKey: KEY, stockItemId: ITEM, peptideId: null, strengthMg: null, receivedOn: "2026-08-26", quantity: 10, currency: "USD", usdUnitCost: "11.50" },
+      value: { idempotencyKey: KEY, stockItemId: ITEM, peptideId: null, strengthMg: null, receivedOn: "2026-08-26", quantity: 10, supplier: null, currency: "USD", usdUnitCost: "11.50" },
     });
     // The CAD cost keeps its rules (a comma is not a decimal point there).
     expect(validatePurchase({ ...valid, currency: "CAD" }, "2026-09-27")).toEqual({ ok: false, error: COST_INVALID });
@@ -383,6 +383,7 @@ describe("USD amounts and conversion (exact decimals)", () => {
         quantity: 10,
         unitCost: "15.28",
         usd: { usdUnitCost: "11.00", rate: "1.3888", rateDate: "2026-08-28" },
+        supplier: null,
       },
     });
     expect(convertUsdPurchase({ ...entry, usdUnitCost: "1000000.00" }, { rate: "1.3876", rateDate: "2026-08-26" })).toEqual({

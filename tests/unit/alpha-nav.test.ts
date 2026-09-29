@@ -35,7 +35,7 @@ describe("app shell navigation (design v3)", () => {
       supplies: "/app/supplies",
       overview: "/admin/business",
       stock: "/admin/inventory",
-      ledger: "/admin/sales",
+      ledger: "/admin/ledger",
       "admin-library": "/admin/library",
       people: "/admin/invitations",
     });
@@ -79,6 +79,7 @@ describe("app shell navigation (design v3)", () => {
       expect(activeKey(items, "/admin/business")).toBe("overview");
       expect(activeKey(items, "/admin/business", "ledger")).toBe("overview");
       expect(activeKey(items, "/admin/sales")).toBe("ledger");
+      expect(activeKey(items, "/admin/ledger")).toBe("ledger");
       expect(activeKey(items, "/admin/sales", "overview")).toBe("ledger");
       expect(activeKey(items, "/admin/sales/outside")).toBe("ledger");
       // A choice that doesn't own the page is ignored.

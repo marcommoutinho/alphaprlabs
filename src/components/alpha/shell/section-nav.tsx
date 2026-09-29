@@ -22,8 +22,8 @@ import { useNavChoice } from "./nav-choice";
  *   merges (Library: Peptides | Templates; People: Invitations | Support).
  *   TODO(V7): A8 / A11 replace these with their own controls.
  */
-/** Admin pages with their own back bar on the phone (A3 Stock's "‹ Business"). */
-const OWN_BACK_BAR = ["/admin/inventory"];
+/** Admin pages with their own back bar on the phone (A3 Stock's, A7 Ledger's and Outside buyers' "‹ Business" / "‹ Ledger"). */
+const OWN_BACK_BAR = ["/admin/inventory", "/admin/ledger", "/admin/sales/outside"];
 
 export function SectionNav({ role }: { role: AppRole }) {
   const pathname = usePathname();

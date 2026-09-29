@@ -97,12 +97,11 @@ const STOCK: NavItem = { key: "stock", label: "Stock", href: "/admin/inventory",
 const LEDGER: NavItem = {
   key: "ledger",
   label: "Ledger",
-  // TODO(V6): A7 / A14 / D5 Ledger (sales and purchases by day or month).
-  // Closest today: Sales & gross profit (every sale, filters and the
-  // per-seller totals), with its outside buyers.
-  href: "/admin/sales",
+  // A7 / A14 / D5: sales and purchases by day or month. The old
+  // /admin/sales redirects here; its outside buyers page stays under it.
+  href: "/admin/ledger",
   icon: "ledger",
-  match: ["/admin/sales"],
+  match: ["/admin/ledger", "/admin/sales"],
 };
 const ADMIN_LIBRARY: NavItem = {
   key: "admin-library",

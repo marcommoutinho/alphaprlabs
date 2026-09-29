@@ -23,6 +23,7 @@
 @source not "../components/auth";
 @source not "../components/business";
 @source not "../components/push";
+@source not "../components/records";
 @source not "../components/research";
 
 /* The public site's (and shadcn's) `dark:`: inside `.dark`. The design v3

@@ -1,20 +1,20 @@
-import { AppPage } from "@/components/app-shell/app-shell";
 import { OutsideBuyersView, OutsideSalesView } from "@/components/admin/outside-buyers";
 import { requireAdmin } from "@/lib/auth/session";
 import { listOutsideBuyers, listOutsideSales } from "@/lib/inventory/sellers";
 import { listBuyerAccounts, listStock } from "@/lib/inventory/service";
 import { createClient } from "@/lib/supabase/server";
 
+export const metadata = { title: "Outside buyers · Alpha PR Labs" };
+
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 
 const one = (value: string | string[] | undefined) => (typeof value === "string" ? value : "");
 
 /**
- * A7 Outside buyers (admins only): every outside buyer name not yet linked,
+ * Outside buyers (admins only): every outside buyer name not yet linked,
  * found by `q` (contains, ignoring case); `name` opens that buyer's sales
- * (exactly that name), each with "Link to account…". Unlike the sales lists,
- * which show the newest sales, nothing here is capped: an old sale can
- * always be found and linked.
+ * (exactly that name), each with "Link to account…". Nothing here is capped:
+ * an old sale can always be found and linked.
  */
 export default async function OutsideBuyersPage({ searchParams }: { searchParams: SearchParams }) {
   await requireAdmin("/admin/sales/outside");
@@ -25,17 +25,9 @@ export default async function OutsideBuyersPage({ searchParams }: { searchParams
   if (name) {
     const [sales, stock] = await Promise.all([listOutsideSales(db, name), listStock(db)]);
     const accounts = sales.length > 0 ? await listBuyerAccounts(db) : [];
-    return (
-      <AppPage>
-        <OutsideSalesView name={name} sales={sales} accounts={accounts} itemLabels={new Map(stock.map((item) => [item.id, item.label]))} />
-      </AppPage>
-    );
+    return <OutsideSalesView name={name} sales={sales} accounts={accounts} itemLabels={new Map(stock.map((item) => [item.id, item.label]))} />;
   }
 
   const search = one(params.q);
-  return (
-    <AppPage>
-      <OutsideBuyersView buyers={await listOutsideBuyers(db, search)} search={search} />
-    </AppPage>
-  );
+  return <OutsideBuyersView buyers={await listOutsideBuyers(db, search)} search={search} />;
 }

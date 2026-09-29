@@ -46,7 +46,7 @@ describe("A5 purchase validation", () => {
   it("accepts an existing item and normalizes the cost to cents", () => {
     expect(validatePurchase(valid)).toEqual({
       ok: true,
-      value: { idempotencyKey: KEY, stockItemId: ITEM, peptideId: null, strengthMg: null, receivedOn: "2026-08-15", quantity: 10, unitCost: "20.00" },
+      value: { idempotencyKey: KEY, stockItemId: ITEM, peptideId: null, strengthMg: null, receivedOn: "2026-08-15", quantity: 10, supplier: null, unitCost: "20.00" },
     });
     expect(validatePurchase({ ...valid, unitCost: " 0 " })).toMatchObject({ ok: true, value: { unitCost: "0.00" } });
   });
@@ -80,7 +80,7 @@ describe("A6 sale validation", () => {
   it("accepts an outside buyer (trimmed) or an account", () => {
     expect(validateSale(valid)).toEqual({
       ok: true,
-      value: { idempotencyKey: KEY, stockItemId: ITEM, soldOn: "2026-08-25", sellerId: SELLER, quantity: 12, unitPrice: "40.00", buyer: { type: "outside", name: "Walk-in" } },
+      value: { idempotencyKey: KEY, stockItemId: ITEM, soldOn: "2026-08-25", sellerId: SELLER, quantity: 12, unitPrice: "40.00", buyer: { type: "outside", name: "Walk-in" }, expectedAllocation: null },
     });
     expect(validateSale({ ...valid, buyerType: "account", buyerProfileId: PEPTIDE })).toMatchObject({
       ok: true,

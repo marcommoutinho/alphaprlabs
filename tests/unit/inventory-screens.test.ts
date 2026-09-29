@@ -5,7 +5,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { SalesReportView, StockItemView } from "@/components/admin/inventory-views";
+import { StockItemView } from "@/components/admin/inventory-views";
 import { StockScreen } from "@/components/business/stock-screen";
 
 vi.mock("@/app/(private)/admin/inventory/actions", () => ({ setStockThresholdAction: async () => ({}) }));
@@ -31,7 +31,7 @@ import {
   salesPeriodOf,
   vials,
 } from "@/lib/inventory/screens";
-import type { SalesReport, StockItemDetail, StockItemSummary } from "@/lib/inventory/service";
+import type { StockItemDetail, StockItemSummary } from "@/lib/inventory/service";
 
 const lot = (purchaseId: string, receivedOn: string, recordedOrder: number, unitCost: string, remaining: number): FifoLot => ({
   purchaseId,
@@ -160,14 +160,6 @@ const ITEM: StockItemSummary = {
   sold: 0,
   onHand: 0,
 };
-const report = (hasPurchases: boolean, hasSales: boolean): SalesReport => ({
-  totals: { sales: 0, vials: 0, revenue: "0.00", cost: "0.00", grossProfit: "0.00" },
-  byItem: [],
-  sales: [],
-  salesTruncated: false,
-  hasPurchases,
-  hasSales,
-});
 
 describe("designed empty states, rendered", () => {
   it("A6a Stock with no stock items: 0 vials, the designed words, and Record a purchase as the only action", () => {
@@ -176,7 +168,8 @@ describe("designed empty states, rendered", () => {
     expect(text).toContain("0 vials");
     expect(text).toContain("No stock recorded yet");
     expect(text).toContain("Record a purchase to add the first peptide and vial strength. Sales can be recorded once there's stock.");
-    expect(page).toMatch(/<a[^>]*href="\/admin\/inventory\/purchase"[^>]*>Record a purchase<\/a>/);
+    expect(page).toMatch(/<button[^>]*>Record a purchase<\/button>/);
+    expect(page).not.toContain("/admin/inventory/purchase");
     expect(page).not.toContain("Record sale");
     expect(page).not.toContain('data-testid="stock-table"');
   });
@@ -187,15 +180,5 @@ describe("designed empty states, rendered", () => {
     expect(page).toContain(NO_PURCHASES);
     expect(page).toContain(NO_SALES);
     expect(page).toMatch(/<button[^>]*disabled=""[^>]*>Record sale<\/button>/);
-  });
-
-  it("A7: nothing yet, purchases only, and a filter with no sales", () => {
-    const labels = new Map<string, string>();
-    expect(html(createElement(SalesReportView, { report: report(false, false), itemLabels: labels, sellers: [] }))).toContain(SALES_EMPTY_NOTHING);
-    expect(html(createElement(SalesReportView, { report: report(true, false), itemLabels: labels, sellers: [] }))).toContain(SALES_EMPTY_NO_SALES);
-    const filtered = html(createElement(SalesReportView, { report: report(true, true), itemLabels: labels, sellers: [] }));
-    expect(filtered).toContain(SALES_EMPTY_FILTERED);
-    expect(filtered.replace(/<[^>]+>/g, "")).toContain("CAD 0.00");
-    expect(filtered).not.toContain("Sales in this view");
   });
 });

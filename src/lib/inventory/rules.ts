@@ -100,13 +100,12 @@ const vials = parseVials;
 
 /**
  * A CAD amount 0..1,000,000.00 with at most 2 decimals, normalized to
- * `12.50`, or the error. A comma works as the decimal point ("12,5" = 12.50)
- * and "1,000"-style grouping is refused rather than guessed (Marco,
- * 2026-09-26, the calculator's rules: normalizeDecimal), as for USD costs.
+ * `12.50`, or the error. Digits and a point only, as before V6 (a comma
+ * decimal is the USD cost's rule, usdAmount: tests/unit/inventory-fx.test.ts).
  */
 export function parseCad(value: unknown, invalid: string): { ok: true; value: string } | { ok: false; error: string } {
-  const raw = normalizeDecimal(value);
-  if (raw === null || !AMOUNT.test(raw)) return { ok: false, error: invalid };
+  const raw = text(value);
+  if (!AMOUNT.test(raw)) return { ok: false, error: invalid };
   const decimal = new Decimal(raw);
   if (decimal.decimalPlaces() > 2) return { ok: false, error: AMOUNT_CENTS };
   if (decimal.gt(INVENTORY_LIMITS.amount)) return { ok: false, error: AMOUNT_TOO_LARGE };

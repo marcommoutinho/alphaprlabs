@@ -4,7 +4,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { SaleEntry, SalesReportView } from "@/components/admin/inventory-views";
+import { SaleEntry } from "@/components/admin/inventory-views";
 import { InvitationsView } from "@/components/admin/invitations-view";
 import { ToastProvider } from "@/components/app-shell/toast";
 import {
@@ -17,15 +17,12 @@ import {
 } from "@/lib/inventory/rules";
 import { buyerLabel } from "@/lib/inventory/screens";
 import {
-  BY_SELLER_TITLE,
   defaultSeller,
   LINK_BUTTON,
   linkedToast,
   linkSameNameLabel,
   NO_SELLER,
   OUTSIDE_EMPTY,
-  OUTSIDE_LINK_NOTE,
-  OUTSIDE_TITLE,
   outsideBuyerLine,
   outsideNoMatch,
   sellerLine,
@@ -34,7 +31,7 @@ import {
   sellerRowLabel,
 } from "@/lib/inventory/seller-screens";
 import type { SellerTotals } from "@/lib/inventory/sellers";
-import type { SaleRecord, SalesReport } from "@/lib/inventory/service";
+import type { SaleRecord } from "@/lib/inventory/service";
 import { ADMIN_CONFIRM_POINTS, invitationRole, ROLE_LABEL } from "@/lib/invitations/state";
 
 const KEY = "0b5b3a3e-6f0e-4c8e-9a51-1f9d7f3b2c10";
@@ -143,28 +140,6 @@ describe("rendered", () => {
     expect(text(html(createElement(SaleEntry, { sale: { ...SALE, sellerId: null, sellerName: null } })))).toContain(NO_SELLER);
   });
 
-  it("A7 By seller: one row per seller with vials, revenue, cost and gross profit", () => {
-    const report: SalesReport = {
-      totals: { sales: 3, vials: 5, revenue: "200.00", cost: "90.00", grossProfit: "110.00" },
-      byItem: [{ stockItemId: ITEM, label: "Compound A · 8 mg", sales: 3, vials: 5, revenue: "200.00", cost: "90.00", grossProfit: "110.00" }],
-      sales: [SALE],
-      salesTruncated: false,
-      hasPurchases: true,
-      hasSales: true,
-    };
-    const sellers: SellerTotals[] = [
-      { sellerId: BRIAN, sellerName: "Brian", sellerEmail: "brian@example.test", sales: 2, vials: 3, revenue: "120.00", cost: "50.00", grossProfit: "70.00" },
-      { sellerId: null, sellerName: null, sellerEmail: null, sales: 1, vials: 2, revenue: "80.00", cost: "40.00", grossProfit: "40.00" },
-    ];
-    const page = html(createElement(SalesReportView, { report, sellers, itemLabels: new Map([[ITEM, "Compound A · 8 mg"]]) }));
-    expect(text(page)).toContain(BY_SELLER_TITLE);
-    const bySeller = /data-testid="by-seller">(.*?)<h2/.exec(page)?.[1] ?? "";
-    expect(text(bySeller)).toBe("Brian3 vialsCAD 120.00CAD 50.00CAD 70.00" + "Seller not recorded2 vialsCAD 80.00CAD 40.00CAD 40.00");
-    // Every sale, however old, can be found from A7.
-    expect(page).toContain(`href="/admin/sales/outside"`);
-    expect(text(page).replaceAll("&#x27;", "'")).toContain(`${OUTSIDE_LINK_NOTE} ${OUTSIDE_TITLE}`);
-  });
-
   it("A7 By seller: two admins who share a name are told apart by email, as in A6's select", () => {
     const row = (sellerId: string, sellerName: string, sellerEmail: string, revenue: string): SellerTotals => ({
       sellerId,
@@ -183,22 +158,6 @@ describe("rendered", () => {
     ];
     expect(sellers.map((seller) => sellerRowEmail(seller, sellers))).toEqual(["sam.a@example.test", "sam.b@example.test", null]);
     expect(sellerRowEmail({ sellerId: null, sellerName: null, sellerEmail: null }, sellers)).toBeNull();
-    const report: SalesReport = {
-      totals: { sales: 3, vials: 3, revenue: "30.00", cost: "30.00", grossProfit: "0.00" },
-      byItem: [{ stockItemId: ITEM, label: "Compound A · 8 mg", sales: 3, vials: 3, revenue: "30.00", cost: "30.00", grossProfit: "0.00" }],
-      sales: [],
-      salesTruncated: false,
-      hasPurchases: true,
-      hasSales: true,
-    };
-    const page = html(createElement(SalesReportView, { report, sellers, itemLabels: new Map() }));
-    const bySeller = /data-testid="by-seller">(.*?)<h2/.exec(page)?.[1] ?? "";
-    expect(bySeller.match(/data-testid="seller-email">([^<]*)</g)).toEqual([
-      'data-testid="seller-email">sam.a@example.test<',
-      'data-testid="seller-email">sam.b@example.test<',
-    ]);
-    expect(text(bySeller)).toContain("Sam Leesam.a@example.test1 vial");
-    expect(text(bySeller)).toContain("Brian1 vial");
   });
 
   it("Outside buyers copy: a name's sales, vials and latest date; no match; nothing left", () => {

@@ -15,10 +15,11 @@ type Recorder = { open: (kind: RecordKind, itemId?: string | null) => void };
 
 const RecordContext = createContext<Recorder | null>(null);
 
+/** Outside the admin layout (a component rendered on its own, in tests) the buttons do nothing. */
+const NO_RECORDER: Recorder = { open: () => undefined };
+
 export function useRecorder(): Recorder {
-  const recorder = useContext(RecordContext);
-  if (!recorder) throw new Error("useRecorder must be used inside <RecordProvider>");
-  return recorder;
+  return useContext(RecordContext) ?? NO_RECORDER;
 }
 
 /**
