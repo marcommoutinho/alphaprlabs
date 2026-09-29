@@ -9,6 +9,17 @@ const nextConfig: NextConfig = {
   // src/app/document.ts), so unmatched URLs need app/global-not-found.tsx.
   experimental: {
     globalNotFound: true,
+    // The client keeps a visited private page for 30 s (Next.js 16's
+    // default is 0), so going back to a tab looked at a moment ago shows it
+    // at once, without a server round trip. It never shows anything older
+    // than the person's own last change: every server action that saves
+    // calls refresh() or revalidatePath() and router.refresh() follows the
+    // record sheets' saves, and each drops these pages on the client
+    // (invalidateBfCache in next/dist/client/components/router-reducer);
+    // sign-in and sign-out set cookies or load the page in full. Other
+    // people's changes (an admin's, another device's) can take up to 30 s to
+    // show on a revisit, as a page left open would; a reload shows them.
+    staleTimes: { dynamic: 30 },
   },
   async headers() {
     return [

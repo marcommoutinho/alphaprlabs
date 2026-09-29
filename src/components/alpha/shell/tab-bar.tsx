@@ -7,18 +7,21 @@ import { activeKey, tabsFor } from "@/lib/alpha/nav";
 import { cn } from "@/lib/utils";
 import { useNavChoice } from "./nav-choice";
 import { NavIcon } from "./nav-icon";
+import { NavLinkPending, usePendingNav } from "./pending-nav";
 
 /**
  * Phone tab bar (§7.13, Tab Bar.dc.html): solid `paper`, docked, 1 px `line`
  * on top, five equal columns 54 px tall plus the home-indicator inset. Active:
  * `ink`, label 600 and a 28 × 2 bar on the top edge; inactive `ink-3`. Hidden
- * from 760 px, where the sidebar takes over.
+ * from 760 px, where the sidebar takes over. A tapped tab is active from the
+ * next frame, before its page arrives (./pending-nav).
  */
 export function TabBar({ role }: { role: AppRole }) {
   const pathname = usePathname();
   const tabs = tabsFor(role);
   const { chosen, choose } = useNavChoice();
-  const current = activeKey(tabs, pathname, chosen);
+  const pending = usePendingNav();
+  const current = pending && tabs.some((tab) => tab.key === pending.key) ? pending.key : activeKey(tabs, pathname, chosen);
 
   return (
     <nav
@@ -48,6 +51,7 @@ export function TabBar({ role }: { role: AppRole }) {
             />
             <NavIcon name={tab.icon} className="size-[22px]" strokeWidth={2} />
             {tab.label}
+            <NavLinkPending navKey={tab.key} href={tab.href} />
           </Link>
         );
       })}

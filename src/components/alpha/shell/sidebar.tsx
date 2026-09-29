@@ -9,6 +9,7 @@ import { useNavChoice } from "./nav-choice";
 import { useNavCounts } from "./nav-counts";
 import { cn } from "@/lib/utils";
 import { NavIcon } from "./nav-icon";
+import { NavLinkPending, usePendingNav } from "./pending-nav";
 import { UserMenu } from "./user-menu";
 
 export type SidebarCount = { text: string; tone: "missed" | "low" };
@@ -37,11 +38,10 @@ export function Sidebar({
   const counts = { ...loaded, ...given };
   const groups = sidebarFor(identity.role);
   const { chosen, choose } = useNavChoice();
-  const current = activeKey(
-    groups.flatMap((group) => group.items),
-    pathname,
-    chosen,
-  );
+  const items = groups.flatMap((group) => group.items);
+  // A followed item is current from the next frame, before its page arrives (./pending-nav).
+  const pending = usePendingNav();
+  const current = pending && items.some((item) => item.key === pending.key) ? pending.key : activeKey(items, pathname, chosen);
 
   return (
     <aside
@@ -89,6 +89,7 @@ export function Sidebar({
                       {counts[item.key].text}
                     </span>
                   ) : null}
+                  <NavLinkPending navKey={item.key} href={item.href} />
                 </Link>
               );
             })}

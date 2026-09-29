@@ -142,7 +142,13 @@ export function SheetContent({
             </Drawer.Close>
           </div>
           )}
-          <Drawer.Content className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3.5 laptop:px-6">
+          {/* Scrolling inside stays inside (no page scroll behind); with no footer on a phone, the end clears the home indicator. */}
+          <Drawer.Content
+            className={cn(
+              "flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-3 py-3.5 laptop:px-6",
+              (!footer || footerOn === "laptop") && "pb-[max(14px,env(safe-area-inset-bottom))] laptop:pb-3.5",
+            )}
+          >
             {children}
           </Drawer.Content>
           <ToastSlot open={open} footer={Boolean(footer) && footerOn === "all"} />

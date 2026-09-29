@@ -6,6 +6,7 @@ import type { AppRole } from "@/lib/app/identity";
 import { activeKey, businessItems, isUnder } from "@/lib/alpha/nav";
 import { cn } from "@/lib/utils";
 import { useNavChoice } from "./nav-choice";
+import { NavLinkPending, usePendingNav } from "./pending-nav";
 
 /**
  * Phone, admin area: the Business destinations (Overview, Stock, Ledger,
@@ -19,14 +20,17 @@ const OWN_BACK_BAR = ["/admin/ledger", "/admin/ledger/outside"];
 const OWN_BACK_BAR_UNDER = ["/admin/inventory", "/admin/library", "/admin/people"];
 
 export function SectionNav({ role }: { role: AppRole }) {
-  const pathname = usePathname();
+  // A followed navigation item's page counts from the next frame, before it arrives (./pending-nav).
+  const pending = usePendingNav();
+  const current = usePathname();
+  const pathname = pending?.href ?? current;
   const { chosen, choose } = useNavChoice();
   const ownBar = OWN_BACK_BAR.includes(pathname) || OWN_BACK_BAR_UNDER.some((prefix) => isUnder(pathname, prefix));
   const inBusiness = role === "admin" && isUnder(pathname, "/admin") && !ownBar;
   if (!inBusiness) return null;
 
   const business = businessItems();
-  const currentBusiness = activeKey(business, pathname, chosen);
+  const currentBusiness = pending && business.some((item) => item.key === pending.key) ? pending.key : activeKey(business, pathname, chosen);
 
   return (
     <div className="flex flex-col gap-3 px-3 pt-3 laptop:hidden">
@@ -43,6 +47,7 @@ export function SectionNav({ role }: { role: AppRole }) {
             )}
           >
             {item.label}
+            <NavLinkPending navKey={item.key} href={item.href} />
           </Link>
         ))}
       </nav>

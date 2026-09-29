@@ -160,6 +160,14 @@ body:has(> .alpha) {
   overflow-x: clip;
 }
 
+/* Installed-app feel (N1): the frame doesn't rubber-band past its ends
+   (the page stays put under the docked tab bar), and taps don't flash. */
+:root:has(> body > .alpha),
+body:has(> .alpha) {
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
 .alpha,
 [data-alpha-theme] {
   color: var(--ink);
@@ -195,5 +203,16 @@ body:has(> .alpha) {
   .alpha input,
   .alpha textarea {
     caret-color: var(--signal);
+  }
+
+  /* Controls don't select their label (or offer a link preview) when
+     pressed; content stays selectable. */
+  .alpha :is(button, [role="button"], [role="tab"], [role="switch"], [role="menuitem"], nav a) {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .alpha nav a {
+    -webkit-touch-callout: none;
   }
 }

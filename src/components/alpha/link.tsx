@@ -1,6 +1,9 @@
 import NextLink from "next/link";
 import type { ComponentProps } from "react";
 
+/** The followed link's pending state, for feedback inside it (src/components/alpha/shell/pending-nav.tsx). */
+export { useLinkStatus } from "next/link";
+
 /**
  * The private app's link: next/link with prefetching off by default. Every
  * private screen and shared private component imports this instead of

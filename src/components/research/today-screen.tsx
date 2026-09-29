@@ -63,6 +63,40 @@ type Props = {
 
 type Busy = { key: string; kind: "confirm" | "skip" } | null;
 
+/** A dose's save, made while another was running: it waits its turn (see enqueue). */
+type Save = { key: string; kind: "confirm" | "skip"; run: () => Promise<void> };
+
+/**
+ * A one-tap Taken (the Now block, the Schedule, T) or Mark skipped, shown at
+ * once while it is saved in the background: the tick, or the overdue row
+ * gone. It stays until the server has answered and the page from the server
+ * shows it too (a refreshed page that stalls leaves it shown: it was saved).
+ * A refusal or a failure takes it back, and says why as before.
+ */
+type Shown = { key: string; kind: "taken" | "skipped"; at: string; site: string; answered: boolean };
+
+/** Whether the page from the server already shows a one-tap entry (an overdue dose resolved leaves the list). */
+function reflects(view: TodayView, entry: Shown): boolean {
+  const item = view.items.find((candidate) => candidate.key === entry.key);
+  if (!item) return true;
+  return item.kind === "today" && item.state === entry.kind;
+}
+
+/** The page's doses with the one-tap entries it doesn't show yet. */
+function withShown(items: readonly TodayDose[], shown: readonly Shown[]): readonly TodayDose[] {
+  if (!shown.length) return items;
+  const byKey = new Map(shown.map((entry) => [entry.key, entry]));
+  return items.flatMap((item): TodayDose[] => {
+    const entry = byKey.get(item.key);
+    if (!entry) return [item];
+    if (item.kind === "open") return [];
+    if (item.kind !== "today") return [item];
+    return entry.kind === "taken"
+      ? [{ ...item, state: "taken", actualAt: entry.at, amountMg: item.doseMg, site: entry.site }]
+      : [{ ...item, state: "skipped" }];
+  });
+}
+
 /**
  * A Taken or Skip the server refused because the dose changed (or was already
  * recorded or skipped): the action also refreshed the page, and the dose's
@@ -73,7 +107,7 @@ type Busy = { key: string; kind: "confirm" | "skip" } | null;
  * refusal ("The details below are current") over the old details, e.g. the
  * old syringe units, for as long as the refreshed page took to arrive.
  */
-type Reopen = { key: string; notice: string | null; from: TodayView };
+type Reopen = { key: string; kind: "confirm" | "skip"; notice: string | null; from: TodayView };
 
 /** The time now, ticking every 30 s after hydration (the server's render time before, so both render alike). */
 function useNowMs(initial: number): number {
@@ -125,7 +159,12 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
   const [checkInFeeling, setCheckInFeeling] = useState<number | null>(null);
   const [checkInOpen, setCheckInOpen] = useState(false);
   const [supplementSheet, setSupplementSheet] = useState<SupplementDetail | null>(null);
+  /** The save running now; saves run one at a time, in the order made (enqueue). */
   const [busy, setBusy] = useState<Busy>(null);
+  const waiting = useRef<Save[]>([]);
+  const running = useRef(false);
+  const [queued, setQueued] = useState<readonly { key: string; kind: Save["kind"] }[]>([]);
+  const [shown, setShown] = useState<readonly Shown[]>([]);
   const [reopen, setReopen] = useState<Reopen | null>(null);
   const [, startTransition] = useTransition();
   const confirmKeys = useRequestKeys();
@@ -136,9 +175,12 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
   if (reopen && reopen.from !== view) {
     // The refreshed page is here: its sheet shows the dose as it is now.
     setReopen(null);
-    setBusy(null);
     setSheetKey(reopen.key);
     setSheetNotice(reopen.notice);
+  }
+  if (shown.some((entry) => entry.answered && reflects(view, entry))) {
+    // The page from the server shows these now.
+    setShown(shown.filter((entry) => !(entry.answered && reflects(view, entry))));
   }
   useEffect(() => {
     if (!reopen) refreshWait.arrived();
@@ -154,12 +196,31 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
     setReopen(next);
     refreshWait.start({
       lead,
-      onGiveUp: () => {
-        setReopen(null);
-        setBusy(null);
-      },
+      onGiveUp: () => setReopen(null),
     });
   };
+
+  /** What is being saved for a dose: running, waiting its turn, or awaiting its refreshed page (Reopen). */
+  const pendingOf = (key: string): Save["kind"] | null =>
+    busy?.key === key ? busy.kind : reopen?.key === key ? reopen.kind : (queued.find((save) => save.key === key)?.kind ?? null);
+
+  /** Starts the next waiting save, if any (the one running is over). */
+  const startNext = () => {
+    const save = waiting.current.shift();
+    setQueued(waiting.current.map(({ key, kind }) => ({ key, kind })));
+    running.current = save !== undefined;
+    setBusy(save ? { key: save.key, kind: save.kind } : null);
+    if (save) startTransition(save.run);
+  };
+  /** Saves run one at a time, in the order made, so each answer (and Reopen) is about the page it was made on. */
+  const enqueue = (save: Save) => {
+    waiting.current.push(save);
+    if (running.current) setQueued(waiting.current.map(({ key, kind }) => ({ key, kind })));
+    else startNext();
+  };
+  const show = (entry: Omit<Shown, "answered">) => setShown((list) => [...list.filter((other) => other.key !== entry.key), { ...entry, answered: false }]);
+  const unshow = (key: string) => setShown((list) => list.filter((entry) => entry.key !== key));
+  const answered = (key: string) => setShown((list) => list.map((entry) => (entry.key === key ? { ...entry, answered: true } : entry)));
 
   const supplement = useTakeSupplement((message, tone) => (tone === "error" ? toast.error({ message }) : toast.success({ message })));
 
@@ -191,127 +252,150 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
         // The dose is open again: a new Taken or Skip is a new request.
         confirmKeys.drop(detail.key);
         skipKeys.drop(detail.key);
+        unshow(detail.key);
         toast.success({ message: undoneToast(detail.peptideName) });
       } else toast.error({ message: result.error ?? UNDO_FAILED });
     });
   };
 
-  const confirm = (detail: DoseDetail, submission: SheetSubmission, fromSheet: boolean, retried = false) => {
-    if (busy) return;
-    // The page the entry was made from (see Reopen).
-    const shown = view;
-    setBusy({ key: detail.key, kind: "confirm" });
+  /**
+   * Taken (the sheet's Log, or a one-tap Taken shown at once: see Shown).
+   * The save waits its turn behind any other (enqueue); a second tap on a
+   * dose being saved does nothing.
+   */
+  const confirm = (detail: DoseDetail, submission: SheetSubmission, fromSheet: boolean) => {
+    if (pendingOf(detail.key)) return;
     setSheetError(null);
-    startTransition(async () => {
-      let result: ConfirmActionResult;
-      try {
-        result = await confirmDoseAction({
-          requestKey: confirmKeys.get(detail.key),
-          key: detail.key,
-          seenScheduledAt: detail.scheduledAt,
-          seenDoseMg: detail.doseMg,
-          timeZone: detail.timeZone,
-          ...submission,
-        });
-      } catch (error) {
-        // A redirect (the session ended: sign in again) goes to Next.js, not to the toast.
-        unstable_rethrow(error);
-        toast.error({ message: SAVE_FAILED_MESSAGE });
-        setBusy(null);
-        return;
-      }
-      if (result.outcome === "changed" || result.outcome === "already" || result.outcome === "skipped") {
-        // The page refreshed: once it's here, the sheet shows the dose as it is now (see Reopen).
-        const lead = result.outcome === "changed" ? DOSE_CHANGED_LEAD : result.outcome === "skipped" ? ALREADY_SKIPPED : DOSE_ALREADY_TAKEN;
-        awaitReopen({ key: detail.key, notice: result.outcome === "changed" ? (result.error ?? null) : null, from: shown }, lead);
-        if (result.outcome === "skipped" && result.error) toast.error({ message: result.error });
-        return;
-      }
-      setBusy(null);
-      if (result.outcome === "recorded" && result.actualAt && result.doseId) {
-        const doseId = result.doseId;
-        const at = clock12(wallOf(result.actualAt, detail.timeZone).slice(11, 16));
-        const logged = loggedToast(detail.peptideName, massLabel(result.amountMg ?? submission.amount), at);
-        const message = result.discrepancyVial
-          ? `${logged}. ${vialName(result.discrepancyVial)}'s estimate is now below zero — check it in Personal supplies.`
-          : logged;
-        toast.success({ message, action: { label: "Undo", onAction: () => undo(doseId, detail) } });
-        if (fromSheet) closeSheet();
-        return;
-      }
-      if (result.outcome === "undone" && !retried) {
-        // This request's entry was undone elsewhere: log it as a new request.
-        confirmKeys.drop(detail.key);
-        confirm(detail, submission, fromSheet, true);
-        return;
-      }
-      if (result.outcome === "gone") {
-        closeSheet();
-        if (result.toast) toast.error({ message: result.toast });
-        return;
-      }
-      if (result.error) {
-        if (fromSheet) setSheetError(result.error);
-        else toast.error({ message: result.error });
-      }
-      if (result.toast) toast.error({ message: result.toast });
+    if (!fromSheet) show({ key: detail.key, kind: "taken", at: new Date().toISOString(), site: submission.site });
+    // The page the entry was made from (see Reopen).
+    const shownView = view;
+    enqueue({
+      key: detail.key,
+      kind: "confirm",
+      run: async () => {
+        for (let retried = false; ; retried = true) {
+          let result: ConfirmActionResult;
+          try {
+            result = await confirmDoseAction({
+              requestKey: confirmKeys.get(detail.key),
+              key: detail.key,
+              seenScheduledAt: detail.scheduledAt,
+              seenDoseMg: detail.doseMg,
+              timeZone: detail.timeZone,
+              ...submission,
+            });
+          } catch (error) {
+            // A redirect (the session ended: sign in again) goes to Next.js, not to the toast.
+            unstable_rethrow(error);
+            unshow(detail.key);
+            toast.error({ message: SAVE_FAILED_MESSAGE });
+            startNext();
+            return;
+          }
+          if (result.outcome === "undone" && !retried) {
+            // This request's entry was undone elsewhere: log it as a new request.
+            confirmKeys.drop(detail.key);
+            continue;
+          }
+          if (result.outcome === "recorded" && result.actualAt && result.doseId) answered(detail.key);
+          else unshow(detail.key);
+          startNext();
+          if (result.outcome === "changed" || result.outcome === "already" || result.outcome === "skipped") {
+            // The page refreshed: once it's here, the sheet shows the dose as it is now (see Reopen).
+            const lead = result.outcome === "changed" ? DOSE_CHANGED_LEAD : result.outcome === "skipped" ? ALREADY_SKIPPED : DOSE_ALREADY_TAKEN;
+            awaitReopen({ key: detail.key, kind: "confirm", notice: result.outcome === "changed" ? (result.error ?? null) : null, from: shownView }, lead);
+            if (result.outcome === "skipped" && result.error) toast.error({ message: result.error });
+            return;
+          }
+          if (result.outcome === "recorded" && result.actualAt && result.doseId) {
+            const doseId = result.doseId;
+            const at = clock12(wallOf(result.actualAt, detail.timeZone).slice(11, 16));
+            const logged = loggedToast(detail.peptideName, massLabel(result.amountMg ?? submission.amount), at);
+            const message = result.discrepancyVial
+              ? `${logged}. ${vialName(result.discrepancyVial)}'s estimate is now below zero — check it in Personal supplies.`
+              : logged;
+            toast.success({ message, action: { label: "Undo", onAction: () => undo(doseId, detail) } });
+            if (fromSheet) closeSheet();
+            return;
+          }
+          if (result.outcome === "gone") {
+            closeSheet();
+            if (result.toast) toast.error({ message: result.toast });
+            return;
+          }
+          if (result.error) {
+            if (fromSheet) setSheetError(result.error);
+            else toast.error({ message: result.error });
+          }
+          if (result.toast) toast.error({ message: result.toast });
+          return;
+        }
+      },
     });
   };
 
+  /** Skip (the sheet) or Mark skipped (an overdue row, shown at once: see Shown); it waits its turn like Taken. */
   const skip = (detail: DoseDetail, fromSheet: boolean) => {
-    if (busy) return;
-    const shown = view;
-    setBusy({ key: detail.key, kind: "skip" });
+    if (pendingOf(detail.key)) return;
     setSheetError(null);
-    startTransition(async () => {
-      let result: SkipActionResult;
-      try {
-        result = await skipDoseAction({
-          requestKey: skipKeys.get(detail.key),
-          key: detail.key,
-          seenScheduledAt: detail.scheduledAt,
-          seenDoseMg: detail.doseMg,
-        });
-      } catch (error) {
-        unstable_rethrow(error);
-        toast.error({ message: SAVE_FAILED_MESSAGE });
-        setBusy(null);
-        return;
-      }
-      if (result.outcome === "changed" || result.outcome === "taken") {
-        // The page refreshed: once it's here, the sheet shows the dose as it is now (see Reopen).
-        awaitReopen({ key: detail.key, notice: result.error ?? null, from: shown }, result.outcome === "changed" ? DOSE_CHANGED_LEAD : DOSE_ALREADY_TAKEN);
-        return;
-      }
-      setBusy(null);
-      if (result.outcome === "skipped" && result.skipId) {
-        const skipId = result.skipId;
-        toast.success({
-          message: skippedToast(detail.peptideName, clock12(detail.planned.slice(11, 16))),
-          action: { label: "Undo", onAction: () => undo(skipId, detail) },
-        });
-        if (fromSheet) closeSheet();
-        return;
-      }
-      if (result.outcome === "undone") {
-        skipKeys.drop(detail.key);
-        toast.error({ message: "That skip was undone. Try again." });
-        return;
-      }
-      if (result.outcome === "already_skipped") {
-        if (fromSheet) closeSheet();
-        return;
-      }
-      if (result.outcome === "gone") {
-        closeSheet();
+    if (!fromSheet) show({ key: detail.key, kind: "skipped", at: new Date().toISOString(), site: "" });
+    const shownView = view;
+    enqueue({
+      key: detail.key,
+      kind: "skip",
+      run: async () => {
+        let result: SkipActionResult;
+        try {
+          result = await skipDoseAction({
+            requestKey: skipKeys.get(detail.key),
+            key: detail.key,
+            seenScheduledAt: detail.scheduledAt,
+            seenDoseMg: detail.doseMg,
+          });
+        } catch (error) {
+          unstable_rethrow(error);
+          unshow(detail.key);
+          toast.error({ message: SAVE_FAILED_MESSAGE });
+          startNext();
+          return;
+        }
+        if (result.outcome === "skipped" && result.skipId) answered(detail.key);
+        else unshow(detail.key);
+        startNext();
+        if (result.outcome === "changed" || result.outcome === "taken") {
+          // The page refreshed: once it's here, the sheet shows the dose as it is now (see Reopen).
+          awaitReopen({ key: detail.key, kind: "skip", notice: result.error ?? null, from: shownView }, result.outcome === "changed" ? DOSE_CHANGED_LEAD : DOSE_ALREADY_TAKEN);
+          return;
+        }
+        if (result.outcome === "skipped" && result.skipId) {
+          const skipId = result.skipId;
+          toast.success({
+            message: skippedToast(detail.peptideName, clock12(detail.planned.slice(11, 16))),
+            action: { label: "Undo", onAction: () => undo(skipId, detail) },
+          });
+          if (fromSheet) closeSheet();
+          return;
+        }
+        if (result.outcome === "undone") {
+          skipKeys.drop(detail.key);
+          toast.error({ message: "That skip was undone. Try again." });
+          return;
+        }
+        if (result.outcome === "already_skipped") {
+          if (fromSheet) closeSheet();
+          return;
+        }
+        if (result.outcome === "gone") {
+          closeSheet();
+          if (result.toast) toast.error({ message: result.toast });
+          return;
+        }
+        if (result.error) {
+          if (fromSheet) setSheetError(result.error);
+          else toast.error({ message: result.error });
+        }
         if (result.toast) toast.error({ message: result.toast });
-        return;
-      }
-      if (result.error) {
-        if (fromSheet) setSheetError(result.error);
-        else toast.error({ message: result.error });
-      }
-      if (result.toast) toast.error({ message: result.toast });
+      },
     });
   };
 
@@ -322,15 +406,19 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
       confirm(detail, { amount: detail.doseMg, actual: null, site: view.sites.suggested, notes: "", seenMixtureVersion: detail.mixtureVersionId }, false);
   };
 
+  // The doses as shown: the page's, with one-tap entries it doesn't show yet (Shown).
+  const items = withShown(view.items, shown);
   const nowItem = view.now ? (view.items.find((item) => item.key === view.now!.key) ?? null) : null;
-  const canTakeNow = nowItem !== null && view.now!.mode !== "next";
+  // The Now block keeps its dose until the refreshed page moves on: taken at once after a one-tap Taken.
+  const nowTaken = nowItem !== null && shown.some((entry) => entry.key === nowItem.key && entry.kind === "taken");
+  const canTakeNow = nowItem !== null && view.now!.mode !== "next" && !nowTaken;
   const sheetOpen = sheetKey !== null || checkInOpen || supplementSheet !== null;
 
   // D1: "Press T to log" (the Now block's Taken) on a laptop keyboard.
   const quickRef = useRef<() => void>(() => {});
   useEffect(() => {
     quickRef.current = () => {
-      if (canTakeNow && !sheetOpen && !busy) quick(nowItem!.key);
+      if (canTakeNow && !sheetOpen && !pendingOf(nowItem!.key)) quick(nowItem!.key);
     };
   });
   useEffect(() => {
@@ -347,15 +435,17 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
   }, []);
 
   const notes = todayNotes(view, supplements);
-  const progress = dayProgress({ doses: view.items, supplements: supplements.rows, checkedIn: checkIn.done, today: view.today, now: new Date(nowMs) });
-  const overdue = view.items.filter((item) => item.kind === "open");
-  const rail = dayRail(view.items, supplements.rows);
+  const progress = dayProgress({ doses: items, supplements: supplements.rows, checkedIn: checkIn.done, today: view.today, now: new Date(nowMs) });
+  const overdue = items.filter((item) => item.kind === "open");
+  const rail = dayRail(items, supplements.rows);
   // D1: the sidebar's Today counter shows the overdue doses.
   useNavCount("today", overdue.length ? { text: String(overdue.length), tone: "missed" } : null);
   useNavCount("supplies", lowCounter(lowVials.length));
-  const next = view.items.filter((item) => item.kind === "next");
+  const next = items.filter((item) => item.kind === "next");
   const sheetDetail = sheetKey ? (view.doses[sheetKey] ?? null) : null;
-  const disabled = busy !== null || supplement.pending;
+  // A dose's controls wait while it is being saved (or a supplement is); the other doses' stay usable.
+  const doseDisabled = (key: string) => pendingOf(key) !== null || supplement.pending;
+  const anySaving = busy !== null || queued.length > 0 || reopen !== null;
 
   return (
     <main className="mx-auto flex w-full max-w-[1200px] flex-col pb-[calc(96px+env(safe-area-inset-bottom))] laptop:px-8 laptop:pt-6 laptop:pb-16">
@@ -413,8 +503,9 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
               detail={view.doses[nowItem.key]}
               mode={view.now!.mode}
               today={view.today}
-              saving={busy?.key === nowItem.key && busy.kind === "confirm"}
-              disabled={disabled}
+              saving={!nowTaken && pendingOf(nowItem.key) === "confirm"}
+              taken={nowTaken}
+              disabled={doseDisabled(nowItem.key)}
               onTaken={() => quick(nowItem.key)}
               onDetails={() => openSheet(nowItem.key)}
             />
@@ -439,13 +530,13 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
                         variant="outline"
                         size="md"
                         className="hidden laptop:inline-flex"
-                        disabled={disabled}
-                        saving={busy?.key === item.key && busy.kind === "skip"}
+                        disabled={doseDisabled(item.key)}
+                        saving={pendingOf(item.key) === "skip"}
                         onClick={() => skip(view.doses[item.key], false)}
                       >
                         Mark skipped
                       </Button>
-                      <Button variant="outline" size="md" disabled={disabled} onClick={() => openSheet(item.key)}>
+                      <Button variant="outline" size="md" disabled={doseDisabled(item.key)} onClick={() => openSheet(item.key)}>
                         Log
                       </Button>
                     </span>
@@ -484,8 +575,8 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
                     last={index === rail.length - 1}
                     nowMs={nowMs}
                     inNowBlock={entry.type === "dose" && entry.dose.key === nowItem?.key && canTakeNow}
-                    disabled={disabled}
-                    busy={entry.type === "dose" ? busy?.key === entry.dose.key && busy.kind === "confirm" : supplement.busy(entry.row.key)}
+                    disabled={entry.type === "dose" ? doseDisabled(entry.dose.key) : anySaving || supplement.pending}
+                    busy={entry.type === "dose" ? entry.dose.state === "due" && pendingOf(entry.dose.key) === "confirm" : supplement.busy(entry.row.key)}
                     onOpenDose={openSheet}
                     onTakeDose={quick}
                     onTakeSupplement={(detail) => supplement.take(detail, null)}
@@ -530,7 +621,7 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
         onOpenChange={(open) => (open ? null : closeSheet())}
         sites={view.sites}
         defaultSyringe={defaultSyringe}
-        pending={busy && sheetKey === busy.key ? busy.kind : null}
+        pending={sheetKey ? pendingOf(sheetKey) : null}
         error={sheetError}
         notice={sheetNotice}
         onSubmit={(submission) => sheetDetail && confirm(sheetDetail, submission, true)}
@@ -555,6 +646,7 @@ function NowCard({
   mode,
   today,
   saving,
+  taken,
   disabled,
   onTaken,
   onDetails,
@@ -564,6 +656,8 @@ function NowCard({
   mode: "due" | "later" | "next";
   today: string;
   saving: boolean;
+  /** Taken with one tap, being saved: the tick in place of the button until the page moves on. */
+  taken: boolean;
   disabled: boolean;
   onTaken: () => void;
   onDetails: () => void;
@@ -629,10 +723,17 @@ function NowCard({
       {mode !== "next" ? (
         <>
           <NowActions className="laptop:mt-5 laptop:[&>*:first-child]:w-[240px] laptop:[&>*:first-child]:flex-none">
-            <Button size="lg" onClick={onTaken} saving={saving} disabled={disabled}>
-              <Check aria-hidden />
-              Taken
-            </Button>
+            {taken ? (
+              <span data-testid="hero-taken" className={cn(buttonVariants({ size: "lg" }), "cursor-default bg-on-ink-done text-ink active:scale-100")}>
+                <Check aria-hidden strokeWidth={3} />
+                Taken
+              </span>
+            ) : (
+              <Button size="lg" onClick={onTaken} saving={saving} disabled={disabled}>
+                <Check aria-hidden />
+                Taken
+              </Button>
+            )}
             <Button variant="ghost-on-ink" size="lg" onClick={onDetails}>
               <span className="laptop:hidden">Details</span>
               <span className="hidden laptop:inline">Add time, site or note</span>

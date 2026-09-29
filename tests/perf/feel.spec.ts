@@ -27,7 +27,13 @@
 //       row says Taken) and to the server's confirmation (the Undo toast);
 //   (d) back to a tab visited a moment ago: Today → Cycles, then the Today
 //       tab (d1) or the browser's Back (d2).
-import { expect, test, type Page } from "@playwright/test";
+//
+// A second test reports each page's server time (no throttling, local
+// server and Supabase): a signed-in fetch of the page's HTML (a launch) and
+// of its RSC payload (a navigation), to the first body chunk (the first
+// flush: the shell and its skeleton, when the page streams) and to the end
+// of the stream (every query done). Median of SERVER_RUNS (10).
+import { type Browser, type BrowserContext, expect, test, type Page } from "@playwright/test";
 import { writeFileSync } from "node:fs";
 import { APP_ORIGIN } from "../../playwright.config";
 import { hydrated, signInAs } from "../support/local-supabase";
@@ -81,9 +87,9 @@ function installProbes() {
   const holds = (probe: Probe): boolean => {
     switch (probe.kind) {
       case "appFrame":
-        return shown(document.querySelector('nav[aria-label="Main"]'));
+        return [...document.querySelectorAll('nav[aria-label="Main"]')].some(shown);
       case "tabActive":
-        return shown(document.querySelector(`nav[aria-label="Main"] a[href="${probe.href}"][aria-current="page"]`));
+        return [...document.querySelectorAll(`nav[aria-label="Main"] a[href="${probe.href}"][aria-current="page"]`)].some(shown);
       case "skeleton":
         return [...document.querySelectorAll('main [data-slot="skeleton"]')].some(shown);
       case "content": {
@@ -102,8 +108,10 @@ function installProbes() {
         return probe.of.some(holds);
     }
   };
+  let watching: { probes: Record<string, Probe>; at: Record<string, number | null> } | null = null;
   const watch = (probes: Record<string, Probe>, start: number | Promise<number>) => {
     const at: Record<string, number | null> = Object.fromEntries(Object.keys(probes).map((name) => [name, null]));
+    watching = { probes, at };
     let done!: () => void;
     const finished = new Promise<void>((resolve) => (done = resolve));
     const tick = () => {
@@ -136,7 +144,12 @@ function installProbes() {
     result(timeoutMs) {
       const pending = armed ?? this.launch;
       if (!pending) return Promise.reject(new Error("Nothing armed"));
-      return Promise.race([pending, new Promise<Watch>((_, reject) => setTimeout(() => reject(new Error("probe timeout")), timeoutMs))]);
+      const timedOut = () => {
+        const busy = [...document.querySelectorAll('[aria-busy="true"]')].filter(shown).map((el) => el.outerHTML.slice(0, 120));
+        const h1s = [...document.querySelectorAll("h1")].map((h) => `${shown(h)}:${h.textContent?.trim()}`);
+        return new Error(`probe timeout at ${location.pathname}: ${JSON.stringify(watching?.at)} busy=${JSON.stringify(busy)} h1=${JSON.stringify(h1s)}`);
+      };
+      return Promise.race([pending, new Promise<Watch>((_, reject) => setTimeout(() => reject(timedOut()), timeoutMs))]);
     },
     until(probe) {
       return watch({ ready: probe }, 0).then(() => undefined);
@@ -210,6 +223,16 @@ async function tapTab(page: Page, to: Tab): Promise<{ first: number; content: nu
 
 // ── The measurement ─────────────────────────────────────────────────────────
 
+/** A phone context signed in as `email` (sign-in itself unthrottled). */
+async function signedInContext(browser: Browser, email: string): Promise<BrowserContext> {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, serviceWorkers: "block" });
+  const page = await context.newPage();
+  await signInAs(page, APP_ORIGIN, email);
+  await expect(page).toHaveURL(/\/app\/today/);
+  await page.close();
+  return context;
+}
+
 type Sample = Record<string, number[]>;
 
 test("feel: launch, tabs, Taken and revisits on a throttled phone", async ({ browser }) => {
@@ -217,14 +240,7 @@ test("feel: launch, tabs, Taken and revisits on a throttled phone", async ({ bro
   const samples: Sample = {};
   const add = (name: string, value: number) => (samples[name] ??= []).push(Math.round(value));
 
-  const signedIn = async (email: string) => {
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, serviceWorkers: "block" });
-    const page = await context.newPage();
-    await signInAs(page, APP_ORIGIN, email);
-    await expect(page).toHaveURL(/\/app\/today/);
-    await page.close();
-    return context;
-  };
+  const signedIn = (email: string) => signedInContext(browser, email);
   const researcher = await signedIn(seed.researcher.email);
   const admin = await signedIn(seed.admin.email);
   // From a page: Playwright's own process doesn't resolve *.localhost.
@@ -347,6 +363,63 @@ test("feel: launch, tabs, Taken and revisits on a throttled phone", async ({ bro
   ].join("\n");
   console.log(`\n${table}\n`);
   if (process.env.PERF_OUT) writeFileSync(process.env.PERF_OUT, JSON.stringify({ startUrl, redirectCounts, rows }, null, 2));
+  await researcher.close();
+  await admin.close();
+});
+
+
+const SERVER_RUNS = Number(process.env.PERF_SERVER_RUNS ?? 10);
+
+test("server time per page: first flush and whole page, HTML and RSC", async ({ browser }) => {
+  const seed = await seedPerf();
+  const researcher = await signedInContext(browser, seed.researcher.email);
+  const admin = await signedInContext(browser, seed.admin.email);
+  const rows: { name: string; median: number; values: number[] }[] = [];
+  const pages: [BrowserContext, string][] = [
+    ...["/app/today", "/app/cycles", "/app/progress", "/app/library", "/app/me", "/app/supplies"].map((path) => [researcher, path] as [BrowserContext, string]),
+    [admin, "/admin/business"],
+  ];
+  for (const [context, path] of pages) {
+    const page = await context.newPage();
+    await page.goto(`${APP_ORIGIN}/manifest.webmanifest`);
+    for (const kind of ["HTML", "RSC"] as const) {
+      const first: number[] = [];
+      const total: number[] = [];
+      // An RSC request's URL carries a hash of its headers (?_rsc=): the warm-up learns it.
+      let url = path;
+      for (let run = 0; run <= SERVER_RUNS; run += 1) {
+        const time = await page.evaluate(
+          async ({ url, rsc }) => {
+            const start = performance.now();
+            const response = await fetch(url, { cache: "no-store", headers: rsc ? { RSC: "1" } : {} });
+            if (!response.ok || (response.redirected && !rsc)) throw new Error(`${url}: ${response.status}${response.redirected ? ` → ${response.url}` : ""}`);
+            const reader = response.body!.getReader();
+            let firstChunk: number | null = null;
+            for (;;) {
+              const { done } = await reader.read();
+              firstChunk ??= performance.now() - start;
+              if (done) break;
+            }
+            return { first: firstChunk, total: performance.now() - start, url: response.url };
+          },
+          { url, rsc: kind === "RSC" },
+        );
+        if (run === 0) {
+          // Warm-up.
+          url = new URL(time.url).pathname + new URL(time.url).search;
+          continue;
+        }
+        first.push(Math.round(time.first));
+        total.push(Math.round(time.total));
+      }
+      rows.push({ name: `${path} ${kind}: first flush`, median: median(first), values: first });
+      rows.push({ name: `${path} ${kind}: whole page`, median: median(total), values: total });
+    }
+    await page.close();
+  }
+  const table = ["| page | median ms | runs |", "| --- | ---: | --- |", ...rows.map((row) => `| ${row.name} | ${row.median} | ${row.values.join(" ")} |`)].join("\n");
+  console.log(`\n${table}\n`);
+  if (process.env.PERF_OUT) writeFileSync(process.env.PERF_OUT.replace(/(\.json)?$/, ".server.json"), JSON.stringify({ rows }, null, 2));
   await researcher.close();
   await admin.close();
 });

@@ -14,6 +14,7 @@ import { cookies } from "next/headers";
 import { AppearanceSync } from "@/components/alpha/appearance-sync";
 import { AlphaRoot } from "@/components/alpha/root";
 import { APPEARANCE_COOKIE, htmlClassFor, parseAppearance, themeColorFor } from "@/lib/alpha/appearance";
+import { launchImages } from "@/lib/app/launch";
 import { getSessionPerson } from "@/lib/auth/session";
 import { resolveAppearance } from "@/lib/preferences/rules";
 
@@ -29,7 +30,9 @@ import { resolveAppearance } from "@/lib/preferences/rules";
 // which stays static.
 //
 // Installable app (C2): only the private area links the web app manifest
-// (src/app/manifest.ts) and the app icons; the public site keeps its own.
+// (src/app/manifest.ts), the app icons and the iOS launch images (the splash
+// on the app's own `paper`, light or dark as the phone is; see
+// scripts/launch-images.mjs); the public site keeps its own.
 
 export const metadata: Metadata = {
   title: "Alpha PR Labs",
@@ -40,7 +43,7 @@ export const metadata: Metadata = {
     apple: { url: "/app-icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
   },
   // Design v3 §3: the status bar sits on the page's own `paper` colour.
-  appleWebApp: { capable: true, title: "Alpha PR Labs", statusBarStyle: "default" },
+  appleWebApp: { capable: true, title: "Alpha PR Labs", statusBarStyle: "default", startupImage: launchImages() },
 };
 
 /** The appearance shown (the account's choice, else this device's) and the account's own (null: never chosen). */
