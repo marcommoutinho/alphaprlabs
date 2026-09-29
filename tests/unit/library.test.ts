@@ -123,30 +123,32 @@ describe("draft and publish", () => {
     expect(peptideProblems({ ...form, name: "x".repeat(120), shortDescription: "y".repeat(160) }, true)).toEqual({});
   });
 
-  it("the action's check: trimmed text, canonical strengths, and a published entry keeps its summary", () => {
-    const result = validatePeptide({ ...form, name: "  BPC-157 ", strengths: ["10", "5.0"], publish: false }, true);
+  it("the action's check, from the submission alone: trimmed text, canonical strengths, Publish needs a summary", () => {
+    const result = validatePeptide({ ...form, name: "  BPC-157 ", strengths: ["10", "5.0"], publish: false });
     expect(result).toEqual({
       ok: true,
       value: { ...form, name: "BPC-157", strengths: ["5", "10"], publish: false },
     });
-    // Saving a published entry without its summary is refused even as "draft".
-    expect(validatePeptide({ ...form, information: " ", publish: false }, true)).toMatchObject({ ok: false, error: SUMMARY_REQUIRED_ERROR });
-    expect(validatePeptide({ ...form, id: null, version: null, information: "", publish: false }, false)).toMatchObject({ ok: true });
+    expect(validatePeptide({ ...form, information: " ", publish: true })).toMatchObject({ ok: false, error: SUMMARY_REQUIRED_ERROR });
+    // A draft save without a summary passes here, even of an entry published since:
+    // the database decides that, after replay and compare-and-set (library.test.ts, integration).
+    expect(validatePeptide({ ...form, information: " ", publish: false })).toMatchObject({ ok: true });
+    expect(validatePeptide({ ...form, id: null, version: null, information: "", publish: false })).toMatchObject({ ok: true });
   });
 
   it("refuses a malformed submission as unidentified, never as a new entry", () => {
-    expect(validatePeptide({ ...form, id: "not-a-uuid", publish: true }, false)).toMatchObject({ ok: false, error: INVALID_ENTRY });
-    expect(validatePeptide({ ...form, version: null, publish: true }, false)).toMatchObject({ ok: false, error: INVALID_ENTRY });
-    expect(validatePeptide({ ...form, strengths: "10", publish: true }, false)).toMatchObject({ ok: false, error: INVALID_ENTRY });
-    expect(validatePeptide({ ...form, publish: "yes" }, false)).toMatchObject({ ok: false, error: INVALID_ENTRY });
-    expect(validatePeptide({ ...form, strengths: ["0"], publish: true }, false)).toMatchObject({ ok: false, error: STRENGTH_INVALID });
-    expect(validatePeptide(null, false)).toMatchObject({ ok: false, error: INVALID_ENTRY });
+    expect(validatePeptide({ ...form, id: "not-a-uuid", publish: true })).toMatchObject({ ok: false, error: INVALID_ENTRY });
+    expect(validatePeptide({ ...form, version: null, publish: true })).toMatchObject({ ok: false, error: INVALID_ENTRY });
+    expect(validatePeptide({ ...form, strengths: "10", publish: true })).toMatchObject({ ok: false, error: INVALID_ENTRY });
+    expect(validatePeptide({ ...form, publish: "yes" })).toMatchObject({ ok: false, error: INVALID_ENTRY });
+    expect(validatePeptide({ ...form, strengths: ["0"], publish: true })).toMatchObject({ ok: false, error: STRENGTH_INVALID });
+    expect(validatePeptide(null)).toMatchObject({ ok: false, error: INVALID_ENTRY });
   });
 
   it("says what a save did, and who saved first", () => {
-    expect(savedToast("Cerebrolysin", { published: false, wasPublished: false, publish: false })).toBe("Draft saved · Cerebrolysin. Researchers can't see it.");
-    expect(savedToast("Cerebrolysin", { published: true, wasPublished: false, publish: true })).toBe("Cerebrolysin published. Researchers can see it now.");
-    expect(savedToast("BPC-157", { published: true, wasPublished: true, publish: true })).toBe("BPC-157 saved. Researchers see the change now.");
+    expect(savedToast("Cerebrolysin", { published: false, newlyPublished: false })).toBe("Draft saved · Cerebrolysin. Researchers can't see it.");
+    expect(savedToast("Cerebrolysin", { published: true, newlyPublished: true })).toBe("Cerebrolysin published. Researchers can see it now.");
+    expect(savedToast("BPC-157", { published: true, newlyPublished: false })).toBe("BPC-157 saved. Researchers see the change now.");
     expect(changedSince("Priya Sandhu")).toBe("Changed by Priya Sandhu since you opened it. Nothing was saved.");
     expect(changedSince(null)).toBe("This entry was changed since you opened it. Nothing was saved.");
   });

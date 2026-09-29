@@ -11,6 +11,7 @@ import { attemptFor, settles, type ThresholdAttempt } from "@/lib/business/stock
 import { businessToday } from "@/lib/inventory/screens";
 import { recordPurchase } from "@/lib/inventory/service";
 import { anonClient, answerLostClient, ensureAccount, ok, sqlState, signedInClient, uniqueEmail } from "../support/local-supabase";
+import { savePeptideAs } from "../support/admin-writers";
 
 const acting = vi.hoisted(() => ({ client: null as unknown, refreshed: 0, revalidated: [] as string[] }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => acting.client }));
@@ -44,7 +45,7 @@ async function newItem(quantity = 6): Promise<string> {
   const db = await signedInClient(admin.email);
   const name = `Compound V5 ${randomBytes(4).toString("hex")}`;
   const peptideId = await ok(
-    db.rpc("save_library_peptide", {
+    savePeptideAs(db, {
       p_name: name,
       p_information: `[Supplied information for ${name}]`,
       p_cycling_off_guidance: "",

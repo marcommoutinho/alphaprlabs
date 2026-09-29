@@ -33,6 +33,9 @@ const card = (page: Page, name: string) => page.getByTestId("template-card").fil
 /** A peptide's card: a region named after the peptide (its heading may carry "Not offered"). */
 const peptideCard = (page: Page, name: string) => page.getByRole("region", { name, exact: true }).and(page.getByTestId("template-peptide"));
 const toast = (page: Page) => page.locator('[data-slot="toast"]');
+/** The editor's issues: the first shown, then every message in order when expanded. */
+const firstIssue = (page: Page) => page.getByTestId("builder-issue");
+const allIssues = (page: Page) => page.getByRole("list", { name: "Everything to fix" }).getByRole("listitem");
 
 async function seedPeptide(name: string) {
   const [row] = await ok(serviceClient().from("peptides").insert({ name, information: `[Supplied information for ${name}]`, available: true }).select("id"), name);
@@ -43,7 +46,7 @@ async function storedTemplate(name: string) {
   const [row] = await ok(
     serviceClient()
       .from("cycle_templates")
-      .select("id, version, guidance, cycle_template_plans(position, peptide_id, cycle_template_phases(kind, offset_days, length_days, dose_mg::text, schedule_type, every_days, weekdays))")
+      .select("id, version, guidance, updated_at, cycle_template_plans(position, peptide_id, cycle_template_phases(kind, offset_days, length_days, dose_mg::text, schedule_type, every_days, weekdays))")
       .eq("name", name),
     name,
   );
@@ -77,21 +80,43 @@ test("laptop: create and edit a template, then keep saving it with a peptide no 
   await expect(page).toHaveURL(`${APP_ORIGIN}/admin/library/templates/new`);
   await expect(page.getByTestId("template-meta")).toHaveText("New · researchers see it once it's saved");
   await expect(page.getByTestId("template-footer-note")).toHaveText("Researchers will see it as a starting point once it's saved.");
-  await (await hydrated(page.getByTestId("template-name"))).fill(name);
+
+  // The designed messages, first failure first: Save template says why, then waits while it is invalid.
+  await (await hydrated(page.getByTestId("save-template"))).click();
+  await expect(firstIssue(page)).toHaveText("Name is required.");
+  await expect(page.getByTestId("save-template")).toBeDisabled();
+  await page.getByTestId("template-name").fill(name);
+  await expect(firstIssue(page)).toHaveText("Add at least one peptide — an empty template can't be saved.");
   await addPeptide(page, A);
   await addPeptide(page, W);
   await expect(page.getByTestId("template-timeline")).toBeVisible();
+  // Only offered peptides not in the template are offered.
+  await page.getByTestId("add-peptide").click();
+  await expect(page.getByTestId("peptide-picker").getByRole("button", { name: A, exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("peptide-picker")).toHaveCount(0);
 
-  // The new 28-day phases have no dose yet: the editor says why and Save template waits.
-  await expect(page.getByTestId("builder-issues")).toBeVisible();
-  await expect(page.getByTestId("save-template")).toBeDisabled();
+  // Every message, in order: per peptide its phases, then its overlaps; then the next peptide.
   const a = peptideCard(page, A);
-  await a.getByTestId("phase-dose").fill("250");
-  await a.getByTestId("phase-unit").selectOption("mcg");
+  const wCard = peptideCard(page, W);
   await a.getByTestId("add-break").click();
   await expect(a.getByTestId("phase-row")).toHaveCount(2);
   await expect(a.getByTestId("phase-row").nth(1)).toHaveAttribute("data-kind", "break");
-  const wCard = peptideCard(page, W);
+  await expect(a.getByTestId("phase-from").nth(1)).toHaveValue("29");
+  await a.getByTestId("phase-from").nth(1).fill("20");
+  await expect(firstIssue(page)).toHaveText(`${A}, phase 1: enter a dose above 0 mg.`);
+  await expect(allIssues(page)).toHaveText([`${A}, phase 1: enter a dose above 0 mg.`, `${A}: phases overlap at day 20.`, `${W}, phase 1: enter a dose above 0 mg.`]);
+  await page.getByRole("button", { name: "(show less)" }).click();
+  await expect(page.getByRole("button", { name: "(+2 more)" })).toBeVisible();
+  await expect(allIssues(page)).toHaveCount(0);
+  await expect(page.getByTestId("save-template")).toBeDisabled();
+  await a.getByTestId("phase-dose").first().fill("250");
+  await a.getByTestId("phase-unit").first().selectOption("mcg");
+  await expect(firstIssue(page)).toHaveText(`${A}: phases overlap at day 20.`);
+  await expect(page.getByRole("button", { name: "(+1 more)" })).toBeVisible();
+  await a.getByTestId("phase-from").nth(1).fill("29");
+  await expect(firstIssue(page)).toHaveText(`${W}, phase 1: enter a dose above 0 mg.`);
+  await expect(page.getByRole("button", { name: /more\)$/ })).toHaveCount(0);
   await wCard.getByTestId("phase-dose").fill("1");
   await wCard.getByTestId("phase-unit").selectOption("mg");
   await wCard.getByTestId("phase-schedule").selectOption("weekdays");
@@ -107,6 +132,7 @@ test("laptop: create and edit a template, then keep saving it with a peptide no 
 
   const created = await storedTemplate(name);
   expect(created.version).toBe(1);
+  await expect(page.getByTestId("template-meta")).toHaveText(/^42 days · not used yet · updated \w{3} \d+$/);
   const plans = [...created.cycle_template_plans].sort((x, y) => x.position - y.position);
   expect(plans.map((plan) => plan.cycle_template_phases.map((phase) => [phase.kind, phase.offset_days, phase.length_days, phase.dose_mg === null ? null : Number(phase.dose_mg)]))).toEqual([
     [
@@ -119,17 +145,24 @@ test("laptop: create and edit a template, then keep saving it with a peptide no 
   expect(plans[1].cycle_template_phases[0]).toMatchObject({ schedule_type: "weekdays" });
   expect([...(plans[1].cycle_template_phases[0].weekdays ?? [])].sort()).toEqual([1, 2, 3, 4, 5]);
 
-  // An edit: "updated for future copies", one version per save.
+  // Saving unchanged content keeps "updated" and the version; a real change moves both, one version per save.
+  await (await hydrated(page.getByTestId("save-template"))).click();
+  await expect(toast(page)).toContainText("Template updated for future copies. Existing cycles unchanged.");
+  await expect.poll(async () => (await ok(serviceClient().from("admin_content_changes").select("changed").eq("target_id", created.id), "log")).length).toBe(2);
+  expect(await storedTemplate(name)).toMatchObject({ version: 1, updated_at: created.updated_at });
   await (await hydrated(page.getByTestId("template-guidance"))).fill("Take in the morning.");
   await page.getByTestId("save-template").click();
-  await expect(toast(page)).toContainText("Template updated for future copies. Existing cycles unchanged.");
   await expect.poll(async () => (await storedTemplate(name)).version).toBe(2);
-  expect((await storedTemplate(name)).guidance).toBe("Take in the morning.");
+  const edited = await storedTemplate(name);
+  expect(edited.guidance).toBe("Take in the morning.");
+  expect(new Date(edited.updated_at).getTime()).toBeGreaterThan(new Date(created.updated_at).getTime());
 
   // W stops being offered: the list and the editor say so, and the template still saves with it.
   await ok(serviceClient().from("peptides").update({ available: false }).eq("id", w), "withdraw W");
   await page.goto(`${APP_ORIGIN}/admin/library/templates`);
   await expect(card(page, name)).toHaveAttribute("data-withdrawn", "");
+  // The withdrawn line comes in addition to the usage line.
+  await expect(card(page, name).getByTestId("template-usage")).toHaveText(/^Not used yet · updated \w{3} \d+$/);
   await expect(card(page, name).getByTestId("template-withdrawn")).toHaveText(`Includes ${W}, no longer offered`);
   await card(page, name).click();
   await expect(page.getByTestId("template-withdrawn-notice")).toHaveText(

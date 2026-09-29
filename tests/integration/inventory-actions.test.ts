@@ -20,6 +20,7 @@ import { LINK_NOT_LINKABLE } from "@/lib/inventory/seller-screens";
 import { ensureAccount, serviceClient, signedInClient, uniqueEmail } from "../support/local-supabase";
 import { withPreview } from "../support/previewed-sale";
 import type { Db } from "@/lib/inventory/service";
+import { savePeptideAs } from "../support/admin-writers";
 
 const acting = vi.hoisted(() => ({ client: null as unknown, refreshed: 0, revalidated: [] as string[] }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => acting.client }));
@@ -56,7 +57,7 @@ const stockPages = (itemId: string) => [`/admin/inventory/${itemId}`, "/admin/in
 
 async function newPeptide(): Promise<string> {
   const name = `Compound S6 ${randomBytes(4).toString("hex")}`;
-  const { data, error } = await (await signedInClient(admin.email)).rpc("save_library_peptide", {
+  const { data, error } = await savePeptideAs((await signedInClient(admin.email)), {
     p_name: name,
     p_information: `[Supplied information for ${name}]`,
     p_cycling_off_guidance: "",

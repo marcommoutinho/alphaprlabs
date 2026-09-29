@@ -12,6 +12,7 @@ import { APP_ORIGIN } from "../../playwright.config";
 import { createCycle, interval, pause, plan, tag } from "../support/cycles";
 import { ensureAccount, hydrated, ok, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
 import { d, NOON, noonZoneInstant } from "../support/noon";
+import { saveTemplateAs } from "../support/admin-writers";
 
 const PHONE = { width: 390, height: 844 };
 const LAPTOP = { width: 1280, height: 820 };
@@ -114,7 +115,7 @@ async function seedTemplate(t: string, peptides: string[]) {
   const adminDb = await signedInClient(ADMIN.email);
   const name = `Recovery stack ${t}`;
   const id = await ok(
-    adminDb.rpc("save_cycle_template", {
+    saveTemplateAs(adminDb, {
       p_name: name,
       p_guidance: "",
       p_plans: [

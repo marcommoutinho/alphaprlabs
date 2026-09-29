@@ -10,6 +10,7 @@ import { getStockItem, listBuyerAccounts, listSales, listStock, openLots, record
 import { recordSale } from "../support/previewed-sale";
 import { previewed } from "../support/sales";
 import { ensureAccount, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
+import { savePeptideAs } from "../support/admin-writers";
 
 type Client = Awaited<ReturnType<typeof signedInClient>>;
 
@@ -28,7 +29,7 @@ beforeAll(async () => {
 const tag = () => randomBytes(4).toString("hex");
 
 async function newPeptide(name = `Compound ${tag()}`, available = true): Promise<string> {
-  const { data, error } = await db.rpc("save_library_peptide", {
+  const { data, error } = await savePeptideAs(db, {
     p_name: name,
     p_information: `[Supplied information for ${name}]`,
     p_cycling_off_guidance: "",

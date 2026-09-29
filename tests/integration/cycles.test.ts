@@ -28,6 +28,7 @@ import {
   weekdays,
 } from "../support/cycles";
 import { ensureAccount, ok, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
+import { saveTemplateAs } from "../support/admin-writers";
 
 const acting = vi.hoisted(() => ({ client: null as unknown }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => acting.client }));
@@ -131,7 +132,7 @@ describe("a template copy is a snapshot (handoff: edit the template → the exis
       { peptide_id: peptide.b, phases: [{ kind: "active", offset_days: 0, length_days: 40, dose_mg: "0.3", local_time: "07:30", schedule_type: "weekdays", weekdays: [1, 3, 5] }] },
     ];
     const name = `Recomp starter ${t}`;
-    const templateId = (await ok(adminDb.rpc("save_cycle_template", { p_name: name, p_guidance: "Cycle off after.", p_plans: templatePlans }), "template"))!;
+    const templateId = (await ok(saveTemplateAs(adminDb, { p_name: name, p_guidance: "Cycle off after.", p_plans: templatePlans }), "template"))!;
     const [template] = await ok(adminDb.from("cycle_templates").select("updated_at").eq("id", templateId), "template version");
 
     // The researcher's copy, through the builder's rules and the server action.
@@ -154,7 +155,7 @@ describe("a template copy is a snapshot (handoff: edit the template → the exis
     // The admin edits the template: new name and guidance, a new dose, a peptide removed.
     await new Promise((resolve) => setTimeout(resolve, 20));
     const edited = [{ ...templatePlans[0], phases: [{ ...templatePlans[0].phases[0], dose_mg: "0.9" }, templatePlans[0].phases[1]] }];
-    await ok(adminDb.rpc("save_cycle_template", { p_id: templateId, p_name: `${name} v2`, p_guidance: "Changed.", p_plans: edited }), "edit template");
+    await ok(saveTemplateAs(adminDb, { p_id: templateId, p_name: `${name} v2`, p_guidance: "Changed.", p_plans: edited }), "edit template");
 
     expect(await getCycle(alexDb, saved.cycleId!)).toEqual(before);
 

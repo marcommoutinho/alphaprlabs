@@ -72,14 +72,16 @@ export async function allRows<Row>(
 }
 
 export type SavePeptideResult =
-  | { kind: "saved"; id: string; version: number; published: boolean; replayed: boolean }
+  | { kind: "saved"; id: string; version: number; published: boolean; newlyPublished: boolean; replayed: boolean }
   /**
-   * The database refused it (nothing was written): `changed` the entry is no
-   * longer at the version the admin opened (AP038); `duplicate_name` another
-   * entry has the name (23505); `not_found` no such entry (P0002);
-   * `conflict` the request key was used for other details (AP005).
+   * The database refused it (nothing was written), each checked after it
+   * recognised a replay: `changed` the entry is no longer at the version the
+   * admin opened (AP038); `summary_required` it is published (or being
+   * published) and the summary is blank (22023, hint summary_required);
+   * `duplicate_name` another entry has the name (23505); `not_found` no such
+   * entry (P0002); `conflict` the request key was used for other details (AP005).
    */
-  | { kind: "not_authorized" | "invalid" | "duplicate_name" | "not_found" | "changed" | "conflict" }
+  | { kind: "not_authorized" | "invalid" | "summary_required" | "duplicate_name" | "not_found" | "changed" | "conflict" }
   /**
    * No answer from the database (a dropped connection, a gateway error, a
    * timeout, an error it doesn't define). It may have committed: retry with
@@ -115,7 +117,7 @@ export async function savePeptide(
       case "42501":
         return { kind: "not_authorized" };
       case "22023":
-        return { kind: "invalid" };
+        return { kind: error.hint === "summary_required" ? "summary_required" : "invalid" };
       case "23505":
         return { kind: "duplicate_name" };
       case "P0002":
@@ -128,7 +130,14 @@ export async function savePeptide(
         return { kind: "unsure" };
     }
   }
-  return { kind: "saved", id: data.peptide_id, version: Number(data.version), published: data.published, replayed: data.replayed };
+  return {
+    kind: "saved",
+    id: data.peptide_id,
+    version: Number(data.version),
+    published: data.published,
+    newlyPublished: data.newly_published,
+    replayed: data.replayed,
+  };
 }
 
 export type LastChange = { version: number; updatedAt: string; changedAt: string | null; changedBy: string | null };

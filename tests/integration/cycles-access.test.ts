@@ -23,6 +23,7 @@ import {
   weekdays,
 } from "../support/cycles";
 import { anonClient, ensureAccount, ok, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
+import { saveTemplateAs } from "../support/admin-writers";
 
 const people = {
   alex: { email: uniqueEmail("s9-acc-alex"), name: "Alex Owner", role: "researcher" },
@@ -155,7 +156,7 @@ describe("peptides no longer offered, and the admin counts", () => {
     const name = `Template only ${tag()}`;
     const only = await createPeptide(db.grace, name);
     const templateId = (await ok(
-      db.grace.rpc("save_cycle_template", {
+      saveTemplateAs(db.grace, {
         p_name: `Needs ${name}`,
         p_guidance: "",
         p_plans: [
@@ -166,7 +167,7 @@ describe("peptides no longer offered, and the admin counts", () => {
       "template",
     ))!;
     const other = (await ok(
-      db.grace.rpc("save_cycle_template", {
+      saveTemplateAs(db.grace, {
         p_name: `Other ${name}`,
         p_guidance: "",
         p_plans: [{ peptide_id: peptide.open, phases: [{ kind: "active", offset_days: 0, length_days: 5, dose_mg: "1", local_time: "08:00", schedule_type: "interval", every_days: 1 }] }],

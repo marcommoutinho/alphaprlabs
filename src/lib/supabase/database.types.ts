@@ -79,6 +79,7 @@ export type Database = {
           changed_at: string
           changed_by: string
           kind: string
+          newly_published: boolean
           published: boolean
           request_hash: string
           request_key: string
@@ -90,6 +91,7 @@ export type Database = {
           changed_at?: string
           changed_by: string
           kind: string
+          newly_published?: boolean
           published?: boolean
           request_hash: string
           request_key: string
@@ -101,6 +103,7 @@ export type Database = {
           changed_at?: string
           changed_by?: string
           kind?: string
+          newly_published?: boolean
           published?: boolean
           request_hash?: string
           request_key?: string
@@ -2194,6 +2197,7 @@ export type Database = {
           p_vial_strengths_mg: string[]
         }
         Returns: {
+          newly_published: boolean
           peptide_id: string
           published: boolean
           replayed: boolean
@@ -2643,17 +2647,6 @@ export type Database = {
           p_template_id?: string
           p_time_zone: string
           p_version?: number
-        }
-        Returns: string
-      }
-      save_library_peptide: {
-        Args: {
-          p_available: boolean
-          p_cycling_off_guidance: string
-          p_id?: string
-          p_information: string
-          p_name: string
-          p_supplement_guidance: string
         }
         Returns: string
       }

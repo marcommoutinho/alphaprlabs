@@ -210,13 +210,16 @@ export function peptideProblems(form: Pick<PeptideForm, PeptideField>, publish: 
 }
 
 /**
- * The server action's check of a submission: `{ ...form, publish }`. A
- * malformed shape or id is refused as INVALID_ENTRY; then the field rules.
- * Text is trimmed, strengths canonical and ascending.
+ * The server action's check of a submission: `{ ...form, publish }`, from
+ * the submission alone. A malformed shape or id is refused as INVALID_ENTRY;
+ * then the field rules (Publish needs a summary). Nothing here reads the
+ * entry as it is now: whether it has since been published (and so needs its
+ * summary) is the database's check, made after it has recognised a replay
+ * of the same request key or a save over a newer version (AP038). Text is
+ * trimmed, strengths canonical and ascending.
  */
 export function validatePeptide(
   input: unknown,
-  published: boolean,
 ): { ok: true; value: ValidPeptide } | { ok: false; error: string; problems: PeptideProblems } {
   const raw = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
   const invalid = { ok: false as const, error: INVALID_ENTRY, problems: {} };
@@ -240,15 +243,15 @@ export function validatePeptide(
     cyclingOff: text(raw.cyclingOff),
     supplement: text(raw.supplement),
   };
-  const problems = peptideProblems(form, raw.publish || published);
+  const problems = peptideProblems(form, raw.publish);
   const first = Object.values(problems)[0];
   if (first) return { ok: false, error: first, problems };
   return { ok: true, value: { id, version: id ? (version as number) : null, ...form, offered: raw.offered, publish: raw.publish } };
 }
 
-/** The toast after a save. */
-export function savedToast(name: string, outcome: { published: boolean; wasPublished: boolean; publish: boolean }): string {
-  if (outcome.published && !outcome.wasPublished) return `${name} published. Researchers can see it now.`;
+/** The toast after a save (`newlyPublished`: this save published a draft). */
+export function savedToast(name: string, outcome: { published: boolean; newlyPublished: boolean }): string {
+  if (outcome.newlyPublished) return `${name} published. Researchers can see it now.`;
   if (outcome.published) return `${name} saved. Researchers see the change now.`;
   return `Draft saved · ${name}. Researchers can't see it.`;
 }

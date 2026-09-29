@@ -12,6 +12,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { getStockItem, recordPurchase } from "@/lib/inventory/service";
 import { recordSale } from "../support/previewed-sale";
 import { anonClient, ensureAccount, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
+import { savePeptideAs } from "../support/admin-writers";
 
 const acting = vi.hoisted(() => ({ client: null as unknown, revalidated: [] as string[] }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => acting.client }));
@@ -68,7 +69,7 @@ beforeEach(async () => {
 
 async function newItem(): Promise<string> {
   const name = `Compound USD ${randomBytes(4).toString("hex")}`;
-  const { data: peptideId, error } = await db.rpc("save_library_peptide", {
+  const { data: peptideId, error } = await savePeptideAs(db, {
     p_name: name,
     p_information: `[Supplied information for ${name}]`,
     p_cycling_off_guidance: "",

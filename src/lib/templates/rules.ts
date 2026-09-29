@@ -311,6 +311,21 @@ function planMessages(name: string, form: PlanForm, drafts: Draft[]): string[] {
 }
 
 /**
+ * The server action's check, from the submission alone: every rule of
+ * validateTemplate except those on the library as it is now (the peptide
+ * exists; it is offered, or the stored template already names it). The
+ * database checks those (AP003 / AP007) after it has recognised a replay of
+ * the same request key or a save over a newer version (AP038), so a retry
+ * of a committed save, or a stale one, is answered as such. `names` only
+ * words the messages ("Unknown peptide" otherwise).
+ */
+export function validateTemplateShape(input: unknown, names: ReadonlyMap<string, string>): TemplateValidation {
+  const form = readForm(input);
+  const peptides = (form?.plans ?? []).map((plan) => ({ id: plan.peptideId, name: names.get(plan.peptideId) ?? "Unknown peptide", available: true }));
+  return validateTemplate(input, peptides);
+}
+
+/**
  * Validates a template as A3 does. First failure wins for: a malformed form,
  * name required, at least one peptide, no unavailable peptide added (one the
  * stored template already names, `kept`, may stay; then the name and

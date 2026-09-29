@@ -11,6 +11,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { randomBytes } from "node:crypto";
 import { APP_ORIGIN } from "../../playwright.config";
 import { ensureAccount, hydrated, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
+import { saveTemplateAs } from "../support/admin-writers";
 
 const RESEARCHER = { email: uniqueEmail("s9-builder"), name: "Builder Researcher" };
 const OTHER = { email: uniqueEmail("s9-builder-other"), name: "Other Researcher" };
@@ -249,10 +250,10 @@ test("a template copy stays the researcher's own when the admin edits the templa
     { peptide_id: aId, phases: phases("0.4") },
     { peptide_id: bId, phases: [{ kind: "active", offset_days: 0, length_days: 40, dose_mg: "0.3", local_time: "07:30", schedule_type: "weekdays", weekdays: [1, 3, 5] }] },
   ];
-  const { data: templateId, error } = await adminDb.rpc("save_cycle_template", { p_name: templateName, p_guidance: "", p_plans: plans });
+  const { data: templateId, error } = await saveTemplateAs(adminDb, { p_name: templateName, p_guidance: "", p_plans: plans });
   if (error || !templateId) throw new Error(`Could not create the template: ${error?.message ?? "no id"}`);
   const withdrawnTemplate = `With withdrawn ${t}`;
-  const { data: withdrawnTemplateId, error: withdrawnError } = await adminDb.rpc("save_cycle_template", {
+  const { data: withdrawnTemplateId, error: withdrawnError } = await saveTemplateAs(adminDb, {
     p_name: withdrawnTemplate,
     p_guidance: "",
     p_plans: [{ peptide_id: withdrawn, phases: phases("1") }],
@@ -311,7 +312,7 @@ test("a template copy stays the researcher's own when the admin edits the templa
 
   // The admin edits the template: the copy is unchanged.
   const edited = [{ peptide_id: aId, phases: phases("0.9") }];
-  const { error: editError } = await adminDb.rpc("save_cycle_template", { p_id: templateId, p_name: `${templateName} v2`, p_guidance: "New", p_plans: edited });
+  const { error: editError } = await saveTemplateAs(adminDb, { p_id: templateId, p_name: `${templateName} v2`, p_guidance: "New", p_plans: edited });
   if (editError) throw new Error(`Could not edit the template: ${editError.message}`);
   expect(await storedCycle(templateName)).toEqual(copied);
 

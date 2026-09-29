@@ -10,6 +10,7 @@ import { dateRange } from "../../src/lib/cycles/geometry";
 import { createCycle, interval, pause, plan, saveCycle, tag, weekdays } from "../support/cycles";
 import { ensureAccount, hydrated, ok, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
 import { d, NOON } from "../support/noon";
+import { saveTemplateAs } from "../support/admin-writers";
 
 const RESEARCHER = { email: uniqueEmail("s10-views"), name: "Views Researcher" };
 const OTHER = { email: uniqueEmail("s10-views-other"), name: "Other Researcher" };
@@ -193,7 +194,7 @@ test("R6 hides withdrawn peptides; a template names one and is still a starting 
   const templateName = `Recomp starter ${t}`;
   const adminDb = await signedInClient(ADMIN.email);
   const templateId = await ok(
-    adminDb.rpc("save_cycle_template", {
+    saveTemplateAs(adminDb, {
       p_name: templateName,
       p_guidance: `Guidance for ${templateName}`,
       p_plans: [

@@ -26,6 +26,7 @@ import { recordPurchase } from "@/lib/inventory/service";
 import { mulberry32, psql, quote } from "../support/psql";
 import { previewedLotsSql } from "../support/sales";
 import { ensureAccount, ok, serviceClient, signedInClient, uniqueEmail } from "../support/local-supabase";
+import { savePeptideAs } from "../support/admin-writers";
 
 const marco = { email: uniqueEmail("biz-owner-marco"), name: "Owner Marco" };
 const priya = { email: uniqueEmail("biz-owner-priya"), name: "Priya Sandhu" };
@@ -182,7 +183,7 @@ beforeAll(async () => {
   for (const [key, strength] of [["A", "10"], ["B", "5"]] as const) {
     const name = `Business Owner ${key} ${randomBytes(4).toString("hex")}`;
     const peptideId = await ok(
-      db.rpc("save_library_peptide", {
+      savePeptideAs(db, {
         p_name: name,
         p_information: `[Supplied information for ${name}]`,
         p_cycling_off_guidance: "",

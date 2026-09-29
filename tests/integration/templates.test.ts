@@ -1,14 +1,18 @@
-// S8 cycle templates (A3) against the real local Supabase (npm run db:start):
-// admin-only writes through save_cycle_template(), every rule re-checked in
-// the database, unavailable peptides refused, "updated" moving only on a real
-// change, concurrent saves never mixing, library reference counts counting
+// S8 cycle templates (A3, V7 D7) against the real local Supabase (npm run db:start):
+// admin-only writes through admin_save_template() (save_cycle_template's
+// rules, no longer an API itself), every rule re-checked in the database,
+// unavailable peptides refused, "updated" moving only on a real change,
+// concurrent saves over one version: one commits, the other is refused
+// (AP038), never a mix; the action replaying a committed save and refusing a
+// stale one as changed whatever changed since; library reference counts counting
 // templates, the read rule (admins and acknowledged researchers), and the
 // admin-only server action. No mocked database: the action runs as the
 // signed-in person, only its cookie session is swapped for a signed-in client.
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { Json } from "@/lib/supabase/database.types";
 import { anonClient, ensureAccount, ok, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
+import { savePeptideAs, saveTemplateAs } from "../support/admin-writers";
 
 const acting = vi.hoisted(() => ({ client: null as unknown }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => acting.client }));
@@ -19,17 +23,19 @@ const { saveTemplateAction } = await import("@/app/(private)/admin/library/templ
 type Client = Awaited<ReturnType<typeof signedInClient>>;
 
 const admin = { email: uniqueEmail("s8-tpl-admin"), name: "S8 Template Admin" };
+const second = { email: uniqueEmail("s8-tpl-second"), name: "S8 Second Admin" };
 const newAdmin = { email: uniqueEmail("s8-tpl-new-admin"), name: "S8 Unacknowledged Admin" };
 const researcher = { email: uniqueEmail("s8-tpl-researcher"), name: "S8 Template Researcher" };
 const newResearcher = { email: uniqueEmail("s8-tpl-new"), name: "S8 Unacknowledged Researcher" };
 
 const tag = () => randomBytes(4).toString("hex");
 let adminDb: Client;
+let secondDb: Client;
 const peptide = { a: "", b: "", withdrawn: "" };
 
 async function createPeptide(name: string, available = true) {
   return ok(
-    adminDb.rpc("save_library_peptide", {
+    savePeptideAs(adminDb, {
       p_name: name,
       p_information: `[Supplied information for ${name}]`,
       p_cycling_off_guidance: "",
@@ -42,10 +48,12 @@ async function createPeptide(name: string, available = true) {
 
 beforeAll(async () => {
   await ensureAccount({ ...admin, role: "admin" });
+  await ensureAccount({ ...second, role: "admin" });
   await ensureAccount({ ...newAdmin, role: "admin", acknowledged: false });
   await ensureAccount({ ...researcher, role: "researcher" });
   await ensureAccount({ ...newResearcher, role: "researcher", acknowledged: false });
   adminDb = await signedInClient(admin.email);
+  secondDb = await signedInClient(second.email);
   const t = tag();
   peptide.a = await createPeptide(`Template A ${t}`);
   peptide.b = await createPeptide(`Template B ${t}`);
@@ -81,7 +89,7 @@ const args = (name: string, plans: unknown = recompPlans(), id?: string) => ({
   p_plans: plans as Json,
   ...(id ? { p_id: id } : {}),
 });
-const save = (db: Client, name: string, plans?: unknown, id?: string) => db.rpc("save_cycle_template", args(name, plans, id));
+const save = (db: Client, name: string, plans?: unknown, id?: string) => saveTemplateAs(db, args(name, plans, id));
 const create = async (name: string, plans?: unknown) => ok(save(adminDb, name, plans), `save ${name}`);
 
 type StoredPhase = {
@@ -121,7 +129,7 @@ async function stored(id: string): Promise<StoredTemplate> {
 describe("admins create and edit templates in the database", () => {
   it("stores relative phases per peptide; updated moves only on a real change", async () => {
     const name = `Recomp starter ${tag()}`;
-    const id = await ok(adminDb.rpc("save_cycle_template", { ...args(`  ${name} `), p_guidance: " Guidance. " }), "create");
+    const id = await ok(saveTemplateAs(adminDb, { ...args(`  ${name} `), p_guidance: " Guidance. " }), "create");
     const first = await stored(id!);
     expect(first).toMatchObject({
       name,
@@ -145,7 +153,7 @@ describe("admins create and edit templates in the database", () => {
       { peptide_id: peptide.a, phases: [interval(37, 47, "0.60"), { ...pause(30), dose_mg: "9" }, interval(1, 29)] },
       { peptide_id: peptide.b, phases: [{ ...weekdays(0, 40), every_days: 3 }] },
     ];
-    expect(await ok(adminDb.rpc("save_cycle_template", { ...args(name, same, id!), p_guidance: "Guidance." }), "resave")).toBe(id);
+    expect(await ok(saveTemplateAs(adminDb, { ...args(name, same, id!), p_guidance: "Guidance." }), "resave")).toBe(id);
     expect(await stored(id!)).toEqual(first);
 
     // A real change moves "updated".
@@ -156,9 +164,9 @@ describe("admins create and edit templates in the database", () => {
     expect(edited.plans[0].phases[0].dose_mg).toBe("0.45");
     expect(new Date(edited.updated_at).getTime()).toBeGreaterThan(new Date(first.updated_at).getTime());
 
-    // Editing a template that does not exist returns nothing and creates nothing.
+    // Editing a template that does not exist is refused (P0002) and creates nothing.
     const missing = "00000000-0000-4000-8000-000000000000";
-    expect(await ok(save(adminDb, name, recompPlans(), missing), "edit missing")).toBeNull();
+    expect(await sqlState(save(adminDb, name, recompPlans(), missing), "edit missing")).toBe("P0002");
     expect(await ok(serviceClient().from("cycle_templates").select("id").eq("id", missing), "read missing")).toEqual([]);
   });
 
@@ -223,7 +231,7 @@ describe("unavailable peptides", () => {
     const kept = await create(name, [{ peptide_id: later, phases: [interval(0, 28)] }, recompPlans()[1]]);
     const before = await stored(kept!);
     await ok(
-      adminDb.rpc("save_library_peptide", {
+      savePeptideAs(adminDb, {
         p_id: later,
         p_name: `Withdrawn later ${t}`,
         p_information: `[Supplied information for Withdrawn later ${t}]`,
@@ -324,24 +332,36 @@ describe("reads: admins and acknowledged researchers; writes: admins through the
 });
 
 describe("concurrent edits", () => {
-  it("two saves of one template at once leave exactly one of them, never a mix", async () => {
+  it("two saves over the same version at once: exactly one commits, the other is refused (AP038), never a mix", async () => {
     const name = `Concurrent ${tag()}`;
-    const id = await create(name);
+    const id = (await create(name))!;
     const versionA = [{ peptide_id: peptide.a, phases: [interval(0, 10, "1"), pause(10), interval(17, 10, "1")] }];
     const versionB = [
       { peptide_id: peptide.b, phases: [weekdays(0, 20, [2, 4])] },
       { peptide_id: peptide.a, phases: [interval(5, 3, "2")] },
     ];
+    const otherTab = await signedInClient(admin.email);
     for (let round = 0; round < 8; round++) {
-      const results = await Promise.all([save(adminDb, `${name} A`, versionA, id!), save(await signedInClient(admin.email), `${name} B`, versionB, id!)]);
-      for (const result of results) expect(result.error).toBeNull();
-      const now = await stored(id!);
+      const [{ version }] = await ok(serviceClient().from("cycle_templates").select("version").eq("id", id), "version");
+      // Both opened at the same version; each round's names differ, so each save is a change.
+      const attempt = (db: Client, label: string, plans: unknown) =>
+        db.rpc("admin_save_template", {
+          p_request_key: randomUUID(),
+          p_request_hash: randomBytes(32).toString("hex"),
+          p_id: id,
+          p_expected_version: version,
+          p_name: `${name} ${label}${round}`,
+          p_guidance: "",
+          p_plans: plans as Json,
+        } as never);
+      const results = await Promise.all([attempt(adminDb, "A", versionA), attempt(otherTab, "B", versionB)]);
+      expect(results.map((result) => result.error?.code ?? "ok").sort()).toEqual(["AP038", "ok"]);
+      const winner = results[0].error ? "B" : "A";
+      const now = await stored(id);
+      expect(now.name).toBe(`${name} ${winner}${round}`);
       const shape = now.plans.map((plan) => `${plan.peptide_id}:${plan.phases.map((phase) => phase.offset_days).join(",")}`).join("|");
-      if (now.name === `${name} A`) expect(shape).toBe(`${peptide.a}:0,10,17`);
-      else {
-        expect(now.name).toBe(`${name} B`);
-        expect(shape).toBe(`${peptide.b}:0|${peptide.a}:5`);
-      }
+      expect(shape).toBe(winner === "A" ? `${peptide.a}:0,10,17` : `${peptide.b}:0|${peptide.a}:5`);
+      expect(Number((await ok(serviceClient().from("cycle_templates").select("version").eq("id", id), "after"))[0].version)).toBe(Number(version) + 1);
     }
   });
 });
@@ -406,6 +426,61 @@ describe("the D7 save action (server)", () => {
       toast: "Template updated for future copies. Existing cycles unchanged.",
     });
     expect((await stored(id!)).plans.map((plan) => plan.peptide_id)).toEqual([later]);
+  });
+
+  // The database answers a replay and a stale version before any rule that depends on the library now.
+  it("a committed save naming a withdrawn peptide, retried after another save removed it, replays", async () => {
+    acting.client = adminDb;
+    const t = tag();
+    const later = await createPeptide(`Replay withdrawn ${t}`);
+    const name = `Replay keeps ${t}`;
+    const id = (await create(name, [{ peptide_id: later, phases: [interval(0, 28)] }, recompPlans()[1]]))!;
+    expect(await ok(serviceClient().from("peptides").update({ available: false }).eq("id", later).select("id"), "withdraw")).toHaveLength(1);
+    const opened = await versionOf(id);
+    const kept = { peptideId: later, phases: [{ ...phase, mg: "0.5" }] };
+    const b = { peptideId: peptide.b, phases: [phase] };
+    const form = { id, version: opened, name, guidance: "Kept.", plans: [kept, b] };
+    const requestKey = key();
+    // Committed; its answer never reached the editor.
+    expect(await saveTemplateAction({ ...form, requestKey })).toMatchObject({ saved: { id, version: opened + 1 } });
+    // Another admin removes the withdrawn peptide.
+    acting.client = secondDb;
+    expect(await saveTemplateAction({ ...form, version: opened + 1, guidance: "Removed.", plans: [b], requestKey: key() })).toMatchObject({ saved: { id, version: opened + 2 } });
+    // The retry of the first save, same key and details: its answer, nothing written.
+    acting.client = adminDb;
+    expect(await saveTemplateAction({ ...form, requestKey })).toMatchObject({
+      saved: { id, version: opened + 1 },
+      toast: "Template updated for future copies. Existing cycles unchanged.",
+    });
+    expect(await stored(id)).toMatchObject({ guidance: "Removed.", plans: [{ peptide_id: peptide.b }] });
+    expect(await versionOf(id)).toBe(opened + 2);
+  });
+
+  it("a stale save that the library no longer allows is refused as changed (AP038), not as invalid", async () => {
+    acting.client = adminDb;
+    const t = tag();
+    const later = await createPeptide(`Stale withdrawn ${t}`);
+    const name = `Stale keeps ${t}`;
+    const id = (await create(name, [{ peptide_id: later, phases: [interval(0, 28)] }, recompPlans()[1]]))!;
+    const opened = await versionOf(id);
+    const kept = { peptideId: later, phases: [{ ...phase, mg: "0.5" }] };
+    const b = { peptideId: peptide.b, phases: [phase] };
+    // Withdrawn, then another admin removes it from the template.
+    expect(await ok(serviceClient().from("peptides").update({ available: false }).eq("id", later).select("id"), "withdraw")).toHaveLength(1);
+    acting.client = secondDb;
+    expect(await saveTemplateAction({ id, version: opened, name, guidance: "", plans: [b], requestKey: key() })).toMatchObject({ saved: { id } });
+    // The first admin's editor, still at the version it opened, still naming it.
+    acting.client = adminDb;
+    expect(await saveTemplateAction({ id, version: opened, name, guidance: "Mine.", plans: [kept, b], requestKey: key() })).toEqual({
+      changed: true,
+      error: `Changed by ${second.name} since you opened it. Nothing was saved.`,
+    });
+    // At the current version the same content is refused for what it is.
+    const [{ name: laterName }] = await ok(serviceClient().from("peptides").select("name").eq("id", later), "name");
+    expect(await saveTemplateAction({ id, version: opened + 1, name, guidance: "Mine.", plans: [kept, b], requestKey: key() })).toMatchObject({
+      error: `${laterName} is no longer offered, so it can't be added. Remove it before saving.`,
+    });
+    expect(await stored(id)).toMatchObject({ guidance: "", plans: [{ peptide_id: peptide.b }] });
   });
 
   it("a researcher calling the action is refused before anything is saved", async () => {

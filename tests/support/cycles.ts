@@ -5,6 +5,7 @@ import { addDays } from "../../src/lib/cycles/rules";
 import { localDateOf } from "../../src/lib/schedule/zone";
 import type { Json } from "../../src/lib/supabase/database.types";
 import { ok, type signedInClient } from "./local-supabase";
+import { savePeptideAs } from "./admin-writers";
 
 export type Client = Awaited<ReturnType<typeof signedInClient>>;
 
@@ -17,7 +18,7 @@ export const day = (days: number, zone = TORONTO) => addDays(localDateOf(new Dat
 /** Creates a library peptide through the admin-only function. */
 export async function createPeptide(adminDb: Client, name: string, available = true): Promise<string> {
   const id = await ok(
-    adminDb.rpc("save_library_peptide", {
+    savePeptideAs(adminDb, {
       p_name: name,
       p_information: `[Supplied information for ${name}]`,
       p_cycling_off_guidance: "",
@@ -33,7 +34,7 @@ export async function createPeptide(adminDb: Client, name: string, available = t
 /** Turns a peptide off ("Not offered") or on again, keeping its text. */
 export async function setAvailable(adminDb: Client, id: string, name: string, available: boolean) {
   await ok(
-    adminDb.rpc("save_library_peptide", {
+    savePeptideAs(adminDb, {
       p_id: id,
       p_name: name,
       p_information: `[Supplied information for ${name}]`,

@@ -9,7 +9,7 @@ import { lastChange } from "@/lib/library/service";
 import { saveRequestHash } from "@/lib/request-hash";
 import { createClient } from "@/lib/supabase/server";
 import { TEMPLATE_CREATED, TEMPLATE_UPDATED } from "@/lib/templates/display";
-import { INVALID_TEMPLATE, validateTemplate } from "@/lib/templates/rules";
+import { INVALID_TEMPLATE, validateTemplate, validateTemplateShape } from "@/lib/templates/rules";
 import { listTemplatePeptides, saveTemplate, storedTemplatePeptides } from "@/lib/templates/service";
 
 export type TemplateActionResult = {
@@ -36,10 +36,13 @@ const TEMPLATE_GONE = "This template no longer exists. The list has been refresh
 /**
  * D7 Save template: `{ ...form, version, requestKey }` (version null for a
  * new template). Every call re-checks that the requester is a signed-in
- * admin; the database function checks it again and every rule, including
- * that each peptide is offered unless the stored template already names it
- * (Marco, 2026-09-26: kept, never newly added), saves only over the version
- * the editor opened, and replays a retry of the same request key.
+ * admin. Only the submission's shape is checked here; the database function
+ * first replays a retry of the same request key (even if the library or the
+ * template has changed since), then saves only over the version the editor
+ * opened (compare-and-set, AP038), and only then checks the rules on the
+ * library as it is now: each peptide exists and is offered unless the
+ * stored template already names it (Marco, 2026-09-26: kept, never newly
+ * added). Those refusals are reworded here afterwards.
  */
 export async function saveTemplateAction(input: unknown): Promise<TemplateActionResult> {
   const admin = await currentAdmin();
@@ -53,13 +56,11 @@ export async function saveTemplateAction(input: unknown): Promise<TemplateAction
 
   const db = await createClient();
   const load = () => Promise.all([listTemplatePeptides(db), storedTemplatePeptides(db, id)]);
-  let peptides, kept;
-  try {
-    [peptides, kept] = await load();
-  } catch {
-    return { error: SAVE_UNSURE, unsure: true };
-  }
-  const valid = validateTemplate(input, peptides, kept);
+  // Names only word the messages; which peptides are offered now is the database's check.
+  const names = await listTemplatePeptides(db)
+    .then((peptides) => new Map(peptides.map((peptide) => [peptide.id, peptide.name])))
+    .catch(() => new Map<string, string>());
+  const valid = validateTemplateShape(input, names);
   if (!valid.ok) return { error: valid.error, errors: valid.errors };
 
   const requestHash = saveRequestHash({ kind: "template", version, ...valid.value });
@@ -73,7 +74,7 @@ export async function saveTemplateAction(input: unknown): Promise<TemplateAction
       return { changed: true, error: changedSince(change?.changedBy ?? null) };
     }
     case "unavailable": {
-      // Withdrawn after the check above: say which.
+      // Not offered (or not in the library) and not already named: say which.
       const again = await load()
         .then(([fresh, stored]) => validateTemplate(input, fresh, stored))
         .catch(() => null);

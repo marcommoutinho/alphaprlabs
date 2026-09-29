@@ -14,6 +14,7 @@ import { adminPeptide, lastChange, listAdminPeptides } from "@/lib/library/servi
 import type { Json } from "@/lib/supabase/database.types";
 import { createCycle, createPeptide, day, interval, plan, saveCycle, setAvailable, tag, type Client } from "../support/cycles";
 import { anonClient, ensureAccount, ok, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
+import { saveTemplateAs } from "../support/admin-writers";
 
 const admin = { email: uniqueEmail("v7-content-admin"), name: "Priya Content" };
 const other = { email: uniqueEmail("v7-content-admin2"), name: "Owen Content" };
@@ -72,10 +73,13 @@ async function draft(patch: Partial<PeptideArgs> = {}) {
 }
 
 describe("draft and publish", () => {
-  it("entries saved before V7, and by the older writer, are published; the columns agree", async () => {
-    const legacy = await createPeptide(adminDb, `V7 legacy ${tag()}`);
+  it("entries saved before V7 (rows written without the new columns) are published; the columns agree", async () => {
+    const [{ id: legacy }] = await ok(
+      serviceClient().from("peptides").insert({ name: `V7 legacy ${tag()}`, information: "[Supplied information]", available: true }).select("id"),
+      "pre-V7 style row",
+    );
     expect(await stored(legacy)).toMatchObject({ published_at: expect.any(String), offered: true, available: true, version: 1 });
-    // A published entry the older writer withdraws is "Not offered", never a draft.
+    // A published entry withdrawn is "Not offered", never a draft.
     await setAvailable(adminDb, legacy, (await stored(legacy)).name, false);
     expect(await stored(legacy)).toMatchObject({ published_at: expect.any(String), offered: false, available: false });
     // Every draft there is was saved as one through the V7 writer: nothing older became a draft.
@@ -91,17 +95,23 @@ describe("draft and publish", () => {
 
   it("a draft is saved without a summary; publishing needs one, and a published entry never goes back", async () => {
     const d = await draft({ p_short_description: " Short. ", p_vial_strengths_mg: ["10", "0.25"] });
-    expect(d.saved).toEqual({ peptide_id: d.id, version: 1, published: false, replayed: false });
+    expect(d.saved).toEqual({ peptide_id: d.id, version: 1, published: false, newly_published: false, replayed: false });
     expect(await stored(d.id)).toMatchObject({ published_at: null, available: false, short_description: "Short.", vial_strengths_mg: [0.25, 10] });
     expect(await sqlState(savePeptide(adminDb, peptideArgs({ p_id: d.id, p_expected_version: 1, p_name: d.name, p_publish: true })), "publish blank")).toBe("22023");
     expect(await sqlState(savePeptide(adminDb, peptideArgs({ p_publish: true })), "new published blank")).toBe("22023");
     const published = await ok(savePeptide(adminDb, peptideArgs({ p_id: d.id, p_expected_version: 1, p_name: d.name, p_information: "Summary.", p_publish: true })), "publish");
-    expect(published).toMatchObject({ version: 2, published: true, replayed: false });
+    expect(published).toMatchObject({ version: 2, published: true, newly_published: true, replayed: false });
+    // The summary refusal is marked for the app, which shows it on the field.
+    const blank = await savePeptide(adminDb, peptideArgs({ p_id: d.id, p_expected_version: 2, p_name: d.name, p_publish: false }));
+    expect(blank.error).toMatchObject({ code: "22023", hint: "summary_required" });
     const first = (await stored(d.id)).published_at;
     expect(await stored(d.id)).toMatchObject({ available: true, information: "Summary." });
     // Saving it as a "draft" again keeps it published (and needs the summary).
     expect(await sqlState(savePeptide(adminDb, peptideArgs({ p_id: d.id, p_expected_version: 2, p_name: d.name, p_publish: false })), "unpublish blank")).toBe("22023");
-    await ok(savePeptide(adminDb, peptideArgs({ p_id: d.id, p_expected_version: 2, p_name: d.name, p_information: "Edited.", p_publish: false })), "edit");
+    expect(await ok(savePeptide(adminDb, peptideArgs({ p_id: d.id, p_expected_version: 2, p_name: d.name, p_information: "Edited.", p_publish: false })), "edit")).toMatchObject({
+      published: true,
+      newly_published: false,
+    });
     expect(await stored(d.id)).toMatchObject({ published_at: first, available: true, version: 3 });
     // Not even the secret key can turn a published entry back into a draft.
     expect(await sqlState(serviceClient().from("peptides").update({ published_at: null }).eq("id", d.id), "back to draft")).toBe("22023");
@@ -144,7 +154,7 @@ describe("draft and publish", () => {
     expect(await sqlState(saveCycle(researcherDb, { plans: [plan(d.id, [interval(day(1), day(20))])] }), "cycle")).toBe("AP007");
     expect(
       await sqlState(
-        adminDb.rpc("save_cycle_template", {
+        saveTemplateAs(adminDb, {
           p_name: `V7 draft template ${tag()}`,
           p_guidance: "",
           p_plans: [{ peptide_id: d.id, phases: [{ kind: "active", offset_days: 0, length_days: 28, dose_mg: "0.4", local_time: "08:00", schedule_type: "interval", every_days: 2 }] }] as Json,
@@ -223,6 +233,34 @@ describe("admins only", () => {
     // An admin can't write the tables around the functions.
     expect(await sqlState(adminDb.from("peptides").update({ published_at: new Date().toISOString() }).eq("id", d.id).select("id"), "admin direct")).not.toBe("ok");
     expect(await stored(d.id)).toMatchObject({ published_at: null });
+  });
+});
+
+describe("the older writers are no longer an API", () => {
+  // save_library_peptide and save_cycle_template took no expected version and
+  // no request key and left no change row: a stale client could overwrite a
+  // newer save and leave "changed by" naming the wrong admin.
+  it("an admin (or anyone) calling either is refused, and nothing is written", async () => {
+    const name = `V7 legacy call ${tag()}`;
+    const plans = [{ peptide_id: (await draft({ p_information: "S.", p_publish: true })).id, phases: [{ kind: "active", offset_days: 0, length_days: 7, dose_mg: "0.4", local_time: "08:00", schedule_type: "interval", every_days: 1 }] }];
+    for (const [who, db] of [
+      ["admin", adminDb],
+      ["researcher", researcherDb],
+      ["anonymous", anonClient()],
+      ["secret key", serviceClient()],
+    ] as const) {
+      // Untyped: the generated types no longer list the dropped function.
+      const call = (fn: string, args: Record<string, unknown>) =>
+        (db.rpc as unknown as (fn: string, args: Record<string, unknown>) => PromiseLike<{ error: { code?: string; message: string } | null; status: number }>).call(db, fn, args);
+      // Dropped: PostgREST has no such function.
+      expect(await sqlState(call("save_library_peptide", { p_name: name, p_information: "x", p_cycling_off_guidance: "", p_supplement_guidance: "", p_available: true }), `${who} library`)).toBe("PGRST202");
+      // Kept only as admin_save_template's rule engine: no API role may execute it.
+      expect(await sqlState(call("save_cycle_template", { p_name: name, p_guidance: "", p_plans: plans }), `${who} template`)).toBe("42501");
+    }
+    expect(await ok(serviceClient().from("peptides").select("id").eq("name", name), "no entry")).toEqual([]);
+    expect(await ok(serviceClient().from("cycle_templates").select("id").eq("name", name), "no template")).toEqual([]);
+    // The V7 writer, which runs the same rules, still works for the admin.
+    expect(await sqlState(saveTemplateAs(adminDb, { p_name: name, p_plans: plans }), "admin_save_template")).toBe("ok");
   });
 });
 

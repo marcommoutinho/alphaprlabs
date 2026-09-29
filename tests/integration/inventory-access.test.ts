@@ -10,6 +10,7 @@ import { listBuyerAccounts, listSales, listStock, recordPurchase } from "@/lib/i
 import { recordSale } from "../support/previewed-sale";
 import { previewed } from "../support/sales";
 import { anonClient, ensureAccount, localSupabase, serviceClient, signedInClient, uniqueEmail } from "../support/local-supabase";
+import { savePeptideAs } from "../support/admin-writers";
 
 type Client = Awaited<ReturnType<typeof signedInClient>>;
 
@@ -33,7 +34,7 @@ beforeAll(async () => {
   if (stored.error) throw new Error(stored.error.message);
 
   const name = `Access ${randomBytes(4).toString("hex")}`;
-  const { data: peptideId } = await adminDb.rpc("save_library_peptide", {
+  const { data: peptideId } = await savePeptideAs(adminDb, {
     p_name: name,
     p_information: `[Supplied information for ${name}]`,
     p_cycling_off_guidance: "",

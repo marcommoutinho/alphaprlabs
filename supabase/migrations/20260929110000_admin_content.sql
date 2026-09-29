@@ -57,14 +57,16 @@
 --    every template rule through save_cycle_template (20260926180200): a
 --    peptide not offered, or a draft, can never be newly added (AP007); one
 --    the template already names stays (Marco, 2026-09-26).
---    The older writers save_library_peptide and save_cycle_template keep
---    their signatures for existing callers (test fixtures): the library one
---    now creates published entries and sets "offered"; the app uses the new
---    writers only.
+--    The older writers are no longer part of the API: they took no expected
+--    version and no request key and left no change row, so an old client (or
+--    anyone calling the RPC) could silently overwrite a newer save and leave
+--    "changed by" pointing at the wrong admin. save_library_peptide is
+--    dropped (nothing calls it); save_cycle_template stays only as
+--    admin_save_template's rule engine, executable by no API role.
 --
 -- 3. admin_content_changes: one row per committed admin_save_* request (who,
 --    when, which entry or template, the version it left, whether it changed
---    anything). Admin screens read the latest change's author ("Changed by
+--    anything, whether it published a draft: a replay answers the same). Admin screens read the latest change's author ("Changed by
 --    Priya since you opened it") through admin_content_last_change(). No one
 --    reads or writes the table through the API; it is append-only. Who
 --    edited library content is never stored on the peptides or
@@ -91,8 +93,14 @@
 -- (cycle -> plans by id -> vial -> mixtures by id) is untouched; cycle and
 -- mixture writers only share-lock peptides, as before.
 --
--- Refusal SQLSTATEs: 42501 not an admin; 22023 invalid input (including a
--- publish without a research summary); 23505 a name another entry has;
+-- Every state-dependent rule (a summary once published, a peptide offered or
+-- already named) is checked after the replay and the compare-and-set, so a
+-- retry of a committed save replays and a stale save is refused as AP038,
+-- whatever has changed since; the app checks only the submission's shape.
+--
+-- Refusal SQLSTATEs: 42501 not an admin; 22023 invalid input (a publish, or a
+-- save of a published entry, without a research summary: hint
+-- summary_required); 23505 a name another entry has;
 -- P0002 no such entry or template; AP003 unknown peptide in a template;
 -- AP005 request key reused for other details; AP007 a peptide not offered
 -- newly added to a template; AP038 (new) changed since it was opened.
@@ -221,71 +229,9 @@ revoke all on function public.cycle_templates_track_version() from public, anon,
 create trigger cycle_templates_track_version before update on public.cycle_templates
   for each row execute function public.cycle_templates_track_version();
 
--- The older library writer, same signature and grants: it now records the
--- switch as "offered" and creates published entries (a draft it edits stays a
--- draft). The app saves through admin_save_peptide.
-create or replace function public.save_library_peptide(
-  p_name text,
-  p_information text,
-  p_cycling_off_guidance text,
-  p_supplement_guidance text,
-  p_available boolean,
-  p_id uuid default null
-)
-returns uuid
-language plpgsql
-volatile
-security definer
-set search_path = ''
-as $$
-declare
-  v_name text := public.trim_whitespace(coalesce(p_name, ''));
-  v_information text := public.trim_whitespace(coalesce(p_information, ''));
-  v_cycling_off text := public.trim_whitespace(coalesce(p_cycling_off_guidance, ''));
-  v_supplement text := public.trim_whitespace(coalesce(p_supplement_guidance, ''));
-  v_id uuid;
-  v_constraint text;
-begin
-  if not public.is_admin() then
-    raise exception 'not authorized' using errcode = '42501';
-  end if;
-  if p_available is null then
-    raise exception 'availability required' using errcode = '22023';
-  end if;
-  if v_information = '' then
-    raise exception 'information required' using errcode = '22023';
-  end if;
-
-  if p_id is null then
-    insert into public.peptides (name, information, cycling_off_guidance, supplement_guidance, offered, available, published_at)
-    values (v_name, v_information, v_cycling_off, v_supplement, p_available, p_available, now())
-    returning id into v_id;
-    return v_id;
-  end if;
-
-  update public.peptides p
-  set name = v_name,
-      information = v_information,
-      cycling_off_guidance = v_cycling_off,
-      supplement_guidance = v_supplement,
-      offered = p_available,
-      available = (p.published_at is not null and p_available)
-  where p.id = p_id
-  returning p.id into v_id;
-  return v_id;
-exception
-  when unique_violation then
-    get stacked diagnostics v_constraint = constraint_name;
-    if v_constraint = 'peptides_name_unique' then
-      raise exception 'a peptide with this name already exists'
-        using errcode = '23505', constraint = 'peptides_name_unique';
-    end if;
-    raise;
-end;
-$$;
-
-revoke all on function public.save_library_peptide(text, text, text, text, boolean, uuid) from public, anon;
-grant execute on function public.save_library_peptide(text, text, text, text, boolean, uuid) to authenticated;
+-- The older writers are no longer an API (see 2. above).
+drop function public.save_library_peptide(text, text, text, text, boolean, uuid);
+revoke all on function public.save_cycle_template(text, text, jsonb, uuid) from public, anon, authenticated, service_role;
 
 -- ── 3. Change log and request keys ─────────────────────────────────────────
 create table public.admin_content_changes (
@@ -297,6 +243,8 @@ create table public.admin_content_changes (
   version bigint not null check (version >= 1),
   -- The entry was published after this save (peptides; false for templates).
   published boolean not null default false,
+  -- This save published a draft (peptides; false for templates).
+  newly_published boolean not null default false,
   changed boolean not null,
   changed_by uuid not null references public.profiles (id) on delete restrict,
   changed_at timestamptz not null default clock_timestamp()
@@ -341,7 +289,7 @@ create function public.admin_save_peptide(
   p_offered boolean,
   p_publish boolean
 )
-returns table (peptide_id uuid, version bigint, published boolean, replayed boolean)
+returns table (peptide_id uuid, version bigint, published boolean, newly_published boolean, replayed boolean)
 language plpgsql
 volatile
 security definer
@@ -357,6 +305,7 @@ declare
   v_claim public.admin_content_changes;
   v_row public.peptides;
   v_before bigint;
+  v_was_published boolean;
   v_published timestamptz;
   v_constraint text;
 begin
@@ -378,7 +327,7 @@ begin
   select c.* into v_claim from public.admin_content_changes c where c.request_key = p_request_key;
   if found then
     if v_claim.kind = 'peptide' and v_claim.request_hash = p_request_hash then
-      return query select v_claim.target_id, v_claim.version, v_claim.published, true;
+      return query select v_claim.target_id, v_claim.version, v_claim.published, v_claim.newly_published, true;
       return;
     end if;
     raise exception 'request key already used for other details' using errcode = 'AP005';
@@ -398,7 +347,7 @@ begin
 
   if p_id is null then
     if p_publish and v_information = '' then
-      raise exception 'a research summary is required to publish' using errcode = '22023';
+      raise exception 'a research summary is required to publish' using errcode = '22023', hint = 'summary_required';
     end if;
     v_published := case when p_publish then now() end;
     insert into public.peptides (
@@ -409,9 +358,10 @@ begin
       p_offered, (v_published is not null and p_offered), v_published
     )
     returning * into v_row;
-    insert into public.admin_content_changes (request_key, request_hash, kind, target_id, version, published, changed, changed_by)
-    values (p_request_key, p_request_hash, 'peptide', v_row.id, v_row.version, v_row.published_at is not null, true, (select auth.uid()));
-    return query select v_row.id, v_row.version, v_row.published_at is not null, false;
+    insert into public.admin_content_changes (request_key, request_hash, kind, target_id, version, published, newly_published, changed, changed_by)
+    values (p_request_key, p_request_hash, 'peptide', v_row.id, v_row.version, v_row.published_at is not null, v_row.published_at is not null,
+            true, (select auth.uid()));
+    return query select v_row.id, v_row.version, v_row.published_at is not null, v_row.published_at is not null, false;
     return;
   end if;
 
@@ -423,9 +373,11 @@ begin
   if v_row.version <> p_expected_version then
     raise exception 'the entry changed since it was opened' using errcode = 'AP038';
   end if;
+  -- After the replay and the compare-and-set: a published entry keeps its summary.
+  v_was_published := v_row.published_at is not null;
   v_published := coalesce(v_row.published_at, case when p_publish then now() end);
   if v_published is not null and v_information = '' then
-    raise exception 'a research summary is required to publish' using errcode = '22023';
+    raise exception 'a research summary is required to publish' using errcode = '22023', hint = 'summary_required';
   end if;
   v_before := v_row.version;
 
@@ -442,10 +394,10 @@ begin
   where p.id = p_id
   returning * into v_row;
 
-  insert into public.admin_content_changes (request_key, request_hash, kind, target_id, version, published, changed, changed_by)
+  insert into public.admin_content_changes (request_key, request_hash, kind, target_id, version, published, newly_published, changed, changed_by)
   values (p_request_key, p_request_hash, 'peptide', v_row.id, v_row.version, v_row.published_at is not null,
-          v_row.version <> v_before, (select auth.uid()));
-  return query select v_row.id, v_row.version, v_row.published_at is not null, false;
+          not v_was_published and v_row.published_at is not null, v_row.version <> v_before, (select auth.uid()));
+  return query select v_row.id, v_row.version, v_row.published_at is not null, not v_was_published and v_row.published_at is not null, false;
 exception
   when unique_violation then
     get stacked diagnostics v_constraint = constraint_name;
@@ -516,8 +468,9 @@ begin
     end if;
   end if;
 
-  -- Every template rule, including "a peptide not offered (or a draft) is
-  -- never newly added; one the template names already stays".
+  -- Every template rule, after the replay and the compare-and-set, including
+  -- "a peptide not offered (or a draft) is never newly added; one the
+  -- template names already stays" (AP007 / AP003).
   v_id := public.save_cycle_template(p_name, p_guidance, p_plans, p_id);
   if v_id is null then
     raise exception 'no such template' using errcode = 'P0002';

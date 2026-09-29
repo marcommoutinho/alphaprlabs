@@ -9,6 +9,7 @@ import { getSale, getSaleStock, getStockItem, listSales, listStock, recordPurcha
 import { recordSale } from "../support/previewed-sale";
 import { listAdminPeptides } from "@/lib/library/service";
 import { ensureAccount, serviceClient, signedInClient, uniqueEmail } from "../support/local-supabase";
+import { savePeptideAs } from "../support/admin-writers";
 
 type Client = Awaited<ReturnType<typeof signedInClient>>;
 const admin = { email: uniqueEmail("s6-paging-admin"), name: "S6 Paging Admin" };
@@ -23,7 +24,7 @@ beforeAll(async () => {
 /** A new stock item (own peptide) with purchase lots `[receivedOn, quantity, unitCost]`, in that recording order. */
 async function newItem(lots: [string, number, string][]): Promise<string> {
   const name = `Paging ${randomBytes(4).toString("hex")}`;
-  const { data: peptideId, error } = await db.rpc("save_library_peptide", {
+  const { data: peptideId, error } = await savePeptideAs(db, {
     p_name: name,
     p_information: `[Supplied information for ${name}]`,
     p_cycling_off_guidance: "",

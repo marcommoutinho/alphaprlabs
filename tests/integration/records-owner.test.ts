@@ -22,6 +22,7 @@ import { ledgerMonthItems, ledgerPurchases, ledgerSales } from "@/lib/records/le
 import { mulberry32, psql, quote } from "../support/psql";
 import { previewedLotsSql } from "../support/sales";
 import { ensureAccount, signedInClient, uniqueEmail } from "../support/local-supabase";
+import { savePeptideAs } from "../support/admin-writers";
 
 const marco = { email: uniqueEmail("rec-owner-marco"), name: "Records Marco" };
 const brian = { email: uniqueEmail("rec-owner-brian"), name: "Records Brian" };
@@ -65,7 +66,7 @@ function emptyYear(): number {
 
 async function newItem(receivedOn: string, quantity: number, unitCost: string): Promise<{ item: string; lot: string }> {
   const name = `Records Owner ${randomBytes(4).toString("hex")}`;
-  const { data: peptideId, error } = await db.rpc("save_library_peptide", {
+  const { data: peptideId, error } = await savePeptideAs(db, {
     p_name: name,
     p_information: `[Supplied information for ${name}]`,
     p_cycling_off_guidance: "",

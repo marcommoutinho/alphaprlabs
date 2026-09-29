@@ -17,6 +17,7 @@ import { recordSale } from "../support/previewed-sale";
 import { psql, quote } from "../support/psql";
 import { previewedLotsSql } from "../support/sales";
 import { ensureAccount, seedInvitation, signedInClient, uniqueEmail } from "../support/local-supabase";
+import { savePeptideAs } from "../support/admin-writers";
 
 const marco = { email: uniqueEmail("sel-owner-marco"), name: "Owner Marco" };
 const brian = { email: uniqueEmail("sel-owner-brian"), name: "Owner Brian" };
@@ -29,7 +30,7 @@ beforeAll(async () => {
   fixture.kwameId = await ensureAccount({ ...kwame, role: "researcher" });
   const db = await signedInClient(marco.email);
   const name = `Seller Owner ${randomBytes(4).toString("hex")}`;
-  const { data: peptideId, error } = await db.rpc("save_library_peptide", {
+  const { data: peptideId, error } = await savePeptideAs(db, {
     p_name: name,
     p_information: `[Supplied information for ${name}]`,
     p_cycling_off_guidance: "",

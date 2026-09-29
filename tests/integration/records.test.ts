@@ -21,6 +21,7 @@ import { byDay, byMonth, saleTotals } from "@/lib/records/ledger";
 import { ledgerMonthItems, ledgerPurchases, ledgerSales } from "@/lib/records/ledger-service";
 import { listSuppliers, salePreview } from "@/lib/records/service";
 import { anonClient, answerLostClient, ensureAccount, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
+import { savePeptideAs } from "../support/admin-writers";
 
 const acting = vi.hoisted(() => ({ client: null as unknown, refreshed: 0, revalidated: [] as string[] }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => acting.client }));
@@ -59,7 +60,7 @@ beforeEach(() => {
 /** A new stock item (its own library peptide) and its first lot, as the Record purchase sheet sends it. */
 async function newItem(receivedOn: string, quantity: number, unitCost: string, supplier = ""): Promise<string> {
   const name = `Compound V6 ${randomBytes(4).toString("hex")}`;
-  const { data: peptideId, error } = await db.rpc("save_library_peptide", {
+  const { data: peptideId, error } = await savePeptideAs(db, {
     p_name: name,
     p_information: `[Supplied information for ${name}]`,
     p_cycling_off_guidance: "",

@@ -11,6 +11,7 @@ import { getResearchTemplate, listAvailablePeptides, listResearchTemplates, pept
 import type { Database } from "@/lib/supabase/database.types";
 import { type Client, createPeptide, setAvailable, tag } from "../support/cycles";
 import { ensureAccount, localSupabase, ok, serviceClient, signedInClient, TEST_PASSWORD, uniqueEmail } from "../support/local-supabase";
+import { saveTemplateAs } from "../support/admin-writers";
 
 const admin = { email: uniqueEmail("s10-lib-admin"), name: "S10 Library Admin" };
 const reader = { email: uniqueEmail("s10-lib-reader"), name: "S10 Library Reader" };
@@ -50,7 +51,7 @@ const active = (offset: number, len: number, dose = "0.4") => ({
 });
 
 async function createTemplate(adminDb: Client, name: string, plans: unknown[]) {
-  const id = await ok(adminDb.rpc("save_cycle_template", { p_name: name, p_guidance: `Guidance ${name}`, p_plans: plans as never }), name);
+  const id = await ok(saveTemplateAs(adminDb, { p_name: name, p_guidance: `Guidance ${name}`, p_plans: plans as never }), name);
   if (!id) throw new Error(`No id for ${name}`);
   return id;
 }

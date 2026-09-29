@@ -4,8 +4,8 @@ import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { signInUrl } from "@/lib/auth/paths";
 import { currentAdmin } from "@/lib/auth/session";
-import { changedSince, INVALID_ENTRY, NAME_TAKEN, type PeptideProblems, savedToast, validatePeptide } from "@/lib/library/admin";
-import { adminPeptide, lastChange, savePeptide } from "@/lib/library/service";
+import { changedSince, INVALID_ENTRY, NAME_TAKEN, type PeptideProblems, savedToast, SUMMARY_REQUIRED_ERROR, validatePeptide } from "@/lib/library/admin";
+import { lastChange, savePeptide } from "@/lib/library/service";
 import { saveRequestHash } from "@/lib/request-hash";
 import { createClient } from "@/lib/supabase/server";
 
@@ -33,9 +33,11 @@ const ENTRY_GONE = "This entry no longer exists. The list has been refreshed.";
 /**
  * A9 / D6 Save draft, Publish, Save and publish: `{ ...form, publish,
  * requestKey }`. Every call re-checks that the requester is a signed-in
- * admin; the database function checks it again and every rule, saves only
- * over the version the editor opened (compare-and-set) and replays a retry
- * of the same request key instead of saving twice.
+ * admin. Only the submission's shape is checked here; the database function
+ * first replays a retry of the same request key (even if the entry has
+ * changed since), then saves only over the version the editor opened
+ * (compare-and-set, AP038), and only then checks the rules that depend on
+ * the entry as it is now (a published entry keeps its summary).
  */
 export async function savePeptideAction(input: unknown): Promise<PeptideActionResult> {
   const admin = await currentAdmin();
@@ -45,33 +47,21 @@ export async function savePeptideAction(input: unknown): Promise<PeptideActionRe
   const requestKey = typeof raw.requestKey === "string" && UUID.test(raw.requestKey) ? raw.requestKey.toLowerCase() : null;
   if (!requestKey) return { error: INVALID_ENTRY };
 
-  const db = await createClient();
-  let published = false;
-  if (typeof raw.id === "string" && UUID.test(raw.id)) {
-    let current;
-    try {
-      current = await adminPeptide(db, raw.id);
-    } catch {
-      return { error: SAVE_UNSURE, unsure: true };
-    }
-    if (!current) {
-      refresh();
-      return { gone: true, error: ENTRY_GONE };
-    }
-    published = current.publishedAt !== null;
-  }
-
-  const valid = validatePeptide(raw, published);
+  const valid = validatePeptide(raw);
   if (!valid.ok) return { error: valid.error, problems: valid.problems };
 
+  const db = await createClient();
   const result = await savePeptide(db, { requestKey, requestHash: saveRequestHash({ kind: "peptide", ...valid.value }), entry: valid.value });
   switch (result.kind) {
     case "saved":
       refresh();
       return {
         saved: { id: result.id, version: result.version, published: result.published },
-        toast: savedToast(valid.value.name, { published: result.published, wasPublished: published, publish: valid.value.publish }),
+        toast: savedToast(valid.value.name, result),
       };
+    case "summary_required":
+      // Published since it was opened, or being published: it keeps a summary.
+      return { error: SUMMARY_REQUIRED_ERROR, problems: { information: SUMMARY_REQUIRED_ERROR } };
     case "changed": {
       const change = valid.value.id ? await lastChange(db, "peptide", valid.value.id).catch(() => null) : null;
       return { changed: true, error: changedSince(change?.changedBy ?? null) };

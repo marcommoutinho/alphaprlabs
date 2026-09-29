@@ -13,6 +13,7 @@ import { getSale, getStockItem, listSales, recordPurchase } from "@/lib/inventor
 import { recordSale } from "../support/previewed-sale";
 import { previewed } from "../support/sales";
 import { anonClient, ensureAccount, ok, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
+import { savePeptideAs } from "../support/admin-writers";
 
 type Client = Awaited<ReturnType<typeof signedInClient>>;
 
@@ -37,7 +38,7 @@ beforeAll(async () => {
 async function newItem(quantity = 20, unitCost = "20"): Promise<string> {
   const name = `Seller ${randomBytes(4).toString("hex")}`;
   const peptideId = await ok(
-    db.marco.rpc("save_library_peptide", {
+    savePeptideAs(db.marco, {
       p_name: name,
       p_information: `[Supplied information for ${name}]`,
       p_cycling_off_guidance: "",

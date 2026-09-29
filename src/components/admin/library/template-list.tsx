@@ -58,13 +58,14 @@ export function TemplateList({ templates, peptides }: { templates: TemplateRecor
                   );
                 })}
               </span>
+              <span className="mt-2.5 block text-[13px] text-ink-3" data-testid="template-usage">
+                {usageLine(template)}
+              </span>
               {withdrawn ? (
-                <span className="mt-2.5 block text-[13px] font-semibold text-low" data-testid="template-withdrawn">
+                <span className="mt-1 block text-[13px] font-semibold text-low" data-testid="template-withdrawn">
                   {withdrawn}
                 </span>
-              ) : (
-                <span className="mt-2.5 block text-[13px] text-ink-3">{usageLine(template)}</span>
-              )}
+              ) : null}
             </Link>
           </li>
         );
