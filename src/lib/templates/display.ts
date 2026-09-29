@@ -6,7 +6,7 @@
 // still be edited and saved, and researchers who start from it get the
 // peptide too; it just can't be newly added to a template. So the card's
 // `low` line only warns (A10's "can't be used by researchers" does not apply).
-import { inMassUnit, massLabel, type MassUnit, massUnit, mgFromUnit } from "@/lib/alpha/format";
+import { inMassUnit, type MassUnit, massUnit, mgFromUnit } from "@/lib/alpha/format";
 import { type AxisLabel, type LaneBar, laneBars } from "@/lib/cycles/geometry";
 import { formatMonthDay } from "@/lib/format";
 import { BUSINESS_TIME_ZONE } from "@/lib/inventory/screens";
@@ -34,11 +34,11 @@ export const templateLength = (template: Pick<TemplateRecord, "plans">) => daysT
 
 /** A10's last line: "Used for 4 cycles · updated Aug 28" (the date in Toronto). */
 export const usageLine = (template: Pick<TemplateRecord, "cycleCount" | "updatedAt">) =>
-  `Used for ${cyclesText(template.cycleCount)} · updated ${updatedText(template.updatedAt)}`;
+  `${template.cycleCount ? `Used for ${cyclesText(template.cycleCount)}` : "Not used yet"} · updated ${updatedText(template.updatedAt)}`;
 
-/** D7's meta: "84 days · used for 4 cycles · updated Aug 28". */
+/** D7's meta: "84 days · used for 4 cycles · updated Aug 28" ("not used yet" before any cycle). */
 export const editorMeta = (template: Pick<TemplateRecord, "plans" | "cycleCount" | "updatedAt">) =>
-  `${templateLength(template)} · used for ${cyclesText(template.cycleCount)} · updated ${updatedText(template.updatedAt)}`;
+  `${templateLength(template)} · ${template.cycleCount ? `used for ${cyclesText(template.cycleCount)}` : "not used yet"} · updated ${updatedText(template.updatedAt)}`;
 
 /** D7's footer note. */
 export function footerNote(template: Pick<TemplateRecord, "cycleCount"> | null): string {
@@ -167,12 +167,6 @@ export function newRow(kind: "active" | "break", rows: readonly PhaseRow[], key:
   const day = (ends.length ? Math.max(...ends) : 0) + 1;
   const base = kind === "active" ? { ...newActivePhase(day), every: "1" } : { ...newBreak(day), len: "14" };
   return rowOfPhase(base, key);
-}
-
-/** "250 mcg · Daily · 7:30 AM" style summary for a row, or "—" pieces for a break. */
-export function doseText(row: Pick<PhaseRow, "amount" | "unit">): string {
-  const mg = row.amount.trim() ? mgFromUnit(row.amount, row.unit) : "";
-  return mg ? massLabel(mg) : "";
 }
 
 /** D7's weekday toggles: seven 30 px squares, Mon … Sun, one letter each. */

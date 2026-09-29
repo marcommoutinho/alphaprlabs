@@ -56,7 +56,8 @@ export default async function PeptidePreviewPage({ params }: { params: Params })
         </div>
         <header className="mt-4 px-5 laptop:px-0">
           <div className="font-mono text-[13px] font-medium text-ink-3">{updatedLabel(entry.updatedAt)}</div>
-          <h1 className="mt-0.5 text-[34px] leading-[1.15] font-semibold tracking-[-0.03em] break-words">{entry.name}</h1>
+          {/* The pane sits beside the list's "Library" title, like the editor: a second-level heading. */}
+          <h2 className="mt-0.5 text-[34px] leading-[1.15] font-semibold tracking-[-0.03em] break-words">{entry.name}</h2>
           {state === "not-offered" ? (
             <p className="mt-2 flex flex-wrap items-center gap-2 text-[14px] text-ink-2">
               <Tag tone="outline">Not offered</Tag>

@@ -267,6 +267,7 @@ describe("A10 / D7 display text", () => {
     expect(templateLength(template)).toBe("84 days");
     expect(usageLine(template)).toBe("Used for 4 cycles · updated Aug 28");
     expect(usageLine({ ...template, cycleCount: 1, updatedAt: "2026-08-29T02:30:00Z" })).toBe("Used for 1 cycle · updated Aug 28");
+    expect(usageLine({ ...template, cycleCount: 0 })).toBe("Not used yet · updated Aug 28");
     expect(editorMeta(template)).toBe("84 days · used for 4 cycles · updated Aug 28");
     expect(templateLength({ plans: [] })).toBe("0 days");
   });

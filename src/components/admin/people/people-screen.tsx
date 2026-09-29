@@ -211,7 +211,8 @@ function PhoneRow({ row }: { row: PeopleRow }) {
   );
 }
 
-const TABLE_COLUMNS = "grid grid-cols-[1.3fr_1.5fr_1.4fr_110px] items-center gap-3";
+// Status keeps room for "Private · revoked Sep 30"; name and email truncate first.
+const TABLE_COLUMNS = "grid grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_minmax(180px,1.3fr)_110px] items-center gap-3";
 
 /** D8's table: Name, Email, Status and View history / Resend. */
 function PeopleTable({ rows, header }: { rows: PeopleRow[]; header: boolean }) {

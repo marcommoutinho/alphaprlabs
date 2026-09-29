@@ -81,8 +81,7 @@ test("laptop: create and edit a template, then keep saving it with a peptide no 
   await addPeptide(page, W);
   await expect(page.getByTestId("template-timeline")).toBeVisible();
 
-  // A's 28-day phase has no dose yet: Save template shows why and waits.
-  await page.getByTestId("save-template").click();
+  // The new 28-day phases have no dose yet: the editor says why and Save template waits.
   await expect(page.getByTestId("builder-issues")).toBeVisible();
   await expect(page.getByTestId("save-template")).toBeDisabled();
   const a = peptideCard(page, A);
@@ -174,7 +173,9 @@ for (const scheme of ["light", "dark"] as const) {
     await (await hydrated(page.getByTestId("template-name"))).fill(name);
     await page.getByTestId("add-peptide-phone").click();
     await page.getByTestId("peptide-picker").getByRole("button", { name: A, exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     await peptideCard(page, A).getByTestId("phase-dose").fill("500");
+    await peptideCard(page, A).getByTestId("phase-unit").selectOption("mcg");
     await shot(page, `templates-editor-phone-${scheme}`);
     await page.getByTestId("save-template").click();
     await expect(page).toHaveURL(`${APP_ORIGIN}/admin/library/templates`);

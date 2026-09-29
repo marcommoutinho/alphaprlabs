@@ -110,7 +110,7 @@ test("laptop: a draft stays invisible to researchers until published, then stops
   await page.getByTestId("peptide-preview").click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/admin/library/peptides/${draft.id}/preview`);
   await expect(page.getByTestId("preview-banner")).toBeVisible();
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText(name);
+  await expect(page.getByTestId("peptide-preview-pane").getByRole("heading", { level: 2, name })).toBeVisible();
   await expect(page.getByText("[Supplied research summary]")).toBeVisible();
   await row(page, name).click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/admin/library/peptides/${draft.id}`);
