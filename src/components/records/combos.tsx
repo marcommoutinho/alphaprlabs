@@ -151,7 +151,7 @@ export function SupplierField({
       </div>
       <Autocomplete.Portal container={container}>
         <Autocomplete.Positioner className="z-[95] outline-none" sideOffset={6}>
-          <Autocomplete.Popup className={cn(popupClass, "empty:hidden")}>
+          <Autocomplete.Popup className={cn(popupClass, "data-empty:hidden")}>
             <Autocomplete.List>
               {(supplier: string) => (
                 <Autocomplete.Item key={supplier} value={supplier} className={itemClass} data-testid="supplier-option">
