@@ -1,8 +1,13 @@
 import { Skeleton, SkeletonRegion } from "@/components/alpha/skeleton";
 import { BUSINESS_MAIN } from "@/components/business/frame";
 
-/** Business loading (§7.16): the title renders at once; the Now block, actions, tiles, chart and rows at their real size. */
-export default function BusinessLoading() {
+/**
+ * Business loading (§7.16): the title renders at once; the Now block,
+ * actions, tiles, chart and rows at their real size. The Business page's own
+ * Suspense fallback rather than a route loading.tsx: see
+ * src/app/(private)/admin/business/page.tsx.
+ */
+export function OverviewSkeleton() {
   return (
     <main className={BUSINESS_MAIN}>
       <SkeletonRegion label="Loading the business figures">
