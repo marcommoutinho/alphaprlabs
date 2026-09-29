@@ -1,4 +1,4 @@
-// S4 peptide library (A2) against the real local Supabase (npm run db:start):
+// S4 / V7 peptide library (A2, A8 / A9 / D6) against the real local Supabase (npm run db:start):
 // admin-only writes enforced in the database, table reads return available
 // entries only for everyone (admins included), the admin-only maintenance
 // list, reference counts, and the admin-only server action. No mocked database: the action runs as the
@@ -11,7 +11,7 @@ const acting = vi.hoisted(() => ({ client: null as unknown }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => acting.client }));
 vi.mock("next/cache", () => ({ refresh: vi.fn() }));
 
-const { saveLibraryEntryAction } = await import("@/app/(private)/admin/library/actions");
+const { savePeptideAction } = await import("@/app/(private)/admin/library/actions");
 
 type Client = Awaited<ReturnType<typeof signedInClient>>;
 
@@ -258,45 +258,57 @@ describe("table reads return available entries only, for everyone; A2 lists all 
   });
 });
 
-describe("the A2 save action (server)", () => {
-  it("an admin saves through the action; validation returns the designed messages", async () => {
+describe("the A9 / D6 save action (server)", () => {
+  const key = () => crypto.randomUUID();
+  const blank = { id: null, version: null, shortDescription: "", strengths: [] as string[], information: "", cyclingOff: "", supplement: "", offered: true };
+
+  it("an admin saves a draft, then publishes it; validation returns the designed messages", async () => {
     acting.client = await signedInClient(admin.email);
     const name = `Action ${tag()}`;
-    const form = { id: null, name, information: "", cyclingOff: "", supplement: "", available: true };
-    expect(await saveLibraryEntryAction({ ...form, name: " " })).toEqual({ error: "Name is required." });
-    expect(await saveLibraryEntryAction(form)).toEqual({
-      error: "Add the information researchers will see (incomplete entries can't be published).",
+    expect(await savePeptideAction({ ...blank, name: " ", publish: false, requestKey: key() })).toMatchObject({ error: "Name is required.", problems: { name: "Name is required." } });
+    expect(await savePeptideAction({ ...blank, name, publish: true, requestKey: key() })).toMatchObject({
+      error: "Add a research summary to publish.",
+      problems: { information: "Add a research summary to publish." },
     });
-    expect(await saveLibraryEntryAction({ ...form, information: "Supplied." })).toEqual({
-      saved: true,
-      toast: `Library updated · ${name}`,
-      tone: "info",
-    });
-    const { data } = await serviceClient().from("peptides").select("id, available").eq("name", name);
-    expect(data).toEqual([{ id: expect.any(String), available: true }]);
-    expect(
-      await saveLibraryEntryAction({ ...form, id: data![0].id, information: "Supplied.", available: false }),
-    ).toMatchObject({ saved: true });
-    expect(await stored(data![0].id)).toMatchObject({ available: false });
+    // A request without a key is refused before anything is read.
+    expect(await savePeptideAction({ ...blank, name, publish: false })).toEqual({ error: "This entry could not be identified. Reload the page and try again." });
+
+    const draftKey = key();
+    const draft = await savePeptideAction({ ...blank, name, strengths: ["10", "0.5"], publish: false, requestKey: draftKey });
+    expect(draft).toMatchObject({ saved: { version: 1, published: false }, toast: `Draft saved · ${name}. Researchers can't see it.` });
+    const id = draft.saved!.id;
+    expect(await stored(id)).toMatchObject({ published_at: null, available: false, offered: true, vial_strengths_mg: [0.5, 10] });
+    // A retry of the same request replays: no second entry.
+    expect(await savePeptideAction({ ...blank, name, strengths: ["10", "0.5"], publish: false, requestKey: draftKey })).toMatchObject({ saved: { id, version: 1 } });
+    expect((await serviceClient().from("peptides").select("id").eq("name", name)).data).toEqual([{ id }]);
+
+    const published = await savePeptideAction({ ...blank, id, version: 1, name, information: "Supplied.", publish: true, requestKey: key() });
+    expect(published).toMatchObject({ saved: { id, version: 2, published: true }, toast: `${name} published. Researchers can see it now.` });
+    expect(await stored(id)).toMatchObject({ available: true, information: "Supplied." });
 
     // A name another entry has is refused, shown under the name field.
-    expect(await saveLibraryEntryAction({ ...form, name: ` ${name.toUpperCase()} `, information: "Supplied." })).toEqual({
+    expect(await savePeptideAction({ ...blank, name: ` ${name.toUpperCase()} `, publish: false, requestKey: key() })).toMatchObject({
       error: "A peptide with this name already exists.",
-      field: "name",
+      problems: { name: "A peptide with this name already exists." },
     });
     // A malformed id is refused, never saved as a new (duplicate) entry.
-    expect(await saveLibraryEntryAction({ ...form, id: "not-a-uuid", information: "Supplied." })).toEqual({
+    expect(await savePeptideAction({ ...blank, id: "not-a-uuid", version: 1, name: `${name} 2`, publish: false, requestKey: key() })).toMatchObject({
       error: "This entry could not be identified. Reload the page and try again.",
     });
-    expect((await serviceClient().from("peptides").select("id").eq("name", name)).data).toEqual([{ id: data![0].id }]);
+    // Saving over an older version says who saved since (AP038), nothing written.
+    expect(await savePeptideAction({ ...blank, id, version: 1, name, information: "Stale.", publish: true, requestKey: key() })).toEqual({
+      changed: true,
+      error: `Changed by ${admin.name} since you opened it. Nothing was saved.`,
+    });
+    expect(await stored(id)).toMatchObject({ information: "Supplied.", version: 2 });
   });
 
   it("a researcher calling the action is refused before anything is saved", async () => {
     acting.client = await signedInClient(researcher.email);
     const name = `Researcher action ${tag()}`;
-    await expect(
-      saveLibraryEntryAction({ name, information: "Supplied.", cyclingOff: "", supplement: "", available: true }),
-    ).rejects.toMatchObject({ digest: expect.stringContaining("NEXT_REDIRECT") });
+    await expect(savePeptideAction({ ...blank, name, information: "Supplied.", publish: true, requestKey: key() })).rejects.toMatchObject({
+      digest: expect.stringContaining("NEXT_REDIRECT"),
+    });
     expect((await serviceClient().from("peptides").select("id").eq("name", name)).data).toEqual([]);
   });
 });

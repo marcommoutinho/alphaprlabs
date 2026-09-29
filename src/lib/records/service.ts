@@ -4,7 +4,7 @@ import { listStockLevels } from "@/lib/business/service";
 import { listSellers } from "@/lib/inventory/sellers";
 import { listBuyerAccounts, type Db } from "@/lib/inventory/service";
 import { sellerOptions, defaultSeller } from "@/lib/inventory/seller-screens";
-import { listLibrary } from "@/lib/library/service";
+import { listAdminPeptides } from "@/lib/library/service";
 import type { Database } from "@/lib/supabase/database.types";
 import { toSalePreview, type SalePreview } from "./forms";
 
@@ -62,7 +62,7 @@ export async function saleFormData(db: Db, adminId: string, today: string): Prom
 }
 
 export async function purchaseFormData(db: Db, today: string): Promise<PurchaseFormData> {
-  const [items, library, suppliers] = await Promise.all([recordItems(db, today), listLibrary(db), listSuppliers(db)]);
+  const [items, library, suppliers] = await Promise.all([recordItems(db, today), listAdminPeptides(db), listSuppliers(db)]);
   return {
     today,
     items,

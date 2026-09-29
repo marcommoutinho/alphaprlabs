@@ -5,7 +5,6 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { SaleEntry } from "@/components/admin/inventory-views";
-import { InvitationsView } from "@/components/admin/invitations-view";
 import { ToastProvider } from "@/components/app-shell/toast";
 import {
   LINK_ACCOUNT_REQUIRED,
@@ -16,6 +15,7 @@ import {
   validateSale,
 } from "@/lib/inventory/rules";
 import { buyerLabel } from "@/lib/inventory/screens";
+import { peopleView } from "@/lib/people/view";
 import {
   defaultSeller,
   LINK_BUTTON,
@@ -178,23 +178,18 @@ describe("invitation roles", () => {
     expect(ADMIN_CONFIRM_POINTS[0]).toMatch(/^They'll see all business records: stock, purchases, sales/);
   });
 
-  it("the form offers Researcher (chosen) and Admin; the list shows each invitation's role", () => {
-    const row = (role: "researcher" | "admin", email: string) => ({
+  it("People lists each open invitation in its role's group (A11 / D8)", () => {
+    const invite = (role: "researcher" | "admin", email: string) => ({
       id: email,
-      name: "Someone",
+      name: "",
       email,
-      sent: "Sep 27, 2026",
-      state: "pending" as const,
-      label: "Pending",
-      canResend: false,
       role,
+      state: "pending" as const,
+      sentAt: "2026-09-27T12:00:00Z",
+      expiresAt: "2026-10-27T12:00:00Z",
     });
-    const page = html(createElement(InvitationsView, { rows: [row("admin", "a@example.test"), row("researcher", "r@example.test")] }));
-    expect(page).toMatch(/<button[^>]*aria-pressed="true"[^>]*>Researcher<\/button>/);
-    expect(page).toMatch(/<button[^>]*aria-pressed="false"[^>]*>Admin<\/button>/);
-    expect(text(page)).toContain("Admin · Sent Sep 27, 2026");
-    expect(text(page)).toContain("Researcher · Sent Sep 27, 2026");
-    // The confirm step only appears after choosing Admin and sending.
-    expect(text(page)).not.toContain(ADMIN_CONFIRM_POINTS[0]);
+    const view = peopleView([], [invite("admin", "a@example.test"), invite("researcher", "r@example.test")], "self");
+    expect(view.admins.map((row) => [row.email, row.status.text])).toEqual([["a@example.test", "Invited · expires Oct 27"]]);
+    expect(view.researchers.map((row) => row.email)).toEqual(["r@example.test"]);
   });
 });

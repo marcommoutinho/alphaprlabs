@@ -36,6 +36,8 @@ export type InvitationRow = {
   name: string;
   email: string;
   sentAt: string;
+  /** When it stops working (sent + 30 days); shown as "expires Oct 14" / "expired Sep 19". */
+  expiresAt: string;
   state: InvitationDisplayState;
   /** The role the account is created with (Marco, 2026-09-27: admins can invite admins). */
   role: InvitationRole;
@@ -55,6 +57,7 @@ export async function listInvitations(db: Db, now = new Date()): Promise<Invitat
     name: row.name,
     email: row.email,
     sentAt: row.sent_at,
+    expiresAt: row.expires_at,
     state: displayState(row, now),
     role: row.role,
   }));

@@ -14,7 +14,7 @@ const acting = vi.hoisted(() => ({ client: null as unknown }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => acting.client }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), refresh: vi.fn() }));
 
-const { saveTemplateAction } = await import("@/app/(private)/admin/templates/actions");
+const { saveTemplateAction } = await import("@/app/(private)/admin/library/templates/actions");
 
 type Client = Awaited<ReturnType<typeof signedInClient>>;
 
@@ -346,34 +346,50 @@ describe("concurrent edits", () => {
   });
 });
 
-describe("the A3 save action (server)", () => {
+describe("the D7 save action (server)", () => {
   const phase = { kind: "active", day: "1", len: "28", mg: "0.4", time: "08:00", schedule: "interval", every: "5", days: [1, 3, 5] };
+  const key = () => crypto.randomUUID();
+  const versionOf = async (id: string) => Number((await ok(serviceClient().from("cycle_templates").select("version").eq("id", id), "version"))[0].version);
 
   it("an admin saves through the action; validation returns the designed messages", async () => {
     acting.client = adminDb;
     const name = `Action ${tag()}`;
-    const form = { id: null, name, guidance: "", plans: [{ peptideId: peptide.a, phases: [phase] }] };
-    expect(await saveTemplateAction({ ...form, name: " " })).toEqual({ error: "Name is required." });
-    expect(await saveTemplateAction({ ...form, plans: [] })).toEqual({ error: "Add at least one peptide — an empty template can't be saved." });
+    const form = { id: null, version: null, name, guidance: "", plans: [{ peptideId: peptide.a, phases: [phase] }] };
+    expect(await saveTemplateAction({ ...form, name: " ", requestKey: key() })).toMatchObject({ error: "Name is required." });
+    expect(await saveTemplateAction({ ...form, plans: [], requestKey: key() })).toMatchObject({ error: "Add at least one peptide — an empty template can't be saved." });
     const [{ name: withdrawnName }] = await ok(serviceClient().from("peptides").select("name").eq("id", peptide.withdrawn), "name");
-    expect(await saveTemplateAction({ ...form, plans: [{ peptideId: peptide.withdrawn, phases: [phase] }] })).toEqual({
+    expect(await saveTemplateAction({ ...form, plans: [{ peptideId: peptide.withdrawn, phases: [phase] }], requestKey: key() })).toMatchObject({
       error: `${withdrawnName} is no longer offered, so it can't be added. Remove it before saving.`,
     });
     const [{ name: aName }] = await ok(serviceClient().from("peptides").select("name").eq("id", peptide.a), "name");
     expect(
-      await saveTemplateAction({ ...form, plans: [{ peptideId: peptide.a, phases: [{ ...phase, mg: "" }, { ...phase, kind: "break", day: "20" }] }] }),
-    ).toEqual({ error: `${aName}, phase 1: enter a dose above 0 mg. (+1 more)` });
-    expect(await saveTemplateAction(form)).toEqual({ saved: true, toast: "Template created.", tone: "info" });
-    const [{ id }] = await ok(serviceClient().from("cycle_templates").select("id").eq("name", name), "created");
-    expect(await saveTemplateAction({ ...form, id, guidance: "More." })).toEqual({
-      saved: true,
+      await saveTemplateAction({ ...form, plans: [{ peptideId: peptide.a, phases: [{ ...phase, mg: "" }, { ...phase, kind: "break", day: "20" }] }], requestKey: key() }),
+    ).toMatchObject({ error: `${aName}, phase 1: enter a dose above 0 mg. (+1 more)` });
+    // Without a request key, or with an id but no version, nothing is read or saved.
+    expect(await saveTemplateAction(form)).toMatchObject({ error: "This template could not be saved. Reload the page and try again." });
+
+    const createKey = key();
+    const created = await saveTemplateAction({ ...form, requestKey: createKey });
+    expect(created).toMatchObject({ saved: { version: 1 }, toast: "Template created." });
+    const id = created.saved!.id;
+    // The same request again replays; no second template.
+    expect(await saveTemplateAction({ ...form, requestKey: createKey })).toMatchObject({ saved: { id, version: 1 } });
+    expect(await ok(serviceClient().from("cycle_templates").select("id").eq("name", name), "one")).toEqual([{ id }]);
+
+    expect(await saveTemplateAction({ ...form, id, version: 1, guidance: "More.", requestKey: key() })).toMatchObject({
+      saved: { id, version: 2 },
       toast: "Template updated for future copies. Existing cycles unchanged.",
-      tone: "info",
     });
     expect((await stored(id)).guidance).toBe("More.");
-    expect(await saveTemplateAction({ ...form, id: "00000000-0000-4000-8000-000000000000" })).toEqual({
-      toast: "This template no longer exists. The list has been refreshed.",
-      tone: "error",
+    // Saving over the version it was opened at when someone saved since: refused, says who.
+    expect(await saveTemplateAction({ ...form, id, version: 1, guidance: "Stale.", requestKey: key() })).toEqual({
+      changed: true,
+      error: `Changed by ${admin.name} since you opened it. Nothing was saved.`,
+    });
+    expect((await stored(id)).guidance).toBe("More.");
+    expect(await saveTemplateAction({ ...form, id: "00000000-0000-4000-8000-000000000000", version: 1, requestKey: key() })).toEqual({
+      gone: true,
+      error: "This template no longer exists. The list has been refreshed.",
     });
   });
 
@@ -384,11 +400,10 @@ describe("the A3 save action (server)", () => {
     const name = `Action keeps ${t}`;
     const id = await create(name, [{ peptide_id: later, phases: [interval(0, 28)] }]);
     expect(await ok(serviceClient().from("peptides").update({ available: false }).eq("id", later).select("id"), "withdraw")).toHaveLength(1);
-    const form = { id, name, guidance: "", plans: [{ peptideId: later, phases: [{ ...phase, mg: "0.5" }] }] };
-    expect(await saveTemplateAction(form)).toEqual({
-      saved: true,
+    const form = { id, version: await versionOf(id!), name, guidance: "", plans: [{ peptideId: later, phases: [{ ...phase, mg: "0.5" }] }] };
+    expect(await saveTemplateAction({ ...form, requestKey: key() })).toMatchObject({
+      saved: { id },
       toast: "Template updated for future copies. Existing cycles unchanged.",
-      tone: "info",
     });
     expect((await stored(id!)).plans.map((plan) => plan.peptide_id)).toEqual([later]);
   });
@@ -397,7 +412,7 @@ describe("the A3 save action (server)", () => {
     acting.client = await signedInClient(researcher.email);
     const name = `Researcher action ${tag()}`;
     await expect(
-      saveTemplateAction({ id: null, name, guidance: "", plans: [{ peptideId: peptide.a, phases: [phase] }] }),
+      saveTemplateAction({ id: null, version: null, name, guidance: "", plans: [{ peptideId: peptide.a, phases: [phase] }], requestKey: key() }),
     ).rejects.toMatchObject({ digest: expect.stringContaining("NEXT_REDIRECT") });
     expect(await ok(serviceClient().from("cycle_templates").select("id").eq("name", name), "none")).toEqual([]);
   });

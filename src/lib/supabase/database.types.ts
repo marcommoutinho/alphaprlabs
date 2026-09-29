@@ -73,6 +73,50 @@ export type Database = {
           },
         ]
       }
+      admin_content_changes: {
+        Row: {
+          changed: boolean
+          changed_at: string
+          changed_by: string
+          kind: string
+          published: boolean
+          request_hash: string
+          request_key: string
+          target_id: string
+          version: number
+        }
+        Insert: {
+          changed: boolean
+          changed_at?: string
+          changed_by: string
+          kind: string
+          published?: boolean
+          request_hash: string
+          request_key: string
+          target_id: string
+          version: number
+        }
+        Update: {
+          changed?: boolean
+          changed_at?: string
+          changed_by?: string
+          kind?: string
+          published?: boolean
+          request_hash?: string
+          request_key?: string
+          target_id?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admin_content_changes_changed_by_fkey"
+            columns: ["changed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       business_purchases: {
         Row: {
           currency: string
@@ -727,6 +771,7 @@ export type Database = {
           id: string
           name: string
           updated_at: string
+          version: number
         }
         Insert: {
           created_at?: string
@@ -734,6 +779,7 @@ export type Database = {
           id?: string
           name: string
           updated_at?: string
+          version?: number
         }
         Update: {
           created_at?: string
@@ -741,6 +787,7 @@ export type Database = {
           id?: string
           name?: string
           updated_at?: string
+          version?: number
         }
         Relationships: []
       }
@@ -1197,8 +1244,13 @@ export type Database = {
           id: string
           information: string
           name: string
+          offered: boolean
+          published_at: string | null
+          short_description: string
           supplement_guidance: string
           updated_at: string
+          version: number
+          vial_strengths_mg: number[]
         }
         Insert: {
           available?: boolean
@@ -1207,8 +1259,13 @@ export type Database = {
           id?: string
           information: string
           name: string
+          offered?: boolean
+          published_at?: string | null
+          short_description?: string
           supplement_guidance?: string
           updated_at?: string
+          version?: number
+          vial_strengths_mg?: number[]
         }
         Update: {
           available?: boolean
@@ -1217,8 +1274,13 @@ export type Database = {
           id?: string
           information?: string
           name?: string
+          offered?: boolean
+          published_at?: string | null
+          short_description?: string
           supplement_guidance?: string
           updated_at?: string
+          version?: number
+          vial_strengths_mg?: number[]
         }
         Relationships: []
       }
@@ -2045,11 +2107,40 @@ export type Database = {
           supplier_key: string
         }[]
       }
+      admin_content_last_change: {
+        Args: { p_id: string; p_kind: string }
+        Returns: {
+          changed_at: string
+          changed_by_name: string
+          updated_at: string
+          version: number
+        }[]
+      }
       admin_cycle_template_usage: {
         Args: never
         Returns: {
           cycle_count: number
           template_id: string
+        }[]
+      }
+      admin_library_entries: {
+        Args: never
+        Returns: {
+          available: boolean
+          created_at: string
+          cycle_count: number
+          cycling_off_guidance: string
+          id: string
+          information: string
+          name: string
+          offered: boolean
+          published_at: string
+          short_description: string
+          supplement_guidance: string
+          template_count: number
+          updated_at: string
+          version: number
+          vial_strengths_mg: string[]
         }[]
       }
       admin_library_peptides: {
@@ -2061,8 +2152,13 @@ export type Database = {
           id: string
           information: string
           name: string
+          offered: boolean
+          published_at: string | null
+          short_description: string
           supplement_guidance: string
           updated_at: string
+          version: number
+          vial_strengths_mg: number[]
         }[]
         SetofOptions: {
           from: "*"
@@ -2070,6 +2166,55 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      admin_people: {
+        Args: never
+        Returns: {
+          email: string
+          name: string
+          profile_id: string
+          role: Database["public"]["Enums"]["app_role"]
+          shared_since: string
+          stopped_at: string
+        }[]
+      }
+      admin_save_peptide: {
+        Args: {
+          p_cycling_off_guidance: string
+          p_expected_version: number
+          p_id: string
+          p_information: string
+          p_name: string
+          p_offered: boolean
+          p_publish: boolean
+          p_request_hash: string
+          p_request_key: string
+          p_short_description: string
+          p_supplement_guidance: string
+          p_vial_strengths_mg: string[]
+        }
+        Returns: {
+          peptide_id: string
+          published: boolean
+          replayed: boolean
+          version: number
+        }[]
+      }
+      admin_save_template: {
+        Args: {
+          p_expected_version: number
+          p_guidance: string
+          p_id: string
+          p_name: string
+          p_plans: Json
+          p_request_hash: string
+          p_request_key: string
+        }
+        Returns: {
+          replayed: boolean
+          template_id: string
+          version: number
+        }[]
       }
       admin_support_researchers: {
         Args: { p_researcher_id?: string }
@@ -2333,6 +2478,7 @@ export type Database = {
       }
       is_dose_site: { Args: { p_site: string }; Returns: boolean }
       is_measurement_name: { Args: { p_name: string }; Returns: boolean }
+      is_strength_list: { Args: { p_strengths: number[] }; Returns: boolean }
       is_supplement_amount: { Args: { p_amount: number }; Returns: boolean }
       is_time_zone: { Args: { p_name: string }; Returns: boolean }
       is_weekday_set: { Args: { p_days: number[] }; Returns: boolean }

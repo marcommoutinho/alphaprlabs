@@ -73,10 +73,18 @@ export function peptidesInCycles(cycles: readonly CycleRecord[], now: InstantInp
 
 export type LibraryRow = { id: string; name: string; description: string; inCycle: boolean; search: string };
 
-/** R11's rows: name order, with what the search matches (name and description, lower-cased). */
-export function libraryRows(peptides: readonly { id: string; name: string; information: string }[], inCycles: ReadonlySet<string>): LibraryRow[] {
+/**
+ * R11's rows: name order, with what the search matches (name and
+ * description, lower-cased). The description is the entry's short
+ * description (A9, V7), or the research summary's first sentence when it
+ * has none.
+ */
+export function libraryRows(
+  peptides: readonly { id: string; name: string; information: string; shortDescription?: string }[],
+  inCycles: ReadonlySet<string>,
+): LibraryRow[] {
   return peptides.map((peptide) => {
-    const description = oneLine(peptide.information);
+    const description = peptide.shortDescription?.trim() || oneLine(peptide.information);
     return { id: peptide.id, name: peptide.name, description, inCycle: inCycles.has(peptide.id), search: `${peptide.name}\n${description}`.toLowerCase() };
   });
 }

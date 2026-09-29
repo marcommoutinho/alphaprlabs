@@ -53,6 +53,8 @@ const chunks = <T>(list: readonly T[], size: number): T[][] =>
 export type ResearchPeptide = {
   id: string;
   name: string;
+  /** A9's short description (V7); "" when the entry has none. */
+  shortDescription: string;
   information: string;
   cyclingOff: string;
   supplement: string;
@@ -60,11 +62,12 @@ export type ResearchPeptide = {
   updatedAt: string;
 };
 
-const PEPTIDE_COLUMNS = "id, name, information, cycling_off_guidance, supplement_guidance, available, updated_at";
+const PEPTIDE_COLUMNS = "id, name, short_description, information, cycling_off_guidance, supplement_guidance, available, updated_at";
 
 type PeptideRow = {
   id: string;
   name: string;
+  short_description: string;
   information: string;
   cycling_off_guidance: string;
   supplement_guidance: string;
@@ -75,6 +78,7 @@ type PeptideRow = {
 const peptideOf = (row: PeptideRow): ResearchPeptide => ({
   id: row.id,
   name: row.name,
+  shortDescription: row.short_description,
   information: row.information,
   cyclingOff: row.cycling_off_guidance,
   supplement: row.supplement_guidance,

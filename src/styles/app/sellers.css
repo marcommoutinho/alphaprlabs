@@ -1,6 +1,6 @@
 /* Sellers and buyer linking (A4 Stock item and A7 sales lists): "Link to
    account…" under an outside buyer's sale. Scoped under .app-root; see
-   tokens.css. Same visual language as the inline confirm steps (support.css). */
+   tokens.css. */
 
 /* A7 "By seller": sales recorded before sellers existed. */
 .app-root .app-inv-item-row b[data-muted] {

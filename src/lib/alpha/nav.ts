@@ -38,9 +38,6 @@ export type NavItem = {
 
 export type NavGroup = { label: string | null; items: readonly NavItem[] };
 
-export type SectionLink = { key: string; label: string; href: string; match: readonly string[] };
-export type SectionNav = { label: string; links: readonly SectionLink[] };
-
 /** True when `pathname` is `prefix` itself or a path below it. */
 export function isUnder(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
@@ -106,8 +103,8 @@ const LEDGER: NavItem = {
 const ADMIN_LIBRARY: NavItem = {
   key: "admin-library",
   label: "Library",
-  // TODO(V7): A8 / D6 Library with its Peptides | Templates control. Until
-  // then Templates is a section of Library (see sectionNavFor).
+  // A8 / D6 Library: Peptides | Templates (V7). The old /admin/templates
+  // redirects to /admin/library/templates.
   href: "/admin/library",
   icon: "library",
   match: ["/admin/library", "/admin/templates"],
@@ -115,11 +112,11 @@ const ADMIN_LIBRARY: NavItem = {
 const PEOPLE: NavItem = {
   key: "people",
   label: "People",
-  // TODO(V7): A11 / D8 People (invitations, researchers, shared history).
-  // Until then Invitations and Support are its two sections.
-  href: "/admin/invitations",
+  // A11 / D8 People and A12 a researcher's shared history (V7). The old
+  // /admin/invitations and /admin/support addresses redirect here.
+  href: "/admin/people",
   icon: "people",
-  match: ["/admin/invitations", "/admin/support"],
+  match: ["/admin/people", "/admin/invitations", "/admin/support"],
 };
 /** The admin's phone tab for the whole admin area; opens Overview. */
 const BUSINESS: NavItem = { key: "business", label: "Business", href: OVERVIEW.href, icon: "business", match: ["/admin"] };
@@ -161,31 +158,6 @@ export function activeKey(
 ): string | null {
   const owners = items.filter((item) => item.match.some((prefix) => isUnder(pathname, prefix)));
   return (owners.find((item) => item.key === chosen) ?? owners[0])?.key ?? null;
-}
-
-/**
- * Pages grouped under one Business destination until their slice merges them
- * (TODO V7): Library = Peptides | Templates, People = Invitations | Support.
- * Shown at the top of those pages on both widths; null elsewhere.
- */
-export function sectionNavFor(pathname: string): SectionNav | null {
-  const groups: SectionNav[] = [
-    {
-      label: "Library",
-      links: [
-        { key: "peptides", label: "Peptides", href: "/admin/library", match: ["/admin/library"] },
-        { key: "templates", label: "Templates", href: "/admin/templates", match: ["/admin/templates"] },
-      ],
-    },
-    {
-      label: "People",
-      links: [
-        { key: "invitations", label: "Invitations", href: "/admin/invitations", match: ["/admin/invitations"] },
-        { key: "support", label: "Support", href: "/admin/support", match: ["/admin/support"] },
-      ],
-    },
-  ];
-  return groups.find((group) => group.links.some((link) => link.match.some((prefix) => isUnder(pathname, prefix)))) ?? null;
 }
 
 /**

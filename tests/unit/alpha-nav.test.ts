@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeKey, businessItems, isUnder, sectionNavFor, sidebarFor, tabsFor } from "@/lib/alpha/nav";
+import { activeKey, businessItems, isUnder, sidebarFor, tabsFor } from "@/lib/alpha/nav";
 
 const labels = (items: readonly { label: string }[]) => items.map((item) => item.label);
 
@@ -37,7 +37,7 @@ describe("app shell navigation (design v3)", () => {
       stock: "/admin/inventory",
       ledger: "/admin/ledger",
       "admin-library": "/admin/library",
-      people: "/admin/invitations",
+      people: "/admin/people",
     });
   });
 
@@ -89,12 +89,14 @@ describe("app shell navigation (design v3)", () => {
     }
   });
 
-  it("section links group the pages a later slice merges", () => {
-    expect(sectionNavFor("/admin/templates")).toMatchObject({ label: "Library" });
-    expect(labels(sectionNavFor("/admin/library")!.links)).toEqual(["Peptides", "Templates"]);
-    expect(labels(sectionNavFor("/admin/support/abc")!.links)).toEqual(["Invitations", "Support"]);
-    expect(sectionNavFor("/admin/inventory")).toBeNull();
-    expect(sectionNavFor("/app/library")).toBeNull();
+  it("V7 screens and their old addresses belong to Library and People", () => {
+    const business = businessItems();
+    for (const path of ["/admin/library", "/admin/library/templates", "/admin/library/peptides/new", "/admin/templates"]) {
+      expect(activeKey(business, path)).toBe("admin-library");
+    }
+    for (const path of ["/admin/people", "/admin/people/abc", "/admin/invitations", "/admin/support/abc"]) {
+      expect(activeKey(business, path)).toBe("people");
+    }
   });
 
   it("isUnder matches a path and its sub-paths only", () => {

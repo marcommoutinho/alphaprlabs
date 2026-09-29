@@ -39,6 +39,8 @@ export type TemplateRecord = {
   name: string;
   guidance: string;
   updatedAt: string;
+  /** The compare-and-set token: the version the editor opened (20260929110000). */
+  version: number;
   /** In the editor's order; each plan's phases by start day. */
   plans: TemplatePlan[];
   /** Researcher cycles started from it (0 until cycles exist, S9). */

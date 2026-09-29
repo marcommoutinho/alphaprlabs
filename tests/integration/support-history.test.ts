@@ -29,7 +29,7 @@ import {
   shareWithTeam,
   stopSharing,
 } from "@/lib/support/service";
-import { historyView } from "@/lib/support/view";
+import { researcherHistory } from "@/lib/people/view";
 import { type Client, createCycle, createPeptide, day, interval, plan, setAvailable, tag } from "../support/cycles";
 import { confirmArgs, confirmArgsSeen, d, NOON, occurrenceOn } from "../support/doses";
 import { anonClient, ensureAccount, ok, seedInvitation, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
@@ -310,24 +310,29 @@ describe("A8: the researcher history", () => {
     expect(await records("noah")).toEqual(own);
     for (const who of ["blair", "una"] as const) expectNothing(await records(who), who);
 
-    // The four cards, with W's name although it is no longer offered.
+    // A12's recent doses and check-ins, with W's name although it is no longer offered.
     const peptides = await adminPeptideNames(db.grace);
-    const view = historyView({ ...shared, peptides, confirmations: confirmationsByCycle(shared.doses), now: new Date(), full: false });
-    expect(view.cycles).toEqual([expect.objectContaining({ name: "Alex recomposition", goal: "Leaner by October", peptides: expect.stringContaining(peptide.wName) })]);
-    expect(view.doses.map((dose) => dose.peptide).sort()).toEqual([peptide.aName, peptide.wName].sort());
-    expect(view.checkIns).toEqual([expect.objectContaining({ feeling: 4, effects: "Headache, Other: dizzy in the evening", note: "Slept better." })]);
-    expect(view.measures).toMatch(/^Measurements: Weight 82\.4 kg \(/);
-    expect(view.supplies).toMatch(/^Supplies tracked: A-01 · History A .* 10 mg · est\. 9\.6 mg left$/);
-    expect(view.supplements).toBe("Supplement routines: Vitamin D3 2000 IU daily 00:00");
-    expect(view.taken).toHaveLength(1);
-    // The edited-then-deleted mixture, with each setup and the date it took effect.
-    const deleted = view.mixtures.find((m) => m.id === alex.deletedMixtureId)!;
-    expect(deleted).toMatchObject({ deleted: true, title: `${peptide.wName} · 5 mg / 2.5 mL · 1 mL`, state: expect.stringMatching(/^saved .+ · deleted .+$/) });
-    expect(deleted.versions.map((v) => v.line)).toEqual([
-      expect.stringMatching(/^Setup 1 · 5 mg \/ 2 mL · 1 mL syringe · from \w{3} \w{3} \d+ · \d\d:\d\d$/),
-      expect.stringMatching(/^Setup 2 · 5 mg \/ 2\.5 mL · 1 mL syringe · from /),
-    ]);
-    expect(view.mixtures.find((m) => m.id === alex.mixtureId)).toMatchObject({ deleted: false, title: `${peptide.aName} · 10 mg / 2 mL · 1 mL` });
+    const history = researcherHistory({
+      name: people.alex.name,
+      sharedSince: new Date().toISOString(),
+      cycles: shared.cycles,
+      confirmations: confirmationsByCycle(shared.doses),
+      checkIns: shared.checkIns,
+      peptides,
+      weightUnit: "kg",
+      now: new Date(),
+      limit: 100,
+    });
+    expect(history.banner).toMatch(/^Read-only · shared by Alex on \w{3} \d+$/);
+    expect(history.sub).toMatch(/^Alex recomposition · day \d+ of \d+$/);
+    expect([...new Set(history.recent.filter((row) => row.kind === "done").map((row) => row.title.split(" · ")[0]))].sort()).toEqual([peptide.aName, peptide.wName].sort());
+    expect(history.recent).toContainEqual(
+      expect.objectContaining({ kind: "check-in", title: "Check-in · Good", sub: expect.stringMatching(/ · headache, other: dizzy in the evening · 82\.4 kg$/) }),
+    );
+    // The same weight in pounds for an admin who reads pounds, converted exactly.
+    expect(researcherHistory({ name: people.alex.name, sharedSince: new Date().toISOString(), cycles: shared.cycles, confirmations: confirmationsByCycle(shared.doses), checkIns: shared.checkIns, peptides, weightUnit: "lb", now: new Date(), limit: 100 }).recent).toContainEqual(
+      expect.objectContaining({ kind: "check-in", sub: expect.stringMatching(/ · 181\.7 lb$/) }),
+    );
 
     // Every write an admin attempts is refused, and nothing of Alex's changes.
     const before = await records("alex");
@@ -428,7 +433,17 @@ describe("A8: the researcher history", () => {
     await ok(db.alex.rpc("share_with_team"), "share");
     try {
       const r = await records("grace");
-      const view = historyView({ ...r, peptides: await adminPeptideNames(db.grace), confirmations: confirmationsByCycle(r.doses), now: new Date(), full: true });
+      const view = researcherHistory({
+        name: people.alex.name,
+        sharedSince: new Date().toISOString(),
+        cycles: r.cycles,
+        confirmations: confirmationsByCycle(r.doses),
+        checkIns: r.checkIns,
+        peptides: await adminPeptideNames(db.grace),
+        weightUnit: "kg",
+        now: new Date(),
+        limit: 1000,
+      });
       const account = await getSupportAccount(db.grace, id.alex);
       const payload = JSON.stringify({ r, view, account });
       // The history is complete: the sale and the subscription exist, yet none of them is in it.

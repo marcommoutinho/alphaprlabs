@@ -24,12 +24,12 @@ const SAVE_FAILED = "Could not save. Nothing was lost — your entry is still he
 /** Every call re-checks that the requester is a signed-in admin. */
 async function requireAdminForAction() {
   const admin = await currentAdmin();
-  if (!admin) redirect(signInUrl({ next: "/admin/invitations" }));
+  if (!admin) redirect(signInUrl({ next: "/admin/people" }));
   return admin;
 }
 
 /**
- * A1 "Send invitation". `role` is "researcher" (the default) or "admin"
+ * A11 / D8 "Send invitation". `role` is "researcher" (the default) or "admin"
  * (Marco, 2026-09-27; the form asks for confirmation first). Only a signed-in
  * admin gets here, and the database checks is_admin() again.
  */

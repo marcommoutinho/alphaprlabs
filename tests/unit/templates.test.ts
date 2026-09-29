@@ -4,18 +4,20 @@
 import { describe, expect, it } from "vitest";
 import { scheduleOccurrences, validatePlan } from "@/lib/schedule/engine";
 import {
-  IDLE,
-  phaseTitle,
-  scopeNote,
+  draftPlans,
+  editorMeta,
+  footerNote,
+  formOfRow,
+  laneAxis,
+  newRow,
+  rowOfPhase,
   templateDays,
-  templateEditorTitle,
-  templateMeta,
-  TEMPLATES_SUBTITLE,
-  templateSummary,
-  templateUsage,
-  templateWarning,
-  RECEIVE_HELPER,
+  templateLanes,
+  templateLength,
+  usageLine,
   WEEKDAY_TOGGLES,
+  withdrawnLine,
+  withdrawnNotice,
 } from "@/lib/templates/display";
 import {
   formOf,
@@ -257,41 +259,78 @@ describe("the editor's defaults", () => {
   });
 });
 
-describe("display text", () => {
-  const template: TemplateRecord = { id: "t", name: "Recomp starter", guidance: "", updatedAt: "2026-08-28T16:00:00Z", plans: recomp, cycleCount: 0 };
+describe("A10 / D7 display text", () => {
+  const template: TemplateRecord = { id: "t", name: "Recomp starter", guidance: "", updatedAt: "2026-08-28T16:00:00Z", version: 1, plans: recomp, cycleCount: 4 };
 
-  it("uses the design's copy", () => {
-    expect(TEMPLATES_SUBTITLE).toBe(
-      "Starting points researchers copy. Editing a template changes future copies only — existing researcher cycles are untouched.",
-    );
-    expect(RECEIVE_HELPER).toBe("Days count from the researcher's start date (day 1). They can adjust everything after copying.");
-    expect(IDLE).toBe("Select a template to inspect or update it.");
-    expect(scopeNote(false)).toBe("Saving updates future copies only. Cycles already created from this template are not changed.");
-    expect(scopeNote(true)).toBe("Researchers will see this as a starting point.");
-    expect(templateEditorTitle(true, "x")).toBe("New template");
-    expect(templateEditorTitle(false, " Recomp starter ")).toBe("Edit Recomp starter");
-    expect(templateEditorTitle(false, " ")).toBe("Edit template");
-    expect(WEEKDAY_TOGGLES.map((d) => d.label).join(" ")).toBe("Mon Tue Wed Thu Fri Sat Sun");
-  });
-
-  it("list rows: days · updated, summary of active phases, the warning and cycle usage", () => {
+  it("card and editor lines: length, usage, updated (Toronto's date)", () => {
     expect(templateDays(template)).toBe(84);
-    expect(templateMeta(template)).toBe("84 days · updated Aug 28");
-    // The date is Toronto's: late evening Toronto time is still that day there.
-    expect(templateMeta({ ...template, updatedAt: "2026-08-29T02:30:00Z" })).toBe("84 days · updated Aug 28");
-    expect(templateSummary(template, byId)).toBe("Compound A · 2 phase(s) + Compound B · 1 phase(s)");
-    expect(templateWarning(template, byId)).toBeNull();
-    expect(templateWarning({ plans: [{ peptideId: C, phases: [] }] }, byId)).toBe(
-      "Includes a peptide that is no longer offered — researchers who start from it still get it. It can't be added to other templates.",
-    );
-    expect(templateUsage(0)).toBe("0 researcher cycle(s) were started from it — they won't change.");
-    expect(templateUsage(3)).toBe("3 researcher cycle(s) were started from it — they won't change.");
+    expect(templateLength(template)).toBe("84 days");
+    expect(usageLine(template)).toBe("Used for 4 cycles · updated Aug 28");
+    expect(usageLine({ ...template, cycleCount: 1, updatedAt: "2026-08-29T02:30:00Z" })).toBe("Used for 1 cycle · updated Aug 28");
+    expect(editorMeta(template)).toBe("84 days · used for 4 cycles · updated Aug 28");
+    expect(templateLength({ plans: [] })).toBe("0 days");
   });
 
-  it("phase titles show the day range once start and length are readable", () => {
-    expect(phaseTitle({ kind: "active", day: "1", len: "29" })).toEqual({ word: "Active phase", range: "· day 1–29" });
-    expect(phaseTitle({ kind: "break", day: "30", len: "7" })).toEqual({ word: "Break", range: "· day 30–36" });
-    expect(phaseTitle({ kind: "break", day: "0", len: "7" })).toEqual({ word: "Break", range: "" });
-    expect(phaseTitle({ kind: "active", day: "3", len: "" })).toEqual({ word: "Active phase", range: "" });
+  it("the footer note counts the cycles that won't change", () => {
+    expect(footerNote(template)).toBe("Saving changes future copies only. The 4 cycles started from this template won't change.");
+    expect(footerNote({ cycleCount: 1 })).toBe("Saving changes future copies only. The 1 cycle started from this template won't change.");
+    expect(footerNote({ cycleCount: 0 })).toBe("Saving changes future copies only. No cycle has been started from this template yet.");
+    expect(footerNote(null)).toBe("Researchers will see it as a starting point once it's saved.");
+  });
+
+  it("names a peptide no longer offered, without blocking the template", () => {
+    expect(withdrawnLine(template, byId)).toBeNull();
+    expect(withdrawnNotice(template, byId)).toBeNull();
+    const withC = { plans: [...recomp, { peptideId: C, phases: [] }] };
+    expect(withdrawnLine(withC, byId)).toBe("Includes Compound C, no longer offered");
+    expect(withdrawnNotice(withC, byId)).toMatch(/^Compound C is no longer offered\. The template keeps it/);
+    const both = new Map([...byId, [A, { id: A, name: "Compound A", available: false }]]);
+    expect(withdrawnLine(withC, both)).toBe("Includes Compound A and Compound C, no longer offered");
+  });
+
+  it("lanes: a bar per phase over the template's length, dose-height levels, breaks", () => {
+    const { total, lanes } = templateLanes(template);
+    expect(total).toBe(84);
+    expect(lanes[0].bars.map((b) => [b.kind, b.from, b.to, b.level])).toEqual([
+      ["active", 2, 30, 0],
+      ["break", 31, 37, null],
+      ["active", 38, 84, 1],
+    ]);
+    expect(lanes[1].bars.map((b) => [b.kind, b.from, b.to, b.level])).toEqual([["active", 1, 40, null]]);
+    // Day 2 sits too close to Day 1 to get a label of its own.
+    expect(laneAxis(lanes, total).map((l) => l.text)).toEqual(["Day 1", "31", "38", "84"]);
+    expect(laneAxis(lanes, total)[0]).toEqual({ text: "Day 1", percent: 0, align: "start" });
+    expect(laneAxis(lanes, total).at(-1)).toEqual({ text: "84", percent: 100, align: "end" });
+  });
+
+  it("phase rows: from–to days, the dose in mcg under 1 mg, Daily / Every N / Weekdays, and back", () => {
+    const opened = formOf({ id: "t", name: "Recomp starter", guidance: "", plans: recomp });
+    const row = rowOfPhase(opened.plans[0].phases[0], "k");
+    expect(row).toMatchObject({ from: "2", to: "30", amount: "400", unit: "mcg", frequency: "every", every: "5", time: "20:00" });
+    expect(formOfRow(row)).toEqual(opened.plans[0].phases[0]);
+    const weekdays = rowOfPhase(opened.plans[1].phases[0], "w");
+    expect(weekdays).toMatchObject({ from: "1", to: "40", frequency: "weekdays", days: [1, 3, 5] });
+    expect(formOfRow(weekdays)).toMatchObject({ day: "1", len: "40", mg: "0.3", schedule: "weekdays" });
+    expect(formOfRow({ ...row, frequency: "daily" })).toMatchObject({ schedule: "interval", every: "1" });
+    expect(formOfRow({ ...row, amount: "2", unit: "mg" })).toMatchObject({ mg: "2" });
+    expect(formOfRow({ ...row, to: "" })).toMatchObject({ len: "" });
+  });
+
+  it("+ Phase and + Break start the day after the last row ends", () => {
+    expect(newRow("active", [], "a")).toMatchObject({ kind: "active", from: "1", to: "28", frequency: "daily", time: "08:00", amount: "" });
+    const first = { ...newRow("active", [], "a"), to: "30" };
+    expect(newRow("break", [first], "b")).toMatchObject({ kind: "break", from: "31", to: "44" });
+  });
+
+  it("draft lanes skip rows that don't read as a phase yet", () => {
+    const rows = [newRow("active", [], "a"), { ...newRow("break", [], "b"), from: "x" }];
+    expect(draftPlans([{ peptideId: A, rows }])[0].phases).toEqual([
+      { kind: "active", offset: 0, len: 28, doseMg: "1", time: "08:00", schedule: { type: "interval", everyDays: 1 } },
+    ]);
+  });
+
+  it("weekday toggles run Monday to Sunday", () => {
+    expect(WEEKDAY_TOGGLES.map((d) => d.letter).join("")).toBe("MTWTFSS");
+    expect(WEEKDAY_TOGGLES.map((d) => d.day)).toEqual([1, 2, 3, 4, 5, 6, 0]);
   });
 });
