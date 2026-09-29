@@ -859,6 +859,17 @@ Deploys: after V4 (researcher side complete) and after the close.
   2026-09-28 (Marco asked for the lb default): migrations 20260928150000 and
   20260928160000. Production checks: redirects, sign-in, cron, anon reads 0 of
   40 tables, weight default 'lb', all 22 stock items at threshold 10.
+- V6 (Record sale with a required server FIFO preview, Record purchase with
+  supplier, Ledger), V7 (Library draft / publish, templates, People, researcher
+  history) and Close (legacy styles and dead code removed, flaky tests fixed at
+  their cause, private screen sweep, sign-in / recovery / acknowledgement
+  redirects moved to client navigation, next 16.3.7, bounded wait for the
+  refreshed page after a save) merged at `ce6142d` and deployed on 2026-09-29:
+  migrations 20260929100000 and 20260929110000. Production checks: redirects,
+  v3 sign-in page, cron, anon reads 0 of 41 tables, peptides 20 (19 available,
+  0 drafts), purchases 22, stock items 22, all unchanged by the migrations;
+  the legacy library writer is gone. Deferred: the bounded refresh wait for
+  the other screens' saves (check-in, supplies, calculator, cycles, Me).
 
 ## Technical references
 
