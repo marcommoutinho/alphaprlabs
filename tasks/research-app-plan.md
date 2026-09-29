@@ -870,6 +870,17 @@ Deploys: after V4 (researcher side complete) and after the close.
   0 drafts), purchases 22, stock items 22, all unchanged by the migrations;
   the legacy library writer is gone. Deferred: the bounded refresh wait for
   the other screens' saves (check-in, supplies, calculator, cycles, Me).
+- N1 "Instant feel" (Marco: the app felt stuck on tab taps and opened on a
+  black screen) merged at `8807cd8` and deployed on 2026-09-29, no migration.
+  Tab taps show the active tab and skeleton on the next frame; the app opens
+  straight on Today with a light splash and iOS launch images; Taken and Skip
+  show at once; Today and Progress server time roughly halved; pages restored
+  by Back hide until re-checked (researcher history re-checks the share);
+  a clear offline state (bar, saves disabled with a reason, a branded offline
+  page from a service worker that caches nothing else). Prefetch stays off
+  (vercel/next.js#98684 still open in 16.3.7). The 30 s client page cache was
+  tried and removed (it bypassed per-request access checks). Offline reading
+  and offline logging are planned with reminders (Marco, 2026-09-29).
 
 ## Technical references
 
