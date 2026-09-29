@@ -61,9 +61,9 @@ for (const [device, viewport] of [
       await expect(page.getByTestId("me-supplies-value")).toHaveText("Off");
       await expect(page.getByTestId("me-supplements-value")).toHaveText("Off");
       await expect(page.getByTestId("me-reminders-value")).toHaveText("Off");
-      // The defaults: a 100-unit syringe, kg, and the device's own appearance.
+      // The defaults: a 100-unit syringe, lb, and the device's own appearance.
       await expect(page.getByTestId("pref-syringe-value")).toHaveText("100-unit");
-      await expect(page.getByTestId("pref-weight-value")).toHaveText("kg");
+      await expect(page.getByTestId("pref-weight-value")).toHaveText("lb");
       await expect(page.getByTestId("pref-appearance-value")).toHaveText("System · this device");
       await expect(page.getByText("Alpha PR Labs · research use only · v3.0")).toBeVisible();
       expect(await background(page)).toBe(PAPER[scheme]);
@@ -108,8 +108,8 @@ test("preferences persist with the account, follow it to another device, and cha
 
   await choose(page, "pref-syringe", "Default syringe", /^30-unit/);
   await expect(page.getByTestId("pref-syringe-value")).toHaveText("30-unit");
-  await choose(page, "pref-weight", "Weight unit", /^lb/);
-  await expect(page.getByTestId("pref-weight-value")).toHaveText("lb");
+  await choose(page, "pref-weight", "Weight unit", /^kg/);
+  await expect(page.getByTestId("pref-weight-value")).toHaveText("kg");
   // Appearance: this page at once, the account and this device's cookie.
   await choose(page, "pref-appearance", "Appearance", /^Dark/);
   await expect(page.locator("html")).toHaveClass(/\bdark\b/);
@@ -119,11 +119,11 @@ test("preferences persist with the account, follow it to another device, and cha
 
   await page.reload();
   await expect(page.getByTestId("pref-syringe-value")).toHaveText("30-unit");
-  await expect(page.getByTestId("pref-weight-value")).toHaveText("lb");
+  await expect(page.getByTestId("pref-weight-value")).toHaveText("kg");
   await expect(page.getByTestId("pref-appearance-value")).toHaveText("Dark");
   await expect(page.locator("html")).toHaveClass(/\bdark\b/);
   const stored = await ok(serviceClient().from("account_preferences").select("default_syringe, weight_unit, appearance").eq("owner_id", me.id).single());
-  expect(stored).toEqual({ default_syringe: 30, weight_unit: "lb", appearance: "dark" });
+  expect(stored).toEqual({ default_syringe: 30, weight_unit: "kg", appearance: "dark" });
 
   // Another device (no cookie, a light OS): the account's choice from the first paint once signed in.
   const other = await browser.newContext({ viewport: LAPTOP, colorScheme: "light" });
@@ -142,7 +142,50 @@ test("preferences persist with the account, follow it to another device, and cha
   await page.goto(`${APP_ORIGIN}/app/calculator`);
   await expect(page.getByRole("button", { name: "0.3 mL 30 u" })).toHaveAttribute("aria-pressed", "true");
 
-  // Weights: entered and shown in lb, stored with their unit; kg again converts exactly.
+  // Weights: entered and shown in kg once chosen, stored with their unit; lb again converts exactly.
+  await page.goto(`${APP_ORIGIN}/app/progress`);
+  await (await hydrated(page.getByTestId("progress-check-in"))).click();
+  const sheet = page.getByRole("dialog", { name: "Daily check-in" });
+  await sheet.getByRole("radio", { name: "4 · Good" }).click();
+  await sheet.getByLabel("Measurement type").selectOption("Weight");
+  await expect(sheet.getByText("kg", { exact: true })).toBeVisible();
+  await sheet.getByLabel("Value").fill("81.6");
+  await sheet.getByRole("button", { name: "Save check-in" }).click();
+  await expect(sheet).toBeHidden();
+  const row = page.getByTestId("progress-row").first();
+  await expect(row).toContainText("Weight 81.6 kg");
+  const [checkIn] = await ok(serviceClient().from("progress_check_ins").select("measurement_value, measurement_unit").eq("owner_id", me.id));
+  expect(checkIn).toEqual({ measurement_value: 81.6, measurement_unit: "kg" });
+  await page.goto(`${APP_ORIGIN}/app/me`);
+  await choose(page, "pref-weight", "Weight unit", /^lb/);
+  await page.goto(`${APP_ORIGIN}/app/progress`);
+  // 81.6 kg = 179.897… lb.
+  await expect(page.getByTestId("progress-row").first()).toContainText("Weight 179.9 lb");
+
+  // Back to System: no forced class, the OS decides.
+  await page.goto(`${APP_ORIGIN}/app/me`);
+  await choose(page, "pref-appearance", "Appearance", /^System/);
+  await expect(page.locator("html")).not.toHaveClass(/\b(light|dark)\b/);
+  expect(await background(page)).toBe(PAPER.light);
+  await context.close();
+});
+
+test("with no preference saved, a new account enters and sees its weight in lb (Me, the check-in, Progress, the CSV)", async ({ browser }) => {
+  const me = await account("lb-default");
+  const context = await browser.newContext({ viewport: PHONE, colorScheme: "light" });
+  const page = await context.newPage();
+  await openMe(page, me.email);
+
+  // Me: lb, offered first and checked; kg is the other choice.
+  await expect(page.getByTestId("pref-weight-value")).toHaveText("lb");
+  await (await hydrated(page.getByTestId("pref-weight"))).click();
+  const units = page.getByRole("dialog", { name: "Weight unit" });
+  await expect(units.getByRole("radio")).toHaveText([/^lb/, /^kg/]);
+  await expect(units.getByRole("radio", { name: /^lb/ })).toHaveAttribute("aria-checked", "true");
+  await page.keyboard.press("Escape");
+  await expect(units).toBeHidden();
+
+  // The check-in: the weight is entered in lb and stored with it.
   await page.goto(`${APP_ORIGIN}/app/progress`);
   await (await hydrated(page.getByTestId("progress-check-in"))).click();
   const sheet = page.getByRole("dialog", { name: "Daily check-in" });
@@ -152,20 +195,25 @@ test("preferences persist with the account, follow it to another device, and cha
   await sheet.getByLabel("Value").fill("180");
   await sheet.getByRole("button", { name: "Save check-in" }).click();
   await expect(sheet).toBeHidden();
-  const row = page.getByTestId("progress-row").first();
-  await expect(row).toContainText("Weight 180 lb");
-  const [checkIn] = await ok(serviceClient().from("progress_check_ins").select("measurement_value, measurement_unit").eq("owner_id", me.id));
-  expect(checkIn).toEqual({ measurement_value: 180, measurement_unit: "lb" });
-  await page.goto(`${APP_ORIGIN}/app/me`);
-  await choose(page, "pref-weight", "Weight unit", /^kg/);
-  await page.goto(`${APP_ORIGIN}/app/progress`);
-  await expect(page.getByTestId("progress-row").first()).toContainText("Weight 81.6 kg");
 
-  // Back to System: no forced class, the OS decides.
-  await page.goto(`${APP_ORIGIN}/app/me`);
-  await choose(page, "pref-appearance", "Appearance", /^System/);
-  await expect(page.locator("html")).not.toHaveClass(/\b(light|dark)\b/);
-  expect(await background(page)).toBe(PAPER.light);
+  // Progress: the row and the weight card, in lb.
+  await expect(page.getByTestId("progress-row").first()).toContainText("Weight 180 lb");
+  await expect(page.getByTestId("measure-card")).toContainText("lb");
+  await expect(page.getByTestId("measure-card").getByTestId("measure-latest")).toHaveText("180");
+  const [checkIn] = await ok(serviceClient().from("progress_check_ins").select("day, measurement_value, measurement_unit").eq("owner_id", me.id));
+  expect(checkIn).toMatchObject({ measurement_value: 180, measurement_unit: "lb" });
+  // Nothing was saved as a preference: lb is the default, not a choice made.
+  expect(await ok(serviceClient().from("account_preferences").select("owner_id").eq("owner_id", me.id))).toEqual([]);
+
+  // The CSV export: the weight in lb.
+  const csv = await page.evaluate(async (url) => (await fetch(url)).text(), `/app/progress/export?from=${checkIn.day}&to=${checkIn.day}`);
+  expect(csv).toContain(`${checkIn.day},4,Good,,Weight,180,lb,`);
+
+  // Editing today's check-in starts from 180 lb.
+  await page.getByTestId("progress-check-in").click();
+  const edit = page.getByRole("dialog", { name: "Today's check-in" });
+  await expect(edit.getByLabel("Value")).toHaveValue("180");
+  await expect(edit.getByText("lb", { exact: true })).toBeVisible();
   await context.close();
 });
 

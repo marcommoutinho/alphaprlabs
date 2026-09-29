@@ -20,7 +20,7 @@ import { planPeptides, type RecordedConfirmation, type ViewPeptides } from "@/li
 import { clock12, massLabel } from "@/lib/alpha/format";
 import { addDaysToDate, daysBetween, wallOf } from "@/lib/doses/rules";
 import { formatDay, formatMonthDay } from "@/lib/format";
-import { shownMeasurement, type WeightUnit } from "@/lib/preferences/rules";
+import { DEFAULT_PREFERENCES, shownMeasurement, type WeightUnit } from "@/lib/preferences/rules";
 import { type InstantInput, toInstant } from "@/lib/schedule/zone";
 import { checkInDay, type Effect, effectLabel, FEELING_WORDS, formEffects, NONE, OTHER, PROGRESS_TIME_ZONE, SPARSE } from "./rules";
 import type { CheckIn } from "./service";
@@ -378,7 +378,7 @@ export type ProgressScreenInput = {
   /**
    * R8's weight unit: weights entered in kg or lb are shown in it (the
    * weight card, the check-in rows), converted exactly; stored values keep
-   * their own unit. Kg when not given.
+   * their own unit. The default (lb) when not given.
    */
   weightUnit?: WeightUnit;
 };
@@ -407,7 +407,7 @@ export function progressScreen(input: ProgressScreenInput): ProgressScreen {
   const days = daysOf(from, to);
   const counted = daysOf(countFrom, to);
   // Weights in the account's unit, for display (today's check-in is edited as stored).
-  const unit = input.weightUnit ?? "kg";
+  const unit = input.weightUnit ?? DEFAULT_PREFERENCES.weightUnit;
   const shown = input.checkIns.map((c) => (c.measurement ? { ...c, measurement: shownMeasurement(c.measurement, unit) } : c));
   const inRange = shown.filter((c) => c.day >= from && c.day <= to);
   const inCount = inRange.filter((c) => c.day >= countFrom);

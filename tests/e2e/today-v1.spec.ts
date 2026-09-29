@@ -217,7 +217,9 @@ test.describe("laptop, light", () => {
     await expect(sheet.getByLabel("Other effect")).toBeFocused();
     await chip("Site redness").click();
     await sheet.getByLabel("Measurement type").selectOption("Weight");
-    await sheet.getByLabel("Value").fill("81,4");
+    // No weight unit chosen: entered in lb, the default.
+    await expect(sheet.getByText("lb", { exact: true })).toBeVisible();
+    await sheet.getByLabel("Value").fill("179,5");
     await sheet.getByLabel("Note").fill("Slept well");
     await sheet.getByRole("button", { name: "Save check-in" }).click();
     await expect(sheet.getByRole("alert")).toHaveText(OTHER_REQUIRED);
@@ -241,8 +243,8 @@ test.describe("laptop, light", () => {
         effects_other: "Dizzy after the dose",
         note: "Slept well",
         measurement_name: "Weight",
-        measurement_value: "81.4",
-        measurement_unit: "kg",
+        measurement_value: "179.5",
+        measurement_unit: "lb",
       },
     ]);
   });

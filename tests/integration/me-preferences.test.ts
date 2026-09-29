@@ -1,6 +1,7 @@
 // V4 R8 Me against the real local Supabase, through PostgREST as each
 // signed-in person, exactly as the app reads and writes: preferences
-// (20260928140000_me_preferences.sql) default to 100-unit / kg / System,
+// (20260928140000_me_preferences.sql; lb since
+// 20260928160000_weight_unit_lb_default.sql) default to 100-unit / lb / System,
 // are read and written by their owner only, validated, and saved
 // idempotently by request key; the keyed share / stop behind R17 replays
 // instead of sharing twice; and what a researcher reads on Me never names
@@ -36,19 +37,21 @@ const save = (who: Name, key: string, args: { p_default_syringe?: number; p_weig
   db[who].rpc("save_account_preferences", { p_request_key: key, p_request_hash: hash, ...args });
 
 describe("account preferences", () => {
-  it("default to a 100-unit syringe, kg and the device's appearance until saved", async () => {
+  it("default to a 100-unit syringe, lb and the device's appearance until saved", async () => {
     expect(await getPreferences(db.sam, id.sam)).toEqual(DEFAULT_PREFERENCES);
-    expect(DEFAULT_PREFERENCES).toEqual({ defaultSyringe: 100, weightUnit: "kg", appearance: null });
+    expect(DEFAULT_PREFERENCES).toEqual({ defaultSyringe: 100, weightUnit: "lb", appearance: null });
     // No row is created by reading.
     expect(await ok(serviceClient().from("account_preferences").select("owner_id").eq("owner_id", id.sam))).toEqual([]);
   });
 
-  it("save a patch at a time, keeping the other choices", async () => {
+  it("save a patch at a time, keeping the other choices (a first save without a unit stores lb; kg can be chosen)", async () => {
     const first = await savePreferences(db.riley, randomUUID(), { defaultSyringe: 30 });
-    expect(first).toEqual({ kind: "saved", replayed: false, preferences: { defaultSyringe: 30, weightUnit: "kg", appearance: null } });
-    await savePreferences(db.riley, randomUUID(), { weightUnit: "lb" });
+    expect(first).toEqual({ kind: "saved", replayed: false, preferences: { defaultSyringe: 30, weightUnit: "lb", appearance: null } });
+    // The row itself holds lb (20260928160000_weight_unit_lb_default.sql), not just the app's reading of it.
+    expect(await ok(serviceClient().from("account_preferences").select("weight_unit").eq("owner_id", id.riley))).toEqual([{ weight_unit: "lb" }]);
+    await savePreferences(db.riley, randomUUID(), { weightUnit: "kg" });
     await savePreferences(db.riley, randomUUID(), { appearance: "dark" });
-    expect(await getPreferences(db.riley, id.riley)).toEqual({ defaultSyringe: 30, weightUnit: "lb", appearance: "dark" });
+    expect(await getPreferences(db.riley, id.riley)).toEqual({ defaultSyringe: 30, weightUnit: "kg", appearance: "dark" });
     await savePreferences(db.riley, randomUUID(), { appearance: "system" });
     expect((await getPreferences(db.riley, id.riley)).appearance).toBe("system");
   });
@@ -62,7 +65,7 @@ describe("account preferences", () => {
     expect(await savePreferences(db.riley, key, patch)).toEqual({
       kind: "saved",
       replayed: true,
-      preferences: { defaultSyringe: 50, weightUnit: "lb", appearance: "system" },
+      preferences: { defaultSyringe: 50, weightUnit: "kg", appearance: "system" },
     });
     expect((await getPreferences(db.riley, id.riley)).defaultSyringe).toBe(100);
     // The same key with another patch, or from another account, is refused.

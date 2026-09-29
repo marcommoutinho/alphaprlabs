@@ -8,7 +8,10 @@
 // the effect, the note cleared) while a second tab's stale edit is refused;
 // "No cycle"; a researcher
 // with no cycle and no measurements; and D3's Export CSV (owner-only: a
-// signed-out request gets nothing). Days are America/Toronto days. Cycles use
+// signed-out request gets nothing). The researchers never chose a weight
+// unit, so weights are entered and shown in lb (the default); the seeded
+// weights were entered in kg and are shown converted exactly, while the CSV
+// keeps each value in the unit it was entered in. Days are America/Toronto days. Cycles use
 // a fixed-offset zone where it is about 12:00 now (tests/support/noon).
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -107,8 +110,9 @@ test.describe("phone, light", () => {
     await expect(now.getByRole("img", { name: `${A}: 1 dose taken in this range` })).toBeVisible();
 
     const measure = page.getByTestId("measure-card");
-    await expect(measure.getByTestId("measure-latest")).toHaveText("81.6");
-    await expect(measure.getByTestId("measure-change")).toContainText("Down 0.8 kg");
+    // 82.4 kg → 81.6 kg, shown in lb: 181.7 → 179.9.
+    await expect(measure.getByTestId("measure-latest")).toHaveText("179.9");
+    await expect(measure.getByTestId("measure-change")).toContainText("Down 1.8 lb");
     await expect(measure.getByTestId("measure-change")).toContainText(`since ${formatMonthDay(day(-6))}`);
     await expect(measure).toContainText("3 entries");
     await expect(tile(page, "tile-adherence")).toContainText("Adherence");
@@ -125,24 +129,25 @@ test.describe("phone, light", () => {
     await expect(rows.first()).toHaveAttribute("data-day", day(-1));
     await expect(rows.first()).toContainText("5 · Great");
     await expect(rows.first()).toContainText("Slept 8h, felt sharp");
-    await expect(rows.first()).toContainText("Weight 81.6 kg");
+    await expect(rows.first()).toContainText("Weight 179.9 lb");
     await expect(page.locator(`[data-testid=progress-row][data-day="${day(-3)}"]`)).toHaveCount(0);
     await expect(page.getByText(NOT_EVIDENCE)).toBeVisible();
     expect(await noSideScroll(page)).toBe(true);
 
-    // Check in today: 5 · Great and a weight typed with a decimal comma.
+    // Check in today: 5 · Great and a weight in lb typed with a decimal comma.
     await (await hydrated(page.getByTestId("progress-check-in"))).click();
     const sheet = page.getByRole("dialog", { name: "Daily check-in" });
     await sheet.getByRole("radio", { name: "5 · Great" }).click();
     await sheet.getByLabel("Measurement type").selectOption("Weight");
-    await sheet.getByLabel("Value").fill("81,2");
+    await expect(sheet.getByText("lb", { exact: true })).toBeVisible();
+    await sheet.getByLabel("Value").fill("179,1");
     await sheet.getByRole("button", { name: "Save check-in" }).click();
     await expect(sheet).toBeHidden();
     await expect(page.getByRole("status").filter({ hasText: "Check-in saved." })).toBeVisible();
     await expect(now.getByTestId("feeling-average")).toHaveText("4.0");
     await expect(now.getByTestId("feeling-change")).toContainText("Up 1.3");
-    await expect(measure.getByTestId("measure-latest")).toHaveText("81.2");
-    await expect(measure.getByTestId("measure-change")).toContainText("Down 1.2 kg");
+    await expect(measure.getByTestId("measure-latest")).toHaveText("179.1");
+    await expect(measure.getByTestId("measure-change")).toContainText("Down 2.6 lb");
     await expect(tile(page, "tile-check-ins").locator("[data-slot=value]")).toHaveText("6");
     await expect(rows.first()).toHaveAttribute("data-day", day(0));
     await expect(rows.first()).toContainText("5 · Great");
@@ -156,7 +161,7 @@ test.describe("phone, light", () => {
     await page.getByTestId("progress-check-in").click();
     const edit = page.getByRole("dialog", { name: "Today's check-in" });
     await expect(edit.getByRole("radio", { name: "5 · Great" })).toHaveAttribute("aria-checked", "true");
-    await expect(edit.getByLabel("Value")).toHaveValue("81.2");
+    await expect(edit.getByLabel("Value")).toHaveValue("179.1");
     await edit.getByRole("radio", { name: "2 · Low" }).click();
     await edit.getByRole("button", { name: "Update check-in" }).click();
     await expect(edit).toBeHidden();
@@ -213,7 +218,7 @@ test.describe("phone, light", () => {
     await sheet.getByRole("button", { name: "Headache", exact: true }).click();
     await sheet.getByLabel("Note").fill("Slept better.");
     await sheet.getByLabel("Measurement type").selectOption("Weight");
-    await sheet.getByLabel("Value").fill("82,4");
+    await sheet.getByLabel("Value").fill("181,6");
     await sheet.getByRole("button", { name: "Save check-in" }).click();
     await expect(sheet).toBeHidden();
     await expect(page.getByRole("status").filter({ hasText: CHECK_IN_SAVED })).toBeVisible();
@@ -223,7 +228,7 @@ test.describe("phone, light", () => {
     await expect(rows.first()).toHaveAttribute("data-day", today);
     await expect(todayRow.locator("[data-slot=feeling]")).toHaveText("4 · Good");
     await expect(todayRow).toContainText("Slept better.");
-    await expect(todayRow).toContainText("Headache · Weight 82.4 kg");
+    await expect(todayRow).toContainText("Headache · Weight 181.6 lb");
     await expect(todayRow.locator("[data-slot=beside]")).toHaveText(`${A}: 400 mcg · ${A} 400 mcg`);
 
     // The edit sheet starts from what was saved.
@@ -233,7 +238,7 @@ test.describe("phone, light", () => {
     await expect(edit.getByRole("radio", { name: "4 · Good" })).toHaveAttribute("aria-checked", "true");
     await expect(edit.getByRole("button", { name: "Headache", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(edit.getByLabel("Note")).toHaveValue("Slept better.");
-    await expect(edit.getByLabel("Value")).toHaveValue("82.4");
+    await expect(edit.getByLabel("Value")).toHaveValue("181.6");
 
     // Another tab opened now starts from version 1.
     const other = await context.newPage();
@@ -253,7 +258,7 @@ test.describe("phone, light", () => {
     await expect(todayRow.locator("[data-slot=feeling]")).toHaveText("3 · OK");
     await expect(todayRow).not.toContainText("Headache");
     await expect(todayRow).not.toContainText("Slept better.");
-    await expect(todayRow).toContainText("Weight 82.4 kg");
+    await expect(todayRow).toContainText("Weight 181.6 lb");
     await expect(todayRow.locator("[data-slot=beside]")).toHaveText(`${A}: 400 mcg · ${A} 400 mcg`);
 
     // The stale tab can't overwrite it.
@@ -272,7 +277,7 @@ test.describe("phone, light", () => {
       "check-ins",
     );
     expect(saved).toEqual([
-      { day: today, feeling: 3, effects: ["None"], note: "", measurement_name: "Weight", measurement_value: "82.4", measurement_unit: "kg", version: 2 },
+      { day: today, feeling: 3, effects: ["None"], note: "", measurement_name: "Weight", measurement_value: "181.6", measurement_unit: "lb", version: 2 },
     ]);
     expect(await noSideScroll(page)).toBe(true);
 
@@ -280,7 +285,7 @@ test.describe("phone, light", () => {
     await (await hydrated(page.getByLabel("Cycle"))).selectOption({ label: NO_CYCLE_OPTION });
     await expect(page).toHaveURL(`${APP_ORIGIN}/app/progress?range=7d&cycle=none`);
     await expect(todayRow.locator("[data-slot=feeling]")).toHaveText("3 · OK");
-    await expect(todayRow).toContainText("Weight 82.4 kg");
+    await expect(todayRow).toContainText("Weight 181.6 lb");
     await expect(page.locator("[data-testid=progress-row] [data-slot=beside]")).toHaveCount(0);
   });
 });
@@ -336,11 +341,11 @@ test.describe("laptop, light", () => {
     await expect(table.getByRole("columnheader")).toHaveText(["Date", "Feeling", "Unwanted", "Weight", "Note"]);
     const rows = page.getByTestId("progress-table-row");
     await expect(rows).toHaveCount(5);
-    await expect(rows.first().getByRole("cell")).toHaveText([/.+/, "5 · Great", "None", "81.6 kg", "Slept 8h, felt sharp"]);
+    await expect(rows.first().getByRole("cell")).toHaveText([/.+/, "5 · Great", "None", "179.9 lb", "Slept 8h, felt sharp"]);
     await expect(page.locator(`[data-testid=progress-table-row][data-day="${day(-5)}"]`).getByRole("cell").nth(2)).toHaveText("Headache");
     await expect(page.getByTestId("progress-row").first()).toBeHidden();
 
-    // Export CSV: a download of this range's check-ins, oldest first.
+    // Export CSV: a download of this range's check-ins, oldest first, each value in the unit it was entered in.
     const [download] = await Promise.all([page.waitForEvent("download"), (await hydrated(page.getByTestId("export-csv"))).click()]);
     expect(download.suggestedFilename()).toBe(`alpha-check-ins_${day(-6)}_to_${today}.csv`);
     const csv = readFileSync((await download.path())!, "utf8");

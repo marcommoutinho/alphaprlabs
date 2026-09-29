@@ -40,10 +40,13 @@ const LEGACY_LABELS: Readonly<Record<string, Effect>> = {
   "Mild headache": "Headache",
 };
 
-/** R9's measurement names, each with the unit the form suggests. */
+/**
+ * R9's measurement names, each with the unit the form suggests. Weight's is
+ * the account's weight unit (R8); lb, the default, when none is given.
+ */
 export const MEASUREMENTS = [
   { name: "Sleep", unit: "h" },
-  { name: "Weight", unit: "kg" },
+  { name: "Weight", unit: "lb" },
   { name: "Waist", unit: "cm" },
   { name: "Other", unit: "" },
 ] as const;

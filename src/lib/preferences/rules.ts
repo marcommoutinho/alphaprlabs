@@ -9,7 +9,8 @@ import { isSyringeCapacity, type SyringeCapacity } from "@/lib/calculator/calcul
 import { Exact, formatAmount, parseDecimal, plain } from "@/lib/calculator/decimal";
 
 export type WeightUnit = "kg" | "lb";
-export const WEIGHT_UNITS: readonly WeightUnit[] = ["kg", "lb"];
+/** In R8's choice sheet's order: lb (the default) first. */
+export const WEIGHT_UNITS: readonly WeightUnit[] = ["lb", "kg"];
 
 export type Preferences = {
   /** Preselects the syringe where no saved mixture says otherwise. */
@@ -20,8 +21,11 @@ export type Preferences = {
   appearance: Appearance | null;
 };
 
-/** An account that never saved a preference: 100-unit, kg, and the device's own appearance. */
-export const DEFAULT_PREFERENCES: Preferences = { defaultSyringe: 100, weightUnit: "kg", appearance: null };
+/**
+ * An account that never saved a preference: 100-unit, lb (Marco, 2026-09-28:
+ * pounds by default, kilograms a choice), and the device's own appearance.
+ */
+export const DEFAULT_PREFERENCES: Preferences = { defaultSyringe: 100, weightUnit: "lb", appearance: null };
 
 export const isWeightUnit = (value: unknown): value is WeightUnit => value === "kg" || value === "lb";
 

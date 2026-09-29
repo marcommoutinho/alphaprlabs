@@ -19,9 +19,11 @@ import {
   resolvePreferences,
   resolveSyringe,
   shownMeasurement,
+  WEIGHT_UNITS,
   weightIn,
   weightUnitOf,
 } from "@/lib/preferences/rules";
+import { unitFor } from "@/lib/progress/rules";
 import { type DeviceFacts, isAppleSafari, promptsOnLaunch, showsInstallStep } from "@/lib/push/readiness";
 import { shareEvents, sharingSince } from "@/lib/support/view";
 
@@ -54,6 +56,13 @@ describe("weight unit", () => {
     // Another measurement, or a weight in a unit we don't know, stays as stored.
     expect(shownMeasurement({ name: "Waist", value: "82", unit: "cm" }, "lb")).toEqual({ name: "Waist", value: "82", unit: "cm" });
     expect(shownMeasurement({ name: "Weight", value: "12", unit: "st" }, "kg")).toEqual({ name: "Weight", value: "12", unit: "st" });
+  });
+
+  it("defaults to lb (Marco, 2026-09-28), offered first, with kg still a choice", () => {
+    expect(DEFAULT_PREFERENCES.weightUnit).toBe("lb");
+    expect(WEIGHT_UNITS).toEqual(["lb", "kg"]);
+    // The check-in suggests lb for a weight when no unit is given.
+    expect(unitFor("Weight")).toBe("lb");
   });
 });
 
@@ -89,8 +98,10 @@ describe("default syringe", () => {
 });
 
 describe("preferences", () => {
-  it("default to 100-unit, kg and the device's appearance; anything unexpected reads as the default", () => {
+  it("default to 100-unit, lb and the device's appearance; anything unexpected reads as the default", () => {
+    expect(DEFAULT_PREFERENCES).toEqual({ defaultSyringe: 100, weightUnit: "lb", appearance: null });
     expect(resolvePreferences(null)).toEqual(DEFAULT_PREFERENCES);
+    expect(resolvePreferences({ default_syringe: 100, weight_unit: "kg", appearance: null }).weightUnit).toBe("kg");
     expect(resolvePreferences({ default_syringe: 30, weight_unit: "lb", appearance: "dark" })).toEqual({ defaultSyringe: 30, weightUnit: "lb", appearance: "dark" });
     expect(resolvePreferences({ default_syringe: 40, weight_unit: "st", appearance: "sepia" })).toEqual(DEFAULT_PREFERENCES);
   });

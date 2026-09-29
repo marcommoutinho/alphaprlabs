@@ -489,9 +489,10 @@ describe("R5 Progress: feeling, gaps and the check-in rows", () => {
       // Stored with the earlier chips (they stay valid): shown under the v3 names.
       effects: "Headache, Nausea",
       note: "Slept better.",
-      measure: "Weight 82.4 kg",
+      // Stored in kg; shown in the default weight unit, lb (82.4 kg = 181.66… lb).
+      measure: "Weight 181.7 lb",
       measureName: "Weight",
-      measureValue: "82.4 kg",
+      measureValue: "181.7 lb",
       phase: "Compound A: 500 mcg · Compound B: 1 mg",
       doses: "Compound B 1 mg",
     });
@@ -601,15 +602,16 @@ describe("R5 Progress: dose tracks, adherence and the measurement", () => {
     const checkIns = [weight("2026-09-01", "84"), weight("2026-09-09", "83.2"), weight("2026-09-15", "82.1"), weight("2026-09-18", "180", "lb"), weight("2026-09-21", "81.7")];
     const card = view({ checkIns })!.measure!;
     // The last entry on or before the cycle's start (Sep 10) is the baseline; the lb entry is shown in
-    // R8's weight unit (kg by default), converted exactly (V4; V3 left it out).
-    expect(card).toMatchObject({ name: "Weight", unit: "kg", latest: "81.7", latestDay: "2026-09-21", entries: "5 entries", max: "84 kg", min: "81.6 kg" });
-    expect(card.change).toEqual({ direction: "down", text: "Down 1.5 kg", since: "since Sep 9" });
+    // R8's weight unit (lb by default), converted exactly (V4; V3 left it out): the kg entries in lb
+    // (84 kg = 185.19 lb, 83.2 = 183.43, 82.1 = 181.00, 81.7 = 180.12), the lb entry as stored.
+    expect(card).toMatchObject({ name: "Weight", unit: "lb", latest: "180.1", latestDay: "2026-09-21", entries: "5 entries", max: "185.2 lb", min: "180 lb" });
+    expect(card.change).toEqual({ direction: "down", text: "Down 3.3 lb", since: "since Sep 9" });
     expect(card.points.map((p) => [p.day, p.value])).toEqual([
-      ["2026-09-01", 84],
-      ["2026-09-09", 83.2],
-      ["2026-09-15", 82.1],
-      ["2026-09-18", 81.6],
-      ["2026-09-21", 81.7],
+      ["2026-09-01", 185.2],
+      ["2026-09-09", 183.4],
+      ["2026-09-15", 181],
+      ["2026-09-18", 180],
+      ["2026-09-21", 180.1],
     ]);
     expect(card.points[0].x).toBeCloseTo(9 / 29);
     // Without a cycle, from the first entry in the range.
@@ -644,9 +646,9 @@ describe("R5 Progress: dose tracks, adherence and the measurement", () => {
     });
     // Nothing measured in the range: no card, whatever came before.
     expect(measureCard([weight("2026-09-01", "84")], week, "2026-09-03")).toBeNull();
-    // Through the screen: the check-ins the page fetched reach the card.
+    // Through the screen: the check-ins the page fetched reach the card, in lb by default (1.1 kg = 2.43 lb).
     const v = view({ range: "7d", checkIns: [weight("2026-09-09", "84"), weight("2026-09-20", "82.9")] });
-    expect(v.measure?.change).toMatchObject({ text: "Down 1.1 kg", since: "since Sep 9" });
+    expect(v.measure?.change).toMatchObject({ text: "Down 2.4 lb", since: "since Sep 9" });
   });
 });
 
@@ -815,8 +817,15 @@ describe("R5 Progress in R8's weight unit", () => {
     expect(v.measure?.points.map((p) => p.value)).toEqual([180.8, 180, 179.5]);
   });
 
-  it("keeps kg by default, converting a weight entered in lb", () => {
+  it("shows lb by default (no preference saved), converting a weight entered in kg", () => {
     const v = view({ checkIns: weights, total: 3 });
+    expect(v.measure).toMatchObject({ unit: "lb", latest: "179.5", entries: "3 entries", max: "180.8 lb", min: "179.5 lb" });
+    expect(v.measure?.points.map((p) => p.value)).toEqual([180.8, 180, 179.5]);
+    expect(v.rows[0].measure).toBe("Weight 179.5 lb");
+  });
+
+  it("shows every weight in kilograms when kg is chosen, converting a weight entered in lb", () => {
+    const v = view({ checkIns: weights, total: 3, weightUnit: "kg" });
     expect(v.measure).toMatchObject({ unit: "kg", latest: "81.4", entries: "3 entries", max: "82 kg", min: "81.4 kg" });
     expect(v.measure?.points.map((p) => p.value)).toEqual([82, 81.6, 81.4]);
   });

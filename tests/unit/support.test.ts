@@ -225,6 +225,9 @@ describe("A8 Researcher history", () => {
     expect(view.checkIns[0]).toEqual({ id: uuid(406), date: "Sun Sep 20", feeling: 2, effects: "Headache, Nausea", note: "Slept better." });
     expect(view.checkIns[1].effects).toBe("");
     expect(view.measures).toBe("Measurements: Weight 86.5 kg (Sep 20) · Weight 84.5 kg (Sep 18) · Weight 82.5 kg (Sep 16) · Weight 80.5 kg (Sep 14)");
+    // A weight entered in lb (the default unit) reads as entered: the share does not include preferences.
+    const inLb = historyView({ ...base, checkIns: [{ ...base.checkIns[0], measurement: { name: "Weight", value: "180", unit: "lb" } }] });
+    expect(inLb.measures).toBe("Measurements: Weight 180 lb (Sep 14)");
   });
 
   it("describes supplies, mixtures and supplements as the prototype does", () => {

@@ -97,8 +97,8 @@ describe("check-in reads are complete, a page at a time", () => {
     expect(screen.rows.map((r) => r.day)).toEqual(days.slice(1).reverse());
     expect(screen.rows[0]).toMatchObject({ day: addDays(today, -1), note: "Day 29", feelingText: "5 · Great", today: false });
     expect(screen.tiles.checkIns).toEqual({ value: "29", context: "of 30 days" });
-    // Weight every third day: the latest is day 27's.
-    expect(screen.measure).toMatchObject({ name: "Weight", latest: "82.7", latestDay: addDays(today, -3), entries: "9 entries" });
+    // Weight every third day: the latest is day 27's, entered in kg and shown in the default unit, lb (82.7 kg = 182.32… lb).
+    expect(screen.measure).toMatchObject({ name: "Weight", unit: "lb", latest: "182.3", latestDay: addDays(today, -3), entries: "9 entries" });
     expect([screen.todayCheckIn, screen.sparse, screen.exportHref]).toEqual([null, "", `/app/progress/export?from=${window.from}&to=${window.to}`]);
   });
 });

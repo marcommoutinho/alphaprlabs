@@ -51,7 +51,7 @@ export function StepReview({
           <TextInput name="goal" autoComplete="off" maxLength={CYCLE_LIMITS.goal} placeholder="What you're tracking toward" value={state.goal} onChange={(e) => onChange({ goal: (e.target as HTMLInputElement).value })} />
         </Field>
         <Field label="Starting baseline" optional>
-          <TextInput name="baseline" autoComplete="off" maxLength={CYCLE_LIMITS.baseline} placeholder="e.g. 82.4 kg · 6.1 h sleep" value={state.baseline} onChange={(e) => onChange({ baseline: (e.target as HTMLInputElement).value })} />
+          <TextInput name="baseline" autoComplete="off" maxLength={CYCLE_LIMITS.baseline} placeholder="e.g. 181.6 lb · 6.1 h sleep" value={state.baseline} onChange={(e) => onChange({ baseline: (e.target as HTMLInputElement).value })} />
         </Field>
         <label className="flex flex-col gap-1.5">
           <span className="text-[13px] font-semibold text-ink-2">Time zone</span>

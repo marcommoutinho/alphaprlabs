@@ -303,6 +303,11 @@ switches to the back office and back.
   (week, month, custom range, 12 months with month-over-month on matching
   days), revenue by day, the Ledger grouped by day or month, CSV exports, the
   library draft / publish state, and the laptop layouts.
+- Check-in weight defaults to pounds (Marco, 2026-09-28: "For check in
+  weight, lbs should be default but also allow users to get kgs"): an account
+  that has not chosen a weight unit enters and sees weights in lb, and Me's
+  Weight unit offers lb and kg. Stored measurements keep the unit they were
+  entered in and are converted exactly for display (1 lb = 0.45359237 kg).
 - Marco is away during the rebuild; Main decides review escalations on the
   safer option and records each one for him.
 

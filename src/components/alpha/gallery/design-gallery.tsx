@@ -282,7 +282,7 @@ function Showcase() {
       <Section title="Tiles">
         <div className="grid grid-cols-2 gap-2.5">
           <StatTile label="Adherence" value="96" unit="%" context="51 of 53 doses" />
-          <StatTile label="Weight" value="81.4" unit="kg" context="2.3 kg since Sep 1" change="down" />
+          <StatTile label="Weight" value="179.5" unit="lb" context="5.1 lb since Sep 1" change="down" />
           <StatTile label="Missed" value="1" tone="missed" context="Wed 8 PM" />
           <StatTile label="Stock value" value="$7,656.31" context="655 vials at cost" />
         </div>
