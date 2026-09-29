@@ -25,10 +25,14 @@ const isAction = async (route: Route) => route.request().method() === "POST" && 
  * RSC request, which (like every later RSC request for a matching page, a
  * router refresh or navigation included) is held unanswered. An aborted
  * request would not do: Next.js falls back to a full page load. `actions`
- * counts the actions sent (a save goes once), `held` the page loads held.
+ * counts the actions sent (a save goes once), `held` the page loads held;
+ * `release()` sends the held ones on, and any later ones, as a connection
+ * that recovers: the refreshed page arrives late.
  */
 export async function stallRefresh(page: Page, match: PathMatch) {
-  const counts = { actions: 0, held: 0 };
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  const counts = { actions: 0, held: 0, release: () => release() };
   await page.route(matcher(match), async (route) => {
     if (await isAction(route)) {
       counts.actions += 1;
@@ -40,6 +44,8 @@ export async function stallRefresh(page: Page, match: PathMatch) {
     }
     if ((await route.request().allHeaders())["rsc"]) {
       counts.held += 1;
+      await released;
+      await route.fallback();
       return;
     }
     await route.fallback();

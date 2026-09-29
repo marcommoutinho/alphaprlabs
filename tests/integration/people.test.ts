@@ -21,6 +21,8 @@ vi.mock("next/cache", () => ({ refresh: vi.fn() }));
 
 const { default: HistoryPage } = await import("@/app/(private)/admin/people/[researcherId]/page");
 const { HistoryDenied, ResearcherHistoryScreen } = await import("@/components/admin/people/researcher-history");
+const { HistoryGate } = await import("@/components/admin/people/history-gate");
+const { GET: accessCheck } = await import("@/app/(private)/admin/people/[researcherId]/access/route");
 
 const admin = { email: uniqueEmail("v7-people-admin"), name: "Priya People" };
 const jordan = { email: uniqueEmail("v7-people-jordan"), name: `Jordan Reyes ${tag()}` };
@@ -42,10 +44,21 @@ beforeAll(async () => {
   await createCycle(jordanDb, { name: `Recovery protocol ${tag()}`, plans: [plan(peptide, [interval(day(-5), day(20))])] });
 });
 
-/** What the A12 page renders for this admin and researcher: the denied state or the history. */
+type Element = { type: unknown; props: Record<string, unknown> };
+
+/**
+ * What the A12 page renders for this admin and researcher: the denied state
+ * or the history, which comes inside its gate (a restore checks again; the
+ * gate's denied state is the same one).
+ */
 async function page(researcherId: string) {
   acting.client = adminDb;
-  const element = (await HistoryPage({ params: Promise.resolve({ researcherId }) })) as { type: unknown; props: Record<string, unknown> };
+  let element = (await HistoryPage({ params: Promise.resolve({ researcherId }) })) as Element;
+  if (element.type === HistoryGate) {
+    expect(element.props).toMatchObject({ researcherId, renderId: expect.stringMatching(/^[0-9a-f-]{36}$/) });
+    expect((element.props.denied as Element).type).toBe(HistoryDenied);
+    element = element.props.children as Element;
+  }
   return element.type === HistoryDenied ? { denied: element.props } : element.type === ResearcherHistoryScreen ? { history: element.props.history as { banner: string; sub: string } } : { other: element };
 }
 
@@ -106,6 +119,24 @@ describe("A12 Researcher history", () => {
     const after = (await listPeople(adminDb)).find((p) => p.id === id.jordan)!;
     expect(after).toMatchObject({ sharedSince: null, stoppedAt: expect.any(String) });
     expect(await getSupportAccount(adminDb, id.jordan)).toMatchObject({ sharedSince: null });
+  });
+
+  it("the check a history put back by Back or Forward asks: whether it's shared now, for admins only, never cached", async () => {
+    const check = async (client: Client, researcherId: string) => {
+      acting.client = client;
+      const response = await accessCheck(undefined as never, { params: Promise.resolve({ researcherId }) });
+      return { status: response.status, cache: response.headers.get("cache-control"), body: await response.json() };
+    };
+    const noStore = "private, no-store";
+    expect(await check(adminDb, id.jordan)).toEqual({ status: 200, cache: noStore, body: { shared: false } });
+    await ok(jordanDb.rpc("share_with_team"), "share");
+    expect(await check(adminDb, id.jordan)).toEqual({ status: 200, cache: noStore, body: { shared: true } });
+    // A researcher is refused, even for a shared history.
+    expect(await check(kimDb, id.jordan)).toMatchObject({ status: 403, cache: noStore });
+    await ok(jordanDb.rpc("stop_sharing_with_team"), "stop");
+    expect(await check(adminDb, id.jordan)).toEqual({ status: 200, cache: noStore, body: { shared: false } });
+    // Not an account's id: not shared.
+    expect(await check(adminDb, "not-an-id")).toEqual({ status: 200, cache: noStore, body: { shared: false } });
   });
 
   it("a researcher can't open it, and nobody reads a history without a share", async () => {

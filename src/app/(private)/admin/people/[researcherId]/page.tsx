@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { HistoryGate } from "@/components/admin/people/history-gate";
 import { HistoryDenied, ResearcherHistoryScreen } from "@/components/admin/people/researcher-history";
 import { requireAdmin } from "@/lib/auth/session";
 import { listCycles } from "@/lib/cycles/service";
@@ -8,6 +9,7 @@ import { listCheckIns } from "@/lib/progress/service";
 import { canReadResearcher } from "@/lib/support/access";
 import { adminPeptideNames, getSupportAccount } from "@/lib/support/service";
 import { createClient } from "@/lib/supabase/server";
+import HistoryLoading from "./loading";
 
 export const metadata = { title: "Researcher history · Alpha PR Labs" };
 
@@ -52,5 +54,10 @@ export default async function ResearcherHistoryPage({ params }: { params: Params
     weightUnit: admin.preferences.weightUnit,
     now: new Date(),
   });
-  return <ResearcherHistoryScreen history={history} />;
+  // Shown at once; put back by back/forward without the server, only after a fresh check (HistoryGate).
+  return (
+    <HistoryGate researcherId={still.id} renderId={crypto.randomUUID()} name={still.name} checking={<HistoryLoading />} denied={denied}>
+      <ResearcherHistoryScreen history={history} />
+    </HistoryGate>
+  );
 }

@@ -248,6 +248,68 @@ test("a history opened a moment ago is asked for again: back through People afte
   await expect(page.getByTestId("history-banner")).toHaveCount(0);
 });
 
+declare global {
+  interface Window {
+    __historySeen?: boolean;
+  }
+}
+
+test("Back to a history after the share stops shows it's denied, never the history kept from before", async ({ page }) => {
+  test.setTimeout(60_000);
+  const researcher = { email: uniqueEmail("v7-people-back"), name: `Jordan Back ${tag()}` };
+  const researcherId = await ensureAccount({ ...researcher, role: "researcher" });
+  const researcherDb = await signedInClient(researcher.email);
+  const peptide = await createPeptide(await signedInClient(ADMIN.email), `V7 Back peptide ${tag()}`);
+  const cycleName = `Back protocol ${tag()}`;
+  await createCycle(researcherDb, { name: cycleName, plans: [plan(peptide, [interval(day(-3), day(24), "0.25", 1)])] });
+  await ok(researcherDb.rpc("share_with_team"), "share");
+  const history = `${APP_ORIGIN}/admin/people/${researcherId}`;
+  const isCheck = (url: string) => new URL(url).pathname === `/admin/people/${researcherId}/access`;
+  await page.setViewportSize(PHONE);
+  await openPeople(page);
+
+  const toPeople = async () => {
+    await (await hydrated(page.getByRole("main").getByRole("link", { name: "People", exact: true }))).click();
+    await expect(page).toHaveURL(`${APP_ORIGIN}/admin/people`);
+    // People itself, not its loading skeleton.
+    await expect(phoneRow(page, researcher.name)).toHaveAttribute("href", `/admin/people/${researcherId}`);
+  };
+
+  // People → the shared history → People, then Back while it is still shared: the history, once checked again.
+  await (await hydrated(phoneRow(page, researcher.name))).click();
+  await expect(page).toHaveURL(history);
+  await expect(page.getByTestId("history-banner")).toBeVisible();
+  await toPeople();
+  const checked = page.waitForResponse((response) => isCheck(response.url()));
+  await page.goBack();
+  expect(await (await checked).json()).toEqual({ shared: true });
+  await expect(page).toHaveURL(history);
+  await expect(page.getByTestId("history-banner")).toBeVisible();
+  await expect(page.getByText(cycleName).first()).toBeVisible();
+  await toPeople();
+
+  // The researcher stops sharing; the admin goes Back. From here on, record any history put on the page, even for a frame.
+  await ok(researcherDb.rpc("stop_sharing_with_team"), "stop");
+  await page.evaluate(() => {
+    const selector = '[data-testid="researcher-history"], [data-testid="history-banner"], [data-testid="recent-row"]';
+    window.__historySeen = document.querySelector(selector) !== null;
+    new MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.addedNodes)
+          if (node instanceof Element && (node.matches(selector) || node.querySelector(selector))) window.__historySeen = true;
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  });
+  const denied = page.waitForResponse((response) => isCheck(response.url()));
+  await page.goBack();
+  expect(await (await denied).json()).toEqual({ shared: false });
+  await expect(page).toHaveURL(history);
+  await expect(page.getByTestId("history-denied")).toBeVisible();
+  await expect(page.getByTestId("denied-text")).toHaveText(`${researcher.name.split(" ")[0]} hasn't shared their history. Only they can turn it on, from Me.`);
+  await expect(page.getByText(cycleName)).toHaveCount(0);
+  await expect(page.getByTestId("history-banner")).toHaveCount(0);
+  expect(await page.evaluate(() => window.__historySeen)).toBe(false);
+});
+
 test("the old Invitations, Support and Templates URLs land on their V7 screens", async ({ page }) => {
   await page.setViewportSize(LAPTOP);
   await signInAs(page, APP_ORIGIN, ADMIN.email);

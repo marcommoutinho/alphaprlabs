@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { buttonVariants } from "@/components/alpha/button-variants";
 import Link from "@/components/alpha/link";
 import { NowBlock } from "@/components/alpha/now-block";
+import { RefreshOnRestore } from "@/components/alpha/restored";
 import { Tag } from "@/components/alpha/tag";
 import { LIBRARY_MAIN } from "@/components/research/library/library-screen";
 import { PeptideSections } from "@/components/research/library/peptide-sections";
@@ -24,7 +25,8 @@ type Params = Promise<{ peptideId: string }>;
  * only when one of the caller's own current cycles uses the peptide: that
  * plan's saved mixture and dose through the calculator. "Add to a cycle"
  * opens the builder with the peptide checked; a withdrawn entry can't start
- * a new cycle, so it has none.
+ * a new cycle, so it has none. Back or forward to it asks the server again
+ * (RefreshOnRestore).
  */
 export default async function PeptidePage({ params }: { params: Params }) {
   const { peptideId } = await params;
@@ -37,6 +39,7 @@ export default async function PeptidePage({ params }: { params: Params }) {
 
   return (
     <main className={LIBRARY_MAIN}>
+      <RefreshOnRestore id={crypto.randomUUID()} />
       <div className="laptop:max-w-[760px]">
         <nav aria-label="Peptide" className="flex h-11 items-center pl-1.5 text-[17px] text-signal-ink laptop:hidden">
           <Link href="/app/library" className="flex h-11 items-center gap-0.5">

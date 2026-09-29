@@ -3,14 +3,16 @@
 // installed app opens straight on Today (no redirect hop), and a one-tap
 // Taken on Today shows at once, while its save is still on the way, and is
 // taken back if the save fails; a replayed save shows what the server
-// recorded, and several refusals in a row each keep their message. A tab
-// visited a moment ago is asked for again (no client cache of private pages).
+// recorded, and several refusals in a row each keep their message (a refused
+// dose no longer on Today says so in the toast). A tab visited a moment ago
+// is asked for again (no client cache of private pages), and so is a page
+// Back returns to.
 import { expect, test, type Page, type Request } from "@playwright/test";
 import { APP_ORIGIN } from "../../playwright.config";
 import { clock12 } from "../../src/lib/alpha/format";
 import { SAVE_FAILED_MESSAGE } from "../../src/lib/app/save";
-import { DOSE_ALREADY_TAKEN, wallOf } from "../../src/lib/doses/rules";
-import { hydrated, ok, serviceClient, signInAs } from "../support/local-supabase";
+import { DOSE_ALREADY_TAKEN, DOSE_CHANGED, wallOf } from "../../src/lib/doses/rules";
+import { hydrated, ok, serviceClient, signedInClient, signInAs } from "../support/local-supabase";
 import { NOON } from "../support/noon";
 import { shot } from "../support/shots";
 import { holdAction, loseAnswer, stallRefresh } from "../support/stall-refresh";
@@ -171,6 +173,30 @@ test("a tab visited a moment ago is asked for again: a peptide no longer offered
   await expect(peptide).toHaveCount(0);
 });
 
+test("Back to the Library asks the server again: a peptide withdrawn meanwhile is gone", async ({ page }) => {
+  const { email } = await seedToday("instant-back");
+  const name = `Back peptide ${Date.now().toString(36)}`;
+  const id = await seedPeptide(name);
+  await signIn(page, email);
+  const peptide = page.getByTestId("library-peptide").filter({ hasText: name });
+
+  await (await hydrated(tab(page, "Library"))).tap();
+  await expect(heading(page)).toHaveText("Library");
+  await expect(peptide).toBeVisible();
+  await (await hydrated(tab(page, "Today"))).tap();
+  await expect(page.getByTestId("today-hero")).toBeVisible();
+
+  // An admin stops offering it; Back puts the Library up from memory, then asks the server again and leaves it out.
+  await ok(serviceClient().from("peptides").update({ available: false }).eq("id", id), "not offered");
+  const asked = page.waitForRequest((request) => new URL(request.url()).pathname === "/app/library" && Boolean(request.headers()["rsc"]));
+  await page.goBack();
+  await asked;
+  await expect(page).toHaveURL(`${APP_ORIGIN}/app/library`);
+  await expect(heading(page)).toHaveText("Library");
+  await expect(peptide).toHaveCount(0);
+  await expect(page.getByTestId("library-peptide").first()).toBeVisible();
+});
+
 // Mark skipped on an overdue row is a laptop control (a phone logs or skips from the sheet).
 test.describe("laptop", () => {
   test.use({ viewport: { width: 1280, height: 820 }, isMobile: false, hasTouch: false });
@@ -214,9 +240,67 @@ test.describe("laptop", () => {
     await expect(overdueB).toBeVisible();
     await expect(overdueB.getByRole("button", { name: "Mark skipped" })).toBeEnabled();
   });
+
+  test("a refused dose that left Today says so in the toast, and the next refused dose's sheet still opens", async ({ context, page }) => {
+    test.setTimeout(60_000);
+    const { email, A, B, db } = await seedToday("instant-dropped");
+    await signIn(page, email);
+    const hero = page.getByTestId("today-hero");
+    const overdueB = page.getByTestId("today-overdue").filter({ hasText: B });
+    await expect(hero.getByTestId("hero-name")).toHaveText(A);
+    await expect(hero.getByTestId("hero-units")).toHaveText("8");
+    await expect(overdueB).toBeVisible();
+
+    // Elsewhere: B's dose from yesterday is logged (it leaves Today), and A's mixture becomes 10 mg / 4 mL (0.4 mg is 16 units).
+    const other = await context.newPage();
+    await other.goto(`${APP_ORIGIN}/app/today`);
+    await (await hydrated(other.getByTestId("today-overdue").filter({ hasText: B }).getByRole("button", { name: "Log" }))).click();
+    const otherSheet = other.getByRole("dialog", { name: B });
+    await otherSheet.getByRole("button", { name: /^Log at / }).click();
+    await expect(otherSheet).toBeHidden();
+    await other.close();
+    const [{ id: mixtureId, peptide_id: peptideId, version }] = await ok(db.from("mixtures").select("id, peptide_id, version"), "mixture");
+    const [{ id: planA }] = await ok(db.from("cycle_plans").select("id").eq("peptide_id", peptideId), "plan A");
+    const elsewhere = await signedInClient(email);
+    await ok(
+      elsewhere.rpc("save_mixture", {
+        p_peptide_id: peptideId,
+        p_vial_mg: "10",
+        p_liquid_ml: "4",
+        p_syringe_units: 100,
+        p_line_spacing: "2",
+        p_plan_ids: [planA],
+        p_mixture_id: mixtureId,
+        p_version: version,
+      }),
+      "mixture change",
+    );
+
+    // Mark skipped on B, then Taken on A: both refused. Their refreshed page comes once both answers are in.
+    const stall = await stallRefresh(page, "/app/today");
+    await (await hydrated(overdueB.getByRole("button", { name: "Mark skipped" }))).click();
+    await (await hydrated(hero.getByRole("button", { name: "Taken", exact: true }))).click();
+    await expect.poll(() => stall.actions).toBe(2);
+    stall.release();
+
+    // B is no longer on Today: no sheet for it, the toast says what the server said. A's sheet opens, current.
+    await expect(page.locator('[data-slot="toast"]')).toContainText(`${B}: ${DOSE_ALREADY_TAKEN}`);
+    const sheet = page.getByRole("dialog", { name: A });
+    await expect(sheet).toContainText(DOSE_CHANGED);
+    await expect(sheet.getByTestId("sheet-units")).toHaveText("= 16 units");
+    await expect(overdueB).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: B })).toHaveCount(0);
+
+    // Nothing stranded: A logs from its sheet, and no other sheet is left waiting.
+    await sheet.getByRole("button", { name: "Taken · 400 mcg" }).click();
+    await expect(sheet).toBeHidden();
+    await expect(page.getByRole("status").filter({ hasText: `${A} · 400 mcg logged at ` })).toBeVisible();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.locator('[data-slot="toast"]').filter({ hasText: "Couldn't load the latest version." })).toHaveCount(0);
+  });
 });
 
-test("a Taken whose answer was lost, sent again, shows the time the server recorded the first time", async ({ page }) => {
+test("a Taken whose answer was lost, sent again, shows what the server recorded the first time", async ({ page }) => {
   test.setTimeout(60_000);
   const { email, A, cycleId } = await seedToday("instant-replay");
   await page.clock.install();
@@ -224,22 +308,32 @@ test("a Taken whose answer was lost, sent again, shows the time the server recor
   const hero = page.getByTestId("today-hero");
   const rowA = page.locator('[data-testid="today-row"][data-kind="today"]').filter({ hasText: A }).getByTestId("today-row-status");
 
-  // The first Taken is recorded, but its answer never reaches the page.
+  // The first Taken, from the sheet (300 mcg, Thigh L), is recorded, but its answer never reaches the page.
+  await (await hydrated(hero.getByRole("button", { name: "Details" }))).tap();
+  const sheet = page.getByRole("dialog", { name: A });
+  await sheet.getByRole("button", { name: "Change the amount taken" }).tap();
+  await sheet.getByLabel(/^Amount taken \(mcg\)/).fill("300");
+  await sheet.getByRole("group", { name: "Injection site" }).getByRole("button", { name: "Thigh L" }).tap();
+  await expect(sheet.getByRole("button", { name: "Thigh L" })).toHaveAttribute("aria-pressed", "true");
   const lost = await loseAnswer(page, "/app/today");
-  await (await hydrated(hero.getByRole("button", { name: "Taken", exact: true }))).tap();
+  await sheet.getByRole("button", { name: "Taken · 300 mcg" }).tap();
   await expect(page.getByRole("alert").filter({ hasText: SAVE_FAILED_MESSAGE })).toBeVisible();
   expect(lost.actions).toBe(1);
-  const records = await ok(serviceClient().from("dose_records").select("actual_at").eq("cycle_id", cycleId), "records");
+  const records = await ok(serviceClient().from("dose_records").select("actual_at, amount_mg::text, site").eq("cycle_id", cycleId), "records");
   expect(records).toHaveLength(1);
+  expect(records[0]).toMatchObject({ amount_mg: "0.3", site: "Thigh L" });
   const recorded = clock12(wallOf(records[0].actual_at, NOON).slice(11, 16));
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
 
-  // Five minutes on, Taken again (the same request): the server replays the first record; its refreshed page never comes.
+  // Five minutes on, a one-tap Taken (the same request, with 400 mcg at Abdomen L): the server replays the first
+  // record; its refreshed page never comes.
   await page.clock.fastForward("05:00");
   const stall = await stallRefresh(page, "/app/today");
   await (await hydrated(hero.getByRole("button", { name: "Taken", exact: true }))).tap();
-  await expect(page.getByRole("status").filter({ hasText: `${A} · 400 mcg logged at ${recorded}` })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: `${A} · 300 mcg logged at ${recorded}` })).toBeVisible();
   await expect.poll(() => stall.actions).toBe(1);
-  // The tick shows the recorded time, not the retry's.
-  await expect(rowA).toHaveText(`Taken ${recorded} · Abdomen L`);
+  // The tick shows what was recorded (time, amount, site), not the retry's.
+  await expect(rowA).toHaveText(`Taken ${recorded} · 300 mcg of 400 mcg · Thigh L`);
   expect(await ok(serviceClient().from("dose_records").select("id").eq("cycle_id", cycleId), "records")).toHaveLength(1);
 });

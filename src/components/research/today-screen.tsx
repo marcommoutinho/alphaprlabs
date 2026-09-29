@@ -115,8 +115,12 @@ function withShown(items: readonly TodayDose[], shown: readonly Shown[]): readon
  */
 type Reopen = { key: string; kind: "confirm" | "skip"; notice: string | null; from: TodayView; name: string; lead: string };
 
-/** A refused dose's sheet, waiting for the one open to close. */
-type Queued = { key: string; notice: string | null };
+/**
+ * A refused dose's sheet, waiting for the one open to close. A dose no longer
+ * on the page by then (recorded elsewhere, and no longer overdue) has no sheet
+ * to open: its name and lead go to the toast instead.
+ */
+type Queued = { key: string; notice: string | null; name: string; lead: string };
 
 /** The stalled message's lead for the refused doses given up on from one page: the lead alone for one, each dose's name and lead for more. */
 function stalledLead(stalled: readonly Reopen[]): string {
@@ -181,6 +185,8 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
   const [shown, setShown] = useState<readonly Shown[]>([]);
   const [reopens, setReopens] = useState<readonly Reopen[]>([]);
   const [sheetQueue, setSheetQueue] = useState<readonly Queued[]>([]);
+  /** Refused doses whose sheet can't open (no longer on the page): the toast says what the server said about each. */
+  const [dropped, setDropped] = useState<readonly Queued[]>([]);
   /** The refused doses whose refreshed page never came, from the page they were made on (their toast names each). */
   const stalled = useRef<Reopen[]>([]);
   const [, startTransition] = useTransition();
@@ -190,14 +196,27 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
   useEffect(() => rememberLoaded(view.renderedAt, view.timeZone), [view.renderedAt, view.timeZone]);
 
   const reopened = reopens.filter((entry) => entry.from !== view);
-  if (reopened.length) {
+  const onPage = (entry: { key: string }) => view.doses[entry.key] !== undefined;
+  if (reopened.length || !sheetQueue.every(onPage)) {
     // The refreshed page is here: each refused dose's sheet shows it as it is now, one after the other.
-    setReopens(reopens.filter((entry) => entry.from === view));
-    const same = reopened.find((entry) => entry.key === sheetKey);
+    if (reopened.length) setReopens(reopens.filter((entry) => entry.from === view));
+    const arriving: Queued[] = reopened.map(({ key, notice, name, lead }) => ({ key, notice, name, lead }));
+    const same = arriving.find((entry) => entry.key === sheetKey && onPage(entry));
     if (same) setSheetNotice(same.notice);
-    setSheetQueue([...sheetQueue, ...reopened.filter((entry) => entry !== same).map(({ key, notice }) => ({ key, notice }))]);
+    const next = [...sheetQueue, ...arriving.filter((entry) => entry !== same)];
+    // A dose no longer on the page (recorded elsewhere and no longer overdue) has no sheet: its message is a toast.
+    const gone = next.filter((entry) => !onPage(entry));
+    setSheetQueue(next.filter(onPage));
+    if (gone.length) {
+      setDropped([...dropped, ...gone]);
+      if (gone.some((entry) => entry.key === sheetKey)) {
+        setSheetKey(null);
+        setSheetNotice(null);
+        setSheetError(null);
+      }
+    }
   }
-  if (sheetQueue.length && sheetKey === null && !checkInOpen && !supplementSheet && !reopened.length) {
+  if (sheetQueue.length && sheetKey === null && !checkInOpen && !supplementSheet && !reopened.length && sheetQueue.every(onPage)) {
     setSheetQueue(sheetQueue.slice(1));
     setSheetKey(sheetQueue[0].key);
     setSheetError(null);
@@ -207,6 +226,11 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
     // The page from the server shows these now.
     setShown(shown.filter((entry) => !(entry.answered && reflects(view, entry))));
   }
+  useEffect(() => {
+    if (!dropped.length) return;
+    toast.error({ message: dropped.map((entry) => `${entry.name}: ${entry.lead}`).join(" ") });
+    setDropped([]);
+  }, [dropped, toast]);
   // A refused dose no longer waiting (its page came, or the wait gave up): its wait is over.
   const waitingFor = useRef(new Set<string>());
   useEffect(() => {
