@@ -2,16 +2,22 @@
 
 import { Drawer } from "@base-ui/react/drawer";
 import { X } from "lucide-react";
+import { createContext, useContext, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useAlphaPortal } from "./root";
+import { ToastSlot } from "./toast";
 import { useIsLaptop } from "./use-laptop";
+
+/** Whether the enclosing Sheet is open (its content still shows while it closes). */
+const SheetOpenContext = createContext(true);
 
 /**
  * Sheet (§7.11–7.12), one component for both widths: a bottom sheet on the
  * phone (swipe down to dismiss; 320 ms up, 240 ms down) and a 420 px
  * right-hand drawer on a laptop, over the main area only. Built on Base UI's
  * Drawer: focus is trapped, Esc closes, the title names the dialog. Motion and
- * layout live in src/styles/alpha/components.css.
+ * layout live in src/styles/alpha/components.css. While it is open, the app's
+ * toast shows inside it, above its footer (ToastSlot, src/components/alpha/toast.tsx).
  */
 export function Sheet({
   open,
@@ -25,14 +31,19 @@ export function Sheet({
   children: React.ReactNode;
 }) {
   const laptop = useIsLaptop();
+  // An uncontrolled sheet (a SheetTrigger, defaultOpen) reports its state here.
+  const [openedHere, setOpenedHere] = useState(defaultOpen ?? false);
   return (
     <Drawer.Root
       open={open}
       defaultOpen={defaultOpen}
-      onOpenChange={onOpenChange ? (next) => onOpenChange(next) : undefined}
+      onOpenChange={(next) => {
+        setOpenedHere(next);
+        onOpenChange?.(next);
+      }}
       swipeDirection={laptop ? "right" : "down"}
     >
-      {children}
+      <SheetOpenContext value={open ?? openedHere}>{children}</SheetOpenContext>
     </Drawer.Root>
   );
 }
@@ -64,6 +75,7 @@ export function SheetContent({
   children?: React.ReactNode;
 }) {
   const container = useAlphaPortal();
+  const open = useContext(SheetOpenContext);
   return (
     <Drawer.Portal container={container}>
       <Drawer.Backdrop className="alpha-sheet-backdrop" />
@@ -99,6 +111,7 @@ export function SheetContent({
           <Drawer.Content className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3.5 laptop:px-6">
             {children}
           </Drawer.Content>
+          <ToastSlot open={open} footer={Boolean(footer)} />
           {footer ? (
             <div className="flex gap-2 border-t border-line px-4 pt-3 pb-[max(16px,env(safe-area-inset-bottom))] laptop:px-6 laptop:pb-5 [&>*:last-child]:flex-1">
               {footer}
