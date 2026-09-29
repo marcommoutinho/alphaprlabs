@@ -105,11 +105,18 @@ export function appTestEnv(): Record<string, string> {
 const GATEWAY_NO_RESPONSE = "An invalid response was received from the upstream server";
 
 /**
- * fetch for the test clients. The local gateway (Kong) keeps idle upstream
- * connections for 60 s, but PostgREST closes idle keep-alive connections after
- * 30-60 s; a request Kong sends on a connection PostgREST is closing at that
- * moment comes back as Kong's 502 above. Under the bursts of a parallel test
- * run this hits a random call now and then.
+ * fetch for the test clients. Now and then PostgREST closes a keep-alive
+ * connection from the local gateway (Kong) while Kong's next request on it is
+ * already waiting, unread: Kong logs "upstream prematurely closed connection"
+ * or "Connection reset by peer" and answers the 502 above, and PostgREST's
+ * own TCP counters count one TCPAbortOnData (closed with unread data) per
+ * 502. PostgREST logs nothing. It happens mostly in the first seconds of a
+ * run, when every file signs in at once and the stack is busiest, and on no
+ * particular request. Nothing in this repository can configure it: Kong
+ * always keeps upstream connections alive (no setting in
+ * supabase/config.toml), and PostgREST has no server keep-alive or timeout
+ * setting. Kong itself resends a failed GET; a failed write reaches the test.
+ * Fewer integration files at once keeps it away (vitest.config.mts).
  *
  * Only reads (GET/HEAD) are sent again, once, and reported. A write (POST,
  * PATCH, DELETE, and every RPC, which PostgREST takes as POST) is never

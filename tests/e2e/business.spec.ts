@@ -314,7 +314,8 @@ test.describe("Stock", () => {
       await search.fill("");
       await page.getByTestId("filter-low").click();
       expect(await row.count()).toBeGreaterThan(0);
-      for (const low of await row.all()) await expect(low).toHaveAttribute("data-low", "true");
+      // Every row shown is low, read in one pass (the local database keeps every run's items, hundreds of them).
+      await expect.poll(() => row.evaluateAll((rows) => rows.filter((r) => r.getAttribute("data-low") !== "true").length)).toBe(0);
       await search.fill(item.name);
       await expect(row).toHaveCount(1);
 
@@ -506,8 +507,16 @@ test("Stock: a Retry after a saved change lost its answer replays it, and never 
     { threshold: 8, changed_by: id.second },
   ]);
   await expect(sheet).toBeHidden();
-  await page.getByTestId("stock-table-row").getByRole("button", { name: `${item.name} 10 mg` }).click();
-  await expect(sheet.getByLabel("Reorder at")).toHaveValue("8");
+  // Once the list's refresh has landed, the item reopens on the other admin's 8. (Reopened sooner, a sheet
+  // starts from the list it was opened from, and its Save compares against that: refused, never overwriting.)
+  await expect(async () => {
+    if (await sheet.isVisible()) {
+      await page.keyboard.press("Escape");
+      await expect(sheet).toBeHidden();
+    }
+    await page.getByTestId("stock-table-row").getByRole("button", { name: `${item.name} 10 mg` }).click();
+    await expect(sheet.getByLabel("Reorder at")).toHaveValue("8", { timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
   await expect(sheet.getByTestId("threshold-changed")).toContainText(`Set by ${SECOND.name}`);
 });
 

@@ -261,10 +261,10 @@ describe("personal supplies", () => {
       who.rpc("save_mixture", { p_peptide_id: peptideA, p_vial_mg: "8", p_liquid_ml: "2", p_syringe_units: 100, p_line_spacing: "2", p_plan_ids: [planId] }),
       "mixture v1",
     ))!;
-    const between = new Date(Date.now() + 1500).toISOString();
-    await new Promise((resolve) => setTimeout(resolve, 3000));
     const current = await getMixture(who, mixtureId);
     if (!current) throw new Error("mixture not readable");
+    // Some time passes before the setup changes, so there is an instant strictly between the two.
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     await ok(
       who.rpc("save_mixture", {
         p_mixture_id: mixtureId,
@@ -280,6 +280,12 @@ describe("personal supplies", () => {
     );
     const versions = await ok(who.from("mixture_versions").select("id, number").eq("mixture_id", mixtureId).order("number"), "versions");
     expect(versions).toHaveLength(2);
+    // Halfway between when each setup took effect, both on the database's clock: after the first, before the
+    // change, and already past for the server (AP021 refuses a future time), whatever the test machine's clock says.
+    const changed = (await getMixture(who, mixtureId))!.setupSince;
+    const between = new Date((Date.parse(current.setupSince) + Date.parse(changed)) / 2).toISOString();
+    expect(Date.parse(current.setupSince)).toBeLessThan(Date.parse(between));
+    expect(Date.parse(between)).toBeLessThan(Date.parse(changed));
 
     const early = (await confirm(who, await confirmArgsSeen(who, await occurrenceOn(who, cycleId, d(0)), { p_actual_at: between })))!;
     const late = (await confirm(who, await confirmArgsSeen(who, await occurrenceOn(who, cycleId, d(-2)))))!;

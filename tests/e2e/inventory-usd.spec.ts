@@ -3,11 +3,15 @@
 // stored, the Bank of Canada is the local stub (BOC_FX_TEST_RATES in
 // playwright.config.ts; src/lib/inventory/fx.ts), never the real API: rates
 // for Aug 24-26 and Fri Aug 28 (1.3888), none for the weekend, and Aug 19
-// answers as if the Bank of Canada were down. Each test works on its own
-// library peptide.
+// answers as if the Bank of Canada were down. The table keeps every rate
+// stored, across tests and runs, and a date's latest stored rate within the
+// window is the one used (the FX rule), so a test that expects a particular
+// rate stores its own dates' rates first. Each test works on its own library
+// peptide.
 import { expect, test, type Page } from "@playwright/test";
 import { randomBytes } from "node:crypto";
 import { APP_ORIGIN } from "../../playwright.config";
+import { usdToCad } from "../../src/lib/inventory/rules";
 import { ensureAccount, hydrated, serviceClient, signInAs, uniqueEmail } from "../support/local-supabase";
 
 const ADMIN = { email: uniqueEmail("usd-inv-admin"), name: "USD Inventory Admin" };
@@ -42,47 +46,83 @@ async function openUsdPurchase(page: Page, peptide: string) {
   await expect(page.getByRole("button", { name: "USD", exact: true })).toHaveAttribute("aria-pressed", "true");
 }
 
+/**
+ * "A USD purchase" owns its rates: Thu Jul 16 and Fri Jul 17, 2026 (no other
+ * test uses July 2026; Sat Jul 18 has none), stored here as the daily sync
+ * would, so it never depends on which other test stored which Bank of Canada
+ * rate first. A stored rate is never replaced (the first value for a date
+ * stays), so the rates it expects are read back from the table, not assumed.
+ */
+const OWN = { thursday: "2026-07-16", friday: "2026-07-17", saturday: "2026-07-18" } as const;
+
+async function ownRates(): Promise<{ thursday: string; friday: string }> {
+  const db = serviceClient();
+  const { error } = await db.rpc("store_fx_rates", {
+    p_rates: [
+      { date: OWN.thursday, rate: "1.3712" },
+      { date: OWN.friday, rate: "1.3701" },
+    ],
+  });
+  expect(error).toBeNull();
+  const { data } = await db
+    .from("fx_rates")
+    .select("rate_date, usd_cad::text")
+    .in("rate_date", [OWN.thursday, OWN.friday, OWN.saturday])
+    .order("rate_date")
+    .overrideTypes<{ rate_date: string; usd_cad: string }[], { merge: false }>();
+  // Thursday and Friday, and nothing for the Saturday: its rate is Friday's.
+  expect(data!.map((r) => r.rate_date)).toEqual([OWN.thursday, OWN.friday]);
+  return { thursday: data![0].usd_cad, friday: data![1].usd_cad };
+}
+
+const cad = (amount: string) => `CAD ${amount}`;
+const times10 = (unit: string) => (Number(unit) * 10).toFixed(2);
+
 test("a USD purchase: the rate preview, the CAD cost saved and the purchase line", async ({ page }) => {
+  const rates = await ownRates();
   const peptide = await newPeptide();
   await openUsdPurchase(page, peptide);
   const preview = page.getByTestId("usd-preview");
   const rate = page.getByTestId("fx-rate");
 
   // A Saturday: Friday's rate, and the form says why.
-  await page.getByLabel("Received").fill("2026-08-29");
-  await expect(rate).toHaveText("Bank of Canada rate for Aug 28: 1.3888");
-  await expect(preview).toContainText("No rate was published for Aug 29 (weekend or holiday), so the latest earlier rate is used.");
+  await page.getByLabel("Received").fill(OWN.saturday);
+  await expect(rate).toHaveText(`Bank of Canada rate for Jul 17: ${rates.friday}`);
+  await expect(preview).toContainText("No rate was published for Jul 18 (weekend or holiday), so the latest earlier rate is used.");
   await page.getByLabel("Vials", { exact: true }).fill("10");
   await page.getByLabel("Cost per vial (USD)").fill("11,5");
-  await expect(page.getByTestId("usd-preview-unit")).toHaveText("CAD 15.97"); // 11.50 × 1.3888 = 15.9712
-  await expect(page.getByTestId("purchase-total")).toHaveText("CAD 159.70");
+  const saturdayUnit = usdToCad("11.50", rates.friday); // 11.50 × 1.3701 = 15.75615 → 15.76
+  await expect(page.getByTestId("usd-preview-unit")).toHaveText(cad(saturdayUnit));
+  await expect(page.getByTestId("purchase-total")).toHaveText(cad(times10(saturdayUnit)));
 
   // Its own rate on a business day; the "1,000" form is refused, not guessed.
-  await page.getByLabel("Received").fill("2026-08-26");
-  await expect(rate).toHaveText("Bank of Canada rate for Aug 26: 1.3876");
+  await page.getByLabel("Received").fill(OWN.thursday);
+  await expect(rate).toHaveText(`Bank of Canada rate for Jul 16: ${rates.thursday}`);
   await expect(preview).not.toContainText("latest earlier rate");
   await page.getByLabel("Cost per vial (USD)").fill("1,000");
   await expect(page.getByTestId("purchase-total")).toHaveText("—");
   await page.getByRole("button", { name: "Record purchase" }).click();
   await expect(alert(page)).toHaveText("Enter the cost per vial in USD (0 or more).");
   await page.getByLabel("Cost per vial (USD)").fill("11");
-  await expect(page.getByTestId("usd-preview-unit")).toHaveText("CAD 15.26"); // 15.2636
-  await expect(page.getByTestId("purchase-total")).toHaveText("CAD 152.60");
+  const unit = usdToCad("11", rates.thursday); // 11 × 1.3712 = 15.0832 → 15.08
+  await expect(page.getByTestId("usd-preview-unit")).toHaveText(cad(unit));
+  await expect(page.getByTestId("purchase-total")).toHaveText(cad(times10(unit)));
   await page.getByRole("button", { name: "Record purchase" }).click();
 
   // Saved with the server's conversion; A4 shows it, totals in CAD.
-  await expect(toast(page)).toHaveText("Purchase recorded · 10 vials at USD 11.00 = CAD 15.26");
+  const conversion = `USD 11.00 × ${rates.thursday} (BoC Jul 16) = ${cad(unit)}`;
+  await expect(toast(page)).toHaveText(`Purchase recorded · 10 vials at USD 11.00 = ${cad(unit)}`);
   await expect(page).toHaveURL(ITEM_URL);
-  await expect(page.getByTestId("purchase-row")).toHaveText([
-    "Aug 26, 2026 · 10 vials at CAD 15.26USD 11.00 × 1.3876 (BoC Aug 26) = CAD 15.26None allocated yetCAD 152.60",
-  ]);
-  await expect(page.getByTestId("purchase-conversion")).toHaveText("USD 11.00 × 1.3876 (BoC Aug 26) = CAD 15.26");
+  await expect(page.getByTestId("purchase-row")).toHaveText([`Jul 16, 2026 · 10 vials at ${cad(unit)}${conversion}None allocated yet${cad(times10(unit))}`]);
+  await expect(page.getByTestId("purchase-conversion")).toHaveText(conversion);
   const itemId = ITEM_URL.exec(page.url())![1];
   const { data } = await serviceClient()
     .from("business_purchases")
     .select("unit_cost, original_currency, original_unit_cost, fx_rate, fx_rate_date")
     .eq("stock_item_id", itemId);
-  expect(data).toEqual([{ unit_cost: 15.26, original_currency: "USD", original_unit_cost: 11, fx_rate: 1.3876, fx_rate_date: "2026-08-26" }]);
+  expect(data).toEqual([
+    { unit_cost: Number(unit), original_currency: "USD", original_unit_cost: 11, fx_rate: Number(rates.thursday), fx_rate_date: OWN.thursday },
+  ]);
 });
 
 test("rates come from our stored table; a missing window is fetched once and stored", async ({ page }) => {

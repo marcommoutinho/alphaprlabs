@@ -52,6 +52,9 @@ const EXCLUSIVE = [
   "tests/integration/anon-privileges.test.ts",
 ];
 
+/** How many shared integration files run at once (see the integration project). */
+const INTEGRATION_WORKERS = 2;
+
 export default defineConfig({
   resolve: {
     alias: {
@@ -68,7 +71,17 @@ export default defineConfig({
       { extends: true, test: { name: "unit", include: ["tests/unit/**/*.test.ts"] } },
       {
         extends: true,
-        test: { name: "integration", include: ["tests/integration/**/*.test.ts"], exclude: EXCLUSIVE },
+        test: {
+          name: "integration",
+          include: ["tests/integration/**/*.test.ts"],
+          exclude: EXCLUSIVE,
+          // INTEGRATION_WORKERS files at once, after the unit files (a project with its own worker count needs
+          // its own group). With a file per core (31 here), about one run in two lost a write to a gateway 502:
+          // PostgREST closing a keep-alive connection with Kong's next request unread (tests/support/local-supabase.ts
+          // gatewayFetch), mostly in the burst of sign-ins at the start. Fewer at once keeps the stack out of it.
+          maxWorkers: INTEGRATION_WORKERS,
+          sequence: { groupOrder: 1 },
+        },
       },
       {
         extends: true,
@@ -77,7 +90,7 @@ export default defineConfig({
           include: EXCLUSIVE,
           fileParallelism: false,
           // After the unit and shared integration files have finished.
-          sequence: { groupOrder: 1 },
+          sequence: { groupOrder: 2 },
         },
       },
     ],

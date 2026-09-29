@@ -35,8 +35,10 @@ afterEach(() => {
 
 /**
  * A date from 2000 to 2016 whose whole 10-day window holds no stored rate (the
- * table persists across runs). Before the Valet series began (2017-01-03), so
- * an empty answer for it is "no rate", not a broken answer.
+ * table persists across runs), nor do the 10 days after it, so a lookup a few
+ * days later (date + 3) sees only what the test stored, never a rate an
+ * earlier run stored just after the date. Before the Valet series began
+ * (2017-01-03), so an empty answer for it is "no rate", not a broken answer.
  */
 async function emptyWindowDate(): Promise<string> {
   for (;;) {
@@ -45,7 +47,7 @@ async function emptyWindowDate(): Promise<string> {
       .from("fx_rates")
       .select("rate_date", { count: "exact", head: true })
       .gte("rate_date", addDays(date, -10))
-      .lte("rate_date", date);
+      .lte("rate_date", addDays(date, 10));
     if (count === 0) return date;
   }
 }
