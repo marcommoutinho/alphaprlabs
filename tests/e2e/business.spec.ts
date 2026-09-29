@@ -225,7 +225,8 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(rows).toHaveCount(6);
       await twelve.getByRole("button", { name: "Show all 12 months" }).click();
       await expect(rows).toHaveCount(12);
-      await expect(twelve.getByTestId("supplier-row").first()).toContainText("No supplier recorded");
+      // Purchases by supplier (V6): named suppliers first, then those without one.
+      await expect(twelve.getByTestId("supplier-row").last()).toContainText("No supplier recorded");
       await shot(page, `business-12m-phone-${scheme}`);
     });
   });
@@ -270,7 +271,8 @@ test("laptop: A2 Overview for a period, D9 12 months with its month table and Ex
   await expect(table).toHaveCount(12);
   await expect(table.first()).toContainText("to date");
   await expect(twelve.getByRole("region", { name: "Month by month" })).toContainText("* vs the same days of");
-  await expect(twelve.getByTestId("supplier-row").first()).toContainText("No supplier recorded");
+  // Purchases by supplier (V6): named suppliers first, then those without one.
+  await expect(twelve.getByTestId("supplier-row").last()).toContainText("No supplier recorded");
   await shot(page, "12m-laptop");
 
   const [download] = await Promise.all([page.waitForEvent("download"), header.getByRole("link", { name: "Export CSV" }).click()]);

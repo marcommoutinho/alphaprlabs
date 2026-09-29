@@ -60,7 +60,8 @@ type Problems = Partial<Record<"item" | "vials" | "price" | "seller" | "buyer", 
 
 function SaleContent({ opening, onDone }: { opening: Opening; onDone: (token: number) => void }) {
   const [formRound, setFormRound] = useState(0);
-  const [form, retryForm] = useJson<SaleFormData>("/admin/records/sale-form", formRound);
+  // Read again after a refusal (onStale): the entry stays while it loads.
+  const [form, retryForm] = useJson<SaleFormData>("/admin/records/sale-form", formRound, true);
   const data = form?.status === "ready" ? form.data : null;
   const [soldOn, setSoldOn] = useState("");
   const date = soldOn || data?.today || "";

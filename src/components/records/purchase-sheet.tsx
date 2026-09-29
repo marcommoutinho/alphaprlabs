@@ -65,7 +65,8 @@ export function PurchaseSheet({
 
 function PurchaseContent({ opening, onDone }: { opening: Opening; onDone: (token: number) => void }) {
   const [formRound, setFormRound] = useState(0);
-  const [form, retryForm] = useJson<PurchaseFormData>("/admin/records/purchase-form", formRound);
+  // Read again after a refusal (onStale): the entry stays while it loads.
+  const [form, retryForm] = useJson<PurchaseFormData>("/admin/records/purchase-form", formRound, true);
   const data = form?.status === "ready" ? form.data : null;
   return (
     <SheetContent

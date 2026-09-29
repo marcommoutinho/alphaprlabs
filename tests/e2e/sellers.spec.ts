@@ -144,7 +144,7 @@ test("Outside buyers: an outside buyer is found by name from the Ledger and thei
   await expect(page).toHaveURL(`${APP_ORIGIN}/admin/sales/outside?${new URLSearchParams({ q: name.toLowerCase() })}`);
   const found = page.getByTestId("outside-buyer");
   await expect(found).toHaveCount(1);
-  await expect(found).toContainText(`${name}2 sales · 3 vials · last Sep 7`);
+  await expect(found).toContainText(`${name}2 sales · 3 vials · last Mon, Sep 7`);
   await expect(found).toContainText("$90.00");
 
   await found.click();
@@ -154,7 +154,7 @@ test("Outside buyers: an outside buyer is found by name from the Ledger and thei
   await expect(rows).toHaveCount(2);
   // Newest first: the item, its vials, the date and the price each.
   await expect(rows.first()).toContainText(`${item.label} × 2`);
-  await expect(rows.first().getByTestId("sale-line")).toContainText("Sep 7 · ");
+  await expect(rows.first().getByTestId("sale-line")).toContainText("Mon, Sep 7 · ");
   await expect(rows.first().getByTestId("sale-line")).toContainText("$30.00 ea");
   await (await hydrated(rows.last().getByRole("button", { name: "Link to account…" }))).click();
   const panel = page.getByRole("dialog");

@@ -15,10 +15,12 @@ export type Load<T> = { status: "loading" } | { status: "ready"; data: T } | { s
 
 /**
  * GET `url` as JSON (never cached), again whenever `url` or `round` changes;
- * null loads nothing. An answer for an older url is dropped.
+ * null loads nothing. An answer for an older url is dropped. `keep`: while the
+ * same url loads again (a new round or a retry), its last answer stands, so
+ * what was built on it (an entry being typed) stays on screen.
  */
-export function useJson<T>(url: string | null, round = 0): [Load<T> | null, () => void] {
-  const [state, setState] = useState<{ key: string; load: Load<T> } | null>(null);
+export function useJson<T>(url: string | null, round = 0, keep = false): [Load<T> | null, () => void] {
+  const [state, setState] = useState<{ key: string; url: string; load: Load<T> } | null>(null);
   const [retries, setRetries] = useState(0);
   // The request this answer is for: until its answer arrives, it's loading.
   const key = `${round}:${retries}:${url}`;
@@ -29,17 +31,20 @@ export function useJson<T>(url: string | null, round = 0): [Load<T> | null, () =
       .then(async (response) => {
         if (!response.ok) throw response.status;
         const data = (await response.json()) as T;
-        setState({ key, load: { status: "ready", data } });
+        setState({ key, url, load: { status: "ready", data } });
       })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return;
-        setState({ key, load: { status: "error", code: typeof reason === "number" ? reason : 0 } });
+        setState({ key, url, load: { status: "error", code: typeof reason === "number" ? reason : 0 } });
       });
     return () => controller.abort();
   }, [url, key]);
   const retry = useCallback(() => setRetries((count) => count + 1), []);
   if (!url) return [null, retry];
-  if (!state || state.key !== key) return [{ status: "loading" }, retry];
+  if (!state || state.key !== key) {
+    if (keep && state?.url === url && state.load.status === "ready") return [state.load, retry];
+    return [{ status: "loading" }, retry];
+  }
   return [state.load, retry];
 }
 
