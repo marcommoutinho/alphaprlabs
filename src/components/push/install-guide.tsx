@@ -29,11 +29,12 @@ import { InstallSketch, type SketchKind } from "./install-sketches";
 type Step = { text: React.ReactNode; note?: React.ReactNode; sketch: SketchKind };
 type Section = { key: string; title?: string; steps: Step[] };
 
-const TAB_LABEL: Record<GuideTab, string> = {
-  "ios-safari": "iPhone · Safari",
-  "ios-chrome": "iPhone · Chrome",
-  android: "Android",
-};
+/** The tab's name: "iPad · Safari" / "iPad · Chrome" on an iPad, else the iPhone's. */
+function tabLabel(tab: GuideTab, device: Pick<InstallDevice, "platform" | "tablet">): string {
+  if (tab === "android") return "Android";
+  const apple = device.platform === "ios" && device.tablet ? "iPad" : "iPhone";
+  return `${apple} · ${tab === "ios-safari" ? "Safari" : "Chrome"}`;
+}
 
 /** The button's name, as the browser shows it. */
 function B({ children }: { children: React.ReactNode }) {
@@ -398,7 +399,7 @@ function Panel({ tab, device, link, install, acceptedHere, elsewhereFirst }: Pan
       {sections.map((section, index) => (
         <div key={section.key} className={cn(index > 0 && "mt-5")}>
           {section.title ? <h3 className="mb-2 px-5 text-[13px] font-semibold text-ink-2 laptop:px-0">{section.title}</h3> : null}
-          <StepList steps={section.steps} label={section.title ? `${TAB_LABEL[tab]}, ${section.title.toLowerCase()}` : TAB_LABEL[tab]} />
+          <StepList steps={section.steps} label={section.title ? `${tabLabel(tab, device)}, ${section.title.toLowerCase()}` : tabLabel(tab, device)} />
         </div>
       ))}
       <p className="mx-5 mt-3.5 flex gap-2.5 text-[14px] leading-[1.45] text-ink-2 laptop:mx-0" data-testid="install-reminders">
@@ -409,7 +410,7 @@ function Panel({ tab, device, link, install, acceptedHere, elsewhereFirst }: Pan
       </p>
       {tab === "ios-chrome" ? (
         <p className="mx-5 mt-2 text-[13px] leading-[18px] text-ink-3 laptop:mx-0">
-          Firefox and Edge on iPhone work the same way: their <B>Share</B> is in the browser&apos;s menu.
+          Firefox and Edge on {device.platform === "ios" && device.tablet ? "iPad" : "iPhone"} work the same way: their <B>Share</B> is in the browser&apos;s menu.
         </p>
       ) : null}
       {elsewhereFirst ? null : <OpenElsewhere target={tab === "ios-safari" ? "Safari" : "Chrome"} first={false} link={link} />}
@@ -444,6 +445,7 @@ export function InstallGuide({
 }) {
   const [tab, setTab] = useState<GuideTab>(() => firstTab(device));
   const marked = thisPhoneTab(device);
+  const thisDevice = device.tablet ? "This iPad" : "This phone";
   const link = installLink(window.location.origin);
   const elsewhereFirst = opensElsewhereFirst(device);
   const phone = onPhone(device);
@@ -473,15 +475,14 @@ export function InstallGuide({
               data-testid="install-tab"
               data-tab={value}
               data-this-phone={value === marked || undefined}
+              // One name, "iPad · Safari, This iPad", for the tab and (through it) its panel.
+              aria-label={value === marked ? `${tabLabel(value, device)}, ${thisDevice}` : undefined}
             >
-              <span>{TAB_LABEL[value]}</span>
+              <span>{tabLabel(value, device)}</span>
               {value === marked ? (
-                <>
-                  <span className="sr-only">, </span>
-                  <span className="text-[12px] leading-4 font-semibold text-signal-ink" data-testid="install-this-phone">
-                    {device.tablet ? "This iPad" : "This phone"}
-                  </span>
-                </>
+                <span className="text-[12px] leading-4 font-semibold text-signal-ink" data-testid="install-this-phone">
+                  {thisDevice}
+                </span>
               ) : null}
             </Tabs.Tab>
           ))}

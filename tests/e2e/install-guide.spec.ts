@@ -161,11 +161,11 @@ test("the tabs: the steps for each phone, the reminders line and the Android sig
   const page = await ctx.newPage();
   await openGuide(page, await account("tabs"));
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Install the app");
-  await expect(page.getByRole("tablist", { name: "Your phone and browser" }).getByRole("tab")).toHaveText([
-    "iPhone · Safari, This phone",
-    "iPhone · Chrome",
-    "Android",
-  ]);
+  const tabs = page.getByRole("tablist", { name: "Your phone and browser" }).getByRole("tab");
+  await expect(tabs).toHaveCount(3);
+  await expect(tabs.nth(0)).toHaveAccessibleName("iPhone · Safari, This phone");
+  await expect(tabs.nth(1)).toHaveAccessibleName("iPhone · Chrome");
+  await expect(tabs.nth(2)).toHaveAccessibleName("Android");
   await expect(stepTexts(page)).toHaveText(["Tap Share in the toolbar.", "Scroll down and choose Add to Home Screen.", "Tap Add.", "Open Alpha from your Home Screen."]);
   await expect(page.getByTestId("install-step-note")).toHaveText([
     EDIT_ACTIONS_NOTE,
@@ -289,6 +289,12 @@ test("on an iPad: Share, then More, then Add to Home Screen; no iPhone Edit Acti
   await expect(page.getByTestId("install-guide")).toHaveAttribute("data-platform", "ios");
   await expect(selectedTab(page)).toHaveAttribute("data-tab", "ios-safari");
   await expect(selectedTab(page).getByTestId("install-this-phone")).toHaveText("This iPad");
+  // Named for the iPad everywhere: the tabs, the tabpanel and its step list.
+  await expect(page.getByRole("tab", { name: "iPad · Safari, This iPad", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "iPad · Chrome", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /iPhone/ })).toHaveCount(0);
+  await expect(page.getByRole("tabpanel", { name: "iPad · Safari, This iPad", exact: true })).toBeVisible();
+  await expect(page.getByRole("list", { name: "iPad · Safari", exact: true })).toBeVisible();
   await expect(stepTexts(page)).toHaveText([
     "Tap Share.",
     "Tap More, then Add to Home Screen.",
@@ -307,6 +313,12 @@ test("on an iPad: Share, then More, then Add to Home Screen; no iPhone Edit Acti
   const iphone = await phone.newPage();
   await openGuide(iphone, await account("ipad-vs-iphone"));
   await expect(iphone.getByRole("tabpanel").getByTestId("install-step-note").nth(1)).toHaveText(EDIT_ACTIONS_NOTE);
+  // ...and the iPhone's names.
+  await expect(iphone.getByRole("tab", { name: "iPhone · Safari, This phone", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(iphone.getByRole("tab", { name: "iPhone · Chrome", exact: true })).toBeVisible();
+  await expect(iphone.getByRole("tab", { name: /iPad/ })).toHaveCount(0);
+  await expect(iphone.getByRole("tabpanel", { name: "iPhone · Safari, This phone", exact: true })).toBeVisible();
+  await expect(iphone.getByRole("list", { name: "iPhone · Safari", exact: true })).toBeVisible();
   await phone.close();
   await ctx.close();
 });
