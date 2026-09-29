@@ -1,5 +1,5 @@
 import Link from "@/components/alpha/link";
-import { ChevronRight, Layers, Plus } from "lucide-react";
+import { Calculator, ChevronRight, Layers, Plus } from "lucide-react";
 import { buttonVariants } from "@/components/alpha/button-variants";
 import { Group, GroupLabel } from "@/components/alpha/list";
 import { StateGlyph } from "@/components/alpha/state-glyph";
@@ -11,14 +11,27 @@ import { DayRuler } from "./lanes";
 export const CYCLES_MAIN =
   "mx-auto flex w-full max-w-[1200px] flex-col pb-[calc(96px+env(safe-area-inset-bottom))] laptop:px-8 laptop:pt-6 laptop:pb-16";
 
-/** "Cycles" and the 44 px ink round + (R10). */
+/**
+ * "Cycles", the vial calculator (an outline header action, Marco,
+ * 2026-09-29) and the 44 px ink round + (R10).
+ */
 export function CyclesHeader() {
   return (
-    <header className="flex items-end justify-between pt-2 pr-3 pl-5 laptop:px-0">
+    <header className="flex items-end justify-between gap-3 pt-2 pr-3 pl-5 laptop:px-0">
       <h1 className="text-[34px] leading-[1.15] font-semibold tracking-[-0.03em]">Cycles</h1>
-      <Link href="/app/cycles/new" aria-label="New cycle" className={buttonVariants({ variant: "ink", size: "icon" })}>
-        <Plus className="size-5" aria-hidden />
-      </Link>
+      <div className="flex shrink-0 items-center gap-2">
+        <Link
+          href="/app/calculator"
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "rounded-[12px] px-3 text-[14px]")}
+          data-testid="cycles-calculator"
+        >
+          <Calculator className="size-[18px]" aria-hidden />
+          Calculator
+        </Link>
+        <Link href="/app/cycles/new" aria-label="New cycle" className={buttonVariants({ variant: "ink", size: "icon" })}>
+          <Plus className="size-5" aria-hidden />
+        </Link>
+      </div>
     </header>
   );
 }

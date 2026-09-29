@@ -84,6 +84,7 @@ export function MeScreen({ view }: { view: MeView }) {
         </div>
         <div className="laptop:col-span-5 laptop:mt-2">
           <Tracking view={view} />
+          <Tools />
           <PreferencesGroup view={view} />
           <Account />
           <p className="mx-5 mt-4 text-center font-mono text-[12px] text-ink-3 laptop:mx-0">Alpha PR Labs · research use only · v3.0</p>
@@ -326,6 +327,20 @@ function TrackingSheet({
         ) : null}
       </SheetContent>
     </Sheet>
+  );
+}
+
+/** "Tools": the vial calculator (Marco, 2026-09-29), also a Cycles header action and in the account menu. */
+function Tools() {
+  return (
+    <section aria-labelledby="me-tools" className="mt-6">
+      <GroupLabel id="me-tools" className="laptop:px-0">
+        Tools
+      </GroupLabel>
+      <Group className="mx-3 laptop:mx-0">
+        <SettingRow label="Vial calculator" value="" href="/app/calculator" testId="me-calculator" />
+      </Group>
+    </section>
   );
 }
 

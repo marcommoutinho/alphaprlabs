@@ -327,6 +327,14 @@ switches to the back office and back.
   only iPhone Safari; "I'll do it later" still goes on to Today) and as an
   item in Me and the account menu for researchers and admins, hidden inside
   the installed app. The reminders screens link to it.
+- The vial calculator comes back within reach (Marco, 2026-09-29): the v3
+  redesign had left it reachable only from a cycle's saved-mix row and the
+  "Set one up in the calculator" links. Cycles gets a Calculator header
+  action beside +, Me gets a Tools › Vial calculator row, and the account
+  menu gets the same item for laptops. The tab bar keeps its five tabs, and
+  Cycles stays the current tab on the calculator. Its Back returns to where
+  it was opened from (history), or to Cycles when there is nothing to go
+  back to.
 
 ### Launch exclusions
 

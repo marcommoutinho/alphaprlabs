@@ -4,7 +4,7 @@ import { ChevronDown } from "lucide-react";
 import { unstable_rethrow, useRouter } from "next/navigation";
 import { useId, useMemo, useState, useTransition } from "react";
 import { deleteMixtureAction, saveMixtureAction } from "@/app/(private)/app/calculator/actions";
-import { BackBar } from "@/components/alpha/back-bar";
+import { HistoryBackBar } from "@/components/alpha/history-back-bar";
 import { Button } from "@/components/alpha/button";
 import { isOnline } from "@/components/alpha/online";
 import { Checkbox, Field, NumberInput } from "@/components/alpha/field";
@@ -190,7 +190,7 @@ export function Calculator({
 
   return (
     <main className={CYCLES_MAIN}>
-      <BackBar href="/app/cycles" label="Cycles" />
+      <HistoryBackBar fallback="/app/cycles" />
       <div className="grid gap-7 px-3 laptop:grid-cols-[minmax(0,440px)_minmax(0,1fr)] laptop:gap-8 laptop:px-0">
         <div className="flex min-w-0 flex-col gap-4">
           <h1 className="px-2 text-[34px] leading-[1.1] font-semibold tracking-[-0.03em] laptop:px-0">Calculator</h1>

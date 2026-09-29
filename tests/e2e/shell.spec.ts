@@ -26,7 +26,15 @@ const RESEARCHER_SIDEBAR = ["Today", "Cycles", "Progress", "Library", "Supplies"
 const ADMIN_SIDEBAR = ["Today", "Cycles", "Progress", "Overview", "Stock", "Ledger", "Library", "People"];
 const BUSINESS = ["Overview", "Stock", "Ledger", "Library", "People"];
 // The install guide's item is named for a laptop (Playwright's desktop Chrome).
-const ACCOUNT_MENU = ["Profile & support access", "Notifications", "Personal supplies", "Supplements", "Get the app on your phone", "Sign out"];
+const ACCOUNT_MENU = [
+  "Profile & support access",
+  "Notifications",
+  "Personal supplies",
+  "Supplements",
+  "Vial calculator",
+  "Get the app on your phone",
+  "Sign out",
+];
 
 // Only the visible "Main" nav is exposed: the sidebar on a laptop, the tab bar on a phone.
 const mainNav = (page: Page) => page.getByRole("navigation", { name: "Main" });

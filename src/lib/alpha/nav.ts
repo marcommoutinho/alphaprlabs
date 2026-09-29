@@ -169,6 +169,12 @@ export type AccountLink = {
    * app on your phone" on a laptop). Decided in the browser.
    */
   install?: true;
+  /**
+   * A tool that belongs to another section (the vial calculator is under
+   * Cycles): listed for reach, but its page doesn't make the account menu
+   * current.
+   */
+  tool?: true;
 };
 
 /**
@@ -180,6 +186,8 @@ export const ACCOUNT_LINKS: readonly AccountLink[] = [
   { label: "Notifications", href: "/app/notifications" },
   { label: "Personal supplies", href: "/app/supplies" },
   { label: "Supplements", href: "/app/supplements" },
+  // Marco, 2026-09-29: the calculator within reach from Cycles, Me and here.
+  { label: "Vial calculator", href: "/app/calculator", tool: true },
   { label: "Install the app", href: "/app/install", install: true },
 ];
 

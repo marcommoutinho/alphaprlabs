@@ -26,7 +26,7 @@ export function UserMenu({ identity, pathname }: { identity: AppIdentity; pathna
   const container = useAlphaPortal();
   const [openAt, setOpenAt] = useState<string | null>(null);
   const { pending: signingOut, offline, signOut } = useSignOut();
-  const onAccountPage = ACCOUNT_LINKS.some((link) => isUnder(pathname, link.href));
+  const onAccountPage = ACCOUNT_LINKS.some((link) => !link.tool && isUnder(pathname, link.href));
   // The install guide's item: only in a browser tab (never in the installed app), named for the device.
   const device = useThisDevice();
   const links = ACCOUNT_LINKS.flatMap((link) =>

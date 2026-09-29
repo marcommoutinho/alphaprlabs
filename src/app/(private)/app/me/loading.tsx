@@ -19,7 +19,7 @@ export default function Loading() {
           <Skeleton className="mx-3 mt-2 h-[136px] rounded-group laptop:mx-0" />
         </div>
         <div className="laptop:col-span-5 laptop:mt-2">
-          {[168, 168, 112].map((height, index) => (
+          {[168, 56, 168, 112].map((height, index) => (
             <div key={index} className="mt-6 laptop:first:mt-0">
               <Skeleton className="mx-5 h-4 w-24 rounded-[6px] laptop:mx-0" />
               <Skeleton className="mx-3 mt-2 rounded-group laptop:mx-0" style={{ height }} />
