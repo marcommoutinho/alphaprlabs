@@ -316,8 +316,12 @@ switches to the back office and back.
   Safari, iPhone · Chrome, Android; the detected one marked "This phone").
   Each step is one short sentence with the button's name in bold, beside a
   drawing in the app's style (not screenshots) with the button to tap
-  highlighted. Safari's steps follow iOS 26's layout (Share behind •••) when
-  Safari's version says so, and cover both layouts when it can't be told.
+  highlighted. On iOS 26 Safari's step says "Tap Share" with "Don't see it?
+  Tap ••• first, then Share" (Share is in the toolbar with the Bottom and
+  Top tab layouts, behind ••• with Compact, and the browser can't tell which
+  is in use); iOS 18 and earlier keep "Tap Share in the toolbar". When Add to
+  Home Screen is missing from the iPhone share sheet (Safari and Chrome), the
+  guide says to scroll down, tap Edit Actions and add it (review, 2026-09-29).
   Android Chrome gets a one-tap Install app button when the browser offers
   one, and the manual steps always. Inside another app's browser the guide
   first says to open the page in Safari or Chrome, with a Copy link to

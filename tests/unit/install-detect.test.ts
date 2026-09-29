@@ -1,6 +1,6 @@
 // The install guide's detection (src/lib/install/detect.ts) with real
-// user-agent strings: the phone, the browser, Safari's layout (iOS 26 moved
-// Share behind •••) and the tab the guide opens on.
+// user-agent strings: the phone, the browser, Safari's generation (iOS 26,
+// read from Safari's own version) and the tab the guide opens on.
 import { describe, expect, it } from "vitest";
 import {
   detectInstall,

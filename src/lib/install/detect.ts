@@ -6,10 +6,12 @@
 export type InstallPlatform = "ios" | "android" | "desktop" | "other";
 export type InstallBrowser = "safari" | "chrome" | "samsung" | "firefox" | "edge" | "in-app" | "other";
 /**
- * Safari's layout on iPhone: iOS 26 moved Share behind the ••• button
- * ("ios26"); earlier versions have it in the toolbar ("classic"). "unknown"
- * when the version can't be read, and on iPad, whose toolbar differs: the
- * guide then words the step for both.
+ * Safari's generation on iPhone: iOS 26 ("ios26") has three tab layouts;
+ * Bottom and Top keep Share in the toolbar, Compact puts it behind •••, and
+ * the user agent can't tell them apart. Earlier versions ("classic") have
+ * Share in the toolbar. "unknown" when the version can't be read, and on
+ * iPad, whose toolbar differs: the guide then words the steps for every
+ * layout.
  */
 export type SafariLayout = "classic" | "ios26" | "unknown";
 

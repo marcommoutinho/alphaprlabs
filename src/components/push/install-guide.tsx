@@ -61,33 +61,57 @@ const openAlpha = (iphone: boolean): Step => ({
   sketch: "home-screen",
 });
 
+/**
+ * Share on iOS 26: in the toolbar with the Bottom and Top tab layouts, behind
+ * ••• with Compact. The user agent can't tell the layouts apart, so the step
+ * covers both.
+ */
+const SHARE_IOS26: Step = {
+  text: <>Tap <B>Share</B>.</>,
+  note: <>Don&apos;t see it? Tap <Key glyph="•••" name="More" /> first, then <B>Share</B>.</>,
+  sketch: "safari-share",
+};
+
+/**
+ * Add to Home Screen in the iPhone share sheet (Safari and Chrome both use
+ * the system one): when it's missing, it is added from Edit Actions.
+ */
+const addToHomeScreen = (lead: string): Step => ({
+  text: (
+    <>
+      {lead} <B>Add to Home Screen</B>.
+    </>
+  ),
+  note: (
+    <>
+      Don&apos;t see it? Scroll down, tap <B>Edit Actions</B>, and add <B>Add to Home Screen</B>.
+    </>
+  ),
+  sketch: "share-sheet",
+});
+
 function safariSteps(layout: SafariLayout): Step[] {
   if (layout === "classic") {
     return [
       { text: <>Tap <B>Share</B> in the toolbar.</>, sketch: "safari-toolbar" },
-      { text: <>Scroll down and choose <B>Add to Home Screen</B>.</>, sketch: "share-sheet" },
+      addToHomeScreen("Scroll down and choose"),
       { text: <>Tap <B>Add</B>.</>, sketch: "add-button" },
       openAlpha(true),
     ];
   }
   if (layout === "ios26") {
     return [
-      { text: <>Tap <Key glyph="•••" name="More" /> in the toolbar.</>, sketch: "safari-more" },
-      { text: <>Tap <B>Share</B>.</>, sketch: "safari-menu" },
-      { text: <>Choose <B>Add to Home Screen</B>.</>, note: <>Tap <B>View More</B> if you don&apos;t see it.</>, sketch: "share-sheet" },
+      SHARE_IOS26,
+      addToHomeScreen("Choose"),
       { text: <>Keep <B>Open as Web App</B> on.</>, sketch: "web-app-switch" },
       { text: <>Tap <B>Add</B>.</>, sketch: "add-button" },
       openAlpha(true),
     ];
   }
-  // The version is unknown (an iPad, or read from a laptop): worded for both layouts.
+  // The version is unknown (an iPad, or read from a laptop): worded for every layout.
   return [
-    {
-      text: <>Tap <B>Share</B> in the toolbar.</>,
-      note: <>On iOS 26 it&apos;s inside the <Key glyph="•••" name="More" /> menu.</>,
-      sketch: "safari-toolbar",
-    },
-    { text: <>Choose <B>Add to Home Screen</B>.</>, note: <>Scroll, or tap <B>View More</B>, if you don&apos;t see it.</>, sketch: "share-sheet" },
+    SHARE_IOS26,
+    addToHomeScreen("Choose"),
     { text: <>If <B>Open as Web App</B> is shown, keep it on.</>, sketch: "web-app-switch" },
     { text: <>Tap <B>Add</B>.</>, sketch: "add-button" },
     openAlpha(true),
@@ -96,7 +120,7 @@ function safariSteps(layout: SafariLayout): Step[] {
 
 const CHROME_IOS_STEPS: Step[] = [
   { text: <>Tap <B>Share</B> in the address bar (top right).</>, sketch: "chrome-ios-bar" },
-  { text: <>Choose <B>Add to Home Screen</B>.</>, note: <>Scroll or tap <B>More</B> if you don&apos;t see it.</>, sketch: "share-sheet" },
+  addToHomeScreen("Choose"),
   { text: <>Tap <B>Add</B>.</>, note: <>If an <B>Open as Web App</B> switch is shown, keep it on.</>, sketch: "add-button" },
   openAlpha(true),
 ];
@@ -116,7 +140,15 @@ const SAMSUNG: Section = {
   key: "samsung",
   title: "In Samsung Internet",
   steps: [
-    { text: <>Tap <Key glyph="☰" name="Menu" /> (bottom right).</>, sketch: "samsung-toolbar" },
+    // The menu button varies by version and toolbar setup.
+    {
+      text: (
+        <>
+          Tap the menu (<Key glyph="☰" name="three lines" /> or <Key glyph="⋮" name="three dots" />).
+        </>
+      ),
+      sketch: "samsung-toolbar",
+    },
     { text: <>Tap <B>Add page to</B>.</>, sketch: "samsung-menu" },
     { text: <>Choose <B>Home screen</B>.</>, sketch: "samsung-home" },
     openAlpha(false),

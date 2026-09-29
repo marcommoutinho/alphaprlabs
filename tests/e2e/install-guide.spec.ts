@@ -93,13 +93,17 @@ async function joinToStepThree(page: Page, label: string) {
   await page.getByRole("button", { name: "Agree and continue" }).click();
 }
 
-const JOINS: { device: Device; title: string; tab: string; first: string; steps: number }[] = [
+// iOS 26 keeps Share in the toolbar with the Bottom and Top tab layouts, behind ••• with Compact.
+const SHARE_26_NOTE = "Don't see it? Tap •••More first, then Share.";
+// Missing from the iPhone share sheet (Safari and Chrome): added from Edit Actions.
+const EDIT_ACTIONS_NOTE = "Don't see it? Scroll down, tap Edit Actions, and add Add to Home Screen.";
+const JOINS: { device: Device; title: string; tab: string; first: string; firstNote?: string; steps: number }[] = [
   { device: IOS18, title: "Put Alpha on your Home Screen", tab: "iPhone · Safari", first: "Tap Share in the toolbar.", steps: 4 },
-  { device: IOS26, title: "Put Alpha on your Home Screen", tab: "iPhone · Safari", first: "Tap •••More in the toolbar.", steps: 6 },
+  { device: IOS26, title: "Put Alpha on your Home Screen", tab: "iPhone · Safari", first: "Tap Share.", firstNote: SHARE_26_NOTE, steps: 5 },
   { device: IOS_CHROME, title: "Put Alpha on your Home Screen", tab: "iPhone · Chrome", first: "Tap Share in the address bar (top right).", steps: 4 },
   // Chrome's steps, then Samsung Internet's.
   { device: ANDROID, title: "Put Alpha on your Home Screen", tab: "Android", first: "Tap ⋮More options (top right).", steps: 8 },
-  { device: LAPTOP_CHROME, title: "Get the app on your phone", tab: "iPhone · Safari", first: "Tap Share in the toolbar.", steps: 5 },
+  { device: LAPTOP_CHROME, title: "Get the app on your phone", tab: "iPhone · Safari", first: "Tap Share.", firstNote: SHARE_26_NOTE, steps: 5 },
 ];
 
 for (const join of JOINS) {
@@ -114,6 +118,9 @@ for (const join of JOINS) {
     await expect(selectedTab(page)).toContainText(join.tab);
     await expect(stepTexts(page)).toHaveCount(join.steps);
     await expect(stepTexts(page).first()).toHaveText(join.first);
+    const firstStep = page.getByRole("tabpanel").getByTestId("install-step").first();
+    if (join.firstNote) await expect(firstStep.getByTestId("install-step-note")).toHaveText(join.firstNote);
+    else await expect(firstStep.getByTestId("install-step-note")).toHaveCount(0);
     await expect(stepTexts(page).last()).toHaveText("Open Alpha from your Home Screen.");
     // Each step has its drawing, hidden from assistive technology.
     await expect(page.getByRole("tabpanel").locator("svg[data-sketch]")).toHaveCount(join.steps);
@@ -158,7 +165,10 @@ test("the tabs: the steps for each phone, the reminders line and the Android sig
     "Android",
   ]);
   await expect(stepTexts(page)).toHaveText(["Tap Share in the toolbar.", "Scroll down and choose Add to Home Screen.", "Tap Add.", "Open Alpha from your Home Screen."]);
-  await expect(page.getByTestId("install-step-note").last()).toHaveText("Sign in once more there. The Home Screen app keeps its own sign-in.");
+  await expect(page.getByTestId("install-step-note")).toHaveText([
+    EDIT_ACTIONS_NOTE,
+    "Sign in once more there. The Home Screen app keeps its own sign-in.",
+  ]);
   await expect(page.getByTestId("install-reminders")).toHaveText("Dose reminders only work from the Home Screen app.");
 
   await (await hydrated(tab(page, "iPhone · Chrome"))).click();
@@ -169,13 +179,19 @@ test("the tabs: the steps for each phone, the reminders line and the Android sig
     "Tap Add.",
     "Open Alpha from your Home Screen.",
   ]);
+  // Chrome on iPhone uses the system share sheet: the same Edit Actions fallback.
+  await expect(page.getByTestId("install-step-note")).toHaveText([
+    EDIT_ACTIONS_NOTE,
+    "If an Open as Web App switch is shown, keep it on.",
+    "Sign in once more there. The Home Screen app keeps its own sign-in.",
+  ]);
 
   await tab(page, "Android").click();
   await expect(selectedTab(page)).toHaveAttribute("data-tab", "android");
   const chrome = page.getByRole("list", { name: "Android, in chrome" }).getByTestId("install-step-text");
   await expect(chrome).toHaveText(["Tap ⋮More options (top right).", "Tap Install app or Add to Home screen.", "Tap Install.", "Open Alpha from your Home Screen."]);
   const samsung = page.getByRole("list", { name: "Android, in samsung internet" }).getByTestId("install-step-text");
-  await expect(samsung).toHaveText(["Tap ☰Menu (bottom right).", "Tap Add page to.", "Choose Home screen.", "Open Alpha from your Home Screen."]);
+  await expect(samsung).toHaveText(["Tap the menu (☰three lines or ⋮three dots).", "Tap Add page to.", "Choose Home screen.", "Open Alpha from your Home Screen."]);
   // Android shares Chrome's sign-in: no "sign in once more".
   await expect(page.getByRole("tabpanel").getByTestId("install-step-note")).toHaveCount(0);
   await expect(page.getByTestId("install-reminders")).toHaveText("Dose reminders work in the browser too. The app just opens full screen, and faster.");

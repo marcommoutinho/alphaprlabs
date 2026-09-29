@@ -28,8 +28,7 @@ import { cn } from "@/lib/utils";
 
 export type SketchKind =
   | "safari-toolbar"
-  | "safari-more"
-  | "safari-menu"
+  | "safari-share"
   | "share-sheet"
   | "web-app-switch"
   | "add-button"
@@ -144,33 +143,19 @@ function body(kind: SketchKind, ids: { icon: string }) {
           <Glyph icon={Copy} cx={83} cy={62} />
         </>
       );
-    // iPhone Safari (iOS 26): back, the address, and ••• at the bottom.
-    case "safari-more":
+    // iPhone Safari (iOS 26, any layout): Share to tap, and ••• beside it,
+    // where Share sits in the Compact layout.
+    case "safari-share":
       return (
         <>
           <Page />
-          <circle cx={13} cy={58} r={8.5} className="fill-surface stroke-line" strokeWidth={1} />
-          <Glyph icon={ChevronLeft} cx={13} cy={58} size={11} muted />
-          <rect x={26} y={49.5} width={44} height={17} rx={8.5} className="fill-surface stroke-line" strokeWidth={1} />
-          <Line x={34} y={56.5} w={28} tone="soft" />
-          <Glyph icon={Ellipsis} cx={83} cy={58} on />
-        </>
-      );
-    // iOS 26: the ••• menu, Share on top.
-    case "safari-menu":
-      return (
-        <>
-          <Page count={2} />
-          <rect x={30} y={5} width={60} height={46} rx={10} className="fill-surface stroke-line" strokeWidth={1} />
-          <rect x={34} y={9} width={52} height={13} rx={6.5} className="fill-signal" />
-          <Share x={37.5} y={11} width={9} height={9} strokeWidth={2.5} className="text-on-signal" />
-          <Line x={50} y={14} w={26} tone="on" />
-          <Glyph icon={Bookmark} cx={42} cy={30} size={9} muted />
-          <Line x={50} y={28.5} w={30} />
-          <Glyph icon={Copy} cx={42} cy={42} size={9} muted />
-          <Line x={50} y={40.5} w={22} />
-          <circle cx={83} cy={62} r={7.5} className="fill-sunken" />
-          <Glyph icon={Ellipsis} cx={83} cy={62} size={11} />
+          <circle cx={11} cy={58} r={7.5} className="fill-surface stroke-line" strokeWidth={1} />
+          <Glyph icon={ChevronLeft} cx={11} cy={58} size={10} muted />
+          <rect x={22} y={49.5} width={38} height={17} rx={8.5} className="fill-surface stroke-line" strokeWidth={1} />
+          <Line x={29} y={56.5} w={24} tone="soft" />
+          <Glyph icon={Share} cx={71} cy={57.5} on />
+          <circle cx={87} cy={58} r={7.5} className="fill-surface stroke-line" strokeWidth={1} />
+          <Glyph icon={Ellipsis} cx={87} cy={58} size={10} />
         </>
       );
     // The share sheet: Add to Home Screen among its actions.
