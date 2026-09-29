@@ -200,9 +200,15 @@ returns trigger
 language plpgsql
 set search_path = ''
 as $$
+declare
+  -- save_cycle_template writes the row twice in one save (name and guidance,
+  -- then updated_at once the plans changed): one save is one version.
+  v_marker text := 'alpha.template_version_' || replace(new.id::text, '-', '');
 begin
-  if (new.name, new.guidance, new.updated_at) is distinct from (old.name, old.guidance, old.updated_at) then
+  if (new.name, new.guidance, new.updated_at) is distinct from (old.name, old.guidance, old.updated_at)
+     and coalesce(current_setting(v_marker, true), '') <> '1' then
     new.version := old.version + 1;
+    perform set_config(v_marker, '1', true);
   else
     new.version := old.version;
   end if;
