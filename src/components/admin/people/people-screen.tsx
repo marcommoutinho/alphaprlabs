@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ChevronRight, Eye, Lock } from "lucide-react";
+import { isOnline } from "@/components/alpha/online";
 import { Button } from "@/components/alpha/button";
 import { Field, TextInput } from "@/components/alpha/field";
 import Link from "@/components/alpha/link";
@@ -120,7 +121,7 @@ function ResendButton({ row, className }: { row: PeopleRow; className?: string }
   const toast = useAlphaToast();
   const [sending, setSending] = useState(false);
   return (
-    <Button
+    <Button needsConnection
       variant="outline"
       size="sm"
       className={cn("h-10 rounded-[12px] text-[14px]", className)}
@@ -306,6 +307,8 @@ function InviteForm({ initialEmail, onSent, idPrefix }: { initialEmail: string; 
   const [error, setError] = useState<string | null>(null);
 
   async function send() {
+    // Offline, a save waits for the connection (the button is disabled; this covers Enter and keyboard submits).
+    if (!isOnline()) return;
     setSending(true);
     setError(null);
     let result: InviteActionResult;
@@ -381,7 +384,7 @@ function InviteForm({ initialEmail, onSent, idPrefix }: { initialEmail: string; 
             ))}
           </ul>
           <div className="mt-3 flex gap-2">
-            <Button variant="ink" size="md" className="flex-1 text-[14px]" saving={sending} savingLabel="Sending…" onClick={() => void send()}>
+            <Button needsConnection variant="ink" size="md" className="flex-1 text-[14px]" saving={sending} savingLabel="Sending…" onClick={() => void send()}>
               {ADMIN_CONFIRM_SUBMIT}
             </Button>
             <Button variant="outline" size="md" className="text-[14px]" disabled={sending} onClick={() => setConfirming(false)}>
@@ -390,7 +393,7 @@ function InviteForm({ initialEmail, onSent, idPrefix }: { initialEmail: string; 
           </div>
         </div>
       ) : (
-        <Button type="submit" variant="ink" size="md" className="text-[15px]" saving={sending} savingLabel="Sending…" data-testid="send-invitation">
+        <Button needsConnection type="submit" variant="ink" size="md" className="text-[15px]" saving={sending} savingLabel="Sending…" data-testid="send-invitation">
           Send invitation
         </Button>
       )}

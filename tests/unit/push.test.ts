@@ -63,7 +63,7 @@ describe("push sending", () => {
 });
 
 describe("service worker (public/sw.js in a sandbox)", () => {
-  it("has no fetch handler; a tap opens the pushed /app path, anything else opens /app", async () => {
+  it("a tap opens the pushed /app path, anything else opens /app", async () => {
     const handlers: Record<string, (event: object) => void> = {};
     const opened: string[] = [];
     const shown: { data: { url: string } }[] = [];
@@ -80,7 +80,7 @@ describe("service worker (public/sw.js in a sandbox)", () => {
       handlers[type]({ ...event, waitUntil: (promise: unknown) => (work = promise) });
       await work;
     };
-    expect(Object.keys(handlers).sort()).toEqual(["activate", "install", "notificationclick", "push", "pushsubscriptionchange"]);
+    expect(Object.keys(handlers).sort()).toEqual(["activate", "fetch", "install", "notificationclick", "push", "pushsubscriptionchange"]);
 
     // Round trip: push → notification data → tap.
     const pushed = ["/app/notifications", "/about", "https://evil.test/app", "//evil.test", "/app/../about"];
@@ -91,6 +91,72 @@ describe("service worker (public/sw.js in a sandbox)", () => {
     // A tap on data that did not come from the push handler is checked again.
     await run("notificationclick", { notification: { close: () => undefined, data: { url: "https://app.example/" } } });
     expect(opened).toEqual(["https://app.example/app/notifications", ...Array(5).fill("https://app.example/app")]);
+  });
+
+  it("stores only the offline page, and serves it only when opening an app page finds no network", async () => {
+    const handlers: Record<string, (event: object) => void> = {};
+    const stored = new Map<string, string[]>([["alpha-offline-v0", ["/offline.html"]], ["someone-elses", ["/x"]]]);
+    const deleted: string[] = [];
+    const caches = {
+      open: async (name: string) => ({ add: async (request: Request) => void stored.set(name, [new URL(request.url).pathname]) }),
+      keys: async () => [...stored.keys()],
+      delete: async (name: string) => void deleted.push(name),
+      match: async (url: string, { cacheName }: { cacheName: string }) => (stored.get(cacheName)?.includes(url) ? "offline page" : undefined),
+    };
+    let network: "up" | "down" = "up";
+    const fetched: string[] = [];
+    const fetch = async (request: { url: string }) => {
+      fetched.push(request.url);
+      if (network === "down") throw new TypeError("Failed to fetch");
+      return "from the network";
+    };
+    const self = {
+      location: { origin: "https://app.example" },
+      navigator: {},
+      addEventListener: (type: string, handler: (event: object) => void) => (handlers[type] = handler),
+      skipWaiting: async () => undefined,
+      registration: { navigationPreload: { enable: async () => undefined } },
+      clients: { claim: async () => undefined },
+    };
+    class FakeRequest {
+      url: string;
+      constructor(url: string) {
+        this.url = new URL(url, "https://app.example").href;
+      }
+    }
+    runInNewContext(await readFile(new URL("../../public/sw.js", import.meta.url), "utf8"), { self, URL, Promise, caches, fetch, Request: FakeRequest, Response: { error: () => "error" } });
+    const wait = async (type: string) => {
+      let work: unknown;
+      handlers[type]({ waitUntil: (promise: unknown) => (work = promise) });
+      await work;
+    };
+    await wait("install");
+    await wait("activate");
+    expect(stored.get("alpha-offline-v1")).toEqual(["/offline.html"]);
+    // Only an older offline page goes; nothing else is touched.
+    expect(deleted).toEqual(["alpha-offline-v0"]);
+
+    const open = async (url: string, mode = "navigate", method = "GET") => {
+      let answered: unknown = "not handled";
+      handlers.fetch({ request: { url, mode, method }, preloadResponse: Promise.resolve(undefined), respondWith: (promise: unknown) => (answered = promise) });
+      return await answered;
+    };
+    expect(await open("https://app.example/app/today")).toBe("from the network");
+    network = "down";
+    for (const url of ["https://app.example/app/today", "https://app.example/admin/people", "https://app.example/auth"])
+      expect(await open(url), url).toBe("offline page");
+    // Never: another origin, a public path, a request that isn't a page load (RSC, API, assets), or a POST.
+    for (const [url, mode, method] of [
+      ["https://www.example/app/today", "navigate", "GET"],
+      ["https://app.example/about", "navigate", "GET"],
+      ["https://app.example/application", "navigate", "GET"],
+      ["https://app.example/app/today", "cors", "GET"],
+      ["https://app.example/app/today/badge", "same-origin", "GET"],
+      ["https://app.example/app/today", "navigate", "POST"],
+    ] as const)
+      expect(await open(url, mode, method), `${url} ${mode} ${method}`).toBe("not handled");
+    // Nothing from the network is ever stored.
+    expect(stored.get("alpha-offline-v1")).toEqual(["/offline.html"]);
   });
 });
 
@@ -175,7 +241,8 @@ describe("reminder readiness", () => {
   it("serves the manifest, worker and icons on the app host only", () => {
     const hosts = { appHost: "app.localhost:3000", publicHost: "www.localhost:3000" };
     const cases = [["www.localhost:3000", "/sw.js", true], ["www.localhost:3000", "/app-icons/icon-192.png", true],
-      ["app.localhost:3000", "/manifest.webmanifest", false], ["www.localhost:3000", "/logo.jpeg", false]] as const;
+      ["app.localhost:3000", "/manifest.webmanifest", false], ["www.localhost:3000", "/logo.jpeg", false],
+      ["www.localhost:3000", "/offline.html", true], ["app.localhost:3000", "/offline.html", false]] as const;
     for (const [host, pathname, blocked] of cases) expect(isAppFileOffAppHost({ host, pathname }, hosts)).toBe(blocked);
     expect(isAppFileOffAppHost({ host: "localhost:3000", pathname: "/sw.js" }, {})).toBe(false);
   });

@@ -117,7 +117,7 @@ export function TrackingOff({ title, body, pending, onTurnOn, testId }: { title:
     <section className="mx-3 mt-6 flex flex-col items-start rounded-[24px] border border-line bg-surface px-5 py-6 laptop:mx-0 laptop:max-w-[640px]" data-testid={testId}>
       <h2 className="text-[20px] font-semibold tracking-[-0.015em]">{title}</h2>
       <p className="mt-1 text-[15px] leading-[22px] text-ink-2">{body}</p>
-      <Button variant="ink" size="md" className="mt-4" saving={pending} onClick={onTurnOn}>
+      <Button needsConnection variant="ink" size="md" className="mt-4" saving={pending} onClick={onTurnOn}>
         Turn on
       </Button>
     </section>

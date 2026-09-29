@@ -135,7 +135,7 @@ function CheckInBody({
       title={start ? "Today's check-in" : "Daily check-in"}
       context={context.dayLabel}
       footer={
-        <Button size="lg" block onClick={save} saving={pending}>
+        <Button needsConnection size="lg" block onClick={save} saving={pending}>
           {start ? "Update check-in" : "Save check-in"}
         </Button>
       }

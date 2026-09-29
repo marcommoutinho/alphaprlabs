@@ -30,5 +30,5 @@ export async function proxy(request: NextRequest) {
 export const config = {
   // Pages, plus the installable app's files (app host only). Skips Next.js
   // internals (assets, HMR, dev overlay) and any other file with an extension.
-  matcher: ["/((?!_next/|__nextjs|.*\\..*).*)", "/sw.js", "/manifest.webmanifest", "/app-icons/:path*"],
+  matcher: ["/((?!_next/|__nextjs|.*\\..*).*)", "/sw.js", "/manifest.webmanifest", "/app-icons/:path*", "/offline.html"],
 };

@@ -53,3 +53,8 @@
 @source "../../components/push";
 @source "../../components/records";
 @source "../../components/research";
+
+/* The offline bar (alpha/shell/offline-bar.tsx) docks on a phone's tab bar: toasts sit above it. */
+:root:has([data-slot="offline-bar"]) {
+  --offline-bar: 36px;
+}

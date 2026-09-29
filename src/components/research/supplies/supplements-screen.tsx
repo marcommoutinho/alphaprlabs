@@ -80,7 +80,7 @@ export function SupplementsScreen({ view }: { view: SupplementsView }) {
                           <span className="min-w-0 flex-1">{body}</span>
                         )}
                         {row.detail ? (
-                          <Button
+                          <Button needsConnection
                             variant={row.next ? "primary" : "outline"}
                             size="md"
                             disabled={take.pending}

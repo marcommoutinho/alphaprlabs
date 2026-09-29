@@ -17,7 +17,7 @@ import { RESEARCH_HOME } from "@/lib/auth/paths";
 const PRIVATE_PREFIXES = ["/app", "/admin", "/auth"] as const;
 // The installable app's files: served on the app host only (404 elsewhere).
 // A service worker script must never be redirected.
-export const APP_HOST_FILES = ["/sw.js", "/manifest.webmanifest", "/app-icons"] as const;
+export const APP_HOST_FILES = ["/sw.js", "/manifest.webmanifest", "/app-icons", "/offline.html"] as const;
 // Allowed on the app host without redirecting (route handlers added later).
 const APP_HOST_PASSTHROUGH = ["/api", ...APP_HOST_FILES] as const;
 

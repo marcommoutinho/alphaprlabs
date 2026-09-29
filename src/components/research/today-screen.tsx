@@ -1,5 +1,6 @@
 "use client";
 
+import { isOnline } from "@/components/alpha/online";
 import Link from "@/components/alpha/link";
 import { unstable_rethrow, usePathname, useRouter } from "next/navigation";
 import { Check, Pill } from "lucide-react";
@@ -505,7 +506,7 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
   const quickRef = useRef<() => void>(() => {});
   useEffect(() => {
     quickRef.current = () => {
-      if (canTakeNow && !sheetOpen && !pendingOf(nowItem!.key)) quick(nowItem!.key);
+      if (canTakeNow && !sheetOpen && !pendingOf(nowItem!.key) && isOnline()) quick(nowItem!.key);
     };
   });
   useEffect(() => {
@@ -613,7 +614,7 @@ export function TodayScreen({ view, supplements, lowVials, checkIn, initials, de
                   status={`Not logged · ${wallWhen(`${item.localDate}T${item.localTime}`, "")}`}
                   action={
                     <span className="flex shrink-0 gap-2">
-                      <Button
+                      <Button needsConnection
                         variant="outline"
                         size="md"
                         className="hidden laptop:inline-flex"
@@ -816,7 +817,7 @@ function NowCard({
                 Taken
               </span>
             ) : (
-              <Button size="lg" onClick={onTaken} saving={saving} disabled={disabled}>
+              <Button needsConnection size="lg" onClick={onTaken} saving={saving} disabled={disabled}>
                 <Check aria-hidden />
                 Taken
               </Button>
@@ -962,7 +963,7 @@ function RailRow({
       </button>
       {dose.state === "due" && !inNowBlock ? (
         <span className="self-center">
-          <Button variant="outline" size="sm" disabled={disabled} saving={busy} onClick={() => onTakeDose(dose.key)}>
+          <Button needsConnection variant="outline" size="sm" disabled={disabled} saving={busy} onClick={() => onTakeDose(dose.key)}>
             Taken
           </Button>
         </span>
@@ -1024,7 +1025,7 @@ function SupplementRail({
       )}
       {detail ? (
         <span className="self-center">
-          <Button variant="outline" size="sm" disabled={disabled} saving={busy} onClick={() => onTake(detail)}>
+          <Button needsConnection variant="outline" size="sm" disabled={disabled} saving={busy} onClick={() => onTake(detail)}>
             Taken
           </Button>
         </span>

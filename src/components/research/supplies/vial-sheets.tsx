@@ -3,6 +3,7 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { correctVialAction, finishVialAction, reopenVialAction, saveVialAction } from "@/app/(private)/app/supplies/actions";
+import { isOnline } from "@/components/alpha/online";
 import Link from "@/components/alpha/link";
 import { Button } from "@/components/alpha/button";
 import { Field, NumberInput, TextInput } from "@/components/alpha/field";
@@ -71,6 +72,8 @@ function AddVialBody({ view, onClose }: { view: SuppliesView; onClose: () => voi
   const [strength, setStrength] = useState("");
   const mixture = view.mixtures.find((m) => m.id === mixtureId) ?? null;
   const submit = () => {
+    // Offline, a save waits for the connection (the button is disabled; this covers Enter and keyboard submits).
+    if (!isOnline()) return;
     const form = {
       id: null,
       label,
@@ -88,7 +91,7 @@ function AddVialBody({ view, onClose }: { view: SuppliesView; onClose: () => voi
       title="Add vial"
       size="auto"
       footer={
-        <Button size="lg" block saving={save.pending} onClick={submit} data-testid="add-vial-submit">
+        <Button needsConnection size="lg" block saving={save.pending} onClick={submit} data-testid="add-vial-submit">
           Add vial
         </Button>
       }
@@ -179,7 +182,7 @@ function VialBody({ vial, view, onClose }: { vial: VialCard; view: SuppliesView;
   const low = vial.tag !== null;
 
   const footer = !vial.open ? (
-    <Button size="lg" variant="ink" block saving={reopen.pending} onClick={() => reopen.run({ id: vial.id, label: vial.label }, onClose)}>
+    <Button needsConnection size="lg" variant="ink" block saving={reopen.pending} onClick={() => reopen.run({ id: vial.id, label: vial.label }, onClose)}>
       Reopen
     </Button>
   ) : confirming ? (
@@ -187,7 +190,7 @@ function VialBody({ vial, view, onClose }: { vial: VialCard; view: SuppliesView;
       <Button size="lg" variant="outline" onClick={() => setConfirming(false)}>
         Cancel
       </Button>
-      <Button size="lg" variant="ink" saving={finish.pending} onClick={() => finish.run({ id: vial.id, label: vial.label }, onClose)} data-testid="finish-confirm">
+      <Button needsConnection size="lg" variant="ink" saving={finish.pending} onClick={() => finish.run({ id: vial.id, label: vial.label }, onClose)} data-testid="finish-confirm">
         Finish vial
       </Button>
     </>
@@ -276,6 +279,8 @@ function CorrectRemaining({ vial }: { vial: VialCard }) {
   const [unit, setUnit] = useState<MassUnit>(massUnit(seen) === "mcg" ? "mcg" : "mg");
   const [value, setValue] = useState("");
   const submit = () => {
+    // Offline, a save waits for the connection (the button is disabled; this covers Enter and keyboard submits).
+    if (!isOnline()) return;
     const form = { id: vial.id, seenRemainingMg: vial.remainingMg, remainingMg: mgFromUnit(value.trim().replace(",", "."), unit), label: vial.label };
     correct.run({ ...form, requestKey: request.keyFor(form) }, () => {
       request.done();
@@ -313,7 +318,7 @@ function CorrectRemaining({ vial }: { vial: VialCard }) {
             }
           />
         </Field>
-        <Button variant="ink" size="lg" className="h-14" saving={correct.pending} disabled={!value.trim()} onClick={submit}>
+        <Button needsConnection variant="ink" size="lg" className="h-14" saving={correct.pending} disabled={!value.trim()} onClick={submit}>
           Save
         </Button>
       </div>
@@ -350,7 +355,7 @@ function VialDetails({ vial, view }: { vial: VialCard; view: SuppliesView }) {
       </p>
       <InlineError>{save.error}</InlineError>
       {changed ? (
-        <Button
+        <Button needsConnection
           variant="outline"
           size="md"
           className="self-start"

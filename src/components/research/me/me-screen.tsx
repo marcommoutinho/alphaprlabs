@@ -9,6 +9,7 @@ import { applyAppearance } from "@/components/alpha/appearance";
 import { buttonVariants } from "@/components/alpha/button-variants";
 import { Switch } from "@/components/alpha/field";
 import Link from "@/components/alpha/link";
+import { useOnline } from "@/components/alpha/online";
 import { Group, GroupLabel } from "@/components/alpha/list";
 import { Sheet, SheetContent } from "@/components/alpha/sheet";
 import { useSignOut } from "@/components/app-shell/use-sign-out";
@@ -295,6 +296,7 @@ function TrackingSheet({
   const [target, setTarget] = useState(on);
   const checked = save.pending ? target : on;
   const labelId = useId();
+  const online = useOnline();
   return (
     <Sheet open={open} onOpenChange={(next) => (next ? null : onClose())}>
       <SheetContent size="auto" title={title}>
@@ -305,7 +307,7 @@ function TrackingSheet({
             </span>
             <Switch
               checked={checked}
-              disabled={save.pending}
+              disabled={save.pending || !online}
               onCheckedChange={(next) => {
                 setTarget(next);
                 save.run({ enabled: next });

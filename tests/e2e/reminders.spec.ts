@@ -79,7 +79,7 @@ async function withPendingSync(page: Page, act: () => Promise<void>) {
   save.release();
 }
 
-test("the app host serves the manifest, icons and a cache-free worker; only the private area links them", async ({
+test("the app host serves the manifest, icons and a worker that stores only the offline page; only the private area links them", async ({
   page,
   request,
 }) => {
@@ -98,8 +98,14 @@ test("the app host serves the manifest, icons and a cache-free worker; only the 
     "cache-control": "no-cache, no-store, must-revalidate",
     "content-security-policy": "default-src 'self'; script-src 'self'",
   });
-  expect(await worker.text()).not.toMatch(/addEventListener\(\s*["']fetch["']|onfetch|caches\./);
-  for (const path of ["/manifest.webmanifest", "/sw.js", "/app-icons/icon-192.png"]) {
+  // It stores one thing, the offline page (N1), and never stores or serves anything else from a cache.
+  const source = await worker.text();
+  expect(source.match(/cache\.add\(|cache\.addAll\(|\.put\(/g)).toEqual(["cache.add("]);
+  expect(source).toContain('cache.add(new Request(OFFLINE_PAGE, { cache: "reload" }))');
+  expect(source.match(/caches\.match\([^)]*\)/g)).toEqual(["caches.match(OFFLINE_PAGE, { cacheName: OFFLINE_CACHE })"]);
+  const offlinePage = await hostGet(request, APP_ORIGIN, "/offline.html");
+  expect(offlinePage.headers()["content-type"]).toContain("text/html");
+  for (const path of ["/manifest.webmanifest", "/sw.js", "/offline.html", "/app-icons/icon-192.png"]) {
     expect((await hostGet(request, PUBLIC_ORIGIN, path)).status()).toBe(404);
   }
 

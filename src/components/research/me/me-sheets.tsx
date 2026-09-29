@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { Check, Shield } from "lucide-react";
 import { Button } from "@/components/alpha/button";
+import { useOnline } from "@/components/alpha/online";
 import { Sheet, SheetContent } from "@/components/alpha/sheet";
 import {
   R17_ALLOW,
@@ -45,7 +46,7 @@ export function ShareSheet({
         }
         footer={
           <div className="flex flex-col gap-2">
-            <Button block saving={pending} onClick={onAllow} data-testid="share-allow">
+            <Button needsConnection block saving={pending} onClick={onAllow} data-testid="share-allow">
               {R17_ALLOW}
             </Button>
             <Button variant="ghost" size="md" block className="h-12 text-[16px] text-ink" disabled={pending} onClick={onClose}>
@@ -106,7 +107,7 @@ export function StopSheet({ open, pending, onStop, onClose }: { open: boolean; p
             <Button variant="outline" className="w-[128px]" disabled={pending} onClick={onClose}>
               {STOP_KEEP}
             </Button>
-            <Button variant="ink" saving={pending} onClick={onStop} data-testid="stop-sharing">
+            <Button needsConnection variant="ink" saving={pending} onClick={onStop} data-testid="stop-sharing">
               Stop sharing
             </Button>
           </>
@@ -152,6 +153,8 @@ export function ChoiceSheet<V extends string | number>({
   onClose: () => void;
   testId: string;
 }) {
+  // A choice is saved with the account: offline it waits for the connection.
+  const online = useOnline();
   return (
     <Sheet open={open} onOpenChange={(next) => (next ? null : onClose())}>
       <SheetContent size="auto" title={title}>
@@ -164,7 +167,7 @@ export function ChoiceSheet<V extends string | number>({
                 type="button"
                 role="radio"
                 aria-checked={checked}
-                disabled={pending}
+                disabled={pending || !online}
                 onClick={() => (checked ? onClose() : onPick(choice.value))}
                 className={cn(
                   "flex min-h-14 w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left",

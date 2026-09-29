@@ -330,10 +330,10 @@ function LogForm({
       contextTone={context.tone}
       footer={
         <>
-          <Button variant="outline" size="lg" className={late ? "w-32" : "w-[104px]"} onClick={onSkip} saving={pending === "skip"} disabled={pending !== null}>
+          <Button needsConnection variant="outline" size="lg" className={late ? "w-32" : "w-[104px]"} onClick={onSkip} saving={pending === "skip"} disabled={pending !== null}>
             {late ? "Mark skipped" : "Skip"}
           </Button>
-          <Button size="lg" onClick={submit} saving={pending === "confirm"} disabled={pending !== null}>
+          <Button needsConnection size="lg" onClick={submit} saving={pending === "confirm"} disabled={pending !== null}>
             {primaryLabel}
           </Button>
         </>
@@ -556,7 +556,7 @@ function SupplementBody({
       context={`Supplement · planned ${clock12(detail.planned.slice(11, 16))}`}
       size="auto"
       footer={
-        <Button size="lg" onClick={submit} saving={pending}>
+        <Button needsConnection size="lg" onClick={submit} saving={pending}>
           {`Taken · ${detail.amount} ${detail.unit}`}
         </Button>
       }

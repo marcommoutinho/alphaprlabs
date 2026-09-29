@@ -1,15 +1,58 @@
-// Alpha PR Labs service worker (research app, scope "/"). Registered only by
-// the researcher area on the app host.
+// Alpha PR Labs service worker (research app, scope "/"). Registered by the
+// signed-in app (src/components/app-shell/service-worker.tsx) on the app host
+// only; the public site's host has its own origin and never gets it.
 //
 // It shows push notifications, opens the app when one is tapped and sets the
-// app icon badge. It deliberately has NO fetch handler and uses no caches:
+// app icon badge. Offline launch: it precaches ONE static, self-contained
+// page (offline.html), and serves that page only when opening an app
+// page (a navigation to /app, /admin or /auth) finds no network. It never
+// caches or serves any app page, RSC payload, API response or other request:
 // every page and all private data always come from the network.
-self.addEventListener("install", () => {
-  self.skipWaiting();
+const OFFLINE_CACHE = "alpha-offline-v1";
+const OFFLINE_PAGE = "/offline.html";
+const APP_PREFIXES = ["/app", "/admin", "/auth"];
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches
+      .open(OFFLINE_CACHE)
+      .then((cache) => cache.add(new Request(OFFLINE_PAGE, { cache: "reload" })))
+      .then(() => self.skipWaiting()),
+  );
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      // Older versions of the offline page go; nothing else is ever stored.
+      const names = await caches.keys();
+      await Promise.all(names.filter((name) => name.startsWith("alpha-offline-") && name !== OFFLINE_CACHE).map((name) => caches.delete(name)));
+      // The page request starts while the worker boots, so opening the app is no slower.
+      if (self.registration.navigationPreload) await self.registration.navigationPreload.enable().catch(() => undefined);
+      await self.clients.claim();
+    })(),
+  );
+});
+
+const isAppPage = (url) =>
+  url.origin === self.location.origin && APP_PREFIXES.some((prefix) => url.pathname === prefix || url.pathname.startsWith(`${prefix}/`));
+
+// Network first, for app page loads only; the offline page when the network fails.
+self.addEventListener("fetch", (event) => {
+  const request = event.request;
+  if (request.mode !== "navigate" || request.method !== "GET" || !isAppPage(new URL(request.url))) return;
+  event.respondWith(
+    (async () => {
+      try {
+        const preloaded = await event.preloadResponse;
+        if (preloaded) return preloaded;
+        return await fetch(request);
+      } catch {
+        const offline = await caches.match(OFFLINE_PAGE, { cacheName: OFFLINE_CACHE });
+        return offline || Response.error();
+      }
+    })(),
+  );
 });
 
 const APP_HOME = "/app";

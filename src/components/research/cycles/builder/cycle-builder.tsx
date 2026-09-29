@@ -343,7 +343,7 @@ export function CycleBuilder({
                 <span className="truncate">{current < state.plans.length - 1 ? `Next: ${nameOf(state.plans[current + 1].peptideId)}` : "Review cycle"}</span>
               </Button>
             ) : (
-              <Button variant="primary" onClick={save} saving={pending}>
+              <Button needsConnection variant="primary" onClick={save} saving={pending}>
                 {saveLabel(editing)}
               </Button>
             )}

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { endRoutineAction, saveRoutineAction } from "@/app/(private)/app/supplements/actions";
+import { isOnline } from "@/components/alpha/online";
 import { Button } from "@/components/alpha/button";
 import { Field, TextInput } from "@/components/alpha/field";
 import { Sheet, SheetContent } from "@/components/alpha/sheet";
@@ -43,6 +44,8 @@ function RoutineBody({ routine, onClose }: { routine: RoutineCard | null; onClos
   const ended = routine?.ended ?? false;
 
   const submit = () => {
+    // Offline, a save waits for the connection (the button is disabled; this covers Enter and keyboard submits).
+    if (!isOnline()) return;
     const form = {
       id: routine?.id ?? null,
       version: routine?.version ?? null,
@@ -71,12 +74,12 @@ function RoutineBody({ routine, onClose }: { routine: RoutineCard | null; onClos
       <Button size="lg" variant="outline" onClick={() => setConfirming(false)}>
         Cancel
       </Button>
-      <Button size="lg" variant="ink" saving={end.pending} onClick={endNow} data-testid="end-confirm">
+      <Button needsConnection size="lg" variant="ink" saving={end.pending} onClick={endNow} data-testid="end-confirm">
         End routine
       </Button>
     </>
   ) : (
-    <Button size="lg" block saving={save.pending} onClick={submit} data-testid="routine-submit">
+    <Button needsConnection size="lg" block saving={save.pending} onClick={submit} data-testid="routine-submit">
       {routine ? "Save routine" : "Add routine"}
     </Button>
   );

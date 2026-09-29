@@ -1,10 +1,12 @@
 import { NavChoiceProvider } from "@/components/alpha/shell/nav-choice";
 import { NavCountsProvider } from "@/components/alpha/shell/nav-counts";
+import { OfflineBar } from "@/components/alpha/shell/offline-bar";
 import { PendingNavProvider, PendingOutlet } from "@/components/alpha/shell/pending-nav";
 import { SectionNav } from "@/components/alpha/shell/section-nav";
 import { Sidebar } from "@/components/alpha/shell/sidebar";
 import { TabBar } from "@/components/alpha/shell/tab-bar";
 import type { AppIdentity } from "@/lib/app/identity";
+import { ServiceWorker } from "./service-worker";
 
 /**
  * Signed-in chrome for the research side (/app) and the admin area (/admin),
@@ -13,6 +15,9 @@ import type { AppIdentity } from "@/lib/app/identity";
  * researcher), so both areas show the same shell. Safe areas are padded with
  * env(safe-area-inset-*). A tapped navigation item shows as current and its
  * page's skeleton shows at once, until the page commits (PendingNavProvider).
+ * Offline, the offline bar says so (on the tab bar on a phone, at the top of
+ * the content on a laptop); the service worker registered here serves the
+ * offline page when opening the app finds no connection.
  */
 export function AppShell({ identity, children }: { identity: AppIdentity; children: React.ReactNode }) {
   return (
@@ -22,10 +27,12 @@ export function AppShell({ identity, children }: { identity: AppIdentity; childr
           <PendingNavProvider>
             <Sidebar identity={identity} />
             <div className="flex min-w-0 flex-1 flex-col pt-[env(safe-area-inset-top)]">
+              <OfflineBar />
               <SectionNav role={identity.role} />
               <PendingOutlet>{children}</PendingOutlet>
             </div>
             <TabBar role={identity.role} />
+            <ServiceWorker />
           </PendingNavProvider>
         </NavCountsProvider>
       </NavChoiceProvider>

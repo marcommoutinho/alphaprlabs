@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, X } from "lucide-react";
+import { isOnline } from "@/components/alpha/online";
 import { Button } from "@/components/alpha/button";
 import { Field, Switch, TextArea, TextInput } from "@/components/alpha/field";
 import Link from "@/components/alpha/link";
@@ -82,6 +83,8 @@ export function PeptideEditor({ entry, takenNames }: { entry: AdminPeptide | nul
   };
 
   async function save(publish: boolean) {
+    // Offline, a save waits for the connection (the button is disabled; this covers Enter and keyboard submits).
+    if (!isOnline()) return;
     if (reloadNeeded) return;
     setTouched(true);
     if (Object.keys(problemsFor(publish)).length) return;
@@ -299,7 +302,7 @@ export function PeptideEditor({ entry, takenNames }: { entry: AdminPeptide | nul
             </span>
           </div>
           {published ? null : (
-            <Button
+            <Button needsConnection
               variant="outline"
               size="lg"
               className="laptop:h-11 laptop:rounded-[12px] laptop:px-4 laptop:text-[14px]"
@@ -311,7 +314,7 @@ export function PeptideEditor({ entry, takenNames }: { entry: AdminPeptide | nul
               Save draft
             </Button>
           )}
-          <Button
+          <Button needsConnection
             variant="ink"
             size="lg"
             className="flex-1 laptop:h-11 laptop:flex-none laptop:rounded-[12px] laptop:px-[18px] laptop:text-[14px]"

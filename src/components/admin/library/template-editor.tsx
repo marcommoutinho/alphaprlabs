@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
+import { isOnline } from "@/components/alpha/online";
 import { Button } from "@/components/alpha/button";
 import { Field, TextInput } from "@/components/alpha/field";
 import Link from "@/components/alpha/link";
@@ -99,6 +100,8 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
     edit((all) => all.map((plan) => (plan.key !== planKey ? plan : { ...plan, rows: plan.rows.map((row) => (row.key === rowKey ? { ...row, ...patch } : row)) })));
 
   async function save() {
+    // Offline, a save waits for the connection (the button is disabled; this covers Enter and keyboard submits).
+    if (!isOnline()) return;
     if (reloadNeeded) return;
     setTouched(true);
     if (!validation.ok) {
@@ -302,7 +305,7 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
           >
             + Add peptide
           </Button>
-          <Button
+          <Button needsConnection
             variant="ink"
             size="lg"
             className="flex-1 laptop:h-11 laptop:flex-none laptop:rounded-[12px] laptop:px-[18px] laptop:text-[14px]"

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { isOnline } from "@/components/alpha/online";
 import { Button } from "@/components/alpha/button";
 import { buttonVariants } from "@/components/alpha/button-variants";
 import { Field, TextInput } from "@/components/alpha/field";
@@ -179,6 +180,8 @@ function PurchaseEntry({
   };
 
   const record = () => {
+    // Offline, a save waits for the connection (the button is disabled; this covers Enter and keyboard submits).
+    if (!isOnline()) return;
     const found = check();
     setProblems(found);
     setMessage(null);
@@ -381,7 +384,7 @@ function PurchaseEntry({
       ) : null}
 
       <RecordFooter>
-        <Button type="submit" size="lg" className="laptop:h-12" saving={saving} savingLabel="Recording…" disabled={blocked && !saving} data-testid="record-purchase">
+        <Button needsConnection type="submit" size="lg" className="laptop:h-12" saving={saving} savingLabel="Recording…" disabled={blocked && !saving} data-testid="record-purchase">
           {recordPurchaseLabel(now.total)}
         </Button>
       </RecordFooter>

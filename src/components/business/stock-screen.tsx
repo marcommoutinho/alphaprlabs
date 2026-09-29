@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, ChevronLeft, Plus, Search } from "lucide-react";
+import { isOnline } from "@/components/alpha/online";
 import Link from "@/components/alpha/link";
 import { Button } from "@/components/alpha/button";
 import { buttonVariants } from "@/components/alpha/button-variants";
@@ -422,6 +423,8 @@ function ThresholdContent({ item, token, onDone }: { item: StockLevel; token: nu
   };
 
   const save = () => {
+    // Offline, a save waits for the connection (the button is disabled; this covers Enter and keyboard submits).
+    if (!isOnline()) return;
     const parsed = parseThreshold(text);
     if (!parsed.ok) {
       setError(parsed.error);
@@ -446,7 +449,7 @@ function ThresholdContent({ item, token, onDone }: { item: StockLevel; token: nu
           >
             Purchases and sales
           </Link>
-          <Button size="lg" className="laptop:h-12" saving={saving} onClick={() => void save()}>
+          <Button needsConnection size="lg" className="laptop:h-12" saving={saving} onClick={() => void save()}>
             Save
           </Button>
         </>
