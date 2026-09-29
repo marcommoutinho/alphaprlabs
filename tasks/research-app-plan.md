@@ -853,6 +853,12 @@ Deploys: after V4 (researcher side complete) and after the close.
   (one local gateway 502 re-run green); Playwright 123/123. Production checks:
   public site unchanged, app and auth redirects, v3 sign-in page, cron 401
   without the secret and ok with it.
+- V5 (Business overview, 12 months, Stock with per-item reorder levels as a
+  compare-and-set, AP036) and a follow-up (weight in lb by default, toasts
+  inside open sheets, test reliability) merged at `94c5840` and deployed on
+  2026-09-28 (Marco asked for the lb default): migrations 20260928150000 and
+  20260928160000. Production checks: redirects, sign-in, cron, anon reads 0 of
+  40 tables, weight default 'lb', all 22 stock items at threshold 10.
 
 ## Technical references
 
