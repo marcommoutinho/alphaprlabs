@@ -911,3 +911,12 @@ setup and must not be changed independently by parallel makers.
   on html/body, no overflow on html/body (clip on `.alpha`), min-height
   100svh. Guard: tests/e2e/tab-bar-docked.spec.ts (36 pages, 2 widths,
   Chromium and WebKit phone). Real-device confirmation pending (Marco).
+- Research terms (Marco, 2026-09-30: "Nail this down. We should be covered
+  via research"; wording by Astra, approved) merged at `37a877f` and deployed
+  on 2026-09-30: app first, then migration 20260930100000_research_terms
+  (current_terms_version() = 2026-09-30). Everyone on an older version agrees
+  again before the research side; own research reads and reminders need the
+  current version; admins keep /admin and shared-history reads. Template
+  notices on template pages, the start-from-template step and cycles made
+  from a template; template writing rules in the admin editor. All four
+  production accounts are on 2026-09-placeholder until they agree again.
