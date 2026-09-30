@@ -7,7 +7,7 @@
 // a cycle made from a template carries its note; the admin template editor
 // shows the writing rules. Phone screens, light and dark
 // (SHOTS_DIR=test-results/terms-shots).
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Locator, type Page } from "@playwright/test";
 import { APP_ORIGIN } from "../../playwright.config";
 import { ACKNOWLEDGEMENT_VERSION } from "../../src/lib/auth/paths";
 import { saveTemplateAs } from "../support/admin-writers";
@@ -38,6 +38,30 @@ const SECTION_TITLES = [
   "Access.",
   "Changes and law.",
 ];
+// The approved terms, word for word: each section as it reads on screen (its bold title, then its sentences).
+const SECTIONS = [
+  "Research use only. Compounds are research materials, not supplied as drugs, food, supplements or cosmetics. They are not approved by Health Canada or the U.S. FDA. They are not sold to diagnose, treat, cure or prevent any condition.",
+  "Who can use the app. The app is for invited researchers to record their own research. You must be at least 18 and have reached the age of majority where you live.",
+  "What the app is. The app is a private tool for keeping your own research records. Its library, templates, calculator results and all other content are general reference information, not medical advice, instructions or a recommendation to use any compound. Alpha PR Labs never advises on, directs, supervises or approves anyone’s research.",
+  "Cycle templates. Templates are general reference examples compiled from published research and online researcher discussions. Neither Alpha PR Labs nor any medical professional has clinically tested or verified them. They may be inaccurate, incomplete or outdated. They are not a protocol, prescription, instruction or recommendation for anyone. They say nothing about whether any use is safe or suitable for you. Starting a cycle from a template creates your own private copy. You alone decide whether to use it and what to change. Alpha PR Labs may change or withdraw templates anytime without changing cycles already made from them.",
+  "Your responsibility. You alone decide and are responsible for your research, plans, amounts and schedules. Check every number, including calculator results, which depend on your inputs. You are responsible for safe handling, storage and following all applicable laws and regulations where you are located.",
+  "Health. Talk to a qualified healthcare provider before making health decisions. In an emergency, call 911 or your local emergency number.",
+  "Risk and liability. Use compounds and the app at your own risk. To the fullest extent permitted by law, the app and content are provided \"as is\", without warranties of accuracy, completeness or fitness for any purpose. To the fullest extent permitted by law, Alpha PR Labs is not liable for injury, loss or damage from compounds, the app or content, and you agree to indemnify Alpha PR Labs against claims from your use or misuse of compounds, the app or content.",
+  "Privacy. Only you can see your records unless you enable sharing with the Alpha PR Labs team in Me. You can turn sharing off anytime.",
+  "Access. Alpha PR Labs may suspend or end access for misuse or breach of these terms.",
+  "Changes and law. We may update these terms. You must accept changed terms before continuing. Ontario law and applicable Canadian federal law govern these terms.",
+];
+
+/** The terms region shows the approved terms, all of them and nothing else, each title in bold. */
+async function expectWholeTerms(region: Locator) {
+  const sections = region.getByTestId("terms-section");
+  await expect(sections).toHaveText(SECTIONS);
+  await expect(sections.locator("strong")).toHaveText(SECTION_TITLES);
+  // Nothing else in the box: its whole text is the sections, in order.
+  const whole = (await region.innerText()).replace(/\s+/g, " ").trim();
+  expect(whole).toBe(SECTIONS.join(" "));
+}
+
 const CHECKLIST = [
   "Write guidance as reference information, never instructions such as “take” or “you should.”",
   "Make no health claims or promises of results.",
@@ -72,11 +96,7 @@ for (const scheme of SCHEMES) {
     await expect(page.getByText(UPDATED_LEAD)).toHaveCount(0);
     const terms = page.getByRole("region", { name: HEADING });
     await expect(terms).toHaveCSS("height", "330px");
-    await expect(terms.getByTestId("terms-section").locator("strong")).toHaveText(SECTION_TITLES);
-    await expect(terms).not.toContainText("placeholder");
-    await expect(terms).toContainText(
-      "Ontario law and applicable Canadian federal law govern these terms.",
-    );
+    await expectWholeTerms(terms);
     expect(await noSideScroll(page)).toBe(true);
     await shot(page, `join-step-${scheme}`);
 
@@ -111,7 +131,7 @@ for (const scheme of SCHEMES) {
     await expect(page.getByRole("progressbar")).toHaveCount(0);
     await expect(page.getByText(UPDATED_LEAD, { exact: true })).toBeVisible();
     await expect(page.getByText(LEAD, { exact: true })).toHaveCount(0);
-    await expect(page.getByRole("region", { name: HEADING }).getByTestId("terms-section")).toHaveCount(SECTION_TITLES.length);
+    await expectWholeTerms(page.getByRole("region", { name: HEADING }));
     expect(await noSideScroll(page)).toBe(true);
     await shot(page, `reagree-step-${scheme}`);
 
@@ -133,7 +153,7 @@ for (const scheme of SCHEMES) {
     await expect(page.getByTestId("disclaimer-accepted")).toContainText(
       new RegExp(`^You agreed on \\w{3}, \\w{3} \\d+, \\d{4} · \\d+:\\d\\d [AP]M\\.Version ${ACKNOWLEDGEMENT_VERSION}$`),
     );
-    await expect(page.getByRole("region", { name: HEADING }).getByTestId("terms-section")).toHaveCount(SECTION_TITLES.length);
+    await expectWholeTerms(page.getByRole("region", { name: HEADING }));
     await expect(page.getByRole("checkbox")).toHaveCount(0);
     expect(await noSideScroll(page)).toBe(true);
     await shot(page, `me-terms-${scheme}`);

@@ -128,7 +128,7 @@ insert into ${T} (owner_id, note) values
       write("blair updates alex", updateOf("alex")) +
       write("blair deletes alex", deleteOf("alex")) +
       write("blair inserts for alex", insertFor("alex", "forged")) +
-      // Unacknowledged: reads own rows, cannot write them.
+      // Without the current terms: reads none of its own rows, and cannot write them.
       as("una") + read("una reads") +
       write("una inserts own", insertFor("una", "una-2")) +
       write("una updates own", updateOf("una")) +
@@ -169,7 +169,7 @@ insert into ${T} (owner_id, note) values
       "blair updates alex": "0",
       "blair deletes alex": "0",
       "blair inserts for alex": "42501",
-      "una reads": "una-1",
+      "una reads": "",
       "una inserts own": "42501",
       "una updates own": "0",
       "anon reads": "42501",

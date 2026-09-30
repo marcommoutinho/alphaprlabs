@@ -77,8 +77,8 @@ describe("without a share, everyone is isolated", () => {
     expect(gone.error?.code).toBe("PGRST202");
   });
 
-  it("an unacknowledged researcher reads their own records but cannot write them or share", async () => {
-    expect(await canRead(p.una, p.una)).toBe(true);
+  it("a researcher without the current terms can neither read nor write their own records, nor share", async () => {
+    expect(await canRead(p.una, p.una)).toBe(false);
     expect(await canWrite(p.una, p.una)).toBe(false);
     expect((await p.una.client.rpc("share_with_team")).error?.code).toBe("42501");
     expect(await history(p.una)).toEqual([]);

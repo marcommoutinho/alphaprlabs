@@ -354,7 +354,12 @@ switches to the back office and back.
   terms, with the updated lead and without the joining steps, before anything
   on the research side, and goes back to Today once they agree. The database
   enforces the same (public.current_terms_version(); a new version is a new
-  migration). Admins are researchers, so the same applies to their research
+  migration): until they agree again, an account reads none of its own
+  research records and gets no dose or supplement reminders (its devices
+  stay registered, so reminders resume once it agrees). A share with the
+  team is the researcher's own consent: while it lasts, admins read that
+  researcher's history whatever either one's terms version (review,
+  2026-09-30). Admins are researchers, so the same applies to their research
   side; the admin back office (/admin) stays open without the terms, as it
   always was. Every template page and the start-from-template step carry the
   template reference notice, a cycle made from a template carries "Your own
