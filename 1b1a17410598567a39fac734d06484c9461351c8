@@ -1,0 +1,1 @@
+S13 reminders. Maker: opus subagent afb6ca97105c6dedc. Review: gpt-5.6-sol xhigh, 1 review + 5 rechecks; final verdict CLEAN on 1b1a174. Gate: vitest 1043/1043, Playwright 278/278, tsc clean. Policy: at-least-once delivery, silent repeats via jobId in sw.js; MAX_ATTEMPTS 3. Deploy: migrations 20261002080000/090000/100000 first, app with REMINDERS_ENABLED off.
