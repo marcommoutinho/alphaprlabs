@@ -33,27 +33,38 @@ beforeAll(async () => {
   }
 });
 
-const save = (who: Name, key: string, args: { p_default_syringe?: number; p_weight_unit?: string; p_appearance?: string }, hash = "a".repeat(64)) =>
-  db[who].rpc("save_account_preferences", { p_request_key: key, p_request_hash: hash, ...args });
+const save = (
+  who: Name,
+  key: string,
+  args: { p_default_syringe?: number; p_weight_unit?: string; p_appearance?: string; p_heads_up_minutes?: number },
+  hash = "a".repeat(64),
+) => db[who].rpc("save_account_preferences", { p_request_key: key, p_request_hash: hash, ...args });
 
 describe("account preferences", () => {
-  it("default to a 100-unit syringe, lb and the device's appearance until saved", async () => {
+  it("default to a 100-unit syringe, lb, the device's appearance and a 15-minute heads-up until saved", async () => {
     expect(await getPreferences(db.sam, id.sam)).toEqual(DEFAULT_PREFERENCES);
-    expect(DEFAULT_PREFERENCES).toEqual({ defaultSyringe: 100, weightUnit: "lb", appearance: null });
+    expect(DEFAULT_PREFERENCES).toEqual({ defaultSyringe: 100, weightUnit: "lb", appearance: null, headsUpMinutes: 15 });
     // No row is created by reading.
     expect(await ok(serviceClient().from("account_preferences").select("owner_id").eq("owner_id", id.sam))).toEqual([]);
   });
 
   it("save a patch at a time, keeping the other choices (a first save without a unit stores lb; kg can be chosen)", async () => {
     const first = await savePreferences(db.riley, randomUUID(), { defaultSyringe: 30 });
-    expect(first).toEqual({ kind: "saved", replayed: false, preferences: { defaultSyringe: 30, weightUnit: "lb", appearance: null } });
-    // The row itself holds lb (20260928160000_weight_unit_lb_default.sql), not just the app's reading of it.
-    expect(await ok(serviceClient().from("account_preferences").select("weight_unit").eq("owner_id", id.riley))).toEqual([{ weight_unit: "lb" }]);
+    expect(first).toEqual({ kind: "saved", replayed: false, preferences: { defaultSyringe: 30, weightUnit: "lb", appearance: null, headsUpMinutes: 15 } });
+    // The row itself holds lb (20260928160000_weight_unit_lb_default.sql) and 15 minutes, not just the app's reading of them.
+    expect(await ok(serviceClient().from("account_preferences").select("weight_unit, heads_up_minutes").eq("owner_id", id.riley))).toEqual([
+      { weight_unit: "lb", heads_up_minutes: 15 },
+    ]);
     await savePreferences(db.riley, randomUUID(), { weightUnit: "kg" });
     await savePreferences(db.riley, randomUUID(), { appearance: "dark" });
-    expect(await getPreferences(db.riley, id.riley)).toEqual({ defaultSyringe: 30, weightUnit: "kg", appearance: "dark" });
+    await savePreferences(db.riley, randomUUID(), { headsUpMinutes: 0 });
+    expect(await getPreferences(db.riley, id.riley)).toEqual({ defaultSyringe: 30, weightUnit: "kg", appearance: "dark", headsUpMinutes: 0 });
     await savePreferences(db.riley, randomUUID(), { appearance: "system" });
     expect((await getPreferences(db.riley, id.riley)).appearance).toBe("system");
+    for (const headsUpMinutes of [60, 30, 15] as const) {
+      expect((await savePreferences(db.riley, randomUUID(), { headsUpMinutes })).kind).toBe("saved");
+      expect((await getPreferences(db.riley, id.riley)).headsUpMinutes).toBe(headsUpMinutes);
+    }
   });
 
   it("replay the same request key and patch without writing twice; refuse a key reused for another patch or account", async () => {
@@ -65,7 +76,7 @@ describe("account preferences", () => {
     expect(await savePreferences(db.riley, key, patch)).toEqual({
       kind: "saved",
       replayed: true,
-      preferences: { defaultSyringe: 50, weightUnit: "kg", appearance: "system" },
+      preferences: { defaultSyringe: 50, weightUnit: "kg", appearance: "system", headsUpMinutes: 15 },
     });
     expect((await getPreferences(db.riley, id.riley)).defaultSyringe).toBe(100);
     // The same key with another patch, or from another account, is refused.
@@ -80,6 +91,8 @@ describe("account preferences", () => {
       { p_weight_unit: "st" },
       { p_weight_unit: "KG" },
       { p_appearance: "sepia" },
+      { p_heads_up_minutes: 45 },
+      { p_heads_up_minutes: -15 },
       {},
     ]) {
       expect(await sqlState(save("sam", randomUUID(), args)), JSON.stringify(args)).toBe("22023");

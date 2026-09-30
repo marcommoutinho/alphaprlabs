@@ -1,7 +1,8 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { APP_ORIGIN, PUBLIC_ORIGIN, SERVER_ORIGIN } from "../../playwright.config";
 import { emulatePermission, fakePushService } from "../support/fake-push";
-import { ensureAccount, serviceClient, signInAs, uniqueEmail } from "../support/local-supabase";
+import { ensureAccount, hydrated, serviceClient, signInAs, uniqueEmail } from "../support/local-supabase";
+import { OPTION_15, OPTION_30, OPTION_60, OPTION_OFF, SETTING_HINT, SETTING_LABEL } from "../../src/lib/reminders/copy";
 
 // C2: installable app files and "Reminders on this phone". Headless Chromium
 // has no push service, so the browser's PushManager is replaced by a fake in
@@ -371,4 +372,51 @@ test.describe("designed device states", () => {
     await page.reload();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Today");
   });
+});
+
+// S13 (Marco, 2026-09-30): Me › Dose reminders' Advance heads-up, a setting of
+// the account in the style of Me's preferences: a row with its value, a
+// choice sheet (Off, 15 by default, 30, 60), saved at once.
+test("the Advance heads-up row: 15 minutes by default, a picker, saved with the account", async ({ page }) => {
+  const email = uniqueEmail("s13-heads-up");
+  const id = await ensureAccount({ email, name: "Hana Headsup", role: "researcher" });
+  const stored = async () =>
+    (await serviceClient().from("account_preferences").select("heads_up_minutes").eq("owner_id", id).maybeSingle()).data?.heads_up_minutes ?? null;
+  await page.setViewportSize(PHONE);
+  await signInAs(page, APP_ORIGIN, email);
+  await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
+  await page.goto(`${APP_ORIGIN}/app/notifications`);
+
+  const row = page.getByTestId("heads-up");
+  const sheet = page.getByRole("dialog", { name: SETTING_LABEL });
+  await expect(row).toContainText(SETTING_LABEL);
+  await expect(page.getByTestId("heads-up-value")).toHaveText(OPTION_15);
+  await expect(page.getByTestId("heads-up-hint")).toHaveText(SETTING_HINT);
+  expect(await stored()).toBeNull(); // never chosen: the default
+
+  // The choices in order, the default checked; picking the checked one just closes.
+  await (await hydrated(row)).click();
+  await expect(sheet.getByRole("radio")).toHaveText([OPTION_OFF, OPTION_15, OPTION_30, OPTION_60]);
+  await expect(sheet.getByRole("radio", { name: OPTION_15, exact: true })).toHaveAttribute("aria-checked", "true");
+  await sheet.getByRole("radio", { name: OPTION_15, exact: true }).click();
+  await expect(sheet).toBeHidden();
+  expect(await stored()).toBeNull();
+
+  const pick = async (option: string) => {
+    await row.click();
+    await sheet.getByRole("radio", { name: option, exact: true }).click();
+    await expect(sheet).toBeHidden();
+  };
+  await pick(OPTION_60);
+  await expect(page.getByTestId("heads-up-value")).toHaveText(OPTION_60);
+  await expect.poll(stored).toBe(60);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.reload();
+  await expect(page.getByTestId("heads-up-value")).toHaveText(OPTION_60);
+
+  await (await hydrated(row)).click();
+  await sheet.getByRole("radio", { name: OPTION_OFF, exact: true }).click();
+  await expect(sheet).toBeHidden();
+  await expect(page.getByTestId("heads-up-value")).toHaveText(OPTION_OFF);
+  await expect.poll(stored).toBe(0);
 });

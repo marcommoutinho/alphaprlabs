@@ -1,20 +1,30 @@
-// S13 reminder rules (plan "Reminder delivery design", D3; Marco's decisions
-// of 2026-09-26): whether a queued reminder still goes out at send time, how
-// long the push service may hold it, what it opens and which earlier
-// notification it replaces, and which failures are retried. Pure (the clock
-// is passed in), shared by the dispatcher and its tests.
+// S13 reminder rules (plan "Reminder delivery design"; Marco's decisions of
+// 2026-09-26 and 2026-09-30): whether a queued reminder still goes out at
+// send time, how long the push service may hold it, what it opens and which
+// earlier notification it replaces, and which failures are retried. Pure
+// (the clock is passed in), shared by the dispatcher and its tests.
 //
 // Reminder timing itself is the schedule's (src/lib/schedule/reminders.ts):
-// a reminder when due, follow-ups 30 minutes and 2 hours later, each sent
-// only within 15 minutes of its time (a later one was missed: "a reminder
-// more than 15 minutes late is skipped; the 30-minute and 2-hour follow-ups
-// still go out"), and none once the dose is logged, the phase has ended or
-// the plan's next dose has become due (Occurrence.remindersStopAt).
+// a reminder when due (skipped when more than 15 minutes late), one
+// follow-up an hour later (the last one for that dose; it still goes out
+// while relevant), and none once the dose is logged or skipped, the phase has
+// ended or the plan's next dose has become due (Occurrence.remindersStopAt).
+//
+// The heads-up (Marco, 2026-09-30): one per owner and planned instant, the
+// owner's lead (Advance heads-up: 15 by default, 30 or 60 minutes; Off sends
+// none) before it, grouping every dose planned at that time. Doses only:
+// supplements get none. It is skipped once the time has come or it is more
+// than 15 minutes late, when every dose in the group is logged or skipped,
+// or when the setting has changed since it was planned.
 import { createHash } from "node:crypto";
+import type { HeadsUpMinutes } from "@/lib/preferences/rules";
 import type { Occurrence } from "@/lib/schedule/engine";
 import { DEFAULT_REMINDER_GRACE_MINUTES, type ReminderKind, REMINDER_OFFSETS, reminderToSend } from "@/lib/schedule/reminders";
 
-export type ReminderSource = "dose" | "supplement";
+export type ReminderSource = "dose" | "heads-up" | "supplement";
+
+/** reminder_jobs.kind: a dose's reminders, or the heads-up before a planned time. */
+export type JobKind = ReminderKind | "heads-up";
 
 /**
  * The send on/off control. Off unless REMINDERS_ENABLED is exactly "true",
@@ -29,13 +39,30 @@ export const doseReminderUrl = (occurrenceKey: string) => `/app/today?dose=${enc
 /** Supplements have no deep link of their own: Today lists today's routines, each with its Taken. */
 export const SUPPLEMENT_REMINDER_URL = "/app/today";
 
-/** One notification per occurrence: a follow-up replaces the earlier reminder on the phone (public/sw.js). */
-export const reminderTag = (source: ReminderSource, occurrenceKey: string) => `${source}:${occurrenceKey}`;
+/**
+ * One notification per occurrence (public/sw.js replaces a notification with
+ * the same tag): "dose:<occurrence key>" or "supplement:<occurrence key>". A
+ * dose's due reminder, then its follow-up, replace each other.
+ */
+export const reminderTag = (source: "dose" | "supplement", occurrenceKey: string) => `${source}:${occurrenceKey}`;
 
 /**
- * The Web Push topic for an occurrence (≤ 32 URL-safe characters): a
- * follow-up replaces an earlier reminder of the same occurrence that the
- * push service has not delivered yet.
+ * A heads-up's tag: the tag of the first dose it names, in Today's order
+ * (headsUpDoses), so that dose's due reminder replaces the heads-up on the
+ * phone, and its topic replaces a heads-up the push service still holds. The
+ * group's other doses get their own due reminders under their own tags. A
+ * heads-up has no tag of its own: one per planned instant, it always leads
+ * into a due reminder.
+ */
+export const headsUpTag = (doses: readonly Pick<Occurrence, "key">[]) => reminderTag("dose", doses[0].key);
+
+/** Where a heads-up opens: that dose's sheet when it names one dose, else Today. */
+export const headsUpUrl = (doses: readonly Pick<Occurrence, "key">[]) => (doses.length === 1 ? doseReminderUrl(doses[0].key) : "/app/today");
+
+/**
+ * The Web Push topic for a tag (≤ 32 URL-safe characters): a newer reminder
+ * with the same tag replaces an earlier one that the push service has not
+ * delivered yet.
  */
 export const reminderTopic = (tag: string) => createHash("sha256").update(tag).digest("base64url").slice(0, 32);
 
@@ -46,19 +73,25 @@ export const LAST_REMINDER_RELEVANCE_MINUTES = 120;
 
 /**
  * Seconds the push service may keep an undelivered reminder (a phone that is
- * off or offline): until the occurrence's next reminder takes over (its topic
- * replaces this one), or LAST_REMINDER_RELEVANCE_MINUTES after the last one,
- * and never past the time its reminders stop. At least a minute.
+ * off or offline): a heads-up until the planned time (the due reminder takes
+ * over); a dose reminder until its next reminder takes over (its topic
+ * replaces this one), or LAST_REMINDER_RELEVANCE_MINUTES after the last one;
+ * never past the time its reminders stop. At least a minute.
  */
 export function reminderTtlSeconds(
-  reminder: { source: ReminderSource; kind: ReminderKind; sendAt: string; stopAt?: string | null },
+  reminder: { source: ReminderSource; kind: JobKind; sendAt: string; occurrenceAt?: string; stopAt?: string | null },
   now: Date | string,
 ): number {
   const sendMs = Date.parse(reminder.sendAt);
-  const offsets = REMINDER_OFFSETS.map((o) => o.minutes);
-  const own = REMINDER_OFFSETS.find((o) => o.kind === reminder.kind)?.minutes ?? 0;
-  const next = reminder.source === "dose" ? offsets.find((minutes) => minutes > own) : undefined;
-  let until = sendMs + (next !== undefined ? next - own : LAST_REMINDER_RELEVANCE_MINUTES) * MINUTE;
+  let until: number;
+  if (reminder.kind === "heads-up") {
+    until = Date.parse(reminder.occurrenceAt ?? reminder.sendAt);
+  } else {
+    const offsets = REMINDER_OFFSETS.map((o) => o.minutes);
+    const own = REMINDER_OFFSETS.find((o) => o.kind === reminder.kind)?.minutes ?? 0;
+    const next = reminder.source === "dose" ? offsets.find((minutes) => minutes > own) : undefined;
+    until = sendMs + (next !== undefined ? next - own : LAST_REMINDER_RELEVANCE_MINUTES) * MINUTE;
+  }
   if (reminder.stopAt) until = Math.min(until, Date.parse(reminder.stopAt));
   return Math.max(60, Math.floor((until - new Date(now).getTime()) / 1000));
 }
@@ -74,7 +107,8 @@ export type Suppression =
   | "cycle ended"
   | "stopped"
   | "superseded"
-  | "late";
+  | "late"
+  | "setting changed";
 
 export type Verdict = { send: true } | { send: false; reason: Suppression };
 
@@ -103,6 +137,47 @@ export function doseVerdict(
   const current = reminderToSend(occurrence, at.toISOString());
   if (current?.kind === job.kind) return { send: true };
   return { send: false, reason: current ? "superseded" : "late" };
+}
+
+export type HeadsUpJob = { occurrenceAt: string; sendAt: string; leadMinutes: number };
+
+/**
+ * The doses a heads-up names, in Today's order (the same instant, so by
+ * occurrence key): of `planned`, the occurrences still planned at the job's
+ * instant in running plans (the caller passes only plans in their cycle's
+ * current revision whose cycle has not ended), those neither logged nor
+ * skipped.
+ */
+export function headsUpDoses<O extends Occurrence>(job: Pick<HeadsUpJob, "occurrenceAt">, planned: readonly O[]): O[] {
+  const instant = Date.parse(job.occurrenceAt);
+  return planned
+    .filter((o) => Date.parse(o.scheduledAt) === instant && !o.actualAt && !o.skipped)
+    .sort((a, b) => a.key.localeCompare(b.key));
+}
+
+/**
+ * A heads-up at send time: the owner's setting must still be the lead it was
+ * planned with (Off, or another lead, which plans its own), the planned time
+ * must still be ahead and the heads-up no more than 15 minutes late, and at
+ * least one dose planned at that time must still be open (`atInstant`: every
+ * occurrence still planned at that instant in running plans, logged or not).
+ */
+export function headsUpVerdict(
+  job: HeadsUpJob,
+  setting: HeadsUpMinutes,
+  atInstant: readonly Pick<Occurrence, "scheduledAt" | "actualAt" | "skipped">[],
+  now: Date | string,
+): Verdict {
+  if (setting !== job.leadMinutes) return { send: false, reason: "setting changed" };
+  const at = new Date(now).getTime();
+  if (at >= Date.parse(job.occurrenceAt) || at > Date.parse(job.sendAt) + DEFAULT_REMINDER_GRACE_MINUTES * MINUTE) {
+    return { send: false, reason: "late" };
+  }
+  const instant = Date.parse(job.occurrenceAt);
+  const group = atInstant.filter((o) => Date.parse(o.scheduledAt) === instant);
+  if (group.length === 0) return { send: false, reason: "occurrence gone" };
+  if (group.every((o) => o.actualAt || o.skipped)) return { send: false, reason: group.some((o) => o.actualAt) ? "logged" : "skipped" };
+  return { send: true };
 }
 
 export type SupplementJob = { occurrenceKey: string; occurrenceAt: string; sendAt: string };

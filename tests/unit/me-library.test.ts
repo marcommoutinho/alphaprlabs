@@ -98,11 +98,11 @@ describe("default syringe", () => {
 });
 
 describe("preferences", () => {
-  it("default to 100-unit, lb and the device's appearance; anything unexpected reads as the default", () => {
-    expect(DEFAULT_PREFERENCES).toEqual({ defaultSyringe: 100, weightUnit: "lb", appearance: null });
+  it("default to 100-unit, lb, the device's appearance and a 15-minute heads-up; anything unexpected reads as the default", () => {
+    expect(DEFAULT_PREFERENCES).toEqual({ defaultSyringe: 100, weightUnit: "lb", appearance: null, headsUpMinutes: 15 });
     expect(resolvePreferences(null)).toEqual(DEFAULT_PREFERENCES);
     expect(resolvePreferences({ default_syringe: 100, weight_unit: "kg", appearance: null }).weightUnit).toBe("kg");
-    expect(resolvePreferences({ default_syringe: 30, weight_unit: "lb", appearance: "dark" })).toEqual({ defaultSyringe: 30, weightUnit: "lb", appearance: "dark" });
+    expect(resolvePreferences({ default_syringe: 30, weight_unit: "lb", appearance: "dark" })).toEqual({ defaultSyringe: 30, weightUnit: "lb", appearance: "dark", headsUpMinutes: 15 });
     expect(resolvePreferences({ default_syringe: 40, weight_unit: "st", appearance: "sepia" })).toEqual(DEFAULT_PREFERENCES);
   });
 

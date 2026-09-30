@@ -9,17 +9,24 @@ import { ownerConfirmations } from "@/lib/doses/service";
 import { pendingDoses } from "@/lib/doses/today";
 import type { Mixture } from "@/lib/mixtures/rules";
 import { planMixtures } from "@/lib/mixtures/service";
+import { type HeadsUpMinutes, resolvePreferences } from "@/lib/preferences/rules";
 import { type PushDeps, type PushPayload, type PushSendResult, sendPush, UNKNOWN_ENDPOINT } from "@/lib/push/send";
 import type { Occurrence } from "@/lib/schedule/engine";
 import type { ReminderKind } from "@/lib/schedule/reminders";
 import type { Database } from "@/lib/supabase/database.types";
 import { listDueSupplements, type DueSupplement } from "@/lib/supplements/service";
-import { doseReminderText, supplementReminderText } from "./copy";
+import { doseReminderText, headsUpText, supplementReminderText } from "./copy";
 import {
   doseReminderUrl,
   doseVerdict,
+  headsUpDoses,
+  headsUpTag,
+  headsUpUrl,
+  headsUpVerdict,
   isTransientFailure,
+  type JobKind,
   MAX_ATTEMPTS,
+  type ReminderSource,
   reminderTag,
   reminderTopic,
   reminderTtlSeconds,
@@ -38,11 +45,12 @@ import {
 //      SKIP LOCKED, so overlapping calls never share a job; an interrupted
 //      call's jobs come back once their lease expires);
 //   3. rechecks each job against the owner's current records (./rules
-//      doseVerdict / supplementVerdict; the device and the terms come with
-//      the claim) and suppresses what is no longer true;
+//      doseVerdict / headsUpVerdict / supplementVerdict; the device and the
+//      terms come with the claim) and suppresses what is no longer true;
 //   4. sends the rest through sendPush with a TTL that ends with the
 //      reminder's relevance, a topic and tag per occurrence (a follow-up
-//      replaces the earlier reminder) and the app badge;
+//      replaces the earlier reminder; the first dose's due reminder replaces
+//      a heads-up: ./rules headsUpTag) and the app badge;
 //   5. records each outcome honestly (finish_reminder_job, only under its
 //      own lease): "sent" is the push service's acceptance, nothing more;
 //      transient failures go back to pending for a bounded retry.
@@ -56,7 +64,8 @@ import {
 // planOccurrences for the occurrence, planMixtures for the units in the
 // notification, and pendingDoses for the badge (src/app/(private)/app/today/
 // badge/route.ts), so the tap opens exactly what the notification said, or
-// Today's out-of-date notice when something changed since.
+// Today's out-of-date notice when something changed since. A heads-up also
+// reads the owner's Advance heads-up setting (account_preferences).
 
 type Db = SupabaseClient<Database>;
 
@@ -181,7 +190,8 @@ async function handle(job: ClaimedJob, context: Context, push: PushDeps, now: Da
 
   let prepared: { verdict: Verdict; payload?: PushPayload; stopAt?: string | null };
   try {
-    prepared = job.source === "dose" ? await context.dose(job) : await context.supplement(job);
+    prepared =
+      job.source === "dose" ? await context.dose(job) : job.source === "heads-up" ? await context.headsUp(job) : await context.supplement(job);
   } catch (error) {
     return failOrRetry(`recheck failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 300));
   }
@@ -194,7 +204,16 @@ async function handle(job: ClaimedJob, context: Context, push: PushDeps, now: Da
       { id: job.subscription_id, endpoint: job.endpoint, p256dh: job.p256dh, auth: job.auth },
       prepared.payload!,
       {
-        ttlSeconds: reminderTtlSeconds({ source: job.source as "dose" | "supplement", kind: job.kind as ReminderKind, sendAt: job.send_at, stopAt: prepared.stopAt }, now),
+        ttlSeconds: reminderTtlSeconds(
+          {
+            source: job.source as ReminderSource,
+            kind: job.kind as JobKind,
+            sendAt: job.send_at,
+            occurrenceAt: job.occurrence_at,
+            stopAt: prepared.stopAt,
+          },
+          now,
+        ),
         topic: reminderTopic(tag),
         urgency: "high",
       },
@@ -216,7 +235,12 @@ async function handle(job: ClaimedJob, context: Context, push: PushDeps, now: Da
 type OwnerRecords = {
   cycles: CycleRecord[];
   byPlan: Map<string, { cycle: CycleRecord; occurrences: Occurrence[] }>;
+  /** Occurrences of the plans still running: in their cycle's current revision, the cycle not ended (as Today's). */
+  running: Occurrence[];
+  /** Plan → peptide, for the running plans. */
+  peptideOf: Map<string, string>;
   mixtures: Map<string, Mixture>;
+  headsUp: HeadsUpMinutes;
   badge: number;
 };
 
@@ -235,19 +259,37 @@ class Context {
     let records = this.owners.get(ownerId);
     if (!records) {
       records = (async () => {
-        const [cycles, confirmations, mixtures] = await Promise.all([
+        const [cycles, confirmations, mixtures, preferences] = await Promise.all([
           listCycles(this.db, ownerId),
           ownerConfirmations(this.db, ownerId),
           planMixtures(this.db, ownerId),
+          this.db.from("account_preferences").select("default_syringe, weight_unit, appearance, heads_up_minutes").eq("owner_id", ownerId).maybeSingle(),
         ]);
+        if (preferences.error) throw new Error(`Could not read preferences: ${preferences.error.message}`);
         const byPlan = new Map<string, { cycle: CycleRecord; occurrences: Occurrence[] }>();
+        const running: Occurrence[] = [];
+        const peptideOf = new Map<string, string>();
         for (const cycle of cycles) {
           if (cycle.revisions.length === 0) continue;
           for (const [planId, occurrences] of planOccurrences(cycle.revisions, confirmations.get(cycle.id) ?? [])) {
             byPlan.set(planId, { cycle, occurrences });
           }
+          const latest = cycle.revisions.at(-1)!;
+          if (cycleStatus(latest, this.now) === "Ended") continue;
+          for (const plan of latest.plans) {
+            peptideOf.set(plan.planId, plan.peptideId);
+            running.push(...(byPlan.get(plan.planId)?.occurrences ?? []));
+          }
         }
-        return { cycles, byPlan, mixtures, badge: pendingDoses(cycles, confirmations, this.now) };
+        return {
+          cycles,
+          byPlan,
+          running,
+          peptideOf,
+          mixtures,
+          headsUp: resolvePreferences(preferences.data).headsUpMinutes,
+          badge: pendingDoses(cycles, confirmations, this.now),
+        };
       })();
       this.owners.set(ownerId, records);
       // A failed read is retried by the next job (or call), not cached.
@@ -282,15 +324,9 @@ class Context {
 
     const peptideId = latest!.plans.find((plan) => plan.planId === job.plan_id)!.peptideId;
     const peptide = (await this.peptideNames()).get(peptideId) || "Unknown peptide";
-    const mixture = records.mixtures.get(job.plan_id) ?? null;
-    const draw = drawDisplay(mixture?.setup ?? null, occurrence.doseMg);
     const text = doseReminderText(job.kind as ReminderKind, {
-      peptide,
-      amount: massLabel(occurrence.doseMg),
+      ...this.doseFacts(records, occurrence, peptide),
       time: clock12(occurrence.localTime),
-      units: draw.kind === "units" ? draw.units : null,
-      // As Today's Now block: "100-unit syringe".
-      syringe: mixture && draw.kind === "units" ? `${mixture.setup.syringe}-unit` : null,
     });
     const payload: PushPayload = {
       ...text,
@@ -299,6 +335,30 @@ class Context {
       badge: records.badge,
     };
     return { verdict, payload, stopAt: occurrence.remindersStopAt };
+  }
+
+  /** A dose as Today shows it: its planned amount ("250 mcg") and, with a saved mix, its syringe units (units only). */
+  private doseFacts(records: OwnerRecords, occurrence: Occurrence, peptide: string) {
+    const mixture = records.mixtures.get(occurrence.planId) ?? null;
+    const draw = drawDisplay(mixture?.setup ?? null, occurrence.doseMg);
+    return { peptide, amount: massLabel(occurrence.doseMg), units: draw.kind === "units" ? draw.units : null };
+  }
+
+  /** The heads-up before a planned time: every open dose planned then, in Today's order. */
+  async headsUp(job: ClaimedJob) {
+    const records = await this.owner(job.owner_id);
+    const headsUpJob = { occurrenceAt: job.occurrence_at, sendAt: job.send_at, leadMinutes: job.lead_minutes ?? 0 };
+    const verdict = headsUpVerdict(headsUpJob, records.headsUp, records.running, this.now);
+    const doses = headsUpDoses(headsUpJob, records.running);
+    if (!verdict.send || doses.length === 0) return { verdict };
+    const names = await this.peptideNames();
+    const text = headsUpText({
+      doses: doses.map((o) => this.doseFacts(records, o, names.get(records.peptideOf.get(o.planId) ?? "") || "Unknown peptide")),
+      time: clock12(doses[0].localTime),
+      lead: records.headsUp as Exclude<HeadsUpMinutes, 0>,
+    });
+    const payload: PushPayload = { ...text, url: headsUpUrl(doses), tag: headsUpTag(doses), badge: records.badge };
+    return { verdict, payload, stopAt: job.occurrence_at };
   }
 
   /**

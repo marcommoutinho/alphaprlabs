@@ -13,8 +13,10 @@ import { AuthActions } from "@/components/auth/auth-frame";
 import { CYCLES_MAIN } from "@/components/research/cycles/cycles-list";
 import { RESEARCH_HOME } from "@/lib/auth/paths";
 import { INSTALL_GUIDE_PATH } from "@/lib/install/detect";
+import type { HeadsUpMinutes } from "@/lib/preferences/rules";
 import { STATUS_LABEL, statusTone } from "@/lib/push/readiness";
 import { cn } from "@/lib/utils";
+import { HeadsUpSetting } from "./heads-up-setting";
 import { readinessSeen, useReminders, type Reminders } from "./use-reminders";
 
 // C2 copy is the prototype's, except "I've added it": installation is detected.
@@ -149,7 +151,12 @@ export function RemindersStep({ userId, vapidPublicKey }: Props) {
  * for permission; the device facts, and the ways out of a denied or
  * unsupported state, as on the prompt. Per device: a new phone asks again.
  */
-export function RemindersSettings({ userId, vapidPublicKey, testEnabled }: Props & { testEnabled: boolean }) {
+export function RemindersSettings({
+  userId,
+  vapidPublicKey,
+  testEnabled,
+  headsUpMinutes,
+}: Props & { testEnabled: boolean; headsUpMinutes: HeadsUpMinutes }) {
   const reminders = useReminders(userId, vapidPublicKey);
   const toast = useAlphaToast();
   const [testing, startTest] = useTransition();
@@ -195,9 +202,9 @@ export function RemindersSettings({ userId, vapidPublicKey, testEnabled }: Props
             ‹ Me
           </Link>
           <h1 className="mt-1 text-[34px] leading-[1.1] font-semibold tracking-[-0.03em] text-balance">Reminders on this phone</h1>
+          {/* The sentence about D3's two follow-ups (30 minutes and 2 hours) is removed: superseded on 2026-09-30 by one follow-up an hour after; its new wording is Astra's to write. */}
           <p className="mt-2.5 text-[15px] leading-[1.5] text-ink-2">
-            Reminders name the peptide, planned mg and syringe units. Two follow-ups arrive 30 minutes and 2 hours after an unconfirmed dose is due. A
-            reminder never confirms a dose. Permission is per device — a new phone asks again.
+            Reminders name the peptide, planned mg and syringe units. A reminder never confirms a dose. Permission is per device — a new phone asks again.
           </p>
         </header>
         <StatusGroup reminders={reminders} labels={["Push supported", "Installed to home screen", "Permission on this device"]} />
@@ -233,6 +240,7 @@ export function RemindersSettings({ userId, vapidPublicKey, testEnabled }: Props
             </Button>
           ) : null}
         </div>
+        <HeadsUpSetting minutes={headsUpMinutes} />
       </div>
     </main>
   );

@@ -1,25 +1,36 @@
--- S13: the reminder queue ("Reminder delivery design"; plan D3; Marco's
--- decisions of 2026-09-26: doses follow the phone's clock, a reminder more
--- than 15 minutes late is skipped while the 30-minute and 2-hour follow-ups
--- still go out, follow-ups stop once the dose is logged).
+-- S13: the reminder queue ("Reminder delivery design"; Marco's decisions of
+-- 2026-09-26: doses follow the phone's clock, a due reminder more than 15
+-- minutes late is skipped, follow-ups stop once the dose is logged; and of
+-- 2026-09-30, superseding plan D3's 30-minute and 2-hour follow-ups: one
+-- follow-up an hour after the planned time, the last reminder for that dose,
+-- and a heads-up before each dose time, on by default 15 minutes before).
 --
 -- Records:
 --   reminder_jobs   one row per occurrence x reminder x device:
 --                     source 'dose': a peptide dose occurrence (plan_id,
---                       occurrence_key: the engine's key) with three
---                       reminders: 'due', 'follow-up-30m', 'follow-up-2h'
+--                       occurrence_key: the engine's key) with two
+--                       reminders: 'due' and 'follow-up-1h'
 --                       (src/lib/schedule/reminders.ts REMINDER_OFFSETS);
+--                     source 'heads-up': ONE per owner and planned instant,
+--                       grouping every dose planned at that time (kind
+--                       'heads-up'; no plan_id). occurrence_key is the
+--                       instant's text, occurrence_at the instant, and
+--                       lead_minutes the owner's setting when it was planned
+--                       (account_preferences.heads_up_minutes: 15, 30 or 60;
+--                       0 is Off and plans none; no row reads 15), so
+--                       send_at = occurrence_at - lead_minutes;
 --                     source 'supplement': a supplement routine occurrence
 --                       (routine_id, occurrence_key "<routine>:<date>") with
---                       'due' only (D3's follow-ups are for doses; the badge
---                       and follow-ups never count supplements).
---                   job_key is stable and unique: source, occurrence key,
---                   the occurrence's scheduled instant (a dose whose time
---                   moves gets new keys; src/lib/schedule/reminders.ts),
---                   reminder and device (push_subscriptions.id). The
---                   planner inserts with ON CONFLICT DO NOTHING, so a
---                   duplicate or overlapping cron call never adds a second
---                   row, and a row is sent at most once by the dispatcher.
+--                       'due' only (no follow-up and no heads-up; the badge
+--                       never counts supplements).
+--                   job_key is stable and unique: source, occurrence key
+--                   (the owner for a heads-up), the occurrence's scheduled
+--                   instant (a dose whose time moves gets new keys;
+--                   src/lib/schedule/reminders.ts), reminder (a heads-up's
+--                   lead) and device (push_subscriptions.id). The planner
+--                   inserts with ON CONFLICT DO NOTHING, so a duplicate or
+--                   overlapping cron call never adds a second row, and a row
+--                   is sent at most once by the dispatcher.
 --                   status: pending -> claimed (a lease) -> sent | suppressed
 --                   | failed | gone, or back to pending for a retry. "sent"
 --                   means the push service ACCEPTED the message, never that
@@ -29,14 +40,16 @@
 -- The dispatcher (src/lib/reminders/dispatch.ts, called every minute by
 -- /api/cron/reminders) does, per call:
 --   1. plan_reminder_jobs(p_now): plans the reminders whose time is in
---      (now - 30 minutes, now + 1 minute] for every active device of an
---      owner on the current research terms (agreed_to_current_terms), from
+--      (now - 30 minutes, now + 1 minute] (a follow-up's: (now - 2 hours,
+--      now + 1 minute], as long as it stays relevant) for every active
+--      device of an owner on the current research terms (agreed_to_current_terms), from
 --      cycle_plan_occurrences() (plans in the current revision of each cycle
---      with an active phase around now; not logged, not skipped) and
---      due_supplement_occurrences() (paged by cursor). A missed call is
---      caught up by the next one; a reminder already more than 15 minutes
---      late is still planned so the dispatcher records it as skipped
---      ("late"). It also purges finished jobs older than 30 days (bounded).
+--      with an active phase around now; not logged, not skipped; a heads-up
+--      when the owner's setting is on) and due_supplement_occurrences()
+--      (paged by cursor). A missed call is caught up by the next one; a
+--      reminder already too late is still planned so the dispatcher records
+--      it as skipped ("late"). It also purges finished jobs older than 30
+--      days (bounded).
 --      Returns the clock it used: the database's now() unless the caller
 --      passes one (tests).
 --   2. claim_reminder_jobs(p_now, p_limit, p_lease_seconds, p_max_attempts):
@@ -50,8 +63,10 @@
 --      (active, still that owner's, not marked off in push_device_off) and
 --      whether the owner still agrees to the current terms.
 --   3. The dispatcher rechecks the occurrence itself (logged, skipped, gone
---      or moved by an edit, cycle or phase ended, superseded, late) from the
---      owner's current records, and sends through src/lib/push/send.ts.
+--      or moved by an edit, cycle or phase ended, superseded, late; for a
+--      heads-up: the setting, and every dose still planned at that instant)
+--      from the owner's current records, and sends through
+--      src/lib/push/send.ts.
 --   4. finish_reminder_job(p_id, p_lease_token, ...): records the outcome,
 --      only while the caller still holds the lease (a call whose lease
 --      expired and was taken over records nothing), or puts the job back to
@@ -68,8 +83,8 @@
 create table public.reminder_jobs (
   id uuid primary key default gen_random_uuid(),
   job_key text not null check (char_length(job_key) <= 400),
-  source text not null check (source in ('dose', 'supplement')),
-  kind text not null check (kind in ('due', 'follow-up-30m', 'follow-up-2h')),
+  source text not null check (source in ('dose', 'heads-up', 'supplement')),
+  kind text not null check (kind in ('due', 'follow-up-1h', 'heads-up')),
   owner_id uuid not null references public.profiles (id) on delete cascade,
   subscription_id uuid not null references public.push_subscriptions (id) on delete cascade,
   plan_id uuid,
@@ -77,8 +92,11 @@ create table public.reminder_jobs (
   occurrence_key text not null check (char_length(occurrence_key) <= 200),
   -- The occurrence's scheduled instant when the job was planned.
   occurrence_at timestamptz not null,
-  -- When the reminder is meant to go out (occurrence_at + the reminder's offset).
+  -- When the reminder is meant to go out (occurrence_at + the reminder's
+  -- offset; a heads-up's occurrence_at - lead_minutes).
   send_at timestamptz not null,
+  -- A heads-up's lead: the owner's setting when it was planned.
+  lead_minutes smallint check (lead_minutes in (15, 30, 60)),
   status text not null default 'pending'
     check (status in ('pending', 'claimed', 'sent', 'suppressed', 'failed', 'gone')),
   attempts integer not null default 0 check (attempts between 0 and 10),
@@ -94,8 +112,12 @@ create table public.reminder_jobs (
   updated_at timestamptz not null default now(),
   constraint reminder_jobs_key unique (job_key),
   constraint reminder_jobs_source_shape check (
-    (source = 'dose' and plan_id is not null and routine_id is null)
-    or (source = 'supplement' and routine_id is not null and plan_id is null and kind = 'due')
+    (source = 'dose' and kind in ('due', 'follow-up-1h') and plan_id is not null and routine_id is null
+      and lead_minutes is null)
+    or (source = 'heads-up' and kind = 'heads-up' and plan_id is null and routine_id is null
+      and lead_minutes is not null and send_at = occurrence_at - make_interval(mins => lead_minutes))
+    or (source = 'supplement' and kind = 'due' and routine_id is not null and plan_id is null
+      and lead_minutes is null)
   ),
   constraint reminder_jobs_lease check ((status = 'claimed') = (lease_token is not null)),
   constraint reminder_jobs_finished check ((status in ('sent', 'suppressed', 'failed', 'gone')) = (finished_at is not null))
@@ -139,6 +161,9 @@ declare
   -- Reminders whose time is in (v_from, v_to].
   v_from timestamptz := coalesce(p_now, now()) - interval '30 minutes';
   v_to timestamptz := coalesce(p_now, now()) + interval '1 minute';
+  -- A follow-up's: (v_follow_from, v_to], while it is still relevant
+  -- (src/lib/schedule/reminders.ts FOLLOW_UP_RELEVANCE_MINUTES).
+  v_follow_from timestamptz := coalesce(p_now, now()) - interval '2 hours';
   v_planned integer := 0;
   v_rows integer;
   v_after_at timestamptz;
@@ -146,7 +171,8 @@ declare
   v_feed integer;
   v_purged integer;
 begin
-  -- Peptide doses: due, then follow-ups 30 minutes and 2 hours later.
+  -- Peptide doses: due, then one follow-up an hour later; and one heads-up
+  -- per owner and planned instant, the owner's lead before it.
   with devices as (
     select s.id, s.profile_id
     from public.push_subscriptions s
@@ -155,40 +181,70 @@ begin
         select 1 from public.push_device_off o where o.profile_id = s.profile_id and o.device_id = s.device_id)
       and public.agreed_to_current_terms(s.profile_id)
   ),
+  owners as (
+    select d.profile_id, coalesce(ap.heads_up_minutes, 15)::integer as lead
+    from (select distinct x.profile_id from devices x) d
+    left join public.account_preferences ap on ap.owner_id = d.profile_id
+  ),
   plans as (
     select rp.plan_id, c.owner_id
     from public.cycles c
     join public.cycle_revisions rv on rv.cycle_id = c.id and rv.number = c.current_revision
     join public.cycle_revision_plans rp on rp.revision_id = rv.id
-    where c.owner_id in (select d.profile_id from devices d)
+    where c.owner_id in (select w.profile_id from owners w)
       and exists (
         select 1 from public.cycle_revision_phases ph
         where ph.revision_id = rv.id and ph.plan_id = rp.plan_id and ph.kind = 'active'
-          and ph.start_date <= (v_to at time zone rv.time_zone)::date
-          and ph.end_date >= ((v_from - interval '2 hours') at time zone rv.time_zone)::date)
+          and ph.start_date <= ((v_to + interval '1 hour') at time zone rv.time_zone)::date
+          and ph.end_date >= ((v_follow_from - interval '1 hour') at time zone rv.time_zone)::date)
   ),
-  slots as (
-    select p.plan_id, p.owner_id, o.occurrence_key, o.scheduled_at, k.kind, o.scheduled_at + k.offset_by as send_at
+  -- Open occurrences from an hour before the follow-ups' window to an hour
+  -- after the window (the longest heads-up).
+  occurrences as materialized (
+    select p.plan_id, p.owner_id, o.occurrence_key, o.scheduled_at
     from plans p
     cross join lateral public.cycle_plan_occurrences(p.plan_id) o
-    cross join (values
-      ('due', interval '0 minutes'),
-      ('follow-up-30m', interval '30 minutes'),
-      ('follow-up-2h', interval '2 hours')) k(kind, offset_by)
     where o.actual_at is null
-      and o.scheduled_at > v_from - interval '2 hours' and o.scheduled_at <= v_to
-      and o.scheduled_at + k.offset_by > v_from and o.scheduled_at + k.offset_by <= v_to
+      and o.scheduled_at > v_follow_from - interval '1 hour' and o.scheduled_at <= v_to + interval '1 hour'
       and not exists (
         select 1 from public.dose_skips sk where sk.plan_id = p.plan_id and sk.occurrence_key = o.occurrence_key)
+  ),
+  slots as (
+    select o.plan_id, o.owner_id, o.occurrence_key, o.scheduled_at, k.kind, o.scheduled_at + k.offset_by as send_at
+    from occurrences o
+    cross join (values ('due', interval '0 minutes', v_from), ('follow-up-1h', interval '1 hour', v_follow_from)) k(kind, offset_by, since)
+    where o.scheduled_at + k.offset_by > k.since and o.scheduled_at + k.offset_by <= v_to
+  ),
+  heads_up as (
+    select distinct o.owner_id, o.scheduled_at, w.lead, o.scheduled_at - make_interval(mins => w.lead) as send_at
+    from occurrences o
+    join owners w on w.profile_id = o.owner_id
+    where w.lead > 0
+      and o.scheduled_at - make_interval(mins => w.lead) > v_from
+      and o.scheduled_at - make_interval(mins => w.lead) <= v_to
+  ),
+  dose_jobs as (
+    insert into public.reminder_jobs as j
+      (job_key, source, kind, owner_id, subscription_id, plan_id, occurrence_key, occurrence_at, send_at, next_attempt_at)
+    select 'dose:' || s.occurrence_key || '@' || public.reminder_instant_text(s.scheduled_at) || '#' || s.kind || ':' || d.id,
+           'dose', s.kind, s.owner_id, d.id, s.plan_id, s.occurrence_key, s.scheduled_at, s.send_at, s.send_at
+    from slots s
+    join devices d on d.profile_id = s.owner_id
+    on conflict (job_key) do nothing
+    returning 1
+  ),
+  heads_up_jobs as (
+    insert into public.reminder_jobs as j
+      (job_key, source, kind, owner_id, subscription_id, occurrence_key, occurrence_at, send_at, lead_minutes, next_attempt_at)
+    select 'heads-up:' || h.owner_id || '@' || public.reminder_instant_text(h.scheduled_at) || '#' || h.lead || 'm:' || d.id,
+           'heads-up', 'heads-up', h.owner_id, d.id, public.reminder_instant_text(h.scheduled_at), h.scheduled_at,
+           h.send_at, h.lead, h.send_at
+    from heads_up h
+    join devices d on d.profile_id = h.owner_id
+    on conflict (job_key) do nothing
+    returning 1
   )
-  insert into public.reminder_jobs as j
-    (job_key, source, kind, owner_id, subscription_id, plan_id, occurrence_key, occurrence_at, send_at, next_attempt_at)
-  select 'dose:' || s.occurrence_key || '@' || public.reminder_instant_text(s.scheduled_at) || '#' || s.kind || ':' || d.id,
-         'dose', s.kind, s.owner_id, d.id, s.plan_id, s.occurrence_key, s.scheduled_at, s.send_at, s.send_at
-  from slots s
-  join devices d on d.profile_id = s.owner_id
-  on conflict (job_key) do nothing;
-  get diagnostics v_rows = row_count;
+  select (select count(*) from dose_jobs) + (select count(*) from heads_up_jobs) into v_rows;
   v_planned := v_planned + v_rows;
 
   -- Supplements: one reminder when due, a page of the feed at a time.
@@ -253,6 +309,7 @@ returns table (
   occurrence_key text,
   occurrence_at timestamptz,
   send_at timestamptz,
+  lead_minutes smallint,
   attempts integer,
   subscription_id uuid,
   endpoint text,
@@ -306,7 +363,7 @@ begin
     returning j.*
   )
   select c.id, c.lease_token, c.source, c.kind, c.owner_id, c.plan_id, c.routine_id, c.occurrence_key,
-         c.occurrence_at, c.send_at, c.attempts, s.id, s.endpoint, s.p256dh, s.auth,
+         c.occurrence_at, c.send_at, c.lead_minutes, c.attempts, s.id, s.endpoint, s.p256dh, s.auth,
          (s.disabled_at is null and s.profile_id = c.owner_id
            and not exists (
              select 1 from public.push_device_off o where o.profile_id = c.owner_id and o.device_id = s.device_id)),

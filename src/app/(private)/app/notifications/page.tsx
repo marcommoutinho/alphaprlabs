@@ -6,6 +6,11 @@ import { pushTestEnabled } from "@/lib/push/send";
 export default async function NotificationsPage() {
   const researcher = await requireResearcher("/app/notifications");
   return (
-    <RemindersSettings userId={researcher.id} vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? ""} testEnabled={pushTestEnabled()} />
+    <RemindersSettings
+      userId={researcher.id}
+      vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? ""}
+      testEnabled={pushTestEnabled()}
+      headsUpMinutes={researcher.preferences.headsUpMinutes}
+    />
   );
 }

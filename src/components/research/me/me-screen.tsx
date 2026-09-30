@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, Eye, EyeOff, LogOut } from "lucide-react";
+import { Eye, EyeOff, LogOut } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { savePreferencesAction, shareWithTeamAction, stopSharingAction } from "@/app/(private)/app/me/actions";
 import { setSupplementTrackingAction } from "@/app/(private)/app/supplements/actions";
@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils";
 import { CYCLES_MAIN } from "../cycles/cycles-list";
 import { useRequestKey, useSheetAction } from "../supplies/supplies-shared";
 import { ChoiceSheet, ShareSheet, StopSheet } from "./me-sheets";
+import { SettingRow } from "./setting-row";
 
 export type MeView = {
   id: string;
@@ -196,42 +197,6 @@ function useDeviceReminders(userId: string): string {
     return () => window.removeEventListener("storage", read);
   }, [userId]);
   return value;
-}
-
-function SettingRow({
-  label,
-  value,
-  mono = false,
-  onClick,
-  href,
-  testId,
-}: {
-  label: string;
-  value: React.ReactNode;
-  mono?: boolean;
-  onClick?: () => void;
-  href?: string;
-  testId: string;
-}) {
-  const body = (
-    <>
-      <span className="min-w-0 flex-1 text-base">{label}</span>
-      <span className={cn("shrink-0 text-ink-2", mono ? "font-mono text-[15px] font-medium" : "text-base")} data-testid={`${testId}-value`}>
-        {value}
-      </span>
-      <ChevronRight className="size-[18px] shrink-0 text-ink-3" aria-hidden />
-    </>
-  );
-  const classes = "flex h-14 w-full cursor-pointer items-center gap-2.5 pr-3 pl-4 text-left hover:bg-[color-mix(in_oklab,var(--ink)_3%,transparent)]";
-  return href ? (
-    <Link href={href} className={classes} data-testid={testId}>
-      {body}
-    </Link>
-  ) : (
-    <button type="button" onClick={onClick} className={classes} data-testid={testId}>
-      {body}
-    </button>
-  );
 }
 
 /** R8 "Tracking": the vial and supplement switches (moved here from Supplies) and dose reminders. */

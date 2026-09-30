@@ -19,23 +19,35 @@ export type Preferences = {
   weightUnit: WeightUnit;
   /** Null: never chosen on the account, so the device keeps its own (the cookie; System without one). */
   appearance: Appearance | null;
+  /** The advance heads-up before each dose time, in minutes; 0 is Off (S13; Marco, 2026-09-30). */
+  headsUpMinutes: HeadsUpMinutes;
 };
+
+/** Advance heads-up choices (account_preferences.heads_up_minutes): Off, then 15, 30 and 60 minutes before. */
+export const HEADS_UP_CHOICES = [0, 15, 30, 60] as const;
+export type HeadsUpMinutes = (typeof HEADS_UP_CHOICES)[number];
+export const isHeadsUpMinutes = (value: unknown): value is HeadsUpMinutes =>
+  typeof value === "number" && (HEADS_UP_CHOICES as readonly number[]).includes(value);
 
 /**
  * An account that never saved a preference: 100-unit, lb (Marco, 2026-09-28:
- * pounds by default, kilograms a choice), and the device's own appearance.
+ * pounds by default, kilograms a choice), the device's own appearance, and a
+ * heads-up 15 minutes before each dose (Marco, 2026-09-30).
  */
-export const DEFAULT_PREFERENCES: Preferences = { defaultSyringe: 100, weightUnit: "lb", appearance: null };
+export const DEFAULT_PREFERENCES: Preferences = { defaultSyringe: 100, weightUnit: "lb", appearance: null, headsUpMinutes: 15 };
 
 export const isWeightUnit = (value: unknown): value is WeightUnit => value === "kg" || value === "lb";
 
 /** The stored row (account_preferences), or null when there is none, as preferences; anything unexpected reads as the default. */
-export function resolvePreferences(row: { default_syringe: number; weight_unit: string; appearance: string | null } | null | undefined): Preferences {
+export function resolvePreferences(
+  row: { default_syringe: number; weight_unit: string; appearance: string | null; heads_up_minutes?: number | null } | null | undefined,
+): Preferences {
   if (!row) return DEFAULT_PREFERENCES;
   return {
     defaultSyringe: isSyringeCapacity(row.default_syringe) ? row.default_syringe : DEFAULT_PREFERENCES.defaultSyringe,
     weightUnit: isWeightUnit(row.weight_unit) ? row.weight_unit : DEFAULT_PREFERENCES.weightUnit,
     appearance: isAppearance(row.appearance) ? row.appearance : null,
+    headsUpMinutes: isHeadsUpMinutes(row.heads_up_minutes) ? row.heads_up_minutes : DEFAULT_PREFERENCES.headsUpMinutes,
   };
 }
 
@@ -70,8 +82,13 @@ export function appearanceRowLabel(account: Appearance | null, device: Appearanc
   return account ? APPEARANCE_LABEL[account] : `${APPEARANCE_LABEL[device]} · this device`;
 }
 
-/** What a preference save changes: one or more of the three. */
-export type PreferencePatch = Partial<{ defaultSyringe: SyringeCapacity; weightUnit: WeightUnit; appearance: Appearance }>;
+/** What a preference save changes: one or more of the four. */
+export type PreferencePatch = Partial<{
+  defaultSyringe: SyringeCapacity;
+  weightUnit: WeightUnit;
+  appearance: Appearance;
+  headsUpMinutes: HeadsUpMinutes;
+}>;
 
 /** A patch from untrusted input (a server action), or null when it names nothing valid or anything invalid. */
 export function parsePatch(input: unknown): PreferencePatch | null {
@@ -84,6 +101,7 @@ export function parsePatch(input: unknown): PreferencePatch | null {
     if (key === "defaultSyringe" && isSyringeCapacity(value)) patch.defaultSyringe = value;
     else if (key === "weightUnit" && isWeightUnit(value)) patch.weightUnit = value;
     else if (key === "appearance" && isAppearance(value)) patch.appearance = value;
+    else if (key === "headsUpMinutes" && isHeadsUpMinutes(value)) patch.headsUpMinutes = value;
     else return null;
   }
   return Object.keys(patch).length ? patch : null;

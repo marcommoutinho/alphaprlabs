@@ -45,6 +45,7 @@ export type Database = {
         Row: {
           appearance: string | null
           default_syringe: number
+          heads_up_minutes: number
           owner_id: string
           updated_at: string
           weight_unit: string
@@ -52,6 +53,7 @@ export type Database = {
         Insert: {
           appearance?: string | null
           default_syringe?: number
+          heads_up_minutes?: number
           owner_id: string
           updated_at?: string
           weight_unit?: string
@@ -59,6 +61,7 @@ export type Database = {
         Update: {
           appearance?: string | null
           default_syringe?: number
+          heads_up_minutes?: number
           owner_id?: string
           updated_at?: string
           weight_unit?: string
@@ -1619,6 +1622,7 @@ export type Database = {
           id: string
           job_key: string
           kind: string
+          lead_minutes: number | null
           lease_token: string | null
           next_attempt_at: string
           occurrence_at: string
@@ -1641,6 +1645,7 @@ export type Database = {
           id?: string
           job_key: string
           kind: string
+          lead_minutes?: number | null
           lease_token?: string | null
           next_attempt_at: string
           occurrence_at: string
@@ -1663,6 +1668,7 @@ export type Database = {
           id?: string
           job_key?: string
           kind?: string
+          lead_minutes?: number | null
           lease_token?: string | null
           next_attempt_at?: string
           occurrence_at?: string
@@ -2383,6 +2389,7 @@ export type Database = {
           endpoint: string
           id: string
           kind: string
+          lead_minutes: number
           lease_token: string
           occurrence_at: string
           occurrence_key: string
@@ -2725,6 +2732,7 @@ export type Database = {
         Args: {
           p_appearance?: string
           p_default_syringe?: number
+          p_heads_up_minutes?: number
           p_request_hash: string
           p_request_key: string
           p_weight_unit?: string

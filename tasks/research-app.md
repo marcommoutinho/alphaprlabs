@@ -81,7 +81,7 @@ only after that researcher explicitly grants access.
 - **V3 — Reminders and logging.** The browser-installable web app provides phone
   push notifications. Interval schedules follow the actual confirmed injection
   time; fixed weekday schedules retain their weekdays. An unconfirmed dose can
-  receive one or two follow-up reminders and stays unconfirmed until the
+  receive one follow-up reminder and stays unconfirmed until the
   researcher confirms it, even after later scheduled events. Taken is a one-tap
   action. Actual amount, date/time, injection site, and observations are optional
   details. Researchers can override the recorded date/time when logging late.
@@ -137,7 +137,8 @@ switches to the back office and back.
   8:05 PM across a daylight-saving change, including every-N-days routines.
 - One dose time per day per peptide phase; twice-a-day routines are not needed.
 - A reminder more than 15 minutes late (for example after a reminder outage)
-  is skipped; the 30-minute and 2-hour follow-ups still go out.
+  is skipped; the follow-up still goes out. (The 30-minute and 2-hour
+  follow-ups of plan D3 are superseded: see "Reminder decisions" below.)
 - Changing the dose partway through an every-N-days phase keeps the rhythm
   from the last dose; it does not restart the count.
 - Calculator numbers accept a comma as the decimal point ("1,5" = 1.5).
@@ -148,6 +149,25 @@ switches to the back office and back.
 - Purchases and sales cannot be dated in the future. A sale may be dated
   before the purchase whose stock it uses (stock is sometimes entered late).
 - Zero-price sales (free samples) and zero-cost purchases are allowed.
+
+### Reminder decisions (Marco, 2026-09-30)
+
+These supersede plan D3 (two follow-ups, 30 minutes and 2 hours after).
+
+- One follow-up, an hour after the planned time; it is the last reminder for
+  that dose. It stops on the same rules (logged, skipped, phase end, the next
+  dose due). The more-than-15-minutes-late skip applies to the due reminder
+  only; the follow-up still goes out while relevant (up to 2 hours after its
+  time).
+- A heads-up before each dose time, on by default 15 minutes before. Each
+  person chooses Off, 15, 30 or 60 minutes (Me › Dose reminders, "Advance
+  heads-up"; stored with the account). One heads-up per planned time,
+  grouping every dose planned then; it opens that dose when there is one,
+  else Today. The first dose's due reminder replaces it on the phone. It is
+  skipped once the time has come or when more than 15 minutes late, when
+  every dose in it is logged or skipped, and when the terms are outdated or
+  the device is off. Supplements get no heads-up.
+- No syringe size in any notification: units only.
 - The buyer list for a sale includes admins, since admins are researchers.
   It starts blank (no account preselected) and can be searched by name or
   email.
@@ -455,7 +475,7 @@ A researcher can receive phone reminders and confirm what they actually took.
   are optional details.
 - A late entry can use the actual injection date/time. Interval reminders follow
   that time, while fixed weekday schedules retain their weekdays.
-- One or two follow-ups can remind the researcher about an unconfirmed entry.
+- One follow-up can remind the researcher about an unconfirmed entry.
   The entry remains open for later confirmation and is not assumed taken.
 
 ### Story ST-4: Calculate from a saved vial mixture

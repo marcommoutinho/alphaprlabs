@@ -1,12 +1,13 @@
-// Reminder timing the dispatcher (S13) uses (plan D3 and "Reminder delivery
-// design"): a reminder when due, follow-ups at 30 minutes and 2 hours, stop
-// rules, no bursts of historical reminders, keys that change when a
+// Reminder timing the dispatcher (S13) uses ("Reminder delivery design";
+// Marco, 2026-09-30: one follow-up an hour after the planned time): a
+// reminder when due, the follow-up, stop rules, no bursts of historical
+// reminders, keys that change when a
 // not-yet-due dose's scheduled time moves and stay put once it is due, and
 // keys scoped by peptide plan.
 import { Temporal } from "@js-temporal/polyfill";
 import { describe, expect, it } from "vitest";
 import { type ActivePhase, type Occurrence, scheduleOccurrences } from "@/lib/schedule/engine";
-import { DEFAULT_REMINDER_GRACE_MINUTES, reminderSlots, reminderToSend } from "@/lib/schedule/reminders";
+import { DEFAULT_REMINDER_GRACE_MINUTES, FOLLOW_UP_RELEVANCE_MINUTES, reminderSlots, reminderToSend } from "@/lib/schedule/reminders";
 
 const TZ = "America/Toronto"; // UTC−4 in September 2026
 const interval: ActivePhase = {
@@ -29,31 +30,30 @@ const first = schedule(interval)[0]; // Sep 2 20:00 local = 2026-09-03T00:00:00Z
 const plus = (iso: string, minutes: number) => Temporal.Instant.from(iso).add({ minutes }).toString();
 
 describe("reminderSlots", () => {
-  it("offers the due reminder and follow-ups at 30 minutes and 2 hours", () => {
+  it("offers the due reminder and one follow-up an hour later", () => {
     expect(reminderSlots(first)).toEqual([
       { key: "p1:i1:0@2026-09-03T00:00:00Z#due", occurrenceKey: "p1:i1:0", kind: "due", at: "2026-09-03T00:00:00Z" },
-      { key: "p1:i1:0@2026-09-03T00:00:00Z#follow-up-30m", occurrenceKey: "p1:i1:0", kind: "follow-up-30m", at: "2026-09-03T00:30:00Z" },
-      { key: "p1:i1:0@2026-09-03T00:00:00Z#follow-up-2h", occurrenceKey: "p1:i1:0", kind: "follow-up-2h", at: "2026-09-03T02:00:00Z" },
+      { key: "p1:i1:0@2026-09-03T00:00:00Z#follow-up-1h", occurrenceKey: "p1:i1:0", kind: "follow-up-1h", at: "2026-09-03T01:00:00Z" },
     ]);
   });
 
   it("offers nothing once confirmed", () => {
     const [confirmed] = schedule(interval, [{ key: "p1:i1:0", actualAt: "2026-09-03T00:05:00Z" }]);
     expect(reminderSlots(confirmed)).toEqual([]);
-    expect(reminderToSend(confirmed, "2026-09-03T00:30:00Z")).toBeNull();
+    expect(reminderToSend(confirmed, "2026-09-03T01:00:00Z")).toBeNull();
   });
 
   it("stops follow-ups at the phase end", () => {
-    // Last dose of the phase at 23:00; the phase ends at midnight.
-    const late = schedule({ ...interval, start: "2026-09-30", time: "23:00" })[0];
+    // Last dose of the phase at 23:30; the phase ends at midnight.
+    const late = schedule({ ...interval, start: "2026-09-30", time: "23:30" })[0];
     expect(late.remindersStopAt).toBe("2026-10-01T04:00:00Z");
-    expect(reminderSlots(late).map((s) => s.kind)).toEqual(["due", "follow-up-30m"]);
+    expect(reminderSlots(late).map((s) => s.kind)).toEqual(["due"]);
   });
 
   it("stops follow-ups when the next occurrence becomes due", () => {
-    const occurrence: Occurrence = { ...first, remindersStopAt: "2026-09-03T01:00:00Z" };
-    expect(reminderSlots(occurrence).map((s) => s.kind)).toEqual(["due", "follow-up-30m"]);
-    expect(reminderToSend(occurrence, "2026-09-03T01:00:00Z")).toBeNull();
+    const occurrence: Occurrence = { ...first, remindersStopAt: "2026-09-03T00:45:00Z" };
+    expect(reminderSlots(occurrence).map((s) => s.kind)).toEqual(["due"]);
+    expect(reminderToSend(occurrence, "2026-09-03T00:45:00Z")).toBeNull();
   });
 
   it("changes keys when the dose's scheduled time moves, so a moved dose is reminded again", () => {
@@ -66,27 +66,23 @@ describe("reminderSlots", () => {
 });
 
 describe("reminderToSend", () => {
-  it("returns the current reminder within the grace period", () => {
+  it("returns the current reminder: the due one within 15 minutes, the follow-up while it is relevant", () => {
     expect(DEFAULT_REMINDER_GRACE_MINUTES).toBe(15);
+    expect(FOLLOW_UP_RELEVANCE_MINUTES).toBe(120);
     const kindAt = (minutes: number) => reminderToSend(first, plus(first.scheduledAt, minutes))?.kind ?? null;
     expect(kindAt(-1)).toBeNull();
     expect(kindAt(0)).toBe("due");
     expect(kindAt(15)).toBe("due");
     expect(kindAt(16)).toBeNull();
-    expect(kindAt(30)).toBe("follow-up-30m");
-    expect(kindAt(119)).toBeNull();
-    expect(kindAt(120)).toBe("follow-up-2h");
-    expect(kindAt(135)).toBe("follow-up-2h");
-    expect(kindAt(136)).toBeNull();
+    expect(kindAt(59)).toBeNull();
+    expect(kindAt(60)).toBe("follow-up-1h");
+    expect(kindAt(90)).toBe("follow-up-1h");
+    expect(kindAt(180)).toBe("follow-up-1h");
+    expect(kindAt(181)).toBeNull();
     expect(kindAt(60 * 24)).toBeNull();
   });
 
-  it("accepts a custom grace period", () => {
-    expect(reminderToSend(first, plus(first.scheduledAt, 25), { graceMinutes: 30 })?.kind).toBe("due");
-    expect(reminderToSend(first, plus(first.scheduledAt, 1), { graceMinutes: 0 })).toBeNull();
-  });
-
-  it("sends each reminder once to a dispatcher ticking every minute, and skips ones missed by downtime", () => {
+  it("sends each reminder once to a dispatcher ticking every minute, and skips a late due one", () => {
     const tick = (skip: (minute: number) => boolean) => {
       const sent = new Set<string>();
       for (let minute = -10; minute <= 60 * 5; minute++) {
@@ -96,11 +92,11 @@ describe("reminderToSend", () => {
       }
       return [...sent].map((key) => key.split("#")[1]);
     };
-    expect(tick(() => false)).toEqual(["due", "follow-up-30m", "follow-up-2h"]);
+    expect(tick(() => false)).toEqual(["due", "follow-up-1h"]);
     // Down from due −1 to due +20 minutes: the due reminder is skipped, not sent late.
-    expect(tick((m) => m >= -1 && m <= 20)).toEqual(["follow-up-30m", "follow-up-2h"]);
-    // Down for 10 minutes after the 30-minute follow-up: it's still sent within the grace period.
-    expect(tick((m) => m >= 30 && m <= 39)).toEqual(["due", "follow-up-30m", "follow-up-2h"]);
+    expect(tick((m) => m >= -1 && m <= 20)).toEqual(["follow-up-1h"]);
+    // Down for 40 minutes after the follow-up's time: it still goes out.
+    expect(tick((m) => m >= 60 && m <= 99)).toEqual(["due", "follow-up-1h"]);
   });
 
   it("sends no burst of historical reminders when a backdated confirmation moves a dose into the past", () => {

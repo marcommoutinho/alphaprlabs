@@ -87,7 +87,7 @@ part of the proposed execution map.
 | --- | --- | --- |
 | D1 — Sales currency | One currency for launch, CAD. Store the currency explicitly; do not mix currencies in a profit total. | Admin purchases and sales |
 | D2 — Cost of stock sold | FIFO: allocate each sale against the oldest remaining purchase quantities of that peptide and strength, retaining its cost allocation. | Admin sales |
-| D3 — Follow-up window | Two follow-ups, 30 minutes and 2 hours after an unconfirmed dose becomes due. Unconfirmed entries remain open. | Reminder worker |
+| D3 — Follow-up window | ~~Two follow-ups, 30 minutes and 2 hours after an unconfirmed dose becomes due.~~ Superseded (Marco, 2026-09-30): one follow-up, an hour after the planned time, the last reminder for that dose; plus a heads-up before each dose time (tasks/research-app.md, "Reminder decisions"). Unconfirmed entries remain open. | Reminder worker |
 | D4 — Calendar behavior | Fixed weekdays retain local clock time; elapsed intervals follow actual confirmed injection time. Missed doses do not automatically extend phases. | Schedule engine and cycle editing |
 | D5 — Syringe precision | Researchers select the actual syringe marking increment. Unmeasurable amounts are flagged without automatically rounding the intended dose. | Calculator and saved mixtures |
 
@@ -503,8 +503,9 @@ weekdays stay put; old unconfirmed doses remain actionable. **7–10 min.**
 
 - **Lane A — S13: Reminder dispatcher and follow-ups.** Queue with leases and
   attempts, the authenticated dispatcher route, `vercel.json` cron, the local
-  timer script, follow-ups at 30 minutes and 2 hours with the approved stop
-  rules, payloads naming the peptide, mg and syringe units, stale-reminder
+  timer script, follow-ups with the approved stop rules (one, an hour after
+  the planned time, and a heads-up before it, since 2026-09-30), payloads
+  naming the peptide, mg and syringe units, stale-reminder
   suppression, badge count of unconfirmed doses, and the send on/off control.
   Owns all schema changes in this group. **Risk:** GUARDED. **Proof:**
   duplicate and missed timer calls, an interrupted claim, a transient failure

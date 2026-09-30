@@ -4,11 +4,14 @@
 // researcher, device and dose times, and reads only its own device's sends:
 // the dispatcher serves every account in the database, as in production.
 //
-// The design's proof (plan "Reminder delivery design", S13): a due reminder
-// at the due minute, then the 30-minute and 2-hour follow-ups, each once;
-// logging or skipping stops the follow-ups; a plan edit or a plan's end
-// suppresses stale jobs; duplicate and overlapping calls send nothing twice;
-// a missed call skips the late due reminder but still sends the follow-up; an
+// The design's proof (plan "Reminder delivery design", S13; Marco,
+// 2026-09-30): a heads-up before the dose (15 minutes by default, 30 or 60
+// when chosen, none when Off), a due reminder at the due minute replacing
+// it, then one follow-up an hour later and nothing after; one heads-up for
+// all doses planned at the same time; logging or skipping stops what is
+// left; a plan edit or a plan's end suppresses stale jobs; duplicate and
+// overlapping calls send nothing twice; a missed call skips the late due
+// reminder (and a late heads-up) but still sends the follow-up; an
 // interrupted claim is recovered; a transient failure is retried within the
 // bound; a gone subscription is disabled; outdated terms or a device turned
 // off get nothing; the badge; a daylight-saving change; a supplement
@@ -20,8 +23,9 @@ import { clock12, massLabel } from "@/lib/alpha/format";
 import { getCycle, listCycles, plansArgument } from "@/lib/cycles/service";
 import { ownerConfirmations } from "@/lib/doses/service";
 import { pendingDoses } from "@/lib/doses/today";
+import type { HeadsUpMinutes } from "@/lib/preferences/rules";
 import type { PushDeps, PushPayload } from "@/lib/push/send";
-import { doseReminderText, supplementReminderText } from "@/lib/reminders/copy";
+import { doseReminderText, headsUpText, supplementReminderText } from "@/lib/reminders/copy";
 import { doseReminderUrl, reminderTag, reminderTopic, SUPPLEMENT_REMINDER_URL } from "@/lib/reminders/rules";
 import type { ReminderKind } from "@/lib/schedule/reminders";
 import { type Client, createCycle, createPeptide, day, interval, plan, saveCycle, tag, TORONTO, weekdays } from "../support/cycles";
@@ -82,6 +86,26 @@ async function researcher(label: string): Promise<Person> {
   return { id, db: await signedInClient(email) };
 }
 
+/** Sets `person`'s Advance heads-up (Me › Notifications) through the preference writer, as they would. */
+async function setHeadsUp(person: Person, minutes: HeadsUpMinutes) {
+  const saved = await ok(
+    person.db.rpc("save_account_preferences", {
+      p_request_key: randomUUID(),
+      p_request_hash: randomBytes(32).toString("hex"),
+      p_heads_up_minutes: minutes,
+    }),
+    "heads-up setting",
+  );
+  expect(saved).toMatchObject({ heads_up_minutes: minutes });
+}
+
+/** A researcher with the heads-up Off: the scenarios about the due reminder and its follow-up. */
+async function quietResearcher(label: string): Promise<Person> {
+  const person = await researcher(label);
+  await setHeadsUp(person, 0);
+  return person;
+}
+
 /** Turns reminders on for a new device of `person`; returns its endpoint and subscription id. */
 async function device(person: Person) {
   const endpoint = `https://fcm.googleapis.com/fcm/send/${randomBytes(12).toString("hex")}`;
@@ -107,7 +131,7 @@ const jobsOf = (subscriptionId: string) =>
   ok(
     serviceClient()
       .from("reminder_jobs")
-      .select("kind, source, status, attempts, result, status_code, occurrence_key, occurrence_at, send_at")
+      .select("kind, source, status, attempts, result, status_code, occurrence_key, occurrence_at, send_at, lead_minutes")
       .eq("subscription_id", subscriptionId)
       .order("send_at")
       .order("kind"),
@@ -138,7 +162,8 @@ afterAll(async () => {
 });
 
 describe("dose reminders", () => {
-  it("sends the due reminder at the due minute, then the 30-minute and 2-hour follow-ups, each once, with the badge", async () => {
+  it("sends the default heads-up 15 minutes ahead, the due reminder at the due minute, then one follow-up an hour later, each once, with the badge", async () => {
+    // Never chose a heads-up: the default, 15 minutes.
     const me = await researcher("timeline");
     const phone = await device(me);
     // Every day at 06:10 from three days ago: yesterday's dose is the one followed here.
@@ -153,59 +178,68 @@ describe("dose reminders", () => {
     const T = new Date(o.scheduledAt);
     expect(T).toEqual(at(day(-1), "06:10"));
 
-    const facts = { peptide: peptideAName, amount: massLabel("0.4"), time: clock12("06:10"), units: "10", syringe: "100-unit" };
-    const expected = (kind: ReminderKind, badge: number) => ({
-      ...doseReminderText(kind, facts),
-      url: doseReminderUrl(o.key),
-      tag: reminderTag("dose", o.key),
-      badge,
-    });
+    // Units only, never the syringe's size.
+    const facts = { peptide: peptideAName, amount: massLabel("0.4"), time: clock12("06:10"), units: "10" };
+    const tagOf = reminderTag("dose", o.key);
+    const expected = (kind: ReminderKind, badge: number) => ({ ...doseReminderText(kind, facts), url: doseReminderUrl(o.key), tag: tagOf, badge });
+    const badgeAt = async (when: Date) => pendingDoses(await listCycles(me.db, me.id), await ownerConfirmations(me.db, me.id), when);
 
-    await run(later(T, -1)); // planned a minute ahead, not sent early
+    await run(later(T, -16)); // the heads-up is planned a minute ahead, not sent early
     expect(sentTo(phone.endpoint)).toEqual([]);
+    await run(later(T, -15));
+    // Days −3 and −2 are due and unconfirmed; day −1's is not due yet.
+    expect(await badgeAt(later(T, -15))).toBe(2);
+    expect(sentTo(phone.endpoint)).toEqual([
+      {
+        endpoint: phone.endpoint,
+        // The one dose at 06:10: its own words and sheet, and its tag, so its due reminder replaces the heads-up.
+        payload: { ...headsUpText({ doses: [facts], time: facts.time, lead: 15 }), url: doseReminderUrl(o.key), tag: tagOf, badge: 2 },
+        ttlSeconds: 15 * 60,
+        topic: reminderTopic(tagOf),
+        urgency: "high",
+      },
+    ]);
+
+    await run(later(T, -1)); // the due reminder is planned a minute ahead, not sent early
+    expect(sentTo(phone.endpoint)).toHaveLength(1);
 
     await run(T);
     // Days −3, −2 and −1 are due and unconfirmed: the badge Today and the app open would show.
-    const cycles = await listCycles(me.db, me.id);
-    const badgeAtT = pendingDoses(cycles, await ownerConfirmations(me.db, me.id), T);
-    expect(badgeAtT).toBe(3);
-    expect(sentTo(phone.endpoint)).toEqual([
-      { endpoint: phone.endpoint, payload: expected("due", 3), ttlSeconds: 30 * 60, topic: reminderTopic(reminderTag("dose", o.key)), urgency: "high" },
+    expect(await badgeAt(T)).toBe(3);
+    expect(sentTo(phone.endpoint).slice(1)).toEqual([
+      { endpoint: phone.endpoint, payload: expected("due", 3), ttlSeconds: 60 * 60, topic: reminderTopic(tagOf), urgency: "high" },
     ]);
 
     // A duplicate call, and the next minutes: nothing again.
     await run(T);
     await run(later(T, 1));
-    await run(later(T, 29));
-    expect(sentTo(phone.endpoint)).toHaveLength(1);
+    await run(later(T, 59));
+    expect(sentTo(phone.endpoint)).toHaveLength(2);
 
     // Day −3's dose is logged meanwhile: the next badge counts two.
     const oldest = await occurrenceOn(me.db, cycleId, day(-3));
     await ok(me.db.rpc("confirm_dose", await confirmArgsSeen(me.db, oldest)), "log day −3");
 
-    await run(later(T, 30));
-    await run(later(T, 31));
-    await run(later(T, 119));
-    await run(later(T, 120));
-    await run(later(T, 121));
-    await run(later(T, 150));
+    // The one follow-up at +1 hour, and nothing after it.
+    for (const minutes of [60, 61, 90, 119, 120, 121, 150, 180, 240]) await run(later(T, minutes));
     const all = sentTo(phone.endpoint);
-    expect(all.map((s) => s.payload)).toEqual([expected("due", 3), expected("follow-up-30m", 2), expected("follow-up-2h", 2)]);
-    // One tag and topic for the occurrence: each follow-up replaces the earlier notification.
+    expect(all.map((s) => s.payload).slice(1)).toEqual([expected("due", 3), expected("follow-up-1h", 2)]);
+    // One tag and topic for the occurrence: each reminder replaces the earlier notification.
+    expect(new Set(all.map((s) => s.payload.tag))).toEqual(new Set([tagOf]));
     expect(new Set(all.map((s) => s.topic)).size).toBe(1);
-    expect(all.map((s) => s.ttlSeconds)).toEqual([30 * 60, 90 * 60, 120 * 60]);
+    expect(all.map((s) => s.ttlSeconds)).toEqual([15 * 60, 60 * 60, 120 * 60]);
 
     const jobs = await jobsOf(phone.subscriptionId);
-    const followed = jobs.filter((j) => j.occurrence_key === o.key);
-    expect(followed.map((j) => [j.kind, j.status, j.attempts, j.status_code])).toEqual([
-      ["due", "sent", 1, 201],
-      ["follow-up-30m", "sent", 1, 201],
-      ["follow-up-2h", "sent", 1, 201],
+    expect(jobs.map((j) => [j.source, j.kind, j.status, j.attempts, j.status_code, j.lead_minutes])).toEqual([
+      ["heads-up", "heads-up", "sent", 1, 201, 15],
+      ["dose", "due", "sent", 1, 201, null],
+      ["dose", "follow-up-1h", "sent", 1, 201, null],
     ]);
+    expect(jobs.filter((j) => j.source === "dose").every((j) => j.occurrence_key === o.key)).toBe(true);
   });
 
-  it("stops the follow-ups once the dose is logged or skipped", async () => {
-    const me = await researcher("stops");
+  it("stops the follow-up once the dose is logged or skipped", async () => {
+    const me = await quietResearcher("stops");
     const phone = await device(me);
     // Two peptides at 07:20 every day, no saved mix (the notification says so).
     const cycleId = await createCycle(me.db, {
@@ -219,32 +253,33 @@ describe("dose reminders", () => {
     await run(T);
     expect(sentTo(phone.endpoint).map((s) => s.payload.tag).sort()).toEqual([reminderTag("dose", logged.key), reminderTag("dose", skipped.key)].sort());
     expect(sentTo(phone.endpoint).find((s) => s.payload.tag === reminderTag("dose", logged.key))!.payload).toMatchObject(
-      doseReminderText("due", { peptide: peptideAName, amount: massLabel("0.5"), time: clock12("07:20"), units: null, syringe: null }),
+      doseReminderText("due", { peptide: peptideAName, amount: massLabel("0.5"), time: clock12("07:20"), units: null }),
     );
 
-    // The 30-minute follow-ups are queued a minute ahead; then one dose is logged and the other skipped.
-    await run(later(T, 29));
+    // The follow-ups are queued a minute ahead; then one dose is logged and the other skipped.
+    await run(later(T, 59));
     await ok(me.db.rpc("confirm_dose", confirmArgs(logged)), "log");
     await ok(
       me.db.rpc("skip_dose", { p_request_key: randomUUID(), p_occurrence_key: skipped.key, p_seen_scheduled_at: skipped.scheduledAt, p_seen_dose_mg: skipped.doseMg }),
       "skip",
     );
-    await run(later(T, 30));
+    await run(later(T, 60));
     await run(later(T, 120));
+    await run(later(T, 180));
     expect(sentTo(phone.endpoint)).toHaveLength(2);
     const jobs = await jobsOf(phone.subscriptionId);
-    expect(jobs.filter((j) => j.kind === "follow-up-30m").map((j) => [j.occurrence_key, j.status, j.result]).sort()).toEqual(
+    expect(jobs.filter((j) => j.kind === "follow-up-1h").map((j) => [j.occurrence_key, j.status, j.result]).sort()).toEqual(
       [
         [logged.key, "suppressed", "logged"],
         [skipped.key, "suppressed", "skipped"],
       ].sort(),
     );
-    // Nothing is planned for a resolved dose afterwards.
-    expect(jobs.filter((j) => j.kind === "follow-up-2h")).toEqual([]);
+    // Only the due reminders and the follow-ups: no other reminder, and no heads-up with it Off.
+    expect(jobs.map((j) => j.kind).sort()).toEqual(["due", "due", "follow-up-1h", "follow-up-1h"]);
   });
 
   it("suppresses stale jobs after a plan edit moves a dose or ends the plan, and reminds the moved dose at its new time", async () => {
-    const me = await researcher("edits");
+    const me = await quietResearcher("edits");
     const phone = await device(me);
     // Future doses at 09:40 every day; the one in two days is queued, then the cycle is edited from tomorrow.
     const cycleId = await createCycle(me.db, {
@@ -279,12 +314,12 @@ describe("dose reminders", () => {
     expect(moved.key).toBe(moving.key);
     await run(at(day(2), "10:40"));
     expect(sentTo(phone.endpoint).map((s) => [s.payload.url, s.payload.body])).toEqual([
-      [doseReminderUrl(moved.key), doseReminderText("due", { peptide: peptideAName, amount: massLabel("0.3"), time: clock12("10:40"), units: null, syringe: null }).body],
+      [doseReminderUrl(moved.key), doseReminderText("due", { peptide: peptideAName, amount: massLabel("0.3"), time: clock12("10:40"), units: null }).body],
     ]);
   });
 
   it("sends nothing twice when two calls overlap", async () => {
-    const me = await researcher("overlap");
+    const me = await quietResearcher("overlap");
     const phones = [await device(me), await device(me), await device(me)];
     await createCycle(me.db, { plans: [plan(peptideA, [weekdays(day(-3), day(3), EVERY_DAY, "0.4", "05:05")])] });
     const T = at(day(-2), "05:05");
@@ -296,8 +331,8 @@ describe("dose reminders", () => {
     }
   });
 
-  it("skips a due reminder more than 15 minutes late after a missed call, and still sends the follow-ups", async () => {
-    const me = await researcher("missed");
+  it("skips a due reminder more than 15 minutes late after a missed call, and still sends the follow-up", async () => {
+    const me = await quietResearcher("missed");
     const phone = await device(me);
     await createCycle(me.db, { plans: [plan(peptideA, [weekdays(day(-3), day(3), EVERY_DAY, "0.4", "04:15")])] });
     const T = at(day(-2), "04:15");
@@ -305,22 +340,19 @@ describe("dose reminders", () => {
     // The call at the due minute never happens; the next one comes 20 minutes later.
     await run(later(T, 20));
     expect(sentTo(phone.endpoint)).toEqual([]);
-    await run(later(T, 30));
-    await run(later(T, 120));
-    const facts = { peptide: peptideAName, amount: massLabel("0.4"), time: clock12("04:15"), units: null, syringe: null };
-    expect(sentTo(phone.endpoint).map((s) => [s.payload.title, s.payload.body])).toEqual([
-      Object.values(doseReminderText("follow-up-30m", facts)),
-      Object.values(doseReminderText("follow-up-2h", facts)),
-    ]);
+    // Down again from just before the follow-up's time: it still goes out 30 minutes late.
+    await run(later(T, 90));
+    await run(later(T, 180));
+    const facts = { peptide: peptideAName, amount: massLabel("0.4"), time: clock12("04:15"), units: null };
+    expect(sentTo(phone.endpoint).map((s) => [s.payload.title, s.payload.body])).toEqual([Object.values(doseReminderText("follow-up-1h", facts))]);
     expect((await jobsOf(phone.subscriptionId)).map((j) => [j.kind, j.status, j.result])).toEqual([
       ["due", "suppressed", "late"],
-      ["follow-up-30m", "sent", ""],
-      ["follow-up-2h", "sent", ""],
+      ["follow-up-1h", "sent", ""],
     ]);
   });
 
   it("recovers an interrupted claim once its lease expires", async () => {
-    const me = await researcher("lease");
+    const me = await quietResearcher("lease");
     const phone = await device(me);
     await createCycle(me.db, { plans: [plan(peptideA, [weekdays(day(-3), day(3), EVERY_DAY, "0.4", "03:25")])] });
     const T = at(day(-2), "03:25");
@@ -343,7 +375,7 @@ describe("dose reminders", () => {
   });
 
   it("retries a transient failure within the bound, and gives up after the last attempt", async () => {
-    const me = await researcher("retry");
+    const me = await quietResearcher("retry");
     const [flaky, down] = [await device(me), await device(me)];
     answers.set(flaky.endpoint, (n) => (n === 1 ? 503 : 201));
     answers.set(down.endpoint, (n) => (n % 2 ? new Error("ECONNRESET") : 500));
@@ -363,13 +395,13 @@ describe("dose reminders", () => {
   });
 
   it("disables a gone subscription and sends it nothing more", async () => {
-    const me = await researcher("gone");
+    const me = await quietResearcher("gone");
     const phone = await device(me);
     answers.set(phone.endpoint, () => 410);
     await createCycle(me.db, { plans: [plan(peptideA, [weekdays(day(-3), day(3), EVERY_DAY, "0.4", "01:45")])] });
     const T = at(day(-2), "01:45");
     await run(T);
-    await run(later(T, 30));
+    await run(later(T, 60));
     await run(later(T, 120));
     expect(sentTo(phone.endpoint)).toHaveLength(1);
     expect((await jobsOf(phone.subscriptionId)).map((j) => [j.kind, j.status, j.status_code])).toEqual([["due", "gone", 410]]);
@@ -378,8 +410,8 @@ describe("dose reminders", () => {
   });
 
   it("sends nothing to an owner whose terms are outdated, or to a device turned off", async () => {
-    const outdated = await researcher("terms");
-    const off = await researcher("off");
+    const outdated = await quietResearcher("terms");
+    const off = await quietResearcher("off");
     const [termsPhone, offPhone] = [await device(outdated), await device(off)];
     for (const who of [outdated, off]) {
       await createCycle(who.db, { plans: [plan(peptideA, [weekdays(day(-3), day(3), EVERY_DAY, "0.4", "00:55")])] });
@@ -391,7 +423,7 @@ describe("dose reminders", () => {
     const offDevice = devices.find((d) => d.endpoint === offPhone.endpoint)!;
     await ok(off.db.rpc("disable_push_subscription", { p_reason: "turned_off", p_device_id: offDevice.deviceId, p_endpoint: offPhone.endpoint }), "turn off");
     await run(T);
-    await run(later(T, 30));
+    await run(later(T, 60));
     expect(sentTo(termsPhone.endpoint)).toEqual([]);
     expect(sentTo(offPhone.endpoint)).toEqual([]);
     expect((await jobsOf(termsPhone.subscriptionId)).map((j) => [j.kind, j.status, j.result])).toEqual([["due", "suppressed", "terms outdated"]]);
@@ -399,7 +431,7 @@ describe("dose reminders", () => {
   });
 
   it("follows the phone's clock across a daylight-saving change", async () => {
-    const me = await researcher("dst");
+    const me = await quietResearcher("dst");
     const phone = await device(me);
     // The next change of clocks in Toronto, and a dose every day at 08:05 around it.
     const change = Temporal.Now.zonedDateTimeISO(TORONTO).getTimeZoneTransition("next")!;
@@ -415,8 +447,174 @@ describe("dose reminders", () => {
     await run(second);
     const all = sentTo(phone.endpoint);
     expect(all).toHaveLength(2);
-    for (const s of all) expect(s.payload.body).toBe(doseReminderText("due", { peptide: peptideAName, amount: massLabel("0.4"), time: clock12("08:05"), units: null, syringe: null }).body);
+    for (const s of all) expect(s.payload.body).toBe(doseReminderText("due", { peptide: peptideAName, amount: massLabel("0.4"), time: clock12("08:05"), units: null }).body);
     expect((await jobsOf(phone.subscriptionId)).map((j) => new Date(j.occurrence_at).getTime())).toEqual([first.getTime(), second.getTime()]);
+  });
+});
+
+describe("the heads-up before a dose", () => {
+  // Each scenario's doses are on day −2 only, at its own time, so no other scenario's calls plan them.
+  const once = (peptideId: string, dose: string, time: string) => plan(peptideId, [weekdays(day(-2), day(-2), EVERY_DAY, dose, time)]);
+  const kindsOf = async (subscriptionId: string) => (await jobsOf(subscriptionId)).map((j) => [j.kind, j.status, j.result, j.lead_minutes]);
+
+  it("goes out 15, 30 or 60 minutes ahead as the owner chose, never when Off", async () => {
+    const cases: { label: string; lead: HeadsUpMinutes; time: string }[] = [
+      { label: "lead-15", lead: 15, time: "13:30" },
+      { label: "lead-30", lead: 30, time: "14:40" },
+      { label: "lead-60", lead: 60, time: "15:50" },
+      { label: "lead-off", lead: 0, time: "17:00" },
+    ];
+    for (const { label, lead, time } of cases) {
+      const me = await researcher(label);
+      await setHeadsUp(me, lead);
+      const phone = await device(me);
+      const cycleId = await createCycle(me.db, { plans: [once(peptideA, "2", time)] });
+      const o = await occurrenceOn(me.db, cycleId, day(-2));
+      const T = at(day(-2), time);
+      const facts = { peptide: peptideAName, amount: massLabel("2"), units: null };
+
+      for (const minutes of [-61, -60, -31, -30, -16, -15, -1]) {
+        await run(later(T, minutes));
+        // Sent at its lead, not a minute before.
+        const expected = lead > 0 && minutes >= -lead ? 1 : 0;
+        expect(sentTo(phone.endpoint), `${label} at ${minutes}`).toHaveLength(expected);
+      }
+      if (lead > 0) {
+        expect(sentTo(phone.endpoint)[0].payload).toEqual({
+          ...headsUpText({ doses: [facts], time: clock12(time), lead: lead as 15 | 30 | 60 }),
+          url: doseReminderUrl(o.key),
+          tag: reminderTag("dose", o.key),
+          badge: expect.any(Number),
+        });
+        expect((await kindsOf(phone.subscriptionId)).filter(([kind]) => kind === "heads-up")).toEqual([["heads-up", "sent", "", lead]]);
+      } else {
+        expect((await kindsOf(phone.subscriptionId)).map(([kind]) => kind)).toEqual(["due"]);
+      }
+      await run(T);
+      // The due reminder follows, under the same tag.
+      expect(sentTo(phone.endpoint).at(-1)!.payload).toMatchObject({ ...doseReminderText("due", { ...facts, time: clock12(time) }), tag: reminderTag("dose", o.key) });
+    }
+  });
+
+  it("groups every dose planned at the same time into one heads-up per device, which the first dose's due reminder replaces", async () => {
+    const me = await researcher("group");
+    const phones = [await device(me), await device(me)];
+    const cycleId = await createCycle(me.db, { plans: [once(peptideA, "0.25", "18:10"), once(peptideB, "2", "18:10")] });
+    const [planA, planB] = [await planIdOf(me.db, cycleId, peptideA), await planIdOf(me.db, cycleId, peptideB)];
+    // In Today's order: the same time, then by occurrence key.
+    const doses = [
+      { o: await occurrenceOn(me.db, cycleId, day(-2), planA), peptide: peptideAName, amount: massLabel("0.25") },
+      { o: await occurrenceOn(me.db, cycleId, day(-2), planB), peptide: peptideBName, amount: massLabel("2") },
+    ].sort((x, y) => x.o.key.localeCompare(y.o.key));
+    const T = at(day(-2), "18:10");
+    const firstTag = reminderTag("dose", doses[0].o.key);
+
+    await run(later(T, -15));
+    for (const phone of phones) {
+      const [headsUp] = sentTo(phone.endpoint);
+      expect(sentTo(phone.endpoint)).toHaveLength(1);
+      expect(headsUp.payload).toEqual({
+        ...headsUpText({ doses: doses.map((d) => ({ peptide: d.peptide, amount: d.amount, units: null })), time: clock12("18:10"), lead: 15 }),
+        url: "/app/today",
+        tag: firstTag,
+        badge: expect.any(Number),
+      });
+      expect(headsUp.topic).toBe(reminderTopic(firstTag));
+      expect((await kindsOf(phone.subscriptionId)).filter(([kind]) => kind === "heads-up")).toEqual([["heads-up", "sent", "", 15]]);
+    }
+
+    await run(T);
+    for (const phone of phones) {
+      const due = sentTo(phone.endpoint).slice(1);
+      expect(due.map((s) => s.payload.tag).sort()).toEqual(doses.map((d) => reminderTag("dose", d.o.key)).sort());
+      // The first dose's due reminder takes the heads-up's place (same tag and topic); the other has its own.
+      expect(due.find((s) => s.payload.tag === firstTag)!.topic).toBe(sentTo(phone.endpoint)[0].topic);
+    }
+  });
+
+  it("is skipped once every dose at that time is logged or skipped, and names only the doses still open", async () => {
+    const me = await researcher("resolved");
+    const phone = await device(me);
+    // Two doses at 19:20 (one logged, one skipped before the heads-up), and two at 20:30 (one logged).
+    const cycleId = await createCycle(me.db, {
+      plans: [
+        plan(peptideA, [weekdays(day(-2), day(-2), EVERY_DAY, "0.25", "19:20"), weekdays(day(-1), day(-1), EVERY_DAY, "0.25", "20:30")]),
+        plan(peptideB, [weekdays(day(-2), day(-2), EVERY_DAY, "2", "19:20"), weekdays(day(-1), day(-1), EVERY_DAY, "2", "20:30")]),
+      ],
+    });
+    const [planA, planB] = [await planIdOf(me.db, cycleId, peptideA), await planIdOf(me.db, cycleId, peptideB)];
+    const skip = (o: { key: string; scheduledAt: string; doseMg: string }) =>
+      ok(me.db.rpc("skip_dose", { p_request_key: randomUUID(), p_occurrence_key: o.key, p_seen_scheduled_at: o.scheduledAt, p_seen_dose_mg: o.doseMg }), "skip");
+
+    const T1 = at(day(-2), "19:20");
+    await run(later(T1, -16)); // planned
+    await ok(me.db.rpc("confirm_dose", confirmArgs(await occurrenceOn(me.db, cycleId, day(-2), planA))), "log A");
+    await skip(await occurrenceOn(me.db, cycleId, day(-2), planB));
+    await run(later(T1, -15));
+    expect(sentTo(phone.endpoint)).toEqual([]);
+    expect(await kindsOf(phone.subscriptionId)).toEqual([["heads-up", "suppressed", "logged", 15]]);
+
+    const T2 = at(day(-1), "20:30");
+    await run(later(T2, -16));
+    await ok(me.db.rpc("confirm_dose", confirmArgs(await occurrenceOn(me.db, cycleId, day(-1), planA))), "log A");
+    await run(later(T2, -15));
+    const open = await occurrenceOn(me.db, cycleId, day(-1), planB);
+    // One dose left: the one-dose words, its sheet and its tag.
+    expect(sentTo(phone.endpoint).map((s) => s.payload)).toEqual([
+      {
+        ...headsUpText({ doses: [{ peptide: peptideBName, amount: massLabel("2"), units: null }], time: clock12("20:30"), lead: 15 }),
+        url: doseReminderUrl(open.key),
+        tag: reminderTag("dose", open.key),
+        badge: expect.any(Number),
+      },
+    ]);
+  });
+
+  it("is skipped when late, once the time has come, after the setting changed, for outdated terms or a device turned off", async () => {
+    // A missed call: the next one comes 16 minutes after the heads-up's time.
+    const missed = await researcher("hu-missed");
+    await setHeadsUp(missed, 60);
+    const missedPhone = await device(missed);
+    await createCycle(missed.db, { plans: [once(peptideA, "0.4", "21:40")] });
+    const T = at(day(-2), "21:40");
+    await run(later(T, -61));
+    await run(later(T, -44));
+    expect(sentTo(missedPhone.endpoint)).toEqual([]);
+    expect((await kindsOf(missedPhone.subscriptionId))[0]).toEqual(["heads-up", "suppressed", "late", 60]);
+
+    // First planned when the time has already come (the dispatcher was down): never sent after the time.
+    const past = await researcher("hu-past");
+    const pastPhone = await device(past);
+    await createCycle(past.db, { plans: [once(peptideA, "0.4", "22:10")] });
+    await run(at(day(-2), "22:10"));
+    expect(sentTo(pastPhone.endpoint).map((s) => s.payload.title)).toEqual([
+      doseReminderText("due", { peptide: peptideAName, amount: massLabel("0.4"), time: clock12("22:10"), units: null }).title,
+    ]);
+    expect((await kindsOf(pastPhone.subscriptionId))[0]).toEqual(["heads-up", "suppressed", "late", 15]);
+
+    // Planned, then the setting changes (to Off, and to another lead), the terms move on, or the phone is turned off.
+    const T3 = at(day(-2), "23:00");
+    const people = await Promise.all(["hu-off", "hu-60", "hu-terms", "hu-device"].map((label) => researcher(label)));
+    const phones: Awaited<ReturnType<typeof device>>[] = [];
+    for (const who of people) {
+      phones.push(await device(who));
+      await createCycle(who.db, { plans: [once(peptideA, "0.4", "23:00")] });
+    }
+    await run(later(T3, -16));
+    await setHeadsUp(people[0], 0);
+    // (An hour ahead is already past: that lead plans nothing now.)
+    await setHeadsUp(people[1], 60);
+    await ok(serviceClient().from("profiles").update({ acknowledgement_version: "2026-09-placeholder" }).eq("id", people[2].id), "old terms");
+    const offDevice = devices.find((d) => d.endpoint === phones[3].endpoint)!;
+    await ok(people[3].db.rpc("disable_push_subscription", { p_reason: "turned_off", p_device_id: offDevice.deviceId, p_endpoint: offDevice.endpoint }), "turn off");
+    await run(later(T3, -15));
+    const results = await Promise.all(phones.map(async (phone) => [sentTo(phone.endpoint).length, (await kindsOf(phone.subscriptionId))[0]]));
+    expect(results).toEqual([
+      [0, ["heads-up", "suppressed", "setting changed", 15]],
+      [0, ["heads-up", "suppressed", "setting changed", 15]],
+      [0, ["heads-up", "suppressed", "terms outdated", 15]],
+      [0, ["heads-up", "suppressed", "device off", 15]],
+    ]);
   });
 });
 

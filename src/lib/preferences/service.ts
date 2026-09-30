@@ -14,7 +14,7 @@ type Db = SupabaseClient<Database>;
 export async function getPreferences(db: Db, ownerId: string): Promise<Preferences> {
   const { data, error } = await db
     .from("account_preferences")
-    .select("default_syringe, weight_unit, appearance")
+    .select("default_syringe, weight_unit, appearance, heads_up_minutes")
     .eq("owner_id", ownerId)
     .maybeSingle();
   if (error) throw new Error(`Could not load your preferences: ${error.message}`);
@@ -34,8 +34,9 @@ export async function savePreferences(db: Db, requestKey: string, patch: Prefere
     ...(patch.defaultSyringe !== undefined ? { p_default_syringe: patch.defaultSyringe } : {}),
     ...(patch.weightUnit !== undefined ? { p_weight_unit: patch.weightUnit } : {}),
     ...(patch.appearance !== undefined ? { p_appearance: patch.appearance } : {}),
+    ...(patch.headsUpMinutes !== undefined ? { p_heads_up_minutes: patch.headsUpMinutes } : {}),
   });
   if (error || !data || typeof data !== "object") return { kind: "error" };
-  const row = data as { default_syringe: number; weight_unit: string; appearance: string | null; replayed?: boolean };
+  const row = data as { default_syringe: number; weight_unit: string; appearance: string | null; heads_up_minutes?: number; replayed?: boolean };
   return { kind: "saved", preferences: resolvePreferences(row), replayed: row.replayed === true };
 }

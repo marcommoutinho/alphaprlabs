@@ -41,7 +41,7 @@ export const getSessionPerson = cache(async (): Promise<SessionPerson | null> =>
 export async function readSessionPerson(supabase: SupabaseClient<Database>, userId: string): Promise<SessionPerson | null> {
   const { data: profile } = await supabase
     .from("profiles")
-    .select("id, name, email, role, acknowledgement_version, created_at, account_preferences(default_syringe, weight_unit, appearance)")
+    .select("id, name, email, role, acknowledgement_version, created_at, account_preferences(default_syringe, weight_unit, appearance, heads_up_minutes)")
     .eq("id", userId)
     .maybeSingle();
   if (!profile) return null;

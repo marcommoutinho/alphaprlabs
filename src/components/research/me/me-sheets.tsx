@@ -126,7 +126,7 @@ export function StopSheet({ open, pending, onStop, onClose }: { open: boolean; p
   );
 }
 
-export type Choice<V extends string | number> = { value: V; label: string; note: string };
+export type Choice<V extends string | number> = { value: V; label: string; note?: string };
 
 /**
  * One preference's choices (R8 Preferences rows): a radio list in a sheet.
@@ -176,7 +176,7 @@ export function ChoiceSheet<V extends string | number>({
               >
                 <span className="min-w-0 flex-1">
                   <span className="block text-base font-semibold">{choice.label}</span>
-                  <span className="mt-0.5 block text-[13px] text-ink-2">{choice.note}</span>
+                  {choice.note ? <span className="mt-0.5 block text-[13px] text-ink-2">{choice.note}</span> : null}
                 </span>
                 {checked ? <Check className="size-5 shrink-0" strokeWidth={2.5} aria-hidden /> : null}
               </button>
