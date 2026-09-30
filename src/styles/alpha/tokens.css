@@ -227,6 +227,18 @@ body:has(> .alpha) {
     overflow: hidden;
   }
 
+  /* iOS zooms into a text field under 16 px when it takes focus and stays
+     zoomed after the keyboard closes, which leaves the fixed tab bar off the
+     screen's bottom edge. On a phone a field without a size of its own is
+     16 px instead of inheriting its line's (the Record sale sheet's
+     invisible date field inherited 12 px); a field that sets a size must set
+     16 px or more below `laptop:` (tests/e2e/tab-bar-docked.spec.ts). */
+  @media (width < 760px) {
+    .alpha :is(input, select, textarea) {
+      font-size: 16px;
+    }
+  }
+
   /* Controls don't select their label (or offer a link preview) when
      pressed; content stays selectable. */
   .alpha :is(button, [role="button"], [role="tab"], [role="switch"], [role="menuitem"], nav a) {

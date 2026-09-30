@@ -140,6 +140,7 @@ export function DateButton({
   return (
     <span className={cn("relative inline-flex cursor-pointer underline decoration-line decoration-dotted underline-offset-4", className)}>
       <span aria-hidden>{value ? shortDate(value) : "Choose a date"}</span>
+      {/* 16 px although unseen: iOS zooms into any field under 16 px that takes focus. */}
       <input
         type="date"
         aria-label={label}
@@ -148,7 +149,7 @@ export function DateButton({
         max={max}
         required
         onChange={(event) => onChange(event.currentTarget.value)}
-        className="absolute inset-0 size-full cursor-pointer opacity-0"
+        className="absolute inset-0 size-full cursor-pointer text-base opacity-0"
       />
     </span>
   );

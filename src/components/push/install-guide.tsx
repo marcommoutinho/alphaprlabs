@@ -251,7 +251,7 @@ function CopyLink({ link }: { link: string }) {
           value={link}
           aria-label="Link to Alpha"
           onFocus={(event) => event.currentTarget.select()}
-          className="h-11 min-w-0 flex-1 truncate rounded-[12px] bg-sunken px-3 font-mono text-[13px] text-ink-2 outline-none focus:shadow-[inset_0_0_0_2px_var(--ink)]"
+          className="h-11 min-w-0 flex-1 truncate rounded-[12px] bg-sunken px-3 font-mono text-base text-ink-2 outline-none focus:shadow-[inset_0_0_0_2px_var(--ink)] laptop:text-[13px]"
           data-testid="install-link"
         />
         <Button variant="outline" size="md" onClick={copy} data-testid="install-copy">
