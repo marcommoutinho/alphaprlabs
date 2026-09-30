@@ -11,10 +11,11 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { APP_ORIGIN } from "../../playwright.config";
+import { addDays } from "../../src/lib/cycles/rules";
 import { checkInDay } from "../../src/lib/progress/rules";
 import { occurrenceOn } from "../../src/lib/supplements/schedule";
 import { createCycle, interval, plan, tag } from "../support/cycles";
-import { d, NOON, noonZoneInstant } from "../support/noon";
+import { NOON, noonZoneInstant } from "../support/noon";
 import { ensureAccount, hydrated, ok, serviceClient, signedInClient, signInAs, uniqueEmail } from "../support/local-supabase";
 
 async function peptide(name: string) {
@@ -24,8 +25,8 @@ async function peptide(name: string) {
 }
 
 /**
- * A researcher with a full history: a cycle of A and W from today (0.4 and
- * 0.3 mg every 2 days at 08:00), today's A dose taken, a check-in with a
+ * A researcher with a full history: a cycle of A and W from Toronto's today (0.4 and
+ * 0.3 mg every 2 days at 08:00), its first A dose taken, a check-in with a
  * measurement, a tracked vial and a supplement routine taken today; W then
  * stops being offered. Two admins, neither ever named to the researcher.
  */
@@ -43,11 +44,18 @@ async function seed() {
 
   const db = await signedInClient(researcher.email);
   const cycleName = `Support cycle ${t}`;
+  // Check-ins count toward A12's Now block from the cycle's first day. The
+  // cycle starts on Toronto's today, the check-in's day: from 20:00 Toronto
+  // it is already tomorrow in the NOON zone, so starting on d(0) would put the
+  // check-in before the cycle. Toronto's today is never after d(0), so its
+  // 08:00 dose is always past.
+  const today = checkInDay(new Date());
+  const [start, end] = [today, addDays(today, 20)];
   const cycleId = await createCycle(db, {
     name: cycleName,
     goal: "Leaner by October",
     timeZone: NOON,
-    plans: [plan(a, [interval(d(0), d(20), "0.4", 2, "08:00")]), plan(w, [interval(d(0), d(20), "0.3", 2, "08:00")])],
+    plans: [plan(a, [interval(start, end, "0.4", 2, "08:00")]), plan(w, [interval(start, end, "0.3", 2, "08:00")])],
   });
   const plans = await ok(db.from("cycle_plans").select("id, peptide_id").eq("cycle_id", cycleId), "plans");
   const planA = plans.find((p) => p.peptide_id === a)!.id;
@@ -56,7 +64,7 @@ async function seed() {
     db.rpc("confirm_dose", {
       p_request_key: randomUUID(),
       p_occurrence_key: `${phaseA.plan_id}:${phaseA.phase_id}:0`,
-      p_seen_scheduled_at: noonZoneInstant(d(0), "08:00"),
+      p_seen_scheduled_at: noonZoneInstant(start, "08:00"),
       p_seen_dose_mg: "0.4",
       p_seen_mixture_version_id: null as unknown as string,
       p_amount_mg: "0.4",
@@ -65,7 +73,6 @@ async function seed() {
     }),
     "confirm",
   );
-  const today = checkInDay(new Date());
   await ok(
     db.rpc("save_check_in", {
       p_day: today,
