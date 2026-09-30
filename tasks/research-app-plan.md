@@ -902,3 +902,12 @@ setup and must not be changed independently by parallel makers.
   wording (by tab layout), the Edit Actions fallback and the iPad More path.
   The vial calculator is reachable again from a Cycles header button, a Me
   row and the account menu. Real-device wording check pending (Marco).
+- Tab bar docked (Marco, 2026-09-30: "the bottom bar is showing up in the
+  middle when I scroll down") merged at `e0b9ff0` and deployed on 2026-09-30,
+  no migration. Proven: a Stock row's low note and the Ledger seller select
+  made pages wider than the phone, pushing the fixed bar off-screen. iOS
+  focus zoom on a 13px field (install link, sale date) fixed with a 16px
+  default for phone inputs. Root CSS made iOS-safe: no overscroll-behavior
+  on html/body, no overflow on html/body (clip on `.alpha`), min-height
+  100svh. Guard: tests/e2e/tab-bar-docked.spec.ts (36 pages, 2 widths,
+  Chromium and WebKit phone). Real-device confirmation pending (Marco).
