@@ -2230,6 +2230,7 @@ export type Database = {
           stopped_at: string
         }[]
       }
+      agreed_to_current_terms: { Args: { p_profile: string }; Returns: boolean }
       business_buyer_accounts: {
         Args: never
         Returns: {
