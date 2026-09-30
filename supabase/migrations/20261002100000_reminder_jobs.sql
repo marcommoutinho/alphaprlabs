@@ -35,10 +35,16 @@
 --                   (the owner for a heads-up), the occurrence's scheduled
 --                   instant (a dose whose time moves gets new keys;
 --                   src/lib/schedule/reminders.ts), reminder (a heads-up's
---                   lead) and device. The planner inserts with ON CONFLICT DO
---                   NOTHING, so a duplicate or overlapping cron call never
---                   adds a second row, and a row is sent at most once by the
---                   dispatcher.
+--                   lead) and device. The planner inserts ON CONFLICT on the
+--                   key, so a duplicate or overlapping cron call never adds
+--                   a second row, and a row is sent at most once by the
+--                   dispatcher. The one update on conflict: a job suppressed
+--                   only for a reason that has since cleared ("terms
+--                   outdated", "device off": the planner plans only for an
+--                   owner on the current terms and a device that is on) goes
+--                   back to pending while the planner still plans it (still
+--                   relevant). It was never sent, so it still goes out at
+--                   most once.
 --                   status: pending -> claimed (a lease) -> sent | suppressed
 --                   | failed | gone, or back to pending for a retry. "sent"
 --                   means the push service ACCEPTED the message, never that
@@ -53,10 +59,18 @@
 --                   follow-up an hour after), when it has never been
 --                   expanded, or when its schedule changed
 --                   (cycle_plans.schedule_version: a dose recorded, skipped
---                   or undone, or an edit that added a revision). The
---                   expansion is still the whole plan: the every-N-days rule
---                   depends on every earlier dose, so a window of it cannot
---                   be computed alone.
+--                   or undone, or an edit that added a revision), or when
+--                   its owner's reminder inputs changed (inputs_version:
+--                   reminder_owner_inputs). The expansion is still the whole
+--                   plan: the every-N-days rule depends on every earlier
+--                   dose, so a window of it cannot be computed alone. Filled
+--                   at deploy for the plans already there
+--                   (reminder_plan_next_backfill), with their real next
+--                   moments.
+--   reminder_owner_inputs  per owner, a stamp bumped by triggers whenever
+--                   anything besides the schedule that decides their
+--                   reminders changes (the heads-up setting, their devices,
+--                   the terms agreement).
 --   reminder_planner_state  the supplement feed's cursor while a planning
 --                   window holds more rows than one call reads.
 --
@@ -95,9 +109,11 @@
 --   3. The dispatcher rechecks the occurrence itself (logged, skipped, gone
 --      or moved by an edit, cycle or phase ended, superseded, late; for a
 --      heads-up: the setting, and every dose still planned at that instant)
---      from the owner's records read after the claim, rereads the
+--      from the owner's records read after the claim (a supplement: only the
+--      claimed occurrences, reminder_supplement_occurrences), rereads the
 --      subscription right before sending (still active, the owner's, the
---      same endpoint and keys), and sends through src/lib/push/send.ts.
+--      same endpoint and keys, and still its device's newest active row
+--      whoever it belongs to), and sends through src/lib/push/send.ts.
 --   4. finish_reminder_job(p_id, p_lease_token, ...): records the outcome,
 --      only while the caller still holds the lease (a call whose lease
 --      expired and was taken over records nothing), or puts the job back to
@@ -170,6 +186,8 @@ create table public.reminder_plan_next (
   plan_id uuid primary key references public.cycle_plans (id) on delete cascade,
   -- The plan's schedule_version when it was expanded.
   schedule_version integer not null,
+  -- The owner's reminder_owner_inputs.version when it was expanded.
+  inputs_version bigint not null default 0,
   -- The next reminder moment of its open occurrences after that expansion
   -- ('infinity': none left); the plan is expanded again once it is within a minute.
   next_at timestamptz not null,
@@ -196,6 +214,146 @@ alter table public.reminder_planner_state enable row level security;
 revoke all on table public.reminder_planner_state from public, anon, authenticated, service_role;
 grant select on table public.reminder_planner_state to service_role;
 
+-- Per owner: a stamp of everything besides the schedule that decides which
+-- reminders are planned for them. Bumped by triggers whenever it changes: the
+-- Advance heads-up setting (account_preferences.heads_up_minutes), a push
+-- subscription added, removed, enabled, disabled, moved to another owner or
+-- device, or re-keyed (every owner with an active row on that device), a
+-- device marked off or on again (push_device_off), and the research terms
+-- agreement (profiles.acknowledged_at, acknowledgement_version). The planner
+-- expands an owner's plans again when their stamp differs from the one they
+-- were expanded with. Supplements need none: the planner reads the whole
+-- supplement window on every call (due_supplement_occurrences follows the
+-- routines, tracking and terms as they are then).
+create table public.reminder_owner_inputs (
+  owner_id uuid primary key references public.profiles (id) on delete cascade,
+  version bigint not null default 1,
+  changed_at timestamptz not null default now()
+);
+
+alter table public.reminder_owner_inputs enable row level security;
+revoke all on table public.reminder_owner_inputs from public, anon, authenticated, service_role;
+grant select on table public.reminder_owner_inputs to service_role;
+
+-- The owners' stamps, bumped (an owner being deleted is skipped).
+create function public.reminder_inputs_bump(p_owners uuid[])
+returns void
+language sql
+volatile
+security definer
+set search_path = ''
+as $$
+  insert into public.reminder_owner_inputs as i (owner_id)
+  select distinct o from unnest(p_owners) o
+  where o is not null and exists (select 1 from public.profiles p where p.id = o)
+  on conflict (owner_id) do update set version = i.version + 1, changed_at = now();
+$$;
+
+revoke all on function public.reminder_inputs_bump(uuid[]) from public, anon, authenticated;
+
+create function public.reminder_inputs_on_preferences()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  perform public.reminder_inputs_bump(array[case when tg_op = 'DELETE' then old.owner_id else new.owner_id end]);
+  return null;
+end;
+$$;
+
+create function public.reminder_inputs_on_push_subscriptions()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_owners uuid[] := '{}';
+  v_devices uuid[] := '{}';
+begin
+  if tg_op <> 'INSERT' then
+    v_owners := v_owners || old.profile_id;
+    v_devices := v_devices || old.device_id;
+  end if;
+  if tg_op <> 'DELETE' then
+    v_owners := v_owners || new.profile_id;
+    v_devices := v_devices || new.device_id;
+  end if;
+  -- Every owner with an active row on the device: which of them the device
+  -- now belongs to (its newest active row) may have changed.
+  perform public.reminder_inputs_bump(v_owners || array(
+    select s.profile_id from public.push_subscriptions s
+    where s.device_id = any(v_devices) and s.disabled_at is null));
+  return null;
+end;
+$$;
+
+create function public.reminder_inputs_on_device_off()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  perform public.reminder_inputs_bump(array[case when tg_op = 'DELETE' then old.profile_id else new.profile_id end]);
+  return null;
+end;
+$$;
+
+create function public.reminder_inputs_on_terms()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  perform public.reminder_inputs_bump(array[new.id]);
+  return null;
+end;
+$$;
+
+revoke all on function public.reminder_inputs_on_preferences() from public, anon, authenticated;
+revoke all on function public.reminder_inputs_on_push_subscriptions() from public, anon, authenticated;
+revoke all on function public.reminder_inputs_on_device_off() from public, anon, authenticated;
+revoke all on function public.reminder_inputs_on_terms() from public, anon, authenticated;
+
+create trigger reminder_inputs_added_removed
+  after insert or delete on public.account_preferences
+  for each row execute function public.reminder_inputs_on_preferences();
+create trigger reminder_inputs_heads_up
+  after update on public.account_preferences
+  for each row when (old.heads_up_minutes is distinct from new.heads_up_minutes)
+  execute function public.reminder_inputs_on_preferences();
+
+-- (A sync that only refreshes last_seen_at or the label changes nothing planned.)
+create trigger reminder_inputs_added_removed
+  after insert or delete on public.push_subscriptions
+  for each row execute function public.reminder_inputs_on_push_subscriptions();
+create trigger reminder_inputs_changed
+  after update on public.push_subscriptions
+  for each row when (
+    old.profile_id is distinct from new.profile_id or old.disabled_at is distinct from new.disabled_at
+    or old.device_id is distinct from new.device_id or old.endpoint is distinct from new.endpoint
+    or old.p256dh is distinct from new.p256dh or old.auth is distinct from new.auth)
+  execute function public.reminder_inputs_on_push_subscriptions();
+
+create trigger reminder_inputs_off_on
+  after insert or delete on public.push_device_off
+  for each row execute function public.reminder_inputs_on_device_off();
+
+create trigger reminder_inputs_terms
+  after update on public.profiles
+  for each row when (
+    old.acknowledged_at is distinct from new.acknowledged_at
+    or old.acknowledgement_version is distinct from new.acknowledgement_version)
+  execute function public.reminder_inputs_on_terms();
+
+-- A device's active rows, whoever they belong to (its newest one decides whose it is).
+create index push_subscriptions_active_by_device on public.push_subscriptions (device_id)
+  where disabled_at is null and device_id is not null;
+
 -- "2026-09-30T12:05:00.000000Z": one spelling per instant for job keys.
 create function public.reminder_instant_text(p_at timestamptz)
 returns text
@@ -210,9 +368,12 @@ $$;
 revoke all on function public.reminder_instant_text(timestamptz) from public, anon, authenticated;
 grant execute on function public.reminder_instant_text(timestamptz) to service_role;
 
--- An owner's devices that may receive reminders: one row per device (the
--- newest active subscription of each device id; a row without one is its own
--- device), active and not marked off. The terms are checked by the callers.
+-- An owner's devices that may receive reminders: one row per device (a row
+-- without a device id is its own device), the device's newest active
+-- subscription WHOEVER it belongs to, kept only when it is the owner's (a
+-- device another account registered on since, even under a new endpoint, is
+-- no longer this owner's), and not marked off. The terms are checked by the
+-- callers. Older rows are not retired: the newest one decides.
 create function public.reminder_devices(p_owner uuid)
 returns table (subscription_id uuid, device_id uuid, device_key uuid)
 language sql
@@ -220,17 +381,64 @@ stable
 security definer
 set search_path = ''
 as $$
-  select distinct on (coalesce(s.device_id, s.id)) s.id, s.device_id, coalesce(s.device_id, s.id)
-  from public.push_subscriptions s
-  where s.profile_id = p_owner
-    and s.disabled_at is null
+  select n.id, n.device_id, coalesce(n.device_id, n.id)
+  from (
+    select distinct on (coalesce(s.device_id, s.id)) s.id, s.device_id, s.profile_id
+    from public.push_subscriptions s
+    where s.disabled_at is null
+      and (s.profile_id = p_owner
+           or s.device_id in (
+             select m.device_id from public.push_subscriptions m
+             where m.profile_id = p_owner and m.disabled_at is null and m.device_id is not null))
+    order by coalesce(s.device_id, s.id), s.last_seen_at desc, s.created_at desc, s.id
+  ) n
+  where n.profile_id = p_owner
     and not exists (
-      select 1 from public.push_device_off o where o.profile_id = s.profile_id and o.device_id = s.device_id)
-  order by coalesce(s.device_id, s.id), s.last_seen_at desc, s.created_at desc, s.id;
+      select 1 from public.push_device_off o where o.profile_id = p_owner and o.device_id = n.device_id);
 $$;
 
 revoke all on function public.reminder_devices(uuid) from public, anon, authenticated;
 grant execute on function public.reminder_devices(uuid) to service_role;
+
+-- A plan's reminder moments: the heads-up leads (every choice,
+-- src/lib/preferences/rules.ts HEADS_UP_CHOICES), the due time and the
+-- follow-up an hour after.
+create function public.reminder_moments(p_at timestamptz)
+returns setof timestamptz
+language sql
+immutable
+parallel safe
+set search_path = ''
+as $$
+  values (p_at - interval '60 minutes'), (p_at - interval '30 minutes'), (p_at - interval '15 minutes'), (p_at), (p_at + interval '1 hour');
+$$;
+
+revoke all on function public.reminder_moments(timestamptz) from public, anon, authenticated;
+
+-- A cheap estimate of a plan's next reminder moment from p_from on, without
+-- expanding it (a ranking, never a schedule): its active phases' planned
+-- time of day on the local dates around [p_from, p_to], whether or not a dose
+-- falls on that date (weekdays, every N days and time changes ignored), so
+-- it is at worst early. Null: no moment around now.
+create function public.reminder_plan_estimate(p_plan uuid, p_revision uuid, p_time_zone text, p_from timestamptz, p_to timestamptz)
+returns timestamptz
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select min(m.at)
+  from public.cycle_revision_phases ph
+  cross join lateral generate_series(
+    greatest(ph.start_date, ((p_from - interval '1 hour') at time zone p_time_zone)::date),
+    least(ph.end_date, ((p_to + interval '1 hour') at time zone p_time_zone)::date),
+    interval '1 day') d(day)
+  cross join lateral public.reminder_moments(public.cycle_local_instant(d.day::date, ph.local_time, p_time_zone)) m(at)
+  where ph.revision_id = p_revision and ph.plan_id = p_plan and ph.kind = 'active'
+    and m.at >= p_from;
+$$;
+
+revoke all on function public.reminder_plan_estimate(uuid, uuid, text, timestamptz, timestamptz) from public, anon, authenticated;
 
 -- ── 1. Plan the reminders around now (bounded) ─────────────────────────────
 -- Returns { now: the clock used, planned: new rows, purged: old rows removed,
@@ -280,26 +488,43 @@ begin
   v_budget := make_interval(secs => p_budget_ms / 1000.0);
 
   -- Peptide doses, a plan at a time: the plans with a reminder moment within
-  -- the next minute (or before it, missed), never expanded, or changed since;
-  -- the most urgent first.
+  -- the next minute (or before it, missed), never expanded, or changed since
+  -- (their schedule, or their owner's reminder inputs); the most urgent
+  -- first. A plan never expanded, or changed, is ranked by its estimated
+  -- next moment (reminder_plan_estimate: its phases' planned time of day
+  -- around now, every heads-up lead included; a changed plan also by its
+  -- recorded next moment, whichever is sooner), so one due in the next
+  -- minutes goes ahead of others however many there are; one with no
+  -- moment around now goes last.
   for r in
-    select cp.id as plan_id, c.owner_id, cp.schedule_version
-    from public.cycles c
-    join public.cycle_revisions rv on rv.cycle_id = c.id and rv.number = c.current_revision
-    join public.cycle_revision_plans rp on rp.revision_id = rv.id
-    join public.cycle_plans cp on cp.id = rp.plan_id
-    left join public.reminder_plan_next n on n.plan_id = cp.id
-    where (n.plan_id is null or n.schedule_version <> cp.schedule_version or n.next_at <= v_to)
-      and exists (
-        select 1 from public.cycle_revision_phases ph
-        where ph.revision_id = rv.id and ph.plan_id = rp.plan_id and ph.kind = 'active'
-          and ph.start_date <= ((v_to + interval '1 hour') at time zone rv.time_zone)::date
-          and ph.end_date >= ((v_follow_from - interval '1 hour') at time zone rv.time_zone)::date)
-      and exists (select 1 from public.reminder_devices(c.owner_id))
-      and public.agreed_to_current_terms(c.owner_id)
-    order by case when n.plan_id is null or n.schedule_version <> cp.schedule_version then '-infinity'::timestamptz
-                  else n.next_at end,
-             cp.id
+    with candidates as materialized (
+      select cp.id as plan_id, c.owner_id, cp.schedule_version, coalesce(oi.version, 0) as inputs_version,
+             rv.id as revision_id, rv.time_zone,
+             n.plan_id is null as unseen,
+             n.plan_id is not null and (n.schedule_version <> cp.schedule_version or n.inputs_version <> coalesce(oi.version, 0)) as changed,
+             n.next_at
+      from public.cycles c
+      join public.cycle_revisions rv on rv.cycle_id = c.id and rv.number = c.current_revision
+      join public.cycle_revision_plans rp on rp.revision_id = rv.id
+      join public.cycle_plans cp on cp.id = rp.plan_id
+      left join public.reminder_plan_next n on n.plan_id = cp.id
+      left join public.reminder_owner_inputs oi on oi.owner_id = c.owner_id
+      where (n.plan_id is null or n.schedule_version <> cp.schedule_version
+             or n.inputs_version <> coalesce(oi.version, 0) or n.next_at <= v_to)
+        and exists (
+          select 1 from public.cycle_revision_phases ph
+          where ph.revision_id = rv.id and ph.plan_id = rp.plan_id and ph.kind = 'active'
+            and ph.start_date <= ((v_to + interval '1 hour') at time zone rv.time_zone)::date
+            and ph.end_date >= ((v_follow_from - interval '1 hour') at time zone rv.time_zone)::date)
+        and exists (select 1 from public.reminder_devices(c.owner_id))
+        and public.agreed_to_current_terms(c.owner_id)
+    )
+    select k.plan_id, k.owner_id, k.schedule_version, k.inputs_version
+    from candidates k
+    order by case when k.unseen then coalesce(public.reminder_plan_estimate(k.plan_id, k.revision_id, k.time_zone, v_follow_from, v_to), 'infinity')
+                  when k.changed then least(k.next_at, coalesce(public.reminder_plan_estimate(k.plan_id, k.revision_id, k.time_zone, v_follow_from, v_to), 'infinity'))
+                  else k.next_at end,
+             k.plan_id
     limit p_max_plans + 1
   loop
     if v_expanded >= p_max_plans or clock_timestamp() - v_started >= v_budget then
@@ -343,7 +568,10 @@ begin
              'dose', s.kind, r.owner_id, d.subscription_id, d.device_id, r.plan_id, s.occurrence_key, s.scheduled_at, s.send_at, s.send_at
       from slots s
       cross join devices d
-      on conflict (job_key) do nothing
+      on conflict (job_key) do update set
+        status = 'pending', attempts = 0, next_attempt_at = excluded.next_attempt_at, subscription_id = excluded.subscription_id,
+        result = '', status_code = null, finished_at = null, updated_at = now()
+      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off')
       returning 1
     ),
     -- One per owner, instant and device: another plan with a dose at the same time plans the same key.
@@ -355,7 +583,10 @@ begin
              h.scheduled_at, h.send_at, h.lead, h.send_at
       from heads_up h
       cross join devices d
-      on conflict (job_key) do nothing
+      on conflict (job_key) do update set
+        status = 'pending', attempts = 0, next_attempt_at = excluded.next_attempt_at, subscription_id = excluded.subscription_id,
+        result = '', status_code = null, finished_at = null, updated_at = now()
+      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off')
       returning 1
     )
     select (select count(*) from dose_jobs) + (select count(*) from heads_up_jobs),
@@ -364,18 +595,18 @@ begin
            -- the due time or the follow-up.
            (select min(e.at)
             from open_occ o
-            cross join lateral (values (o.scheduled_at - interval '60 minutes'), (o.scheduled_at - interval '30 minutes'),
-                                       (o.scheduled_at - interval '15 minutes'), (o.scheduled_at),
-                                       (o.scheduled_at + interval '1 hour')) e(at)
+            cross join lateral public.reminder_moments(o.scheduled_at) e(at)
             where e.at > v_to)
     into v_rows, v_next;
     v_planned := v_planned + v_rows;
     v_expanded := v_expanded + 1;
 
-    insert into public.reminder_plan_next as n (plan_id, schedule_version, next_at, checked_at)
-    values (r.plan_id, r.schedule_version, coalesce(v_next, 'infinity'), v_now)
+    -- The versions read before the expansion: a change since shows as a newer version.
+    insert into public.reminder_plan_next as n (plan_id, schedule_version, inputs_version, next_at, checked_at)
+    values (r.plan_id, r.schedule_version, r.inputs_version, coalesce(v_next, 'infinity'), v_now)
     on conflict (plan_id) do update
-      set schedule_version = excluded.schedule_version, next_at = excluded.next_at, checked_at = excluded.checked_at;
+      set schedule_version = excluded.schedule_version, inputs_version = excluded.inputs_version,
+          next_at = excluded.next_at, checked_at = excluded.checked_at;
   end loop;
 
   -- Supplements: one reminder when due, from the feed a page at a time, at
@@ -410,7 +641,10 @@ begin
       from feed f
       cross join lateral public.reminder_devices(f.owner_id) d
       where f.scheduled_at > v_from
-      on conflict (job_key) do nothing
+      on conflict (job_key) do update set
+        status = 'pending', attempts = 0, next_attempt_at = excluded.next_attempt_at, subscription_id = excluded.subscription_id,
+        result = '', status_code = null, finished_at = null, updated_at = now()
+      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off')
       returning 1
     )
     select (select count(*) from inserted), l.scheduled_at, l.routine_id, (select count(*) from feed)
@@ -448,6 +682,102 @@ $$;
 
 revoke all on function public.plan_reminder_jobs(timestamptz, integer, integer, integer) from public, anon, authenticated;
 grant execute on function public.plan_reminder_jobs(timestamptz, integer, integer, integer) to service_role;
+
+-- Records the real next reminder moment of every plan the planner could
+-- consider and has not seen (in its cycle's current revision, an active phase
+-- not over, its owner with a device and on the current terms), so the first
+-- planning calls after a deploy go straight to what is due: the earliest
+-- moment of an open occurrence from p_now - 2 hours on (the follow-up's
+-- catch-up; a moment already reached makes the plan due at once), or
+-- 'infinity'. Idempotent (a plan already recorded is left as it is). Run once
+-- below; the service role may run it again. Returns the plans recorded.
+create function public.reminder_plan_next_backfill(p_now timestamptz default null)
+returns integer
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $$
+declare
+  v_now timestamptz := coalesce(p_now, now());
+  v_rows integer;
+begin
+  insert into public.reminder_plan_next as n (plan_id, schedule_version, inputs_version, next_at, checked_at)
+  select cp.id, cp.schedule_version, coalesce(oi.version, 0), coalesce(nx.at, 'infinity'), v_now
+  from public.cycles c
+  join public.cycle_revisions rv on rv.cycle_id = c.id and rv.number = c.current_revision
+  join public.cycle_revision_plans rp on rp.revision_id = rv.id
+  join public.cycle_plans cp on cp.id = rp.plan_id
+  left join public.reminder_owner_inputs oi on oi.owner_id = c.owner_id
+  cross join lateral (
+    select min(e.at) as at
+    from public.cycle_plan_occurrences(cp.id) o
+    cross join lateral public.reminder_moments(o.scheduled_at) e(at)
+    where o.actual_at is null
+      and not exists (select 1 from public.dose_skips sk where sk.plan_id = cp.id and sk.occurrence_key = o.occurrence_key)
+      and e.at >= v_now - interval '2 hours'
+  ) nx
+  where not exists (select 1 from public.reminder_plan_next x where x.plan_id = cp.id)
+    and exists (
+      select 1 from public.cycle_revision_phases ph
+      where ph.revision_id = rv.id and ph.plan_id = rp.plan_id and ph.kind = 'active'
+        and ph.end_date >= ((v_now - interval '3 hours') at time zone rv.time_zone)::date)
+    and exists (select 1 from public.reminder_devices(c.owner_id))
+    and public.agreed_to_current_terms(c.owner_id)
+  on conflict (plan_id) do nothing;
+  get diagnostics v_rows = row_count;
+  return v_rows;
+end;
+$$;
+
+revoke all on function public.reminder_plan_next_backfill(timestamptz) from public, anon, authenticated;
+grant execute on function public.reminder_plan_next_backfill(timestamptz) to service_role;
+
+select public.reminder_plan_next_backfill();
+
+-- ── Supplement facts at send time ──────────────────────────────────────────
+-- The claimed supplement occurrences (at most 100 keys "<routine>:<date>")
+-- as the due feed (due_supplement_occurrences) would give them now: a row
+-- when the routine's current definition covers that date, tracking is on and
+-- the owner is on the current terms, with the instant it is planned for now
+-- and whether it has been taken. Reads only those routines and dates.
+create function public.reminder_supplement_occurrences(p_occurrence_keys text[])
+returns table (
+  routine_id uuid,
+  occurrence_key text,
+  scheduled_at timestamptz,
+  name text,
+  amount text,
+  unit text,
+  taken boolean
+)
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+#variable_conflict use_column
+begin
+  if p_occurrence_keys is null or cardinality(p_occurrence_keys) > 100 then
+    raise exception 'invalid occurrence keys' using errcode = '22023';
+  end if;
+  return query
+  select r.id, k.key, public.cycle_local_instant(k.local_date, r.time_of_day, r.time_zone), r.name, r.amount::text, r.unit,
+         exists (select 1 from public.supplement_taken t where t.routine_id = r.id and t.occurrence_key = k.key)
+  from (
+    select distinct x as key, split_part(x, ':', 1)::uuid as routine_id, to_date(split_part(x, ':', 2), 'YYYY-MM-DD') as local_date
+    from unnest(p_occurrence_keys) x
+    where x ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+  ) k
+  join public.supplement_routines r on r.id = k.routine_id
+  join public.supplement_settings s on s.owner_id = r.owner_id and s.tracking_enabled
+  where k.local_date >= r.definition_from and k.local_date <= coalesce(r.end_date, 'infinity'::date)
+    and public.agreed_to_current_terms(r.owner_id);
+end;
+$$;
+
+revoke all on function public.reminder_supplement_occurrences(text[]) from public, anon, authenticated;
+grant execute on function public.reminder_supplement_occurrences(text[]) to service_role;
 
 -- ── 2. Claim a bounded batch ───────────────────────────────────────────────
 create function public.claim_reminder_jobs(

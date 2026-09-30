@@ -14,7 +14,6 @@ import { type PushDeps, type PushPayload, type PushSendResult, sendPush, UNKNOWN
 import type { Occurrence } from "@/lib/schedule/engine";
 import type { ReminderKind } from "@/lib/schedule/reminders";
 import type { Database } from "@/lib/supabase/database.types";
-import { listDueSupplements, type DueSupplement } from "@/lib/supplements/service";
 import { doseReminderText, headsUpText, supplementReminderText } from "./copy";
 import {
   doseReminderUrl,
@@ -50,11 +49,13 @@ import {
 //      sent to the device's newest active subscription;
 //   3. rechecks each job against the owner's records, read afresh for every
 //      batch after its claim (./rules doseVerdict / headsUpVerdict /
-//      supplementVerdict; the device and the terms come with the claim), and
+//      supplementVerdict, a supplement from only the batch's claimed
+//      occurrences; the device and the terms come with the claim), and
 //      right before sending checks again that nothing it was judged on
 //      changed (the plans' schedule_version, the heads-up setting) and that
 //      the subscription is still the owner's, active, with the same endpoint
-//      and keys; it suppresses what is no longer true;
+//      and keys, and still its device's newest active row across all
+//      accounts; it suppresses what is no longer true;
 //   4. sends the rest through sendPush with a TTL that ends with the
 //      reminder's relevance, a topic and tag per occurrence (a follow-up
 //      replaces the earlier reminder; the first dose's due reminder replaces
@@ -304,6 +305,9 @@ type OwnerRecords = {
   badge: number;
 };
 
+/** A claimed supplement occurrence as the due feed would give it now. */
+type SupplementFact = { scheduledAt: string; name: string; amount: string; unit: string };
+
 /** A job judged: whether it goes out, and what it would say. `plans`: the plans whose schedules it was judged on. */
 type Prepared = { verdict: Verdict; payload?: PushPayload; stopAt?: string | null; plans?: string[] };
 
@@ -315,7 +319,7 @@ type Prepared = { verdict: Verdict; payload?: PushPayload; stopAt?: string | nul
 class Context {
   private owners = new Map<string, Promise<OwnerRecords>>();
   private peptides: Promise<Map<string, string>> | null = null;
-  private supplements: Promise<{ due: Map<string, DueSupplement>; taken: Set<string> }> | null = null;
+  private supplements: Promise<{ due: Map<string, SupplementFact>; taken: Set<string> }> | null = null;
 
   constructor(
     readonly db: Db,
@@ -408,9 +412,10 @@ class Context {
 
   /**
    * The claimed subscription, read again right before sending: still active,
-   * still the job owner's, not turned off for that owner, and still the same
-   * endpoint and keys. Otherwise the reminder is not sent (the device changed
-   * hands or was re-registered since the claim).
+   * still the job owner's, not turned off for that owner, still the same
+   * endpoint and keys, and still its device's newest active row across all
+   * accounts. Otherwise the reminder is not sent (the device changed hands or
+   * was re-registered since the claim).
    */
   async deviceCheck(job: ClaimedJob): Promise<Suppression | null> {
     const { data, error } = await this.db
@@ -422,6 +427,21 @@ class Context {
     if (!data || data.disabled_at !== null || data.profile_id !== job.owner_id) return "device changed";
     if (data.endpoint !== job.endpoint || data.p256dh !== job.p256dh || data.auth !== job.auth) return "device changed";
     if (data.device_id) {
+      // The device is the job owner's only while this row is its newest active one, WHOEVER it belongs to:
+      // another account registering on the same browser, even under a new endpoint, takes it over
+      // (the same order as the database's reminder_devices).
+      const newest = await this.db
+        .from("push_subscriptions")
+        .select("id")
+        .eq("device_id", data.device_id)
+        .is("disabled_at", null)
+        .order("last_seen_at", { ascending: false })
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (newest.error) throw new Error(`Could not read the device: ${newest.error.message}`);
+      if (newest.data?.id !== job.subscription_id) return "device changed";
       const off = await this.db.from("push_device_off").select("device_id").eq("profile_id", job.owner_id).eq("device_id", data.device_id).maybeSingle();
       if (off.error) throw new Error(`Could not read the device: ${off.error.message}`);
       if (off.data) return "device off";
@@ -487,27 +507,28 @@ class Context {
 
   /**
    * A new batch: the owners' records are read again (after its claim), and,
-   * for its supplement jobs at once, their occurrences as the due feed has
-   * them now (untaken, under each routine's current definition, tracking on,
-   * owner on the current terms) and their Taken records.
+   * for its supplement jobs at once, only the claimed occurrences as the due
+   * feed would have them now (under each routine's current definition,
+   * tracking on, owner on the current terms), with whether each is taken
+   * (reminder_supplement_occurrences: bounded by the batch).
    */
   startBatch(jobs: readonly ClaimedJob[]) {
     this.owners.clear();
     const supplements = jobs.filter((job) => job.source === "supplement");
     if (supplements.length === 0) return;
     const facts = (async () => {
-      const times = supplements.map((job) => Date.parse(job.occurrence_at));
-      const from = new Date(Math.min(...times)).toISOString();
-      const to = new Date(Math.max(...times) + 1000).toISOString();
-      const routineIds = [...new Set(supplements.map((job) => job.routine_id))];
-      const [due, taken] = await Promise.all([
-        listDueSupplements(this.db, from, to),
-        this.db.from("supplement_taken").select("routine_id, occurrence_key").in("routine_id", routineIds),
-      ]);
-      if (taken.error) throw new Error(`Could not read supplement Taken records: ${taken.error.message}`);
+      const keys = [...new Set(supplements.map((job) => job.occurrence_key))];
+      const { data, error } = await this.db.rpc("reminder_supplement_occurrences", { p_occurrence_keys: keys });
+      if (error) throw new Error(`Could not read the supplement occurrences: ${error.message}`);
+      const rows = data ?? [];
       return {
-        due: new Map(due.map((row) => [`${row.routineId}|${row.occurrenceKey}`, row])),
-        taken: new Set((taken.data ?? []).map((row) => `${row.routine_id}|${row.occurrence_key}`)),
+        due: new Map(
+          rows.map((row) => [
+            `${row.routine_id}|${row.occurrence_key}`,
+            { scheduledAt: row.scheduled_at, name: row.name, amount: row.amount, unit: row.unit },
+          ]),
+        ),
+        taken: new Set(rows.filter((row) => row.taken).map((row) => `${row.routine_id}|${row.occurrence_key}`)),
       };
     })();
     facts.catch(() => {}); // each job reports it

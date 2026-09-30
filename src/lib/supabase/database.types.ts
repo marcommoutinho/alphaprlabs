@@ -1704,21 +1704,50 @@ export type Database = {
           },
         ]
       }
+      reminder_owner_inputs: {
+        Row: {
+          changed_at: string
+          owner_id: string
+          version: number
+        }
+        Insert: {
+          changed_at?: string
+          owner_id: string
+          version?: number
+        }
+        Update: {
+          changed_at?: string
+          owner_id?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reminder_owner_inputs_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reminder_plan_next: {
         Row: {
           checked_at: string
+          inputs_version: number
           next_at: string
           plan_id: string
           schedule_version: number
         }
         Insert: {
           checked_at: string
+          inputs_version?: number
           next_at: string
           plan_id: string
           schedule_version: number
         }
         Update: {
           checked_at?: string
+          inputs_version?: number
           next_at?: string
           plan_id?: string
           schedule_version?: number
@@ -2785,7 +2814,32 @@ export type Database = {
           subscription_id: string
         }[]
       }
+      reminder_inputs_bump: { Args: { p_owners: string[] }; Returns: undefined }
       reminder_instant_text: { Args: { p_at: string }; Returns: string }
+      reminder_moments: { Args: { p_at: string }; Returns: string[] }
+      reminder_plan_estimate: {
+        Args: {
+          p_from: string
+          p_plan: string
+          p_revision: string
+          p_time_zone: string
+          p_to: string
+        }
+        Returns: string
+      }
+      reminder_plan_next_backfill: { Args: { p_now?: string }; Returns: number }
+      reminder_supplement_occurrences: {
+        Args: { p_occurrence_keys: string[] }
+        Returns: {
+          amount: string
+          name: string
+          occurrence_key: string
+          routine_id: string
+          scheduled_at: string
+          taken: boolean
+          unit: string
+        }[]
+      }
       reopen_personal_vial: { Args: { p_vial_id: string }; Returns: string }
       resend_invitation: {
         Args: { p_id: string; p_token_hash: string }
