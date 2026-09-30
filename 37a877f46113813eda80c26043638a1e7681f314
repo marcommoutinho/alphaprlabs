@@ -1,0 +1,1 @@
+Slipstream: research terms (Astra copy, Marco-approved). Maker opus. Codex review BLOCKED (own reads bypass terms gate; reminders ignore version) -> dd2eb3d; recheck CLEAN. Gate on 3eaf8c1 (rebased onto e0b9ff0): vitest 898/898, exclusive 78/78, Playwright 275/275. Deploy order: app first, then migration 20260930100000_research_terms.
