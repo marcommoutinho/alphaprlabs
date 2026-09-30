@@ -35,7 +35,7 @@ import type { DispatchOptions } from "@/lib/reminders/dispatch";
 import { doseReminderUrl, reminderTag, reminderTopic, SUPPLEMENT_REMINDER_URL } from "@/lib/reminders/rules";
 import type { ReminderKind } from "@/lib/schedule/reminders";
 import { type Client, createCycle, createPeptide, day, interval, plan, saveCycle, tag, TORONTO, weekdays } from "../support/cycles";
-import { confirmArgs, confirmArgsSeen, occurrenceOn } from "../support/doses";
+import { confirmArgs, confirmArgsSeen, occurrenceOn, occurrencesOf } from "../support/doses";
 import { anonClient, appTestEnv, ensureAccount, ok, serviceClient, signedInClient, sqlState, uniqueEmail } from "../support/local-supabase";
 
 Object.assign(process.env, appTestEnv());
@@ -117,7 +117,7 @@ async function quietResearcher(label: string): Promise<Person> {
  * same browser with the endpoint and keys given, or new ones as when its push
  * subscription rotates); returns its endpoint, keys and subscription id.
  */
-async function device(person: Person, same?: { deviceId: string; endpoint?: string; p256dh?: string; auth?: string }) {
+async function device(person: Person, same?: { deviceId: string; endpoint?: string; p256dh?: string; auth?: string }, mode: "turn_on" | "sync" = "turn_on") {
   const endpoint = same?.endpoint ?? `https://fcm.googleapis.com/fcm/send/${randomBytes(12).toString("hex")}`;
   const deviceId = same?.deviceId ?? randomUUID();
   const p256dh = same?.p256dh ?? randomBytes(65).toString("base64url");
@@ -129,7 +129,7 @@ async function device(person: Person, same?: { deviceId: string; endpoint?: stri
       p_auth: auth,
       p_device_label: "Android · Chrome",
       p_device_id: deviceId,
-      p_mode: "turn_on",
+      p_mode: mode,
     }),
     "turn on reminders",
   );
@@ -149,6 +149,31 @@ const jobsOf = (subscriptionId: string) =>
       .order("kind"),
     "jobs",
   );
+
+/** The secret-key client with its rpc calls passed through `intercept`, which may record them or answer instead (a failure). */
+function interceptRpc(intercept: (fn: string, args: Record<string, unknown>, call: () => unknown) => unknown): ReturnType<typeof serviceClient> {
+  const service = serviceClient();
+  return new Proxy(service, {
+    get(target, prop) {
+      if (prop === "rpc") {
+        return (fn: string, args: Record<string, unknown> = {}, options?: unknown) =>
+          intercept(fn, args, () => (target.rpc as (...rest: unknown[]) => unknown).call(target, fn, args, options));
+      }
+      const value = Reflect.get(target, prop, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+/** The TS engine's next reminder moment of a cycle's open doses from `from` on (every heads-up lead included). */
+async function realNextMoment(db: Client, cycleId: string, from: Date): Promise<Date> {
+  const moments = (await occurrencesOf(db, cycleId))
+    .filter((o) => !o.actualAt && !o.skipped)
+    .flatMap((o) => [-60, -30, -15, 0, 60].map((minutes) => later(new Date(o.scheduledAt), minutes)))
+    .filter((at) => at >= from)
+    .sort((x, y) => x.getTime() - y.getTime());
+  return moments[0];
+}
 
 /** A device's jobs, whichever of its subscriptions they were planned for. */
 const jobsOfDevice = (deviceId: string) =>
@@ -393,6 +418,30 @@ describe("dose reminders", () => {
     expect((await jobsOf(phone.subscriptionId)).map((j) => [j.kind, j.status, j.attempts])).toEqual([["due", "sent", 2]]);
   });
 
+  it("never sends again a reminder whose send started but whose outcome was not recorded, even once a suppression reason clears", async () => {
+    const me = await quietResearcher("unrecorded");
+    const phone = await device(me);
+    await createCycle(me.db, { plans: [plan(peptideA, [weekdays(day(-2), day(-2), EVERY_DAY, "0.4", "13:25")])] });
+    const T = at(day(-2), "13:25");
+    const agreed = (await serviceClient().from("profiles").select("acknowledgement_version").eq("id", me.id).single()).data!.acknowledgement_version;
+    await run(later(T, -1));
+    // The push service accepts it, then recording "sent" fails: the lease stays claimed.
+    const unrecorded = interceptRpc((fn, args, call) =>
+      fn === "finish_reminder_job" && args.p_outcome === "sent" ? Promise.resolve({ data: null, error: { message: "connection reset" } }) : call(),
+    );
+    const summary = await run(T, { db: unrecorded });
+    expect(summary.errors).toBeGreaterThanOrEqual(1);
+    expect(sentTo(phone.endpoint)).toHaveLength(1);
+    // The lease expires while the terms are outdated, then the owner agrees again.
+    await ok(serviceClient().from("profiles").update({ acknowledgement_version: "2026-09-placeholder" }).eq("id", me.id), "old terms");
+    await run(later(T, 3));
+    await ok(serviceClient().from("profiles").update({ acknowledgement_version: agreed }).eq("id", me.id), "current terms");
+    await run(later(T, 4));
+    await run(later(T, 5));
+    expect(sentTo(phone.endpoint)).toHaveLength(1);
+    expect((await jobsOf(phone.subscriptionId)).map((j) => [j.kind, j.status, j.result])).toEqual([["due", "failed", "send started, outcome not recorded"]]);
+  });
+
   it("retries a transient failure within the bound, and gives up after the last attempt", async () => {
     const me = await quietResearcher("retry");
     const [flaky, down] = [await device(me), await device(me)];
@@ -606,6 +655,25 @@ describe("the phone a reminder goes to", () => {
 });
 
 describe("planning follows the owner's changes", () => {
+  it("plans again for a shared phone its owner takes back by opening the app (a refresh of the same endpoint)", async () => {
+    const me = await quietResearcher("takes-back");
+    const other = await quietResearcher("borrower");
+    const own = await device(me);
+    const shared = await device(me);
+    // Another researcher signs in on the shared browser under a new endpoint: the phone is theirs.
+    const theirs = await device(other, { deviceId: shared.deviceId });
+    await createCycle(me.db, { plans: [plan(peptideA, [weekdays(day(-2), day(-2), EVERY_DAY, "0.4", "13:50")])] });
+    const T = at(day(-2), "13:50");
+    await run(later(T, -1));
+    expect(await jobsOfDevice(shared.deviceId)).toEqual([]);
+    // The owner opens the app on it again: a sync that only refreshes the row (same endpoint and keys).
+    await device(me, { deviceId: shared.deviceId, endpoint: shared.endpoint, p256dh: shared.p256dh, auth: shared.auth }, "sync");
+    await run(T);
+    expect(sentTo(own.endpoint)).toHaveLength(1);
+    expect(sentTo(shared.endpoint)).toHaveLength(1);
+    expect(sentTo(theirs.endpoint)).toEqual([]);
+  });
+
   it("plans the heads-up at once when the owner changes its lead after the plan was expanded", async () => {
     const me = await researcher("lead-change");
     const phone = await device(me);
@@ -680,6 +748,52 @@ describe("planning is bounded", () => {
     await ok(serviceClient().rpc("reminder_plan_next_backfill", { p_now: later(T, -30).toISOString() }), "backfill again");
     await plan1(later(T, -90), {});
     expect((await planNext([planId])).get(planId)).toEqual(recorded);
+  });
+
+  it("ranks a plan never later than its true next moment: time changes, a revision, a two-hour repeat", async () => {
+    const estimate = async (planId: string, from: Date) => {
+      const value = await ok(serviceClient().rpc("reminder_plan_estimate", { p_plan: planId, p_from: from.toISOString(), p_to: later(from, 1).toISOString() }), "estimate");
+      expect(value, "an estimate").not.toBeNull();
+      return new Date(value as string);
+    };
+    const me = await quietResearcher("estimates");
+
+    // 20:00, changed to 07:15 from today: the next moment is today's 06:15, not 19:00.
+    const changed = await createCycle(me.db, {
+      plans: [plan(peptideA, [{ ...weekdays(day(-1), day(2), EVERY_DAY, "0.4", "20:00"), time_changes: [{ from: day(0), local_time: "07:15" }] }])],
+    });
+    const fromChanged = at(day(0), "05:00");
+    const realChanged = await realNextMoment(me.db, changed, fromChanged);
+    expect(realChanged).toEqual(at(day(0), "06:15"));
+    expect((await estimate(await planIdOf(me.db, changed, peptideA), fromChanged)).getTime()).toBeLessThanOrEqual(realChanged.getTime());
+
+    // 20:00, revised from tomorrow: that phase ends today and a new one runs at 23:30.
+    const revised = await createCycle(me.db, { plans: [plan(peptideB, [weekdays(day(-1), day(3), EVERY_DAY, "0.4", "20:00")])] });
+    const cycle = (await getCycle(me.db, revised))!;
+    const plans = plansArgument(cycle.revisions.at(-1)!.plans.map((p) => ({ ...p, effectiveFrom: day(1) }))) as { phases: Record<string, unknown>[] }[];
+    plans[0].phases[0].end_date = day(0);
+    plans[0].phases.push(weekdays(day(1), day(3), EVERY_DAY, "0.4", "23:30"));
+    await ok(saveCycle(me.db, { cycleId: revised, version: cycle.version, plans }), "revise");
+    expect((await getCycle(me.db, revised))!.revisions).toHaveLength(2);
+    const revisedPlan = await planIdOf(me.db, revised, peptideB);
+    for (const [from, expected] of [
+      [at(day(0), "18:00"), at(day(0), "19:00")],
+      [at(day(1), "20:00"), at(day(1), "22:30")],
+    ]) {
+      const real = await realNextMoment(me.db, revised, from);
+      expect(real).toEqual(expected);
+      expect((await estimate(revisedPlan, from)).getTime()).toBeLessThanOrEqual(real.getTime());
+    }
+
+    // Antarctica/Troll's two-hour repeat: 01:30 on 2026-10-25 is the earlier one.
+    const troll = await createCycle(me.db, {
+      timeZone: "Antarctica/Troll",
+      plans: [plan(peptideA, [weekdays("2026-10-24", "2026-10-26", EVERY_DAY, "0.4", "01:30")])],
+    });
+    const fromTroll = new Date("2026-10-24T22:00:00Z");
+    const realTroll = await realNextMoment(me.db, troll, fromTroll);
+    expect(realTroll).toEqual(new Date("2026-10-24T22:30:00Z"));
+    expect((await estimate(await planIdOf(me.db, troll, peptideA), fromTroll)).getTime()).toBeLessThanOrEqual(realTroll.getTime());
   });
 
   it("expands a plan due in the next minutes first, however many plans were never expanded", async () => {
@@ -1018,19 +1132,10 @@ describe("supplement reminders at send time", () => {
     await run(later(T, -1));
 
     // The dispatcher's reads through the secret-key client, recorded.
-    const service = serviceClient();
     const rpcs: { fn: string; args: Record<string, unknown> }[] = [];
-    const recorded = new Proxy(service, {
-      get(target, prop) {
-        if (prop === "rpc") {
-          return (fn: string, args: Record<string, unknown> = {}, options?: unknown) => {
-            rpcs.push({ fn, args });
-            return (target.rpc as (...rest: unknown[]) => unknown).call(target, fn, args, options);
-          };
-        }
-        const value = Reflect.get(target, prop, target);
-        return typeof value === "function" ? value.bind(target) : value;
-      },
+    const recorded = interceptRpc((fn, args, call) => {
+      rpcs.push({ fn, args });
+      return call();
     });
     await run(T, { db: recorded, batchSize: 1 });
     expect(sentTo(phone.endpoint)).toHaveLength(2);

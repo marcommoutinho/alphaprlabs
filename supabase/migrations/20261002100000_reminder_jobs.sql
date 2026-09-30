@@ -43,8 +43,9 @@
 --                   outdated", "device off": the planner plans only for an
 --                   owner on the current terms and a device that is on) goes
 --                   back to pending while the planner still plans it (still
---                   relevant). It was never sent, so it still goes out at
---                   most once.
+--                   relevant), only if no send of it ever started
+--                   (send_started_at is null), so it still goes out at most
+--                   once.
 --                   status: pending -> claimed (a lease) -> sent | suppressed
 --                   | failed | gone, or back to pending for a retry. "sent"
 --                   means the push service ACCEPTED the message, never that
@@ -114,6 +115,9 @@
 --      subscription right before sending (still active, the owner's, the
 --      same endpoint and keys, and still its device's newest active row
 --      whoever it belongs to), and sends through src/lib/push/send.ts.
+--      Right before the send: start_reminder_send (send_started_at, under
+--      its lease), so a send whose outcome is never recorded is never
+--      repeated.
 --   4. finish_reminder_job(p_id, p_lease_token, ...): records the outcome,
 --      only while the caller still holds the lease (a call whose lease
 --      expired and was taken over records nothing), or puts the job back to
@@ -156,6 +160,12 @@ create table public.reminder_jobs (
   result text not null default '' check (char_length(result) <= 300),
   -- The push service's HTTP status, when it answered.
   status_code integer,
+  -- Set (start_reminder_send) right before the dispatcher hands this attempt
+  -- to the push service; cleared only when the attempt's outcome is recorded
+  -- as a retry (not accepted). A job whose send started is never reopened,
+  -- and one whose send started under an expired lease, its outcome never
+  -- recorded, is never sent again (the claim fails it).
+  send_started_at timestamptz,
   finished_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -218,9 +228,11 @@ grant select on table public.reminder_planner_state to service_role;
 -- reminders are planned for them. Bumped by triggers whenever it changes: the
 -- Advance heads-up setting (account_preferences.heads_up_minutes), a push
 -- subscription added, removed, enabled, disabled, moved to another owner or
--- device, or re-keyed (every owner with an active row on that device), a
--- device marked off or on again (push_device_off), and the research terms
--- agreement (profiles.acknowledged_at, acknowledgement_version). The planner
+-- device, or re-keyed, or refreshed (last_seen_at) so that another account
+-- now holds the device's newest active row (every owner with an active row
+-- on that device), a device marked off or on again (push_device_off), and
+-- the research terms agreement (profiles.acknowledged_at,
+-- acknowledgement_version). The planner
 -- expands an owner's plans again when their stamp differs from the one they
 -- were expanded with. Supplements need none: the planner reads the whole
 -- supplement window on every call (due_supplement_occurrences follows the
@@ -314,23 +326,73 @@ begin
 end;
 $$;
 
+-- A refresh of last_seen_at (a sync of the same endpoint) decides which
+-- account a shared device belongs to (its newest active row): when that
+-- changes, every owner with an active row on the device is bumped; a refresh
+-- that leaves the same owner newest bumps nobody.
+create function public.reminder_inputs_on_push_seen()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_after uuid;
+  v_before uuid;
+begin
+  select s.profile_id into v_after
+  from public.push_subscriptions s
+  where s.device_id = new.device_id and s.disabled_at is null
+  order by s.last_seen_at desc, s.created_at desc, s.id
+  limit 1;
+  -- The same rows with this one as it was before the update.
+  select w.profile_id into v_before
+  from (
+    select s.id, s.profile_id, s.last_seen_at, s.created_at
+    from public.push_subscriptions s
+    where s.device_id = new.device_id and s.disabled_at is null and s.id <> new.id
+    union all
+    select old.id, old.profile_id, old.last_seen_at, old.created_at
+    where old.disabled_at is null and old.device_id = new.device_id
+  ) w
+  order by w.last_seen_at desc, w.created_at desc, w.id
+  limit 1;
+  if v_after is distinct from v_before then
+    perform public.reminder_inputs_bump(array(
+      select s.profile_id from public.push_subscriptions s
+      where s.device_id = new.device_id and s.disabled_at is null) || v_before);
+  end if;
+  return null;
+end;
+$$;
+
 revoke all on function public.reminder_inputs_on_preferences() from public, anon, authenticated;
 revoke all on function public.reminder_inputs_on_push_subscriptions() from public, anon, authenticated;
+revoke all on function public.reminder_inputs_on_push_seen() from public, anon, authenticated;
 revoke all on function public.reminder_inputs_on_device_off() from public, anon, authenticated;
 revoke all on function public.reminder_inputs_on_terms() from public, anon, authenticated;
 
-create trigger reminder_inputs_added_removed
-  after insert or delete on public.account_preferences
-  for each row execute function public.reminder_inputs_on_preferences();
+-- A new or removed row only matters when its setting is not the default (no row reads 15).
+create trigger reminder_inputs_added
+  after insert on public.account_preferences
+  for each row when (new.heads_up_minutes is distinct from 15)
+  execute function public.reminder_inputs_on_preferences();
+create trigger reminder_inputs_removed
+  after delete on public.account_preferences
+  for each row when (old.heads_up_minutes is distinct from 15)
+  execute function public.reminder_inputs_on_preferences();
 create trigger reminder_inputs_heads_up
   after update on public.account_preferences
   for each row when (old.heads_up_minutes is distinct from new.heads_up_minutes)
   execute function public.reminder_inputs_on_preferences();
 
--- (A sync that only refreshes last_seen_at or the label changes nothing planned.)
 create trigger reminder_inputs_added_removed
   after insert or delete on public.push_subscriptions
   for each row execute function public.reminder_inputs_on_push_subscriptions();
+create trigger reminder_inputs_seen
+  after update on public.push_subscriptions
+  for each row when (old.last_seen_at is distinct from new.last_seen_at and new.device_id is not null)
+  execute function public.reminder_inputs_on_push_seen();
 create trigger reminder_inputs_changed
   after update on public.push_subscriptions
   for each row when (
@@ -343,10 +405,12 @@ create trigger reminder_inputs_off_on
   after insert or delete on public.push_device_off
   for each row execute function public.reminder_inputs_on_device_off();
 
+-- Whether the owner agrees to the current terms can change (not a repeated
+-- agreement to the same version).
 create trigger reminder_inputs_terms
   after update on public.profiles
   for each row when (
-    old.acknowledged_at is distinct from new.acknowledged_at
+    (old.acknowledged_at is null) <> (new.acknowledged_at is null)
     or old.acknowledgement_version is distinct from new.acknowledgement_version)
   execute function public.reminder_inputs_on_terms();
 
@@ -415,12 +479,20 @@ $$;
 
 revoke all on function public.reminder_moments(timestamptz) from public, anon, authenticated;
 
--- A cheap estimate of a plan's next reminder moment from p_from on, without
--- expanding it (a ranking, never a schedule): its active phases' planned
--- time of day on the local dates around [p_from, p_to], whether or not a dose
--- falls on that date (weekdays, every N days and time changes ignored), so
--- it is at worst early. Null: no moment around now.
-create function public.reminder_plan_estimate(p_plan uuid, p_revision uuid, p_time_zone text, p_from timestamptz, p_to timestamptz)
+-- A cheap LOWER BOUND of a plan's next reminder moment from p_from on,
+-- without expanding it (a ranking, never a schedule). Every dose of the plan
+-- is planned at some active phase's local time (its local_time, or one of
+-- its time changes) on a date that phase covers, in its revision's zone, at
+-- the instant cycle_local_instant gives (the engine's, repeats and gaps
+-- included: tests/integration/cycle-parity.test.ts). So the earliest
+-- reminder moment (every heads-up lead included, reminder_moments) over
+-- EVERY such local time of EVERY revision's phases for the plan, on every
+-- date those phases cover from p_from - 1 hour (a follow-up of a dose before
+-- p_from) to p_to + 1 day, whether or not a dose falls then (weekdays, every
+-- N days, which revision applies, logged doses: all ignored), is never later
+-- than the true next moment in that range. Null: no moment in that range
+-- (the plan is ranked last, and estimated again by the next call).
+create function public.reminder_plan_estimate(p_plan uuid, p_from timestamptz, p_to timestamptz)
 returns timestamptz
 language sql
 stable
@@ -429,16 +501,20 @@ set search_path = ''
 as $$
   select min(m.at)
   from public.cycle_revision_phases ph
+  join public.cycle_revisions rv on rv.id = ph.revision_id
+  cross join lateral unnest(array[ph.local_time] || ph.time_change_time) t(local_time)
   cross join lateral generate_series(
-    greatest(ph.start_date, ((p_from - interval '1 hour') at time zone p_time_zone)::date),
-    least(ph.end_date, ((p_to + interval '1 hour') at time zone p_time_zone)::date),
+    greatest(ph.start_date, ((p_from - interval '1 hour') at time zone rv.time_zone)::date),
+    least(ph.end_date, ((p_to + interval '1 day') at time zone rv.time_zone)::date),
     interval '1 day') d(day)
-  cross join lateral public.reminder_moments(public.cycle_local_instant(d.day::date, ph.local_time, p_time_zone)) m(at)
-  where ph.revision_id = p_revision and ph.plan_id = p_plan and ph.kind = 'active'
+  cross join lateral public.reminder_moments(public.cycle_local_instant(d.day::date, t.local_time, rv.time_zone)) m(at)
+  where ph.plan_id = p_plan and ph.kind = 'active'
     and m.at >= p_from;
 $$;
 
-revoke all on function public.reminder_plan_estimate(uuid, uuid, text, timestamptz, timestamptz) from public, anon, authenticated;
+revoke all on function public.reminder_plan_estimate(uuid, timestamptz, timestamptz) from public, anon, authenticated;
+-- Read-only; the service role may call it (tests prove the bound).
+grant execute on function public.reminder_plan_estimate(uuid, timestamptz, timestamptz) to service_role;
 
 -- ── 1. Plan the reminders around now (bounded) ─────────────────────────────
 -- Returns { now: the clock used, planned: new rows, purged: old rows removed,
@@ -490,16 +566,15 @@ begin
   -- Peptide doses, a plan at a time: the plans with a reminder moment within
   -- the next minute (or before it, missed), never expanded, or changed since
   -- (their schedule, or their owner's reminder inputs); the most urgent
-  -- first. A plan never expanded, or changed, is ranked by its estimated
-  -- next moment (reminder_plan_estimate: its phases' planned time of day
-  -- around now, every heads-up lead included; a changed plan also by its
-  -- recorded next moment, whichever is sooner), so one due in the next
-  -- minutes goes ahead of others however many there are; one with no
-  -- moment around now goes last.
+  -- first. A plan never expanded, or changed, is ranked by a lower bound of
+  -- its next moment (reminder_plan_estimate: every local time any of its
+  -- phases may use, around now, every heads-up lead included; a changed plan
+  -- also by its recorded next moment, whichever is sooner), so one due in
+  -- the next minutes goes ahead of others however many there are; one with
+  -- no moment around now goes last.
   for r in
     with candidates as materialized (
       select cp.id as plan_id, c.owner_id, cp.schedule_version, coalesce(oi.version, 0) as inputs_version,
-             rv.id as revision_id, rv.time_zone,
              n.plan_id is null as unseen,
              n.plan_id is not null and (n.schedule_version <> cp.schedule_version or n.inputs_version <> coalesce(oi.version, 0)) as changed,
              n.next_at
@@ -521,8 +596,8 @@ begin
     )
     select k.plan_id, k.owner_id, k.schedule_version, k.inputs_version
     from candidates k
-    order by case when k.unseen then coalesce(public.reminder_plan_estimate(k.plan_id, k.revision_id, k.time_zone, v_follow_from, v_to), 'infinity')
-                  when k.changed then least(k.next_at, coalesce(public.reminder_plan_estimate(k.plan_id, k.revision_id, k.time_zone, v_follow_from, v_to), 'infinity'))
+    order by case when k.unseen then coalesce(public.reminder_plan_estimate(k.plan_id, v_follow_from, v_to), 'infinity')
+                  when k.changed then least(k.next_at, coalesce(public.reminder_plan_estimate(k.plan_id, v_follow_from, v_to), 'infinity'))
                   else k.next_at end,
              k.plan_id
     limit p_max_plans + 1
@@ -571,7 +646,7 @@ begin
       on conflict (job_key) do update set
         status = 'pending', attempts = 0, next_attempt_at = excluded.next_attempt_at, subscription_id = excluded.subscription_id,
         result = '', status_code = null, finished_at = null, updated_at = now()
-      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off')
+      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off') and j.send_started_at is null
       returning 1
     ),
     -- One per owner, instant and device: another plan with a dose at the same time plans the same key.
@@ -586,7 +661,7 @@ begin
       on conflict (job_key) do update set
         status = 'pending', attempts = 0, next_attempt_at = excluded.next_attempt_at, subscription_id = excluded.subscription_id,
         result = '', status_code = null, finished_at = null, updated_at = now()
-      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off')
+      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off') and j.send_started_at is null
       returning 1
     )
     select (select count(*) from dose_jobs) + (select count(*) from heads_up_jobs),
@@ -644,7 +719,7 @@ begin
       on conflict (job_key) do update set
         status = 'pending', attempts = 0, next_attempt_at = excluded.next_attempt_at, subscription_id = excluded.subscription_id,
         result = '', status_code = null, finished_at = null, updated_at = now()
-      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off')
+      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off') and j.send_started_at is null
       returning 1
     )
     select (select count(*) from inserted), l.scheduled_at, l.routine_id, (select count(*) from feed)
@@ -822,13 +897,17 @@ begin
   end if;
 
   -- An interrupted call's jobs come back once their lease expires; one that
-  -- has used every attempt fails instead of going out again.
+  -- has used every attempt fails instead of going out again, and so does one
+  -- whose send had started (the push service may have accepted it; its
+  -- outcome was never recorded): never sent twice.
   update public.reminder_jobs j
   set status = 'failed', lease_token = null, finished_at = v_now, updated_at = now(),
-      result = 'lease expired after ' || j.attempts || ' attempts'
+      result = case when j.send_started_at is not null then 'send started, outcome not recorded'
+                    else 'lease expired after ' || j.attempts || ' attempts' end
   where j.id in (
     select x.id from public.reminder_jobs x
-    where x.status = 'claimed' and x.next_attempt_at <= v_now and x.attempts >= p_max_attempts
+    where x.status = 'claimed' and x.next_attempt_at <= v_now
+      and (x.attempts >= p_max_attempts or x.send_started_at is not null)
     for update skip locked);
 
   return query
@@ -908,6 +987,8 @@ begin
       finished_at = case when p_outcome = 'retry' then null else v_now end,
       result = left(coalesce(p_result, ''), 300),
       status_code = p_status_code,
+      -- A retry's attempt was not accepted: the next one may send.
+      send_started_at = case when p_outcome = 'retry' then null else j.send_started_at end,
       updated_at = now()
   where j.id = p_id and j.status = 'claimed' and j.lease_token = p_lease_token;
   return found;
@@ -916,3 +997,24 @@ $$;
 
 revoke all on function public.finish_reminder_job(uuid, uuid, text, text, integer, timestamptz, timestamptz) from public, anon, authenticated;
 grant execute on function public.finish_reminder_job(uuid, uuid, text, text, integer, timestamptz, timestamptz) to service_role;
+
+-- Right before the dispatcher hands a claimed job to the push service: marks
+-- that its send has started (durably, before any request goes out). Returns
+-- false when the lease is no longer the caller's: it must not send.
+create function public.start_reminder_send(p_id uuid, p_lease_token uuid, p_now timestamptz default null)
+returns boolean
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $$
+begin
+  update public.reminder_jobs j
+  set send_started_at = coalesce(p_now, now()), updated_at = now()
+  where j.id = p_id and j.status = 'claimed' and j.lease_token = p_lease_token;
+  return found;
+end;
+$$;
+
+revoke all on function public.start_reminder_send(uuid, uuid, timestamptz) from public, anon, authenticated;
+grant execute on function public.start_reminder_send(uuid, uuid, timestamptz) to service_role;

@@ -1633,6 +1633,7 @@ export type Database = {
           result: string
           routine_id: string | null
           send_at: string
+          send_started_at: string | null
           source: string
           status: string
           status_code: number | null
@@ -1657,6 +1658,7 @@ export type Database = {
           result?: string
           routine_id?: string | null
           send_at: string
+          send_started_at?: string | null
           source: string
           status?: string
           status_code?: number | null
@@ -1681,6 +1683,7 @@ export type Database = {
           result?: string
           routine_id?: string | null
           send_at?: string
+          send_started_at?: string | null
           source?: string
           status?: string
           status_code?: number | null
@@ -2818,13 +2821,7 @@ export type Database = {
       reminder_instant_text: { Args: { p_at: string }; Returns: string }
       reminder_moments: { Args: { p_at: string }; Returns: string[] }
       reminder_plan_estimate: {
-        Args: {
-          p_from: string
-          p_plan: string
-          p_revision: string
-          p_time_zone: string
-          p_to: string
-        }
+        Args: { p_from: string; p_plan: string; p_to: string }
         Returns: string
       }
       reminder_plan_next_backfill: { Args: { p_now?: string }; Returns: number }
@@ -3001,6 +2998,10 @@ export type Database = {
           p_seen_scheduled_at: string
         }
         Returns: Json
+      }
+      start_reminder_send: {
+        Args: { p_id: string; p_lease_token: string; p_now?: string }
+        Returns: boolean
       }
       stop_sharing_with_team:
         | { Args: never; Returns: boolean }
