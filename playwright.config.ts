@@ -32,7 +32,12 @@ export default defineConfig({
     baseURL: SERVER_ORIGIN,
     trace: "retain-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    // Safari's engine, as an iPhone, for the docked tab bar only
+    // (`npx playwright install webkit` once).
+    { name: "webkit-phone", use: { ...devices["iPhone 13"] }, testMatch: /tab-bar-docked\.spec\.ts/ },
+  ],
   webServer: {
     command: `npm run build && npx next start -p ${port}`,
     url: `${SERVER_ORIGIN}/about`,

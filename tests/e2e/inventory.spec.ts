@@ -315,9 +315,18 @@ test("phone: pages and sheets fit, sections stack, wide amounts stay on one line
   expect(sold.error).toBeNull();
   await signInAdmin(page);
   await page.setViewportSize({ width: 390, height: 844 });
+  // Nothing shown runs past the right edge. The part of a long name that its
+  // truncating box cuts off (other specs' stock items can be long) isn't
+  // shown. The app root's own sideways clip doesn't count.
   const fits = (scope = "main") =>
     page.evaluate(
-      (selector) => [...document.querySelectorAll(`${selector} *`)].every((el) => el.getBoundingClientRect().right <= window.innerWidth + 0.5),
+      (selector) =>
+        [...document.querySelectorAll(`${selector} *`)].every((el) => {
+          if (el.getBoundingClientRect().right <= window.innerWidth + 0.5) return true;
+          for (let box = el.parentElement; box && !box.matches("body, body > .alpha"); box = box.parentElement)
+            if (getComputedStyle(box).overflowX !== "visible") return box.getBoundingClientRect().right <= window.innerWidth + 0.5;
+          return false;
+        }),
       scope,
     );
 

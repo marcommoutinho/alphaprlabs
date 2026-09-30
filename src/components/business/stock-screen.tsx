@@ -181,7 +181,8 @@ function StockRow({ item, onOpen }: { item: StockLevel; onOpen: () => void }) {
       className={cn("flex h-[60px] w-full cursor-pointer items-center gap-3 px-4 text-left", low && "bg-low-tint")}
     >
       {low ? <StateGlyph state="low" /> : null}
-      <span className="min-w-0 flex-1 truncate text-base font-semibold">
+      {/* relative: the truncation also clips the visually hidden note after a long name. */}
+      <span className="relative min-w-0 flex-1 truncate text-base font-semibold">
         {item.peptideName} <span className="font-mono text-[13px] font-normal text-ink-2">{item.strengthMg} mg</span>
         {low ? <span className="sr-only"> · low, reorder at {item.threshold}</span> : null}
       </span>

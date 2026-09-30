@@ -6,7 +6,7 @@ One codebase serves the public site and the private research app (`/app` for
 researchers, `/admin`, `/auth`). Requires Node 22, Docker and the
 [Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started) (2.106+).
 
-1. **Install:** `npm ci`, then `npx playwright install chromium` (once, for browser tests).
+1. **Install:** `npm ci`, then `npx playwright install chromium webkit` (once, for browser tests).
 2. **Start local Supabase:** `npm run db:start` (stop with `npm run db:stop`). It
    uses ports 54421–54429 so it can run beside other local Supabase projects:
    - API `http://127.0.0.1:54421`, Postgres `postgresql://postgres:postgres@127.0.0.1:54422/postgres`

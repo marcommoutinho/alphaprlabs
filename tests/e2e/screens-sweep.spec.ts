@@ -146,11 +146,13 @@ async function problems(page: Page): Promise<string[]> {
       if (legacy.length) found.push(`old app class ${legacy.join(" ")}: ${describe(el)}`);
     }
 
-    // The v3 body clips sideways overflow (the fixed bars need it), which
-    // would hide a page that is too wide: measure with the clip lifted.
+    // The v3 app root clips sideways overflow (the fixed bars need a page
+    // one screen wide), which would hide a page that is too wide: measure
+    // with the clip lifted.
     const body = document.body;
-    const clip = body.style.overflowX;
-    body.style.overflowX = "visible";
+    const app = document.querySelector<HTMLElement>("body > .alpha") ?? body;
+    const clip = app.style.overflowX;
+    app.style.overflowX = "visible";
     const root = document.documentElement;
     if (root.scrollWidth > root.clientWidth) {
       found.push(`page is ${root.scrollWidth}px wide on a ${root.clientWidth}px screen`);
@@ -162,7 +164,7 @@ async function problems(page: Page): Promise<string[]> {
         }
       }
     }
-    body.style.overflowX = clip;
+    app.style.overflowX = clip;
 
     // On a phone, iOS zooms into a field whose text is under 16 px when it takes focus.
     if (window.innerWidth < 760) {

@@ -154,17 +154,18 @@ body:has(> .alpha) {
   background: var(--paper);
 }
 
-/* The sidebar and tab bar are fixed; clip (not hidden) keeps <body> from
-   becoming a scroll container. */
-body:has(> .alpha) {
-  overflow-x: clip;
-}
-
-/* Installed-app feel (N1): the frame doesn't rubber-band past its ends
-   (the page stays put under the docked tab bar), and taps don't flash. */
+/* The docked tab bar and the sidebar are position: fixed, so the document
+   itself must be the one thing that scrolls, exactly one screen wide, and
+   nothing on <html> or <body> may change how iOS scrolls it. The document's
+   own overflow is left alone here (globals.css and the shared document shell
+   hide it sideways for the public site): no overflow on <html> or <body>, and
+   no overscroll-behavior on the scroll root (the tab bar was seen stuck
+   mid-screen while scrolling on an iPhone after both were in place,
+   2026-09-30). The one sideways clip is on the app root below. Taps don't
+   flash. */
 :root:has(> body > .alpha),
 body:has(> .alpha) {
-  overscroll-behavior: none;
+  overflow-x: visible;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -178,11 +179,23 @@ body:has(> .alpha) {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* The app root keeps the document one screen wide: anything too wide inside
+   it (in the flow, or absolutely placed with no positioned ancestor, such as
+   a visually hidden label at the end of a long truncated line) is clipped
+   here instead of widening the page. A wider page makes a phone widen its
+   layout viewport, and the fixed tab bar is placed against that, below or
+   across the visible screen. `clip` (not `hidden`) keeps the root from
+   becoming a scroll container, and clipping never reaches the fixed bars,
+   whose containing block is the viewport. At least the small viewport's
+   height (svh, not dvh), so the page's height doesn't change while Safari's
+   toolbar collapses and expands during a scroll. */
 .alpha {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  min-height: 100svh;
+  overflow-x: clip;
 }
 
 [data-alpha-theme] {
@@ -203,6 +216,15 @@ body:has(> .alpha) {
   .alpha input,
   .alpha textarea {
     caret-color: var(--signal);
+  }
+
+  /* WebKit lays a native select's chosen option out at its full width and
+     lets it spill past the control: the Ledger's seller filter (an invisible
+     select over its chip, each option a seller's whole line of totals) ran
+     690 px wide on a 390 px phone once a seller was chosen. The picker still
+     shows each option in full. */
+  .alpha select {
+    overflow: hidden;
   }
 
   /* Controls don't select their label (or offer a link preview) when
