@@ -1,0 +1,1 @@
+Slipstream: tab bar stays docked. Maker opus. Codex review BLOCKED (13px focusable input -> iOS focus zoom) -> e0b9ff0; recheck CLEAN. Gate on e0b9ff0: build ok, vitest 887/887, exclusive 78/78, Playwright 268/269; the one failure (support.spec:118) is a pre-existing test time-zone bug that also fails on a25e774 between 20:00 and 24:00 Toronto.
