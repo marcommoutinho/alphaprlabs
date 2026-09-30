@@ -1,0 +1,1 @@
+Slipstream: template draft stage. Maker opus. Codex review CLEAN. Gate on c09c82c: vitest 904/904, exclusive 78/78, Playwright 276 passed + 1 flaky (library.spec:133 stall helper, peptide editor, passed on retry and alone). Deploy order: migration 20261001100000_template_drafts first, then app.
