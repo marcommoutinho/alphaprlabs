@@ -920,3 +920,9 @@ setup and must not be changed independently by parallel makers.
   notices on template pages, the start-from-template step and cycles made
   from a template; template writing rules in the admin editor. All four
   production accounts are on 2026-09-placeholder until they agree again.
+- Template draft stage (Marco, 2026-09-30: "Yes to draft stage") merged at
+  `c09c82c` and deployed on 2026-10-01: migration 20261001100000_template_drafts
+  first, then the app. New templates start as drafts; researchers never see
+  drafts (RLS, template_peptides, a cycles trigger refusing copies with
+  AP008); admins Save draft / Publish / Move to draft. Production had no
+  templates.
