@@ -3,6 +3,7 @@
 // records, and the admin role is never a way past ownership. No mocked database.
 import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
+import { ACKNOWLEDGEMENT_VERSION } from "@/lib/auth/paths";
 import { anonClient, ensureAccount, ok, serviceClient, signedInClient, uniqueEmail } from "../support/local-supabase";
 
 type Client = Awaited<ReturnType<typeof signedInClient>>;
@@ -61,8 +62,8 @@ describe("admins are researchers: the caller's own records", () => {
     const [newAdminId, newResearcherId] = [ids[adminAddress], ids[researcherAddress]];
     const admin = await signedInClient(adminAddress);
     expect(await profile(newResearcherId)).toMatchObject({ acknowledged_at: null });
-    expect((await admin.rpc("record_acknowledgement", { p_version: "s32-test" })).data).toBe(true);
-    expect(await profile(newAdminId)).toMatchObject({ role: "admin", acknowledgement_version: "s32-test" });
+    expect((await admin.rpc("record_acknowledgement", { p_version: ACKNOWLEDGEMENT_VERSION })).data).toBe(true);
+    expect(await profile(newAdminId)).toMatchObject({ role: "admin", acknowledgement_version: ACKNOWLEDGEMENT_VERSION });
     expect((await profile(newAdminId)).acknowledged_at).not.toBeNull();
     // The other researcher's acknowledgement is untouched and unreadable.
     expect(await profile(newResearcherId)).toMatchObject({ acknowledgement_version: null, acknowledged_at: null });
@@ -75,8 +76,8 @@ describe("admins are researchers: the caller's own records", () => {
     expect(await profile(newResearcherId)).toMatchObject({ acknowledgement_version: null });
     // Unchanged for researchers: they record their own too, and stay researchers.
     const researcher = await signedInClient(researcherAddress);
-    expect((await researcher.rpc("record_acknowledgement", { p_version: "s32-test" })).data).toBe(true);
-    expect(await profile(newResearcherId)).toMatchObject({ role: "researcher", acknowledgement_version: "s32-test" });
+    expect((await researcher.rpc("record_acknowledgement", { p_version: ACKNOWLEDGEMENT_VERSION })).data).toBe(true);
+    expect(await profile(newResearcherId)).toMatchObject({ role: "researcher", acknowledgement_version: ACKNOWLEDGEMENT_VERSION });
     // Anonymous callers still cannot.
     expect((await anonClient().rpc("record_acknowledgement", { p_version: "x" })).error).not.toBeNull();
   });
@@ -186,7 +187,7 @@ describe("the database enforces the acknowledgement for research writes", () => 
       }
       expect(await row(url), role).toBeNull();
 
-      expect((await client.rpc("record_acknowledgement", { p_version: "s32-test" })).data, role).toBe(true);
+      expect((await client.rpc("record_acknowledgement", { p_version: ACKNOWLEDGEMENT_VERSION })).data, role).toBe(true);
       expect((await save(client, url, "turn_on", device)).data, role).toBe("saved");
       expect((await save(client, url, "sync", device)).data, role).toBe("saved");
       expect(await row(url), role).toMatchObject({ profile_id: ids[email], disabled_reason: null });

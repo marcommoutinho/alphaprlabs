@@ -6,6 +6,7 @@ import { createECDH, createHash, randomBytes } from "node:crypto";
 import type { Locator, Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../../src/lib/supabase/database.types";
+import { ACKNOWLEDGEMENT_VERSION } from "../../src/lib/auth/paths";
 
 export type LocalSupabase = {
   url: string;
@@ -193,6 +194,8 @@ export async function ensureAccount(opts: {
   name: string;
   role: "admin" | "researcher";
   acknowledged?: boolean;
+  /** The terms version agreed to when acknowledged: the current one unless a test needs an earlier one. */
+  termsVersion?: string;
   password?: string;
 }): Promise<string> {
   const admin = serviceClient();
@@ -209,14 +212,14 @@ export async function ensureAccount(opts: {
     const { error: passwordError } = await admin.auth.admin.updateUserById(userId, { password });
     if (passwordError) throw passwordError;
   }
-  // Admins are researchers too (S3.2): both roles are acknowledged unless asked not to be.
+  // Admins are researchers too (S3.2): both roles have agreed to the current research terms unless asked not to.
   const acknowledged = opts.acknowledged !== false;
   const { error } = await admin.from("profiles").upsert({
     id: userId,
     email: opts.email,
     name: opts.name,
     role: opts.role,
-    acknowledgement_version: acknowledged ? "test" : null,
+    acknowledgement_version: acknowledged ? (opts.termsVersion ?? ACKNOWLEDGEMENT_VERSION) : null,
     acknowledged_at: acknowledged ? new Date().toISOString() : null,
   });
   if (error) throw error;

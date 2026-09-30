@@ -207,6 +207,9 @@ describe("R3 / D2 cycle screen", () => {
     expect(screen.header).toBe("Active · Sep 10 – Oct 14");
     expect(screen.subtitle).toBe("BPC-157 and TB-500 · from the Recovery stack template");
     expect(screen.from).toBe("from Recovery stack");
+    // The template note goes with the template reference (cycles.template_id), not the snapshot's name.
+    expect(screen.fromTemplate).toBe(false);
+    expect(cycleScreen({ ...cycleOf([revision1]), templateId: uuid(900) }, confirmations, peptides, new Map([[PLAN_A, mixture]]), NOW).fromTemplate).toBe(true);
     expect(screen.now).toEqual({ label: "Day", value: "11", unit: "of 35", right: "24 days left", rightSub: "Ends Wed, Oct 14" });
     expect(screen.ticks.labels.map((l) => l.text)).toEqual(["Sep 10", "Today", "Oct 1", "Oct 14"]);
     expect(screen.tiles).toEqual({

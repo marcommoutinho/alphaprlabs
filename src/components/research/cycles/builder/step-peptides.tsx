@@ -3,7 +3,9 @@
 import Link from "@/components/alpha/link";
 import { Check, ChevronRight, Layers, Search } from "lucide-react";
 import { useState } from "react";
+import { Notice } from "@/components/alpha/notice";
 import { Tag } from "@/components/alpha/tag";
+import { TEMPLATE_NOTICE } from "@/lib/auth/terms";
 import type { CyclePeptide } from "@/lib/cycles/rules";
 import { cn } from "@/lib/utils";
 
@@ -49,9 +51,14 @@ export function StepPeptides({
       </div>
 
       {templateNote ? (
-        <p className="mx-3 mt-[18px] rounded-[16px] bg-sunken px-4 py-3 text-[14px] leading-5 text-ink-2 laptop:mx-0" data-testid="template-note">
-          {templateNote}
-        </p>
+        <>
+          <p className="mx-3 mt-[18px] rounded-[16px] bg-sunken px-4 py-3 text-[14px] leading-5 text-ink-2 laptop:mx-0" data-testid="template-note">
+            {templateNote}
+          </p>
+          <Notice className="mx-3 mt-2 laptop:mx-0" testId="template-reference-notice">
+            {TEMPLATE_NOTICE}
+          </Notice>
+        </>
       ) : templates ? (
         <Link href="/app/cycles/templates" className="mx-3 mt-[18px] flex items-center gap-3 rounded-group border border-line bg-surface px-3.5 py-3 laptop:mx-0">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-sunken">

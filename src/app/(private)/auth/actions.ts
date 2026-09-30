@@ -10,7 +10,9 @@ import {
   RECOVER_PATH,
   RESET_PASSWORD_PATH,
   SIGN_IN_PATH,
+  RESEARCH_HOME,
   destinationFor,
+  termsAgreement,
 } from "@/lib/auth/paths";
 import { startRecovery } from "@/lib/auth/recovery";
 import { canonicalEndpoint, deviceIdOf } from "@/lib/push/device";
@@ -56,14 +58,15 @@ export async function signIn(input: { email: unknown; password: unknown; next?: 
   // Role comes from the profile (RLS: own row), read with the new session.
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role, acknowledged_at")
+    .select("role, acknowledgement_version")
     .eq("id", data.user.id)
     .maybeSingle();
   if (!profile) {
     await supabase.auth.signOut();
     return { error: "Email or password is incorrect. Passwords are case-sensitive." };
   }
-  return goTo(destinationFor({ role: profile.role, acknowledged: profile.acknowledged_at !== null }, str(input.next)));
+  const acknowledged = termsAgreement(profile.acknowledgement_version) === "current";
+  return goTo(destinationFor({ role: profile.role, acknowledged }, str(input.next)));
 }
 
 /**
@@ -170,10 +173,14 @@ export async function acknowledge(input: { accepted: unknown }): Promise<FormRes
   // Researchers and admins (every admin is also a researcher); own profile only.
   if (!hasResearchAccess(person.role)) redirect(destinationFor(person));
 
+  // Someone who agreed before (an earlier version of the terms) is agreeing
+  // again: back to Today. Someone joining goes on to step 3.
+  const joining = termsAgreement(person.agreedVersion) === "none";
+
   const supabase = await createClient();
   const { data: recorded, error } = await supabase.rpc("record_acknowledgement", {
     p_version: ACKNOWLEDGEMENT_VERSION,
   });
   if (error || !recorded) return { toast: SAVE_FAILED };
-  return goTo(AFTER_ACKNOWLEDGEMENT_PATH);
+  return goTo(joining ? AFTER_ACKNOWLEDGEMENT_PATH : RESEARCH_HOME);
 }

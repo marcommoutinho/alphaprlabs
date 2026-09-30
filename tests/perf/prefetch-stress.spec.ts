@@ -202,7 +202,7 @@ test("prefetch stress 2, double taps: the last link followed renders, most witho
   const { page, heading, stats, tabs, single, double, report, progress } = await stressPage(browser, email);
   const next = random(16_307);
   const all = Object.values(tabs);
-  const disclaimer = { link: page.getByTestId("me-disclaimer"), url: `${APP_ORIGIN}/app/me/disclaimer`, h1: "For research use only" };
+  const disclaimer = { link: page.getByTestId("me-disclaimer"), url: `${APP_ORIGIN}/app/me/disclaimer`, h1: "Research terms" };
   const reminders = { link: page.getByTestId("me-reminders"), url: `${APP_ORIGIN}/app/notifications`, h1: /^Reminders on (your|this) phone$/ };
   const calculator = {
     link: page.getByTestId("today-hero").getByRole("link", { name: "Set one up in the calculator" }),

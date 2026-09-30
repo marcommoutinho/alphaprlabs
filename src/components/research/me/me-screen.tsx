@@ -32,6 +32,7 @@ import {
   type WeightUnit,
 } from "@/lib/preferences/rules";
 import { NEVER_ADDS, SUPPLIES_INTRO } from "@/lib/supplies/rules";
+import { TERMS_ME_LINK } from "@/lib/auth/terms";
 import { R8_COPY, R8_TITLE, type ShareEvent } from "@/lib/support/view";
 import { cn } from "@/lib/utils";
 import { CYCLES_MAIN } from "../cycles/cycles-list";
@@ -71,7 +72,7 @@ type TrackingSheet = "vials" | "supplements" | null;
  * switch opens R17 to share; stopping asks first) and the sharing history;
  * Tracking (vials and supplements on or off, dose reminders); Preferences
  * (default syringe, weight unit, appearance, stored with the account);
- * Account (the research-use disclaimer, sign out). Only ever the caller's
+ * Account (the research terms, sign out). Only ever the caller's
  * own account, and never an admin's name.
  */
 export function MeScreen({ view }: { view: MeView }) {
@@ -418,13 +419,13 @@ function InstallRow() {
   return <SettingRow label={installItemLabel(device)} value="" href={INSTALL_GUIDE_PATH} testId="me-install" />;
 }
 
-/** R8 "Account": the install guide (in a browser tab), the research-use disclaimer (read-only) and Sign out. */
+/** R8 "Account": the install guide (in a browser tab), the research terms (read-only) and Sign out. */
 function Account() {
   const { pending, offline, signOut } = useSignOut();
   return (
     <Group className="mx-3 mt-6 laptop:mx-0">
       <InstallRow />
-      <SettingRow label="Research-use disclaimer" value="" href="/app/me/disclaimer" testId="me-disclaimer" />
+      <SettingRow label={TERMS_ME_LINK} value="" href="/app/me/disclaimer" testId="me-disclaimer" />
       <button
         type="button"
         disabled={pending || offline}

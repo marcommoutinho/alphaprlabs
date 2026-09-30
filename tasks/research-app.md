@@ -341,6 +341,25 @@ switches to the back office and back.
   Cycles stays the current tab on the calculator. Its Back returns to where
   it was opened from (history), or to Cycles when there is nothing to go
   back to.
+- The research terms are final (Marco, 2026-09-30: "You and Astra are acting
+  as my lawyer. Nail this down. We should be covered via research." … "Let's
+  lock this in."), terms version **2026-09-30**. They replace the placeholder
+  disclaimer at joining step 2 ("Research terms") and in Me › Research terms
+  (read-only, with the version and the date accepted), word for word as
+  approved (src/lib/auth/terms.ts). Templates are general reference examples
+  based on published research and online researcher discussions, with no
+  source per template ("I won't have resources per template"). Agreeing
+  means agreeing to the current version: anyone whose stored version differs
+  (everyone in production agreed to "2026-09-placeholder") is sent to the
+  terms, with the updated lead and without the joining steps, before anything
+  on the research side, and goes back to Today once they agree. The database
+  enforces the same (public.current_terms_version(); a new version is a new
+  migration). Admins are researchers, so the same applies to their research
+  side; the admin back office (/admin) stays open without the terms, as it
+  always was. Every template page and the start-from-template step carry the
+  template reference notice, a cycle made from a template carries "Your own
+  copy of the template, your own responsibility.", and the admin template
+  editor shows the template writing rules beside the guidance.
 
 ### Launch exclusions
 

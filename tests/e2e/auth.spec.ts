@@ -96,16 +96,16 @@ test("admin invites; the researcher accepts, sets a password, acknowledges and r
   await researcher.getByLabel("Password · 8 characters or more").fill(TEST_PASSWORD);
   await researcher.getByRole("button", { name: "Continue" }).click();
 
-  // R15: the disclaimer; Agree stays disabled until the box is ticked.
+  // R15: the research terms; Agree stays disabled until the box is ticked.
   await expect(researcher.getByRole("progressbar", { name: "Step 2 of 3" })).toBeVisible();
-  await expect(researcher.getByRole("heading", { level: 1 })).toHaveText("For research use only");
+  await expect(researcher.getByRole("heading", { level: 1 })).toHaveText("Research terms");
   // Until acknowledged, the app routes back here.
   await researcher.goto(`${APP_ORIGIN}/app/today`);
   await expect(researcher).toHaveURL(`${APP_ORIGIN}/auth/acknowledge`);
   const agree = researcher.getByRole("button", { name: "Agree and continue" });
   await expect(await hydrated(agree)).toBeDisabled();
-  await expect(researcher.getByRole("region", { name: "Research-use disclaimer" })).toContainText("[Researcher disclaimer text.");
-  await researcher.getByRole("checkbox", { name: "I've read this and I'm using the app as a researcher." }).click();
+  await expect(researcher.getByRole("region", { name: "Research terms" })).toContainText("Research use only. Compounds are research materials, not supplied as drugs");
+  await researcher.getByRole("checkbox", { name: "I am a researcher using this app for my own research, and I have read and accept these terms." }).click();
   await expect(agree).toBeEnabled();
   await agree.click();
   // R16: on a laptop, "Get the app on your phone"; later goes on to Today.

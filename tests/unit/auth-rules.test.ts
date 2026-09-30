@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hasResearchAccess } from "@/lib/app/identity";
-import { destinationFor, safeNextPath, signInUrl } from "@/lib/auth/paths";
+import { ACKNOWLEDGEMENT_VERSION, destinationFor, safeNextPath, signInUrl, termsAgreement } from "@/lib/auth/paths";
 import { displayState, normalizeEmail } from "@/lib/invitations/state";
 
 describe("return paths", () => {
@@ -34,6 +34,26 @@ describe("return paths", () => {
 
   it("admins and researchers both have the research side", () => {
     expect(hasResearchAccess("researcher") && hasResearchAccess("admin")).toBe(true);
+  });
+});
+
+describe("the research terms version rule", () => {
+  it("only an agreement to the current version counts", () => {
+    expect(ACKNOWLEDGEMENT_VERSION).toBe("2026-09-30");
+    expect(termsAgreement(ACKNOWLEDGEMENT_VERSION)).toBe("current");
+    // Everyone in production agreed to the placeholder: they agree again.
+    expect(termsAgreement("2026-09-placeholder")).toBe("outdated");
+    for (const other of ["test", "2026-09-30 ", "2026-09-3", "2026-10-01"]) expect(termsAgreement(other), other).toBe("outdated");
+    // Never agreed: still joining.
+    for (const none of [null, undefined, ""]) expect(termsAgreement(none)).toBe("none");
+  });
+
+  it("the research side waits for the current version; the back office never does", () => {
+    const outdated = termsAgreement("2026-09-placeholder") === "current";
+    expect(destinationFor({ role: "researcher", acknowledged: outdated })).toBe("/auth/acknowledge");
+    expect(destinationFor({ role: "researcher", acknowledged: outdated }, "/app/cycles")).toBe("/auth/acknowledge");
+    expect(destinationFor({ role: "admin", acknowledged: outdated }, "/app/today")).toBe("/auth/acknowledge");
+    expect(destinationFor({ role: "admin", acknowledged: outdated }, "/admin/library")).toBe("/admin/library");
   });
 });
 

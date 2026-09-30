@@ -30,11 +30,11 @@ test("an admin acknowledges, turns on reminders, uses the research side and swit
   // The app opens on the research side, which first needs the acknowledgement (R15).
   await signInAs(page, APP_ORIGIN, ADMIN.email);
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth/acknowledge`);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("For research use only");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Research terms");
   await page.goto(`${APP_ORIGIN}/app/notifications`);
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth/acknowledge`);
   // A full page load: the form only works once React has hydrated it.
-  await (await hydrated(page.getByRole("checkbox", { name: "I've read this and I'm using the app as a researcher." }))).click();
+  await (await hydrated(page.getByRole("checkbox", { name: "I am a researcher using this app for my own research, and I have read and accept these terms." }))).click();
   await page.getByRole("button", { name: "Agree and continue" }).click();
 
   // R16, the install guide, for admins too ("I'll do it later"); the push

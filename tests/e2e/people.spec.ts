@@ -90,7 +90,7 @@ test("laptop: an admin invites an admin (confirm first), who accepts from the em
   await expect(invitee.getByText("Marco")).toHaveCount(0);
   await (await hydrated(invitee.getByLabel("Password · 8 characters or more"))).fill(TEST_PASSWORD);
   await invitee.getByRole("button", { name: "Continue" }).click();
-  await (await hydrated(invitee.getByRole("checkbox", { name: "I've read this and I'm using the app as a researcher." }))).click();
+  await (await hydrated(invitee.getByRole("checkbox", { name: "I am a researcher using this app for my own research, and I have read and accept these terms." }))).click();
   await invitee.getByRole("button", { name: "Agree and continue" }).click();
   // R16, the install guide: later.
   await expect(invitee).toHaveURL(`${APP_ORIGIN}/auth/install`);

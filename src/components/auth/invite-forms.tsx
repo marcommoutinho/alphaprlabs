@@ -7,11 +7,12 @@ import { Button } from "@/components/alpha/button";
 import { Checkbox, Field, TextInput } from "@/components/alpha/field";
 import Link from "@/components/alpha/link";
 import { SIGN_IN_PATH } from "@/lib/auth/paths";
+import { TERMS_CHECKBOX } from "@/lib/auth/terms";
 import { AuthActions, FormError, useAuthSubmit } from "./auth-frame";
 import { DisclaimerBox } from "./disclaimer";
 
 export const PASSWORD_LABEL = "Password · 8 characters or more";
-export const ACKNOWLEDGE_LABEL = "I've read this and I'm using the app as a researcher.";
+export const ACKNOWLEDGE_LABEL = TERMS_CHECKBOX;
 
 /**
  * R14: name (prefilled from the invitation), the invitation's email
@@ -89,7 +90,7 @@ export function AccountSetupForm({
 }
 
 /**
- * R15: the disclaimer in its scroll box, the checkbox, and "Agree and
+ * R15: the research terms in their scroll box, the checkbox, and "Agree and
  * continue", disabled until the box is ticked (the server checks it too).
  */
 export function AcknowledgementForm() {

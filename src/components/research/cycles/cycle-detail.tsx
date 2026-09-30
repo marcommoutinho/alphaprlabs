@@ -1,9 +1,10 @@
 import Link from "@/components/alpha/link";
-import { ChevronLeft, ChevronRight, FlaskConical } from "lucide-react";
+import { ChevronLeft, ChevronRight, FlaskConical, Info } from "lucide-react";
 import { buttonVariants } from "@/components/alpha/button-variants";
 import { Group, GroupLabel, Row } from "@/components/alpha/list";
 import { NowBlock } from "@/components/alpha/now-block";
 import { Tag } from "@/components/alpha/tag";
+import { CYCLE_FROM_TEMPLATE_NOTE } from "@/lib/auth/terms";
 import { massLabel } from "@/lib/alpha/format";
 import { daysLabel } from "@/lib/cycles/geometry";
 import type { CycleScreen, PlanView } from "@/lib/cycles/screens";
@@ -51,6 +52,12 @@ export function CycleDetail({ screen }: { screen: CycleScreen }) {
           <p className="mt-1 text-[14px] text-ink-2 laptop:hidden" data-testid="cycle-subtitle">
             {screen.subtitle}
           </p>
+          {screen.fromTemplate ? (
+            <p role="note" className="mt-1.5 flex items-start gap-1.5 text-[13px] leading-[18px] text-ink-2" data-testid="cycle-template-note">
+              <Info className="mt-px size-[15px] shrink-0 text-ink-3" aria-hidden />
+              <span>{CYCLE_FROM_TEMPLATE_NOTE}</span>
+            </p>
+          ) : null}
         </div>
         <Link href={edit} className={cn(buttonVariants({ variant: "outline", size: "sm" }), "ml-auto hidden text-[14px] laptop:inline-flex")}>
           Edit future plan

@@ -43,7 +43,7 @@ async function acceptAndAgree(page: Page, link: string, label: string) {
   await shot(page, `r14-${label}`);
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth/acknowledge`);
-  const box = page.getByRole("checkbox", { name: "I've read this and I'm using the app as a researcher." });
+  const box = page.getByRole("checkbox", { name: "I am a researcher using this app for my own research, and I have read and accept these terms." });
   await (await hydrated(box)).click();
   await shot(page, `r15-${label}`);
   await page.getByRole("button", { name: "Agree and continue" }).click();
@@ -82,12 +82,12 @@ test("an invitation on iPhone Safari: R14, R15 stored with its version, R16, the
   // R15: Agree stays disabled until the box is ticked; the agreement is stored with its version and time.
   await expect(page).toHaveURL(`${APP_ORIGIN}/auth/acknowledge`);
   await expect(page.getByRole("progressbar", { name: "Step 2 of 3" })).toBeVisible();
-  await expect(page.getByText("Please read this once. It's recorded with your account.")).toBeVisible();
+  await expect(page.getByText("Your agreement to these terms will be recorded with your account.")).toBeVisible();
   const agree = page.getByRole("button", { name: "Agree and continue" });
   await expect(agree).toBeDisabled();
-  const region = page.getByRole("region", { name: "Research-use disclaimer" });
+  const region = page.getByRole("region", { name: "Research terms" });
   await expect(region).toHaveCSS("height", "330px");
-  const box = page.getByRole("checkbox", { name: "I've read this and I'm using the app as a researcher." });
+  const box = page.getByRole("checkbox", { name: "I am a researcher using this app for my own research, and I have read and accept these terms." });
   await (await hydrated(box)).click();
   await expect(box).toBeChecked();
   await expect(agree).toBeEnabled();
@@ -110,7 +110,7 @@ test("an invitation on iPhone Safari: R14, R15 stored with its version, R16, the
   ]);
   await expect(page.getByTestId("install-reminders")).toHaveText("Dose reminders only work from the Home Screen app.");
   const { data: profile } = await serviceClient().from("profiles").select("acknowledged_at, acknowledgement_version").eq("email", email).single();
-  expect(profile?.acknowledgement_version).toBe("2026-09-placeholder");
+  expect(profile?.acknowledgement_version).toBe("2026-09-30");
   expect(Date.parse(profile!.acknowledged_at!)).toBeGreaterThan(before - 60_000);
   await (await hydrated(page.getByRole("button", { name: "I'll do it later" }))).click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);

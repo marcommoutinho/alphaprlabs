@@ -88,9 +88,9 @@ for (const [device, viewport] of [
       // The disclaimer, read-only, with when it was accepted.
       await page.getByTestId("me-disclaimer").click();
       await expect(page).toHaveURL(`${APP_ORIGIN}/app/me/disclaimer`);
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText("For research use only");
-      await expect(page.getByTestId("disclaimer-accepted")).toContainText(/^You agreed on \w{3}, \w{3} \d+, \d{4} · \d+:\d\d [AP]M\.Version test$/);
-      await expect(page.getByRole("region", { name: "Research-use disclaimer" })).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Research terms");
+      await expect(page.getByTestId("disclaimer-accepted")).toContainText(/^You agreed on \w{3}, \w{3} \d+, \d{4} · \d+:\d\d [AP]M\.Version 2026-09-30$/);
+      await expect(page.getByRole("region", { name: "Research terms" })).toBeVisible();
       await expect(page.getByRole("checkbox")).toHaveCount(0);
       await context.close();
     });

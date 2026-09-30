@@ -3,9 +3,11 @@ import { notFound } from "next/navigation";
 import { buttonVariants } from "@/components/alpha/button-variants";
 import Link from "@/components/alpha/link";
 import { Group } from "@/components/alpha/list";
+import { Notice } from "@/components/alpha/notice";
 import { Tag } from "@/components/alpha/tag";
 import { LIBRARY_MAIN } from "@/components/research/library/library-screen";
 import { requireResearcher } from "@/lib/auth/session";
+import { TEMPLATE_NOTICE } from "@/lib/auth/terms";
 import { getResearchTemplate } from "@/lib/library/research";
 import { phaseText, phaseWhen, TEMPLATE_INTRO, templateDays, WITHDRAWN_NOTE, withdrawnNotice } from "@/lib/library/research-view";
 import { createClient } from "@/lib/supabase/server";
@@ -50,10 +52,13 @@ export default async function TemplatePage({ params }: { params: Params }) {
           <h1 className="mt-0.5 text-[34px] leading-[1.15] font-semibold tracking-[-0.03em] break-words">{template.name}</h1>
           <p className="mt-1 text-[15px] leading-[22px] text-ink-2">{TEMPLATE_INTRO}</p>
         </header>
+        <Notice className="mx-3 mt-4 laptop:mx-0" testId="template-reference-notice">
+          {TEMPLATE_NOTICE}
+        </Notice>
         {notice ? (
           <p
             role="note"
-            className="mx-3 mt-4 flex gap-2.5 rounded-[18px] bg-low-tint px-4 py-3 text-[14px] leading-5 text-ink laptop:mx-0"
+            className="mx-3 mt-2 flex gap-2.5 rounded-[18px] bg-low-tint px-4 py-3 text-[14px] leading-5 text-ink laptop:mx-0"
             data-testid="template-withdrawn-notice"
           >
             <TriangleAlert className="mt-0.5 size-4 shrink-0 text-low" aria-hidden />

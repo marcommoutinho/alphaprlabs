@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { isOnline } from "@/components/alpha/online";
 import { Button } from "@/components/alpha/button";
+import { Notice } from "@/components/alpha/notice";
 import { Field, TextInput } from "@/components/alpha/field";
 import Link from "@/components/alpha/link";
 import { Sheet, SheetContent } from "@/components/alpha/sheet";
@@ -15,6 +16,7 @@ import { useRefreshWait } from "@/components/alpha/use-refresh-wait";
 import { Issues } from "@/components/research/cycles/builder/parts";
 import { AxisRow } from "@/components/research/cycles/lanes";
 import { saveTemplateAction, type TemplateActionResult } from "@/app/(private)/admin/library/templates/actions";
+import { ADMIN_TEMPLATE_CHECKLIST } from "@/lib/auth/terms";
 import { barHeight } from "@/lib/cycles/geometry";
 import { type RecordAttempt, recordAttempt } from "@/lib/records/forms";
 import type { Weekday } from "@/lib/schedule/engine";
@@ -203,9 +205,21 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
               data-testid="template-name"
             />
           </Field>
-          <Field label={GUIDANCE_LABEL} optional>
-            <TextInput compact value={guidance} onChange={(event) => setGuidance(event.currentTarget.value)} autoComplete="off" data-testid="template-guidance" />
-          </Field>
+          <div className="flex flex-col gap-2.5">
+            <Field label={GUIDANCE_LABEL} optional>
+              <TextInput compact value={guidance} onChange={(event) => setGuidance(event.currentTarget.value)} autoComplete="off" data-testid="template-guidance" />
+            </Field>
+            <Notice testId="template-writing-rules">
+              <p className="font-semibold text-ink">{ADMIN_TEMPLATE_CHECKLIST.title}</p>
+              <ul className="mt-1 list-disc pl-4">
+                {ADMIN_TEMPLATE_CHECKLIST.items.map((item) => (
+                  <li key={item} className="mt-0.5">
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </Notice>
+          </div>
         </div>
 
         {plans.length ? (

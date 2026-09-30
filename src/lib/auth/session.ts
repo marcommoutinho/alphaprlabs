@@ -6,12 +6,15 @@ import { type Preferences, resolvePreferences } from "@/lib/preferences/rules";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
-import { ACKNOWLEDGE_PATH, RESEARCH_HOME, signInUrl } from "./paths";
+import { ACKNOWLEDGE_PATH, RESEARCH_HOME, signInUrl, termsAgreement } from "./paths";
 
 /** The verified signed-in person: Auth server user + their profile row and preferences. */
 export type SessionPerson = AppIdentity & {
   id: string;
+  /** Agreed to the CURRENT research terms (ACKNOWLEDGEMENT_VERSION); an earlier version doesn't count. */
   acknowledged: boolean;
+  /** The terms version last agreed to, or null (never: still joining). */
+  agreedVersion: string | null;
   /** When the account was created (R8 "Researcher since Aug 2026"). */
   createdAt: string;
   /** R8 Preferences (the defaults when none were saved). */
@@ -38,7 +41,7 @@ export const getSessionPerson = cache(async (): Promise<SessionPerson | null> =>
 export async function readSessionPerson(supabase: SupabaseClient<Database>, userId: string): Promise<SessionPerson | null> {
   const { data: profile } = await supabase
     .from("profiles")
-    .select("id, name, email, role, acknowledged_at, created_at, account_preferences(default_syringe, weight_unit, appearance)")
+    .select("id, name, email, role, acknowledgement_version, created_at, account_preferences(default_syringe, weight_unit, appearance)")
     .eq("id", userId)
     .maybeSingle();
   if (!profile) return null;
@@ -48,7 +51,9 @@ export async function readSessionPerson(supabase: SupabaseClient<Database>, user
     name: profile.name,
     email: profile.email,
     role: profile.role,
-    acknowledged: profile.acknowledged_at !== null,
+    // The version and its time are stored together (profiles_acknowledgement_pair).
+    acknowledged: termsAgreement(profile.acknowledgement_version) === "current",
+    agreedVersion: profile.acknowledgement_version,
     createdAt: profile.created_at,
     preferences: resolvePreferences(profile.account_preferences),
   };
@@ -56,9 +61,10 @@ export async function readSessionPerson(supabase: SupabaseClient<Database>, user
 
 /**
  * For research-side layouts and pages (/app): the signed-in researcher or
- * admin (every admin is also a researcher) who has acknowledged the
- * disclaimer, or a redirect — to sign-in without a session, else to the
- * acknowledgement. Only ever grants access to the person's own records.
+ * admin (every admin is also a researcher) who has agreed to the current
+ * research terms, or a redirect — to sign-in without a session, else to the
+ * terms (an earlier version's agreement doesn't count). Only ever grants
+ * access to the person's own records.
  */
 export async function requireResearcher(returnTo?: string): Promise<SessionPerson> {
   const person = await getSessionPerson();
@@ -71,7 +77,8 @@ export async function requireResearcher(returnTo?: string): Promise<SessionPerso
 /**
  * For admin layouts and pages (/admin): the signed-in admin, or a redirect —
  * to sign-in without a session, else (a researcher) to Today. The back office
- * does not need the researcher acknowledgement.
+ * does not need the research terms (current or not): an admin who hasn't
+ * agreed to the current version is sent to them only on the research side.
  */
 export async function requireAdmin(returnTo?: string): Promise<SessionPerson> {
   const person = await getSessionPerson();
@@ -81,8 +88,8 @@ export async function requireAdmin(returnTo?: string): Promise<SessionPerson> {
 }
 
 /**
- * For research-side server actions: the signed-in, acknowledged researcher or
- * admin, or null (the action must refuse). Actions act only on this person's
+ * For research-side server actions: the signed-in researcher or admin who
+ * has agreed to the current terms, or null (the action must refuse). Actions act only on this person's
  * own records.
  */
 export async function currentResearcher(): Promise<SessionPerson | null> {

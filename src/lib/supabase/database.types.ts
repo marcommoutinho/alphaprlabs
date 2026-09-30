@@ -2305,6 +2305,7 @@ export type Database = {
         }
         Returns: Json
       }
+      current_terms_version: { Args: never; Returns: string }
       cycle_dose_changes_valid: {
         Args: {
           p_end: string

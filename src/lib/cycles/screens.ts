@@ -230,6 +230,8 @@ export type CycleScreen = {
   subtitle: string;
   /** "from Recovery stack" (D2's header), or "". */
   from: string;
+  /** Made from a template (cycles.template_id is set): the cycle shows CYCLE_FROM_TEMPLATE_NOTE. */
+  fromTemplate: boolean;
   goal: string;
   baseline: string;
   timeZone: string;
@@ -389,6 +391,7 @@ export function cycleScreen(
       .filter(Boolean)
       .join(" · "),
     from: cycle.templateName ? `from ${cycle.templateName}` : "",
+    fromTemplate: cycle.templateId !== null,
     goal: cycle.goal,
     baseline: cycle.baseline,
     timeZone: revision.timeZone,

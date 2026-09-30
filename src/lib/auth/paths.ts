@@ -17,8 +17,26 @@ export const RECOVER_PATH = "/auth/recover";
 export const RESET_PASSWORD_PATH = "/auth/reset";
 export const ACKNOWLEDGE_PATH = "/auth/acknowledge";
 
-/** Version of the researcher disclaimer text shown at ACKNOWLEDGE_PATH. */
-export const ACKNOWLEDGEMENT_VERSION = "2026-09-placeholder";
+/**
+ * Version of the research terms shown at ACKNOWLEDGE_PATH
+ * (src/lib/auth/terms.ts). The database's public.current_terms_version()
+ * returns the same value: a change to the terms changes both, and everyone
+ * agrees again before the research side opens.
+ */
+export const ACKNOWLEDGEMENT_VERSION = "2026-09-30";
+
+/**
+ * Where a person stands with the research terms, from the version they last
+ * agreed to: `current` (the research side is open), `outdated` (they agreed
+ * to an earlier version and must agree again) or `none` (never agreed:
+ * still joining).
+ */
+export type TermsAgreement = "current" | "outdated" | "none";
+
+export function termsAgreement(agreedVersion: string | null | undefined): TermsAgreement {
+  if (!agreedVersion) return "none";
+  return agreedVersion === ACKNOWLEDGEMENT_VERSION ? "current" : "outdated";
+}
 
 /**
  * The push permission prompt ("Turn on dose reminders"): shown once, on the
@@ -56,8 +74,9 @@ const inArea = (path: string, area: string) =>
 
 /**
  * The landing page for a signed-in person: their return path if they may use
- * it, else Today. The research side (/app) needs the acknowledgement first;
- * the admin back office (/admin) is for admins only and does not.
+ * it, else Today. The research side (/app) needs the current terms agreed
+ * first (`acknowledged`: termsAgreement() is "current"); the admin back
+ * office (/admin) is for admins only and does not.
  */
 export function destinationFor(
   person: { role: AppRole; acknowledged: boolean },
