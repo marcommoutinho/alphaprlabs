@@ -144,7 +144,7 @@ describe("dose reminders", () => {
     // Every day at 06:10 from three days ago: yesterday's dose is the one followed here.
     const cycleId = await createCycle(me.db, { plans: [plan(peptideA, [weekdays(day(-3), day(3), EVERY_DAY, "0.4", "06:10")])] });
     const planId = await planIdOf(me.db, cycleId, peptideA);
-    // A saved mix: 8 mg in 2 mL on a 1 mL (U-100) syringe, so 0.4 mg is 10 units.
+    // A saved mix: 8 mg in 2 mL on a 100-unit syringe, so 0.4 mg is 10 units.
     await ok(
       me.db.rpc("save_mixture", { p_peptide_id: peptideA, p_vial_mg: "8", p_liquid_ml: "2", p_syringe_units: 100, p_line_spacing: "2", p_plan_ids: [planId] }),
       "mixture",
@@ -153,7 +153,7 @@ describe("dose reminders", () => {
     const T = new Date(o.scheduledAt);
     expect(T).toEqual(at(day(-1), "06:10"));
 
-    const facts = { peptide: peptideAName, amount: massLabel("0.4"), time: clock12("06:10"), units: "10", syringe: "1 mL" };
+    const facts = { peptide: peptideAName, amount: massLabel("0.4"), time: clock12("06:10"), units: "10", syringe: "100-unit" };
     const expected = (kind: ReminderKind, badge: number) => ({
       ...doseReminderText(kind, facts),
       url: doseReminderUrl(o.key),
@@ -447,7 +447,7 @@ describe("supplement reminders", () => {
     await run(later(T, 120));
     expect(sentTo(phone.endpoint).map((s) => s.payload)).toEqual([
       {
-        ...supplementReminderText({ name: "Vitamin D3", amount: "2000", unit: "IU", time: clock12("11:50") }),
+        ...supplementReminderText({ supplement: "Vitamin D3", amount: "2000 IU" }),
         url: SUPPLEMENT_REMINDER_URL,
         tag: reminderTag("supplement", `${routine.id}:${today}`),
         badge: 0, // supplements never count

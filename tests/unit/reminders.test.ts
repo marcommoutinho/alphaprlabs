@@ -3,7 +3,21 @@
 // failures are retried, and the send on/off control. The dispatcher itself is
 // proven against the real database in tests/integration/reminders.test.ts.
 import { describe, expect, it } from "vitest";
-import { DOSE_REMINDER_COPY, doseReminderText, fillCopy, SUPPLEMENT_REMINDER_COPY, supplementReminderText } from "@/lib/reminders/copy";
+import {
+  DOSE_DUE_BODY_NO_UNITS,
+  DOSE_DUE_BODY_UNITS,
+  DOSE_DUE_TITLE,
+  doseReminderText,
+  fillCopy,
+  FOLLOWUP_2H_BODY,
+  FOLLOWUP_2H_TITLE,
+  FOLLOWUP_30_BODY,
+  FOLLOWUP_30_TITLE,
+  SUPPLEMENT_DUE_BODY,
+  SUPPLEMENT_DUE_TITLE,
+  SUPPLEMENT_DUE_TITLE_AMOUNT,
+  supplementReminderText,
+} from "@/lib/reminders/copy";
 import {
   doseReminderUrl,
   doseVerdict,
@@ -135,22 +149,25 @@ describe("retries", () => {
 });
 
 describe("copy", () => {
-  it("fills the placeholders' fields, with a variant without syringe units", () => {
+  it("fills each template's fields, with a due body for a dose without syringe units", () => {
     expect(fillCopy("{a} and {b}, {c}", { a: "1", b: "2" })).toBe("1 and 2, {c}");
-    const facts = { peptide: "BPC-157", amount: "250 mcg", time: "8:05 PM", units: "10", syringe: "1 mL" };
-    const due = doseReminderText("due", facts);
-    expect(due).toEqual({ title: fillCopy(DOSE_REMINDER_COPY.due.title, facts), body: fillCopy(DOSE_REMINDER_COPY.due.body, facts) });
-    expect(due.body).toContain("10");
-    expect(due.body).toContain("1 mL");
-    expect(doseReminderText("follow-up-2h", { ...facts, units: null, syringe: null }).body).toBe(fillCopy(DOSE_REMINDER_COPY["follow-up-2h"].bodyNoUnits, facts));
-    const supplement = { name: "Vitamin D3", amount: "2000", unit: "IU", time: "9:00 AM" };
-    expect(supplementReminderText(supplement)).toEqual({
-      title: fillCopy(SUPPLEMENT_REMINDER_COPY.title, supplement),
-      body: fillCopy(SUPPLEMENT_REMINDER_COPY.body, supplement),
+    const facts = { peptide: "BPC-157", amount: "250 mcg", time: "8:05 PM", units: "10", syringe: "100-unit" };
+    expect(doseReminderText("due", facts)).toEqual({ title: fillCopy(DOSE_DUE_TITLE, facts), body: fillCopy(DOSE_DUE_BODY_UNITS, facts) });
+    expect(doseReminderText("due", { ...facts, units: null, syringe: null })).toEqual({
+      title: fillCopy(DOSE_DUE_TITLE, facts),
+      body: fillCopy(DOSE_DUE_BODY_NO_UNITS, facts),
     });
-    // Every template's fields are ones the dispatcher fills.
-    const templates = [...Object.values(DOSE_REMINDER_COPY).flatMap((c) => [c.title, c.body, c.bodyNoUnits]), SUPPLEMENT_REMINDER_COPY.title, SUPPLEMENT_REMINDER_COPY.body];
-    const fields = new Set(templates.flatMap((t) => [...t.matchAll(/\{(\w+)\}/g)].map((m) => m[1])));
-    expect([...fields].sort()).toEqual(["amount", "name", "peptide", "syringe", "time", "unit", "units"]);
+    expect(doseReminderText("follow-up-30m", facts)).toEqual({ title: fillCopy(FOLLOWUP_30_TITLE, facts), body: fillCopy(FOLLOWUP_30_BODY, facts) });
+    expect(doseReminderText("follow-up-2h", { ...facts, units: null, syringe: null })).toEqual({
+      title: fillCopy(FOLLOWUP_2H_TITLE, facts),
+      body: fillCopy(FOLLOWUP_2H_BODY, facts),
+    });
+    const supplement = { supplement: "Vitamin D3", amount: "2000 IU" };
+    expect(supplementReminderText(supplement)).toEqual({ title: fillCopy(SUPPLEMENT_DUE_TITLE_AMOUNT, supplement), body: SUPPLEMENT_DUE_BODY });
+    expect(supplementReminderText({ ...supplement, amount: "" }).title).toBe(fillCopy(SUPPLEMENT_DUE_TITLE, supplement));
+    // Nothing is left unfilled.
+    for (const text of [doseReminderText("due", facts), doseReminderText("follow-up-30m", facts), doseReminderText("follow-up-2h", facts), supplementReminderText(supplement)]) {
+      expect(`${text.title} ${text.body}`).not.toMatch(/[{}]/);
+    }
   });
 });

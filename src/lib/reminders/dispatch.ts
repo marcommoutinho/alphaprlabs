@@ -1,11 +1,10 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { clock12, massLabel } from "@/lib/alpha/format";
-import { SYRINGE_LABEL } from "@/lib/calculator/calculator";
 import type { CycleRecord } from "@/lib/cycles/rules";
 import { cycleStatus, planOccurrences } from "@/lib/cycles/schedule";
 import { listCyclePeptides, listCycles } from "@/lib/cycles/service";
-import { drawDisplay, wallOf } from "@/lib/doses/rules";
+import { drawDisplay } from "@/lib/doses/rules";
 import { ownerConfirmations } from "@/lib/doses/service";
 import { pendingDoses } from "@/lib/doses/today";
 import type { Mixture } from "@/lib/mixtures/rules";
@@ -14,7 +13,6 @@ import { type PushDeps, type PushPayload, type PushSendResult, sendPush, UNKNOWN
 import type { Occurrence } from "@/lib/schedule/engine";
 import type { ReminderKind } from "@/lib/schedule/reminders";
 import type { Database } from "@/lib/supabase/database.types";
-import { SUPPLEMENT_TIME_ZONE } from "@/lib/supplements/rules";
 import { listDueSupplements, type DueSupplement } from "@/lib/supplements/service";
 import { doseReminderText, supplementReminderText } from "./copy";
 import {
@@ -291,7 +289,8 @@ class Context {
       amount: massLabel(occurrence.doseMg),
       time: clock12(occurrence.localTime),
       units: draw.kind === "units" ? draw.units : null,
-      syringe: mixture && draw.kind === "units" ? SYRINGE_LABEL[mixture.setup.syringe] : null,
+      // As Today's Now block: "100-unit syringe".
+      syringe: mixture && draw.kind === "units" ? `${mixture.setup.syringe}-unit` : null,
     });
     const payload: PushPayload = {
       ...text,
@@ -342,12 +341,8 @@ class Context {
     );
     if (!verdict.send || !current) return { verdict };
     const records = await this.owner(job.owner_id);
-    const text = supplementReminderText({
-      name: current.name,
-      amount: current.amount,
-      unit: current.unit,
-      time: clock12(wallOf(current.scheduledAt, SUPPLEMENT_TIME_ZONE).slice(11)),
-    });
+    // As Today shows a routine: "Vitamin D3", "2000 IU".
+    const text = supplementReminderText({ supplement: current.name, amount: `${current.amount} ${current.unit}` });
     const payload: PushPayload = {
       ...text,
       url: SUPPLEMENT_REMINDER_URL,
