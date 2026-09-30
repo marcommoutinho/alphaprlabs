@@ -202,9 +202,10 @@ export function RemindersSettings({
             ‹ Me
           </Link>
           <h1 className="mt-1 text-[34px] leading-[1.1] font-semibold tracking-[-0.03em] text-balance">Reminders on this phone</h1>
-          {/* The sentence about D3's two follow-ups (30 minutes and 2 hours) is removed: superseded on 2026-09-30 by one follow-up an hour after; its new wording is Astra's to write. */}
           <p className="mt-2.5 text-[15px] leading-[1.5] text-ink-2">
-            Reminders name the peptide, planned mg and syringe units. A reminder never confirms a dose. Permission is per device — a new phone asks again.
+            Advance heads-up lets you change or disable the default reminder 15 minutes before each planned dose. Reminders also arrive when it’s due and
+            an hour later if you haven’t logged it, showing the peptide, planned amount and syringe units with a saved mix. Reminders never log doses for
+            you, and each device needs permission, so new phones ask again.
           </p>
         </header>
         <StatusGroup reminders={reminders} labels={["Push supported", "Installed to home screen", "Permission on this device"]} />

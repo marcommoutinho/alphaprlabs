@@ -149,6 +149,10 @@ test("turn reminders on and off; turn off and sign out win over a pending re-syn
 
   await page.goto(`${APP_ORIGIN}/app/notifications`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Reminders on this phone");
+  // The approved intro (Marco, 2026-09-30), word for word.
+  await expect(page.locator("header p")).toHaveText(
+    "Advance heads-up lets you change or disable the default reminder 15 minutes before each planned dose. Reminders also arrive when it’s due and an hour later if you haven’t logged it, showing the peptide, planned amount and syringe units with a saved mix. Reminders never log doses for you, and each device needs permission, so new phones ask again.",
+  );
   for (const [label, value] of [["Push supported", "Yes"], ["Installed to home screen", "Not yet"], ["Permission on this device", "Not requested"]]) {
     await expect(statusValue(page, label)).toHaveText(value);
   }
