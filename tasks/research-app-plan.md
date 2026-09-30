@@ -927,3 +927,15 @@ setup and must not be changed independently by parallel makers.
   drafts (RLS, template_peptides, a cycles trigger refusing copies with
   AP008); admins Save draft / Publish / Move to draft. Production had no
   templates.
+- Reminders (S13; Marco, 2026-09-30: 15-minute heads-up by default, one
+  follow-up an hour later, units only, copy v2 and intro approved) merged at
+  `1b1a174` and deployed on 2026-09-30, switched off: migrations
+  20261002080000_wall_clock_any_repeat, 20261002090000_reminder_heads_up_preference
+  and 20261002100000_reminder_jobs first, then the app with REMINDERS_ENABLED
+  unset. The Vercel cron calls /api/cron/reminders every minute; it returns 401
+  without CRON_SECRET and {enabled:false} with it, and no jobs exist.
+  Delivery is at least once: a repeat carries the same job id and the service
+  worker shows it silently; at most 3 attempts per reminder, none after the
+  15-minute grace. Planner sized for up to ~1,000 active plans. Reviewed over
+  one review and five rechecks (final CLEAN). Next: real-iPhone test, then set
+  REMINDERS_ENABLED=true in Vercel.
