@@ -93,12 +93,15 @@ export function appNotificationPath(path: unknown): string {
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
+/** A reminder job id: a UUID (reminder_jobs.id); public/sw.js checks the same. */
+const JOB_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** The payload sent to public/sw.js, validated. Throws on a programming error. */
 export function encodePayload(payload: PushPayload): string {
   if (payload.badge !== undefined && !(Number.isInteger(payload.badge) && payload.badge >= 0)) {
     throw new Error("Push payload badge must be a whole number ≥ 0");
   }
-  if (payload.jobId !== undefined && !/^[0-9a-f-]{1,64}$/.test(payload.jobId)) throw new Error("Push payload jobId must be an id");
+  if (payload.jobId !== undefined && !JOB_ID.test(payload.jobId)) throw new Error("Push payload jobId must be a job id (a UUID)");
   const { title, body, tag, badge, jobId } = payload;
   const url = appNotificationPath(payload.url);
   const json = JSON.stringify({ title, body, url, tag, ...(badge === undefined ? {} : { badge }), ...(jobId === undefined ? {} : { jobId }) });

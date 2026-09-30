@@ -463,6 +463,64 @@ describe("dose reminders", () => {
     expect((await jobsOf(phone.subscriptionId)).map((j) => [j.kind, j.status, j.attempts, j.status_code])).toEqual([["due", "sent", 2, 201]]);
   });
 
+  it("never claims or sends one reminder more than 3 times, however often its phone is turned off and on again", async () => {
+    const me = await quietResearcher("off-and-on");
+    const phone = await device(me);
+    const same = { deviceId: phone.deviceId, endpoint: phone.endpoint, p256dh: phone.p256dh, auth: phone.auth };
+    const turnOff = () =>
+      ok(me.db.rpc("disable_push_subscription", { p_reason: "turned_off", p_device_id: phone.deviceId, p_endpoint: phone.endpoint }), "turn off");
+    await createCycle(me.db, { plans: [plan(peptideA, [weekdays(day(-5), day(-5), EVERY_DAY, "0.4", "13:35")])] });
+    const T = at(day(-5), "13:35");
+    // Every claim of this phone's jobs, counted; the push service accepts every send, and recording "sent" always fails.
+    let claims = 0;
+    const counted = interceptRpc(async (fn, args, call) => {
+      if (fn === "finish_reminder_job" && args.p_outcome === "sent") return { data: null, error: { message: "connection reset" } };
+      const answer = (await call()) as { data: { subscription_id: string }[] | null; error: unknown };
+      if (fn === "claim_reminder_jobs") claims += (answer.data ?? []).filter((job) => job.subscription_id === phone.subscriptionId).length;
+      return answer;
+    });
+    await run(later(T, -1), { db: counted });
+    await run(T, { db: counted }); // attempt 1: sent, not recorded
+    // Off and on again, over and over, all within the reminder's 15 minutes.
+    for (let minute = 2; minute <= 14; minute += 3) {
+      await turnOff();
+      await run(later(T, minute), { db: counted }); // an expired lease: claimed and suppressed ("device off"), or failed at the cap
+      await device(me, same);
+      await run(later(T, minute + 1), { db: counted }); // reopened only below the cap
+    }
+    expect(claims).toBe(3);
+    expect(sentTo(phone.endpoint)).toHaveLength(2);
+    const [job] = await jobsOf(phone.subscriptionId);
+    expect([job.kind, job.status, job.attempts, job.result]).toEqual(["due", "failed", 3, "lease expired after 3 attempts"]);
+    expect(jobIdsSent.get(phone.endpoint)).toEqual([job.id, job.id]);
+  });
+
+  it("keeps a reminder suppressed at its last attempt suppressed when its phone is turned on again", async () => {
+    const me = await quietResearcher("off-at-last");
+    const phone = await device(me);
+    const same = { deviceId: phone.deviceId, endpoint: phone.endpoint, p256dh: phone.p256dh, auth: phone.auth };
+    const turnOff = () =>
+      ok(me.db.rpc("disable_push_subscription", { p_reason: "turned_off", p_device_id: phone.deviceId, p_endpoint: phone.endpoint }), "turn off");
+    answers.set(phone.endpoint, () => 503);
+    await createCycle(me.db, { plans: [plan(peptideA, [weekdays(day(-5), day(-5), EVERY_DAY, "0.4", "14:50")])] });
+    const T = at(day(-5), "14:50");
+    await run(later(T, -1));
+    await run(T); // attempt 1: 503, retry at T+1
+    await turnOff();
+    await run(later(T, 1)); // attempt 2: suppressed, the phone is off
+    expect((await jobsOf(phone.subscriptionId)).map((j) => [j.status, j.attempts, j.result])).toEqual([["suppressed", 2, "device off"]]);
+    await device(me, same);
+    // Reopened with its 2 attempts; turned off again between the planning and the claim: attempt 3 is suppressed.
+    const offBeforeClaim = interceptRpc((fn, _args, call) => (fn === "claim_reminder_jobs" ? turnOff().then(call) : call()));
+    await run(later(T, 2), { db: offBeforeClaim });
+    expect((await jobsOf(phone.subscriptionId)).map((j) => [j.status, j.attempts, j.result])).toEqual([["suppressed", 3, "device off"]]);
+    await device(me, same);
+    await run(later(T, 3));
+    await run(later(T, 5));
+    expect(sentTo(phone.endpoint)).toHaveLength(1);
+    expect((await jobsOf(phone.subscriptionId)).map((j) => [j.status, j.attempts, j.result])).toEqual([["suppressed", 3, "device off"]]);
+  });
+
   it("retries a transient failure within the bound, and gives up after the last attempt", async () => {
     const me = await quietResearcher("retry");
     const [flaky, down] = [await device(me), await device(me)];
@@ -758,7 +816,8 @@ describe("planning follows the owner's changes", () => {
     await run(later(T, 2));
     await run(later(T, 3));
     expect(sentTo(phone.endpoint)).toHaveLength(1);
-    expect((await jobsOf(phone.subscriptionId)).map((j) => [j.kind, j.status, j.result, j.attempts])).toEqual([["due", "sent", "", 1]]);
+    // Reopened with its attempts kept: the suppressed claim was the first, the send the second.
+    expect((await jobsOf(phone.subscriptionId)).map((j) => [j.kind, j.status, j.result, j.attempts])).toEqual([["due", "sent", "", 2]]);
   });
 });
 

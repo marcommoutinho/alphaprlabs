@@ -56,7 +56,10 @@ describe("push sending", () => {
     const jobId = "0b6c8f5e-8f1c-4f47-9a51-5d8d3c1f2a10";
     await sendPush(target, { ...payload, jobId }, options, value);
     expect(JSON.parse(transport.mock.calls[0][0].payload)).toEqual({ ...payload, jobId });
-    await expect(sendPush(target, { ...payload, jobId: "<script>" }, options, value)).rejects.toThrow();
+    for (const notAnId of ["<script>", "job-due", "-".repeat(36), "0b6c8f5e-8f1c-4f47-9a51", `${jobId}-0`, ` ${jobId}`, "0b6c8f5e8f1c4f479a515d8d3c1f2a10"]) {
+      await expect(sendPush(target, { ...payload, jobId: notAnId }, options, value)).rejects.toThrow(/UUID/);
+    }
+    expect(transport).toHaveBeenCalledOnce();
   });
 
   it("only ever links a notification to a path inside /app", async () => {
@@ -131,22 +134,30 @@ describe("service worker (public/sw.js in a sandbox)", () => {
     };
     const tag = "dose:plan:phase:3";
     const heads = { title: "Planned soon", body: "B", url: "/app/today", tag };
+    const [HEADS_UP, DUE, FOLLOW_UP] = ["5f0e4f5c-1b2a-4c3d-8e9f-0a1b2c3d4e5f", "6a7b8c9d-0e1f-4a2b-9c3d-4e5f6a7b8c9d", "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f"];
 
     // The heads-up alerts; the same job again (at least once) replaces it silently.
-    expect(await push({ ...heads, jobId: "job-heads-up" })).toMatchObject({ tag, renotify: true, data: { jobId: "job-heads-up" } });
-    expect(await push({ ...heads, jobId: "job-heads-up" })).toMatchObject({ tag, renotify: false });
+    expect(await push({ ...heads, jobId: HEADS_UP })).toMatchObject({ tag, renotify: true, data: { jobId: HEADS_UP } });
+    expect(await push({ ...heads, jobId: HEADS_UP })).toMatchObject({ tag, renotify: false });
     // The due reminder (a new job, the same tag) replaces it and alerts; then the follow-up.
-    expect(await push({ ...heads, title: "Due", jobId: "job-due" })).toMatchObject({ tag, renotify: true });
-    expect(await push({ ...heads, title: "Due", jobId: "job-due" })).toMatchObject({ tag, renotify: false });
-    expect(await push({ ...heads, title: "Final", jobId: "job-follow-up" })).toMatchObject({ tag, renotify: true });
+    expect(await push({ ...heads, title: "Due", jobId: DUE })).toMatchObject({ tag, renotify: true });
+    expect(await push({ ...heads, title: "Due", jobId: DUE })).toMatchObject({ tag, renotify: false });
+    expect(await push({ ...heads, title: "Final", jobId: FOLLOW_UP })).toMatchObject({ tag, renotify: true });
     // Once dismissed, a repeat shows (and alerts) again; another tag is its own.
     showing = [];
-    expect(await push({ ...heads, title: "Final", jobId: "job-follow-up" })).toMatchObject({ renotify: true });
-    expect(await push({ ...heads, tag: "supplement:r:2026-09-30", jobId: "job-follow-up" })).toMatchObject({ renotify: true });
+    expect(await push({ ...heads, title: "Final", jobId: FOLLOW_UP })).toMatchObject({ renotify: true });
+    expect(await push({ ...heads, tag: "supplement:r:2026-09-30", jobId: FOLLOW_UP })).toMatchObject({ renotify: true });
     // Without a job id (the test notification), or a browser that can't list notifications: it alerts.
     expect(await push({ ...heads })).toMatchObject({ renotify: true });
+    // Anything but a UUID there is no job id: it alerts every time, and is not kept.
+    for (const notAnId of ["job-due", "-", "5f0e4f5c-1b2a-4c3d-8e9f", `${DUE}-x`, "-".repeat(36), 42]) {
+      const first = await push({ ...heads, title: "Odd", jobId: notAnId });
+      expect(first).toMatchObject({ renotify: true, data: { url: "/app/today" } });
+      expect(first.data).not.toHaveProperty("jobId");
+      expect(await push({ ...heads, title: "Odd", jobId: notAnId })).toMatchObject({ renotify: true });
+    }
     delete registration.getNotifications;
-    expect(await push({ ...heads, jobId: "job-due" })).toMatchObject({ renotify: true });
+    expect(await push({ ...heads, jobId: DUE })).toMatchObject({ renotify: true });
   });
 
   it("stores only the offline page, and serves it only when opening an app page finds no network", async () => {

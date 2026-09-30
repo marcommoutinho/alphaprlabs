@@ -42,7 +42,11 @@
 --                   ("terms outdated", "device off", "device changed": the
 --                   planner plans only for an owner on the current terms
 --                   and a device that is on and theirs) goes back to pending
---                   while the planner still plans it (still relevant).
+--                   while the planner still plans it (still relevant),
+--                   keeping its attempts: one that has used all 3
+--                   (src/lib/reminders/rules.ts MAX_ATTEMPTS) stays
+--                   suppressed, so suppressing and reopening never gets
+--                   past the cap (the claim enforces it as well).
 --                   Delivery is AT LEAST ONCE (Marco's decision, 2026-09-30:
 --                   a missed dose reminder is worse than a rare repeat): a
 --                   send whose outcome was never recorded is retried like
@@ -104,8 +108,9 @@
 --      claims up to p_limit jobs that are due (pending, next_attempt_at <=
 --      now) or whose lease expired (an interrupted call), with FOR UPDATE
 --      SKIP LOCKED, so overlapping calls never claim the same job. Each
---      claim takes a new lease token and counts one attempt; an expired
---      lease already at p_max_attempts fails instead. It returns each job
+--      claim takes a new lease token and counts one attempt; a job already
+--      at p_max_attempts (an expired lease, or pending) fails instead. It
+--      returns each job
 --      with its device's newest active row (endpoint and keys) and the
 --      send-time facts only the database knows: whether the device is still
 --      on for the job's owner (active, still that owner's, not marked off in
@@ -716,9 +721,9 @@ begin
       from slots s
       cross join devices d
       on conflict (job_key) do update set
-        status = 'pending', attempts = 0, next_attempt_at = excluded.next_attempt_at, subscription_id = excluded.subscription_id,
+        status = 'pending', next_attempt_at = excluded.next_attempt_at, subscription_id = excluded.subscription_id, lease_token = null,
         result = '', status_code = null, finished_at = null, updated_at = now()
-      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off', 'device changed')
+      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off', 'device changed') and j.attempts < 3
       returning 1
     ),
     -- One per owner, instant and device: another plan with a dose at the same time plans the same key.
@@ -731,9 +736,9 @@ begin
       from heads_up h
       cross join devices d
       on conflict (job_key) do update set
-        status = 'pending', attempts = 0, next_attempt_at = excluded.next_attempt_at, subscription_id = excluded.subscription_id,
+        status = 'pending', next_attempt_at = excluded.next_attempt_at, subscription_id = excluded.subscription_id, lease_token = null,
         result = '', status_code = null, finished_at = null, updated_at = now()
-      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off', 'device changed')
+      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off', 'device changed') and j.attempts < 3
       returning 1
     )
     select (select count(*) from dose_jobs) + (select count(*) from heads_up_jobs),
@@ -789,9 +794,9 @@ begin
       cross join lateral public.reminder_devices(f.owner_id) d
       where f.scheduled_at > v_from
       on conflict (job_key) do update set
-        status = 'pending', attempts = 0, next_attempt_at = excluded.next_attempt_at, subscription_id = excluded.subscription_id,
+        status = 'pending', next_attempt_at = excluded.next_attempt_at, subscription_id = excluded.subscription_id, lease_token = null,
         result = '', status_code = null, finished_at = null, updated_at = now()
-      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off', 'device changed')
+      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off', 'device changed') and j.attempts < 3
       returning 1
     )
     select (select count(*) from inserted), l.scheduled_at, l.routine_id, (select count(*) from feed)
@@ -970,13 +975,16 @@ begin
 
   -- An interrupted call's jobs come back once their lease expires (even one
   -- whose send had started: its outcome was never recorded, and delivery is
-  -- at least once); one that has used every attempt fails instead.
+  -- at least once); one that has used every attempt fails instead. So does
+  -- a pending job already at the cap (the planner never reopens one; this
+  -- keeps the cap whatever sets a job back to pending).
   update public.reminder_jobs j
   set status = 'failed', lease_token = null, finished_at = v_now, updated_at = now(),
-      result = 'lease expired after ' || j.attempts || ' attempts'
+      result = case when j.status = 'claimed' then 'lease expired after ' || j.attempts || ' attempts'
+                    else 'out of attempts after ' || j.attempts end
   where j.id in (
     select x.id from public.reminder_jobs x
-    where x.status = 'claimed' and x.next_attempt_at <= v_now and x.attempts >= p_max_attempts
+    where x.status in ('pending', 'claimed') and x.next_attempt_at <= v_now and x.attempts >= p_max_attempts
     for update skip locked);
 
   return query

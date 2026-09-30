@@ -93,6 +93,10 @@ function setBadge(count) {
   return Promise.resolve();
 }
 
+/** A reminder job id: a UUID, as src/lib/push/send.ts sends it. Anything else is ignored. */
+const isJobId = (value) =>
+  typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
 /**
  * Whether a notification alerts (sound, vibration) when shown: always, except
  * for a repeat of a reminder already showing. Delivery is at least once, so
@@ -102,7 +106,7 @@ function setBadge(count) {
  * `showing`: the notifications showing under that tag.
  */
 function alertsAgain(showing, jobId) {
-  if (typeof jobId !== "string" || !jobId) return true;
+  if (!isJobId(jobId)) return true;
   return !showing.some((notification) => notification && notification.data && notification.data.jobId === jobId);
 }
 
@@ -126,7 +130,7 @@ self.addEventListener("push", (event) => {
   }
   const title = typeof data.title === "string" && data.title ? data.title : "Alpha PR Labs";
   const tag = typeof data.tag === "string" && data.tag ? data.tag : undefined;
-  const jobId = typeof data.jobId === "string" && data.jobId ? data.jobId : undefined;
+  const jobId = isJobId(data.jobId) ? data.jobId : undefined;
   const show = async () => {
     const renotify = alertsAgain(await showingWith(tag), jobId);
     const options = {
