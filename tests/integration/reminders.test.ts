@@ -58,6 +58,8 @@ const sent: Sent[] = [];
 /** Per endpoint: the push service's answer to the n-th request (1-based), or an error to throw. */
 const answers = new Map<string, (n: number) => number | Error>();
 const requests = new Map<string, number>();
+/** Per endpoint: the reminder job id each payload carried, in order (kept apart from `sent`'s payloads). */
+const jobIdsSent = new Map<string, string[]>();
 
 const push: PushDeps = {
   vapid: { subject: "mailto:test@example.test", publicKey: "test", privateKey: "test" },
@@ -65,7 +67,9 @@ const push: PushDeps = {
     const endpoint = request.subscription.endpoint;
     const n = (requests.get(endpoint) ?? 0) + 1;
     requests.set(endpoint, n);
-    sent.push({ endpoint, payload: JSON.parse(request.payload) as PushPayload, ttlSeconds: request.ttlSeconds, topic: request.topic, urgency: request.urgency });
+    const { jobId, ...payload } = JSON.parse(request.payload) as PushPayload;
+    jobIdsSent.set(endpoint, [...(jobIdsSent.get(endpoint) ?? []), jobId ?? ""]);
+    sent.push({ endpoint, payload, ttlSeconds: request.ttlSeconds, topic: request.topic, urgency: request.urgency });
     const answer = answers.get(endpoint)?.(n) ?? 201;
     if (answer instanceof Error) throw answer;
     return { statusCode: answer };
@@ -143,7 +147,7 @@ const jobsOf = (subscriptionId: string) =>
   ok(
     serviceClient()
       .from("reminder_jobs")
-      .select("kind, source, status, attempts, result, status_code, occurrence_key, occurrence_at, send_at, lead_minutes")
+      .select("id, kind, source, status, attempts, result, status_code, occurrence_key, occurrence_at, send_at, lead_minutes")
       .eq("subscription_id", subscriptionId)
       .order("send_at")
       .order("kind"),
@@ -418,12 +422,11 @@ describe("dose reminders", () => {
     expect((await jobsOf(phone.subscriptionId)).map((j) => [j.kind, j.status, j.attempts])).toEqual([["due", "sent", 2]]);
   });
 
-  it("never sends again a reminder whose send started but whose outcome was not recorded, even once a suppression reason clears", async () => {
+  it("sends again, under the same job id, a reminder whose outcome was not recorded once its lease expires (at least once)", async () => {
     const me = await quietResearcher("unrecorded");
     const phone = await device(me);
     await createCycle(me.db, { plans: [plan(peptideA, [weekdays(day(-2), day(-2), EVERY_DAY, "0.4", "13:25")])] });
     const T = at(day(-2), "13:25");
-    const agreed = (await serviceClient().from("profiles").select("acknowledgement_version").eq("id", me.id).single()).data!.acknowledgement_version;
     await run(later(T, -1));
     // The push service accepts it, then recording "sent" fails: the lease stays claimed.
     const unrecorded = interceptRpc((fn, args, call) =>
@@ -432,14 +435,32 @@ describe("dose reminders", () => {
     const summary = await run(T, { db: unrecorded });
     expect(summary.errors).toBeGreaterThanOrEqual(1);
     expect(sentTo(phone.endpoint)).toHaveLength(1);
-    // The lease expires while the terms are outdated, then the owner agrees again.
-    await ok(serviceClient().from("profiles").update({ acknowledgement_version: "2026-09-placeholder" }).eq("id", me.id), "old terms");
-    await run(later(T, 3));
-    await ok(serviceClient().from("profiles").update({ acknowledgement_version: agreed }).eq("id", me.id), "current terms");
-    await run(later(T, 4));
-    await run(later(T, 5));
+    await run(later(T, 1)); // the lease still holds
     expect(sentTo(phone.endpoint)).toHaveLength(1);
-    expect((await jobsOf(phone.subscriptionId)).map((j) => [j.kind, j.status, j.result])).toEqual([["due", "failed", "send started, outcome not recorded"]]);
+    await run(later(T, 3)); // expired: retried like any attempt
+    const [job] = await jobsOf(phone.subscriptionId);
+    expect([job.kind, job.status, job.attempts]).toEqual(["due", "sent", 2]);
+    // Both carry the job's id, so the phone shows the repeat silently (public/sw.js).
+    expect(jobIdsSent.get(phone.endpoint)).toEqual([job.id, job.id]);
+    const started = (await serviceClient().from("reminder_jobs").select("send_started_at").eq("id", job.id).single()).data!;
+    expect(new Date(started.send_started_at!)).toEqual(later(T, 3));
+  });
+
+  it("retries a 429 whose retry could not be recorded once its lease expires, not stranded", async () => {
+    const me = await quietResearcher("unrecorded-retry");
+    const phone = await device(me);
+    answers.set(phone.endpoint, (n) => (n === 1 ? 429 : 201));
+    await createCycle(me.db, { plans: [plan(peptideA, [weekdays(day(-2), day(-2), EVERY_DAY, "0.4", "13:30")])] });
+    const T = at(day(-2), "13:30");
+    await run(later(T, -1));
+    const unrecorded = interceptRpc((fn, args, call) =>
+      fn === "finish_reminder_job" && args.p_outcome === "retry" ? Promise.resolve({ data: null, error: { message: "connection reset" } }) : call(),
+    );
+    await run(T, { db: unrecorded });
+    expect((await jobsOf(phone.subscriptionId)).map((j) => [j.status, j.attempts])).toEqual([["claimed", 1]]);
+    await run(later(T, 3));
+    expect(sentTo(phone.endpoint)).toHaveLength(2);
+    expect((await jobsOf(phone.subscriptionId)).map((j) => [j.kind, j.status, j.attempts, j.status_code])).toEqual([["due", "sent", 2, 201]]);
   });
 
   it("retries a transient failure within the bound, and gives up after the last attempt", async () => {
@@ -635,6 +656,25 @@ describe("the phone a reminder goes to", () => {
     }
   });
 
+  it("sends a reminder suppressed as 'device changed' once its owner takes the phone back, while it is still relevant, once", async () => {
+    const me = await quietResearcher("taken-back");
+    const next = await quietResearcher("borrows");
+    const mine = await device(me);
+    await createCycle(me.db, { plans: [plan(peptideA, [weekdays(day(-2), day(-2), EVERY_DAY, "0.4", "14:15")])] });
+    const T = at(day(-2), "14:15");
+    await run(later(T, -1));
+    const theirs = await device(next, { deviceId: mine.deviceId });
+    await run(T);
+    expect((await jobsOfDevice(mine.deviceId)).map((j) => [j.kind, j.status, j.result])).toEqual([["due", "suppressed", "device changed"]]);
+    // The owner opens the app on it again: a sync that only refreshes the row.
+    await device(me, { deviceId: mine.deviceId, endpoint: mine.endpoint, p256dh: mine.p256dh, auth: mine.auth }, "sync");
+    await run(later(T, 2));
+    await run(later(T, 3));
+    expect(sentTo(mine.endpoint)).toHaveLength(1);
+    expect(sentTo(theirs.endpoint)).toEqual([]);
+    expect((await jobsOfDevice(mine.deviceId)).map((j) => [j.kind, j.status, j.result])).toEqual([["due", "sent", ""]]);
+  });
+
   it("sends nothing more to a phone another account registered on under a new endpoint, though its old one is still active", async () => {
     const me = await quietResearcher("taken-over");
     const next = await quietResearcher("takes-over");
@@ -794,6 +834,23 @@ describe("planning is bounded", () => {
     const realTroll = await realNextMoment(me.db, troll, fromTroll);
     expect(realTroll).toEqual(new Date("2026-10-24T22:30:00Z"));
     expect((await estimate(await planIdOf(me.db, troll, peptideA), fromTroll)).getTime()).toBeLessThanOrEqual(realTroll.getTime());
+
+    // Every day at 20:00, yesterday's dose taken at 07:15 today: the rhythm re-anchors, so the next dose is
+    // tomorrow at 07:15, and from 05:00 tomorrow the next moment is 06:15 (its hour-ahead heads-up), not 19:00.
+    // A fixed-offset zone where it is already past 07:15 now (Etc/GMT signs are inverted).
+    const now = new Date();
+    const hour = now.getUTCMinutes() >= 16 ? 7 : 8;
+    let offset = (((hour - now.getUTCHours()) % 24) + 24) % 24;
+    if (offset > 14) offset -= 24;
+    const zone = offset === 0 ? "Etc/GMT" : offset > 0 ? `Etc/GMT-${offset}` : `Etc/GMT+${-offset}`;
+    const anchored = await createCycle(me.db, { timeZone: zone, plans: [plan(peptideB, [interval(day(-3, zone), day(3, zone), "0.4", 1, "20:00")])] });
+    const yesterday = await occurrenceOn(me.db, anchored, day(-1, zone));
+    await ok(me.db.rpc("confirm_dose", confirmArgs(yesterday, { p_actual_at: at(day(0, zone), "07:15", zone).toISOString() })), "taken at 07:15");
+    expect(new Date((await occurrenceOn(me.db, anchored, day(1, zone))).scheduledAt)).toEqual(at(day(1, zone), "07:15", zone));
+    const fromAnchored = at(day(1, zone), "05:00", zone);
+    const realAnchored = await realNextMoment(me.db, anchored, fromAnchored);
+    expect(realAnchored).toEqual(at(day(1, zone), "06:15", zone));
+    expect((await estimate(await planIdOf(me.db, anchored, peptideB), fromAnchored)).getTime()).toBeLessThanOrEqual(realAnchored.getTime());
   });
 
   it("expands a plan due in the next minutes first, however many plans were never expanded", async () => {

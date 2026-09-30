@@ -56,9 +56,10 @@ import {
 //      the subscription is still the owner's, active, with the same endpoint
 //      and keys, and still its device's newest active row across all
 //      accounts; it suppresses what is no longer true;
-//   4. marks each send as started (start_reminder_send: a send whose outcome
-//      is never recorded is never repeated, nor reopened by the planner),
-//      then sends it through sendPush with a TTL that ends with the
+//   4. marks each send as started (start_reminder_send, under its lease:
+//      information for operations), then sends it through sendPush, with
+//      the job's id in the payload (a repeat of the same job is silent on
+//      the phone: delivery is at least once), a TTL that ends with the
 //      reminder's relevance, a topic and tag per occurrence (a follow-up
 //      replaces the earlier reminder; the first dose's due reminder replaces
 //      a heads-up: ./rules headsUpTag) and the app badge;
@@ -258,8 +259,7 @@ async function handle(job: ClaimedJob, context: Context, push: PushDeps, now: Da
   if (!prepared.verdict.send) return suppress(prepared.verdict.reason);
   if (device) return suppress(device);
 
-  // Durably mark the send as started before any request goes out: if its
-  // outcome is never recorded, it is never sent again (the claim fails it).
+  // Record that this attempt goes to the push service (information), and that the lease is still ours.
   const started = await context.db.rpc("start_reminder_send", { p_id: job.id, p_lease_token: job.lease_token, p_now: now.toISOString() });
   if (started.error) return failOrRetry(`not started: ${started.error.message}`.slice(0, 300));
   if (!started.data) {
@@ -272,7 +272,7 @@ async function handle(job: ClaimedJob, context: Context, push: PushDeps, now: Da
   try {
     result = await sendPush(
       { id: job.subscription_id, endpoint: job.endpoint, p256dh: job.p256dh, auth: job.auth },
-      prepared.payload!,
+      { ...prepared.payload!, jobId: job.id },
       {
         ttlSeconds: reminderTtlSeconds(
           {

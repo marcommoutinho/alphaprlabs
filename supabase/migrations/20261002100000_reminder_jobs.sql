@@ -37,15 +37,19 @@
 --                   src/lib/schedule/reminders.ts), reminder (a heads-up's
 --                   lead) and device. The planner inserts ON CONFLICT on the
 --                   key, so a duplicate or overlapping cron call never adds
---                   a second row, and a row is sent at most once by the
---                   dispatcher. The one update on conflict: a job suppressed
---                   only for a reason that has since cleared ("terms
---                   outdated", "device off": the planner plans only for an
---                   owner on the current terms and a device that is on) goes
---                   back to pending while the planner still plans it (still
---                   relevant), only if no send of it ever started
---                   (send_started_at is null), so it still goes out at most
---                   once.
+--                   a second row. The one update on conflict: a job
+--                   suppressed only for a reason that has since cleared
+--                   ("terms outdated", "device off", "device changed": the
+--                   planner plans only for an owner on the current terms
+--                   and a device that is on and theirs) goes back to pending
+--                   while the planner still plans it (still relevant).
+--                   Delivery is AT LEAST ONCE (Marco's decision, 2026-09-30:
+--                   a missed dose reminder is worse than a rare repeat): a
+--                   send whose outcome was never recorded is retried like
+--                   any other, and a repeat of the same job is silent on the
+--                   phone (public/sw.js: the payload carries the job id, and
+--                   a notification of that job already showing is replaced
+--                   without alerting again).
 --                   status: pending -> claimed (a lease) -> sent | suppressed
 --                   | failed | gone, or back to pending for a retry. "sent"
 --                   means the push service ACCEPTED the message, never that
@@ -116,8 +120,8 @@
 --      same endpoint and keys, and still its device's newest active row
 --      whoever it belongs to), and sends through src/lib/push/send.ts.
 --      Right before the send: start_reminder_send (send_started_at, under
---      its lease), so a send whose outcome is never recorded is never
---      repeated.
+--      its lease; information for operations: this attempt was handed to
+--      the push service).
 --   4. finish_reminder_job(p_id, p_lease_token, ...): records the outcome,
 --      only while the caller still holds the lease (a call whose lease
 --      expired and was taken over records nothing), or puts the job back to
@@ -160,11 +164,10 @@ create table public.reminder_jobs (
   result text not null default '' check (char_length(result) <= 300),
   -- The push service's HTTP status, when it answered.
   status_code integer,
-  -- Set (start_reminder_send) right before the dispatcher hands this attempt
-  -- to the push service; cleared only when the attempt's outcome is recorded
-  -- as a retry (not accepted). A job whose send started is never reopened,
-  -- and one whose send started under an expired lease, its outcome never
-  -- recorded, is never sent again (the claim fails it).
+  -- When the dispatcher last handed an attempt to the push service
+  -- (start_reminder_send). Information only: a send whose outcome was never
+  -- recorded (its lease expired) is retried like any other attempt, within
+  -- the attempts and the reminder's grace; a repeat is silent on the phone.
   send_started_at timestamptz,
   finished_at timestamptz,
   created_at timestamptz not null default now(),
@@ -481,17 +484,27 @@ revoke all on function public.reminder_moments(timestamptz) from public, anon, a
 
 -- A cheap LOWER BOUND of a plan's next reminder moment from p_from on,
 -- without expanding it (a ranking, never a schedule). Every dose of the plan
--- is planned at some active phase's local time (its local_time, or one of
--- its time changes) on a date that phase covers, in its revision's zone, at
--- the instant cycle_local_instant gives (the engine's, repeats and gaps
--- included: tests/integration/cycle-parity.test.ts). So the earliest
--- reminder moment (every heads-up lead included, reminder_moments) over
--- EVERY such local time of EVERY revision's phases for the plan, on every
--- date those phases cover from p_from - 1 hour (a follow-up of a dose before
--- p_from) to p_to + 1 day, whether or not a dose falls then (weekdays, every
--- N days, which revision applies, logged doses: all ignored), is never later
--- than the true next moment in that range. Null: no moment in that range
--- (the plan is ranked last, and estimated again by the next call).
+-- is planned, in its revision's zone, at the instant cycle_local_instant
+-- gives (the engine's, repeats and gaps included:
+-- tests/integration/cycle-parity.test.ts) for a date its phase covers and a
+-- wall time that is one of: the phase's local_time, one of its time changes,
+-- or, every N days, the wall time of a recorded dose it re-anchors on (the
+-- engine counts on from the latest actual time: src/lib/schedule/engine.ts
+-- intervalDrafts, cycle_interval_next_wall). So the earliest reminder moment
+-- (every heads-up lead included, reminder_moments) over every such wall
+-- time, on every date the phases cover from p_from - 1 hour (a follow-up of
+-- a dose before p_from) to p_to + 1 day, whether or not a dose falls then
+-- (weekdays, every N days, which revision applies, logged doses: all
+-- ignored), is never later than the true next moment in that range. Null: no
+-- moment in that range (the plan is ranked last, and estimated again by the
+-- next call).
+-- Bounded: only the revisions whose doses can still apply in the window (a
+-- later revision of the plan taking over from before it replaces them: see
+-- cycle_plan_occurrences), only their active phases overlapping it, and the
+-- 20 most recent recorded doses of each such phase (the live rhythm anchors
+-- on the latest; a dose frozen just before the window on one of the few
+-- before it). Indexes: cycle_revision_plans_by_plan,
+-- cycle_revision_phases_by_plan, dose_records_by_phase_actual.
 create function public.reminder_plan_estimate(p_plan uuid, p_from timestamptz, p_to timestamptz)
 returns timestamptz
 language sql
@@ -499,18 +512,56 @@ stable
 security definer
 set search_path = ''
 as $$
+  with revisions as (
+    select rv.id, rv.time_zone
+    from public.cycle_revision_plans rp
+    join public.cycle_revisions rv on rv.id = rp.revision_id
+    join public.cycles c on c.id = rv.cycle_id and rv.number <= c.current_revision
+    where rp.plan_id = p_plan
+      and not exists (
+        select 1
+        from public.cycle_revision_plans rp2
+        join public.cycle_revisions rv2 on rv2.id = rp2.revision_id
+        where rp2.plan_id = p_plan and rv2.cycle_id = rv.cycle_id
+          and rv2.number > rv.number and rv2.number <= c.current_revision
+          -- A day's margin for the zone.
+          and (rp2.effective_from is null or rp2.effective_from < (p_from - interval '1 day')::date))
+  ),
+  phases as (
+    select ph.phase_id, ph.start_date, ph.end_date, ph.local_time, ph.time_change_time, r.time_zone
+    from revisions r
+    join public.cycle_revision_phases ph on ph.revision_id = r.id and ph.plan_id = p_plan
+    where ph.kind = 'active'
+      and ph.start_date <= (p_to + interval '2 days')::date
+      and ph.end_date >= (p_from - interval '1 day')::date
+  ),
+  walls as (
+    select p.start_date, p.end_date, p.time_zone, w.wall
+    from phases p
+    cross join lateral (
+      select unnest(array[p.local_time] || p.time_change_time) as wall
+      union
+      select ((d.actual_at at time zone p.time_zone)::time)::text
+      from (
+        select dr.actual_at from public.dose_records dr
+        where dr.phase_id = p.phase_id and dr.plan_id = p_plan
+        order by dr.actual_at desc
+        limit 20
+      ) d
+    ) w
+  )
   select min(m.at)
-  from public.cycle_revision_phases ph
-  join public.cycle_revisions rv on rv.id = ph.revision_id
-  cross join lateral unnest(array[ph.local_time] || ph.time_change_time) t(local_time)
+  from walls x
   cross join lateral generate_series(
-    greatest(ph.start_date, ((p_from - interval '1 hour') at time zone rv.time_zone)::date),
-    least(ph.end_date, ((p_to + interval '1 day') at time zone rv.time_zone)::date),
+    greatest(x.start_date, ((p_from - interval '1 hour') at time zone x.time_zone)::date),
+    least(x.end_date, ((p_to + interval '1 day') at time zone x.time_zone)::date),
     interval '1 day') d(day)
-  cross join lateral public.reminder_moments(public.cycle_local_instant(d.day::date, t.local_time, rv.time_zone)) m(at)
-  where ph.plan_id = p_plan and ph.kind = 'active'
-    and m.at >= p_from;
+  cross join lateral public.reminder_moments(public.cycle_local_instant(d.day::date, x.wall, x.time_zone)) m(at)
+  where m.at >= p_from;
 $$;
+
+create index cycle_revision_phases_by_plan on public.cycle_revision_phases (plan_id, end_date);
+create index dose_records_by_phase_actual on public.dose_records (phase_id, actual_at desc);
 
 revoke all on function public.reminder_plan_estimate(uuid, timestamptz, timestamptz) from public, anon, authenticated;
 -- Read-only; the service role may call it (tests prove the bound).
@@ -572,12 +623,19 @@ begin
   -- also by its recorded next moment, whichever is sooner), so one due in
   -- the next minutes goes ahead of others however many there are; one with
   -- no moment around now goes last.
+  -- Scale (an invite-only app, tens of researchers): designed for up to
+  -- about 1,000 active plans. The candidate scan reads each current plan's
+  -- row; estimates are made for at most 500 never-expanded or changed plans
+  -- per call, first come first served (the longest waiting: never expanded
+  -- by creation, changed by their last expansion); the rest wait, ranked
+  -- after them in the same order, and keep their place for the next call.
   for r in
     with candidates as materialized (
       select cp.id as plan_id, c.owner_id, cp.schedule_version, coalesce(oi.version, 0) as inputs_version,
              n.plan_id is null as unseen,
              n.plan_id is not null and (n.schedule_version <> cp.schedule_version or n.inputs_version <> coalesce(oi.version, 0)) as changed,
-             n.next_at
+             n.next_at,
+             coalesce(n.checked_at, cp.created_at) as waiting_since
       from public.cycles c
       join public.cycle_revisions rv on rv.cycle_id = c.id and rv.number = c.current_revision
       join public.cycle_revision_plans rp on rp.revision_id = rv.id
@@ -593,12 +651,26 @@ begin
             and ph.end_date >= ((v_follow_from - interval '1 hour') at time zone rv.time_zone)::date)
         and exists (select 1 from public.reminder_devices(c.owner_id))
         and public.agreed_to_current_terms(c.owner_id)
+    ),
+    -- The never-expanded and changed plans, in the order they have waited.
+    queue as materialized (
+      select k.plan_id, row_number() over (order by k.waiting_since, k.plan_id) as place
+      from candidates k
+      where k.unseen or k.changed
+    ),
+    estimated as materialized (
+      select q.plan_id, public.reminder_plan_estimate(q.plan_id, v_follow_from, v_to) as at
+      from queue q
+      where q.place <= 500
     )
     select k.plan_id, k.owner_id, k.schedule_version, k.inputs_version
     from candidates k
-    order by case when k.unseen then coalesce(public.reminder_plan_estimate(k.plan_id, v_follow_from, v_to), 'infinity')
-                  when k.changed then least(k.next_at, coalesce(public.reminder_plan_estimate(k.plan_id, v_follow_from, v_to), 'infinity'))
-                  else k.next_at end,
+    left join queue q on q.plan_id = k.plan_id
+    left join estimated e on e.plan_id = k.plan_id
+    order by case when q.plan_id is null then k.next_at
+                  when k.changed then least(k.next_at, coalesce(e.at, 'infinity'))
+                  else coalesce(e.at, 'infinity') end,
+             q.place nulls first,
              k.plan_id
     limit p_max_plans + 1
   loop
@@ -646,7 +718,7 @@ begin
       on conflict (job_key) do update set
         status = 'pending', attempts = 0, next_attempt_at = excluded.next_attempt_at, subscription_id = excluded.subscription_id,
         result = '', status_code = null, finished_at = null, updated_at = now()
-      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off') and j.send_started_at is null
+      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off', 'device changed')
       returning 1
     ),
     -- One per owner, instant and device: another plan with a dose at the same time plans the same key.
@@ -661,7 +733,7 @@ begin
       on conflict (job_key) do update set
         status = 'pending', attempts = 0, next_attempt_at = excluded.next_attempt_at, subscription_id = excluded.subscription_id,
         result = '', status_code = null, finished_at = null, updated_at = now()
-      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off') and j.send_started_at is null
+      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off', 'device changed')
       returning 1
     )
     select (select count(*) from dose_jobs) + (select count(*) from heads_up_jobs),
@@ -719,7 +791,7 @@ begin
       on conflict (job_key) do update set
         status = 'pending', attempts = 0, next_attempt_at = excluded.next_attempt_at, subscription_id = excluded.subscription_id,
         result = '', status_code = null, finished_at = null, updated_at = now()
-      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off') and j.send_started_at is null
+      where j.status = 'suppressed' and j.result in ('terms outdated', 'device off', 'device changed')
       returning 1
     )
     select (select count(*) from inserted), l.scheduled_at, l.routine_id, (select count(*) from feed)
@@ -896,18 +968,15 @@ begin
     raise exception 'invalid claim' using errcode = '22023';
   end if;
 
-  -- An interrupted call's jobs come back once their lease expires; one that
-  -- has used every attempt fails instead of going out again, and so does one
-  -- whose send had started (the push service may have accepted it; its
-  -- outcome was never recorded): never sent twice.
+  -- An interrupted call's jobs come back once their lease expires (even one
+  -- whose send had started: its outcome was never recorded, and delivery is
+  -- at least once); one that has used every attempt fails instead.
   update public.reminder_jobs j
   set status = 'failed', lease_token = null, finished_at = v_now, updated_at = now(),
-      result = case when j.send_started_at is not null then 'send started, outcome not recorded'
-                    else 'lease expired after ' || j.attempts || ' attempts' end
+      result = 'lease expired after ' || j.attempts || ' attempts'
   where j.id in (
     select x.id from public.reminder_jobs x
-    where x.status = 'claimed' and x.next_attempt_at <= v_now
-      and (x.attempts >= p_max_attempts or x.send_started_at is not null)
+    where x.status = 'claimed' and x.next_attempt_at <= v_now and x.attempts >= p_max_attempts
     for update skip locked);
 
   return query
@@ -987,8 +1056,6 @@ begin
       finished_at = case when p_outcome = 'retry' then null else v_now end,
       result = left(coalesce(p_result, ''), 300),
       status_code = p_status_code,
-      -- A retry's attempt was not accepted: the next one may send.
-      send_started_at = case when p_outcome = 'retry' then null else j.send_started_at end,
       updated_at = now()
   where j.id = p_id and j.status = 'claimed' and j.lease_token = p_lease_token;
   return found;

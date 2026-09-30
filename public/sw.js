@@ -93,7 +93,30 @@ function setBadge(count) {
   return Promise.resolve();
 }
 
-// Payload (src/lib/push/send.ts): { title, body, url, tag, badge? }
+/**
+ * Whether a notification alerts (sound, vibration) when shown: always, except
+ * for a repeat of a reminder already showing. Delivery is at least once, so
+ * the same reminder job (jobId) can arrive twice; the repeat then replaces
+ * the one showing under its tag silently. A new job under the same tag (a
+ * dose's heads-up, then its due reminder, then its follow-up) alerts again.
+ * `showing`: the notifications showing under that tag.
+ */
+function alertsAgain(showing, jobId) {
+  if (typeof jobId !== "string" || !jobId) return true;
+  return !showing.some((notification) => notification && notification.data && notification.data.jobId === jobId);
+}
+
+/** The notifications showing under `tag` (none when the browser can't say). */
+async function showingWith(tag) {
+  if (!tag || typeof self.registration.getNotifications !== "function") return [];
+  try {
+    return await self.registration.getNotifications({ tag });
+  } catch {
+    return [];
+  }
+}
+
+// Payload (src/lib/push/send.ts): { title, body, url, tag, badge?, jobId? }
 self.addEventListener("push", (event) => {
   let data = {};
   try {
@@ -103,14 +126,19 @@ self.addEventListener("push", (event) => {
   }
   const title = typeof data.title === "string" && data.title ? data.title : "Alpha PR Labs";
   const tag = typeof data.tag === "string" && data.tag ? data.tag : undefined;
-  const options = {
-    body: typeof data.body === "string" ? data.body : "",
-    icon: "/app-icons/icon-192.png",
-    data: { url: appPath(data.url) },
-    // A newer notification with the same tag replaces the older one and alerts again.
-    ...(tag ? { tag, renotify: true } : {}),
+  const jobId = typeof data.jobId === "string" && data.jobId ? data.jobId : undefined;
+  const show = async () => {
+    const renotify = alertsAgain(await showingWith(tag), jobId);
+    const options = {
+      body: typeof data.body === "string" ? data.body : "",
+      icon: "/app-icons/icon-192.png",
+      data: jobId ? { url: appPath(data.url), jobId } : { url: appPath(data.url) },
+      // A newer notification with the same tag replaces the older one and alerts again, unless it repeats it.
+      ...(tag ? { tag, renotify } : {}),
+    };
+    await self.registration.showNotification(title, options);
   };
-  const work = [self.registration.showNotification(title, options)];
+  const work = [show()];
   if (typeof data.badge === "number" && Number.isFinite(data.badge)) work.push(setBadge(data.badge));
   event.waitUntil(Promise.all(work));
 });

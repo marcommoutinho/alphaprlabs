@@ -51,6 +51,14 @@ describe("push sending", () => {
     expect(transport).toHaveBeenCalledOnce();
   });
 
+  it("carries a reminder's job id when given one, and refuses anything else there", async () => {
+    const { value, transport } = deps(async () => ({ statusCode: 201 }));
+    const jobId = "0b6c8f5e-8f1c-4f47-9a51-5d8d3c1f2a10";
+    await sendPush(target, { ...payload, jobId }, options, value);
+    expect(JSON.parse(transport.mock.calls[0][0].payload)).toEqual({ ...payload, jobId });
+    await expect(sendPush(target, { ...payload, jobId: "<script>" }, options, value)).rejects.toThrow();
+  });
+
   it("only ever links a notification to a path inside /app", async () => {
     for (const path of ["/app", "/app/today?x=1", "/app/notifications#top"]) expect(appNotificationPath(path)).toBe(path);
     const outside = ["/about", "/", "/application", "/auth", "https://evil.test/app", "//evil.test/app",
@@ -91,6 +99,54 @@ describe("service worker (public/sw.js in a sandbox)", () => {
     // A tap on data that did not come from the push handler is checked again.
     await run("notificationclick", { notification: { close: () => undefined, data: { url: "https://app.example/" } } });
     expect(opened).toEqual(["https://app.example/app/notifications", ...Array(5).fill("https://app.example/app")]);
+  });
+
+  it("shows a repeat of the same reminder job silently, and alerts for a new one under the same tag", async () => {
+    const handlers: Record<string, (event: object) => void> = {};
+    type Shown = { title: string; tag?: string; renotify?: boolean; data: { url: string; jobId?: string } };
+    let showing: Shown[] = [];
+    const shown: Shown[] = [];
+    const registration: Record<string, unknown> = {
+      // A notification with the same tag replaces the one showing.
+      showNotification: async (title: string, options: Omit<Shown, "title">) => {
+        const notification = { title, ...options };
+        shown.push(notification);
+        showing = [...showing.filter((n) => !options.tag || n.tag !== options.tag), notification];
+      },
+      getNotifications: async ({ tag }: { tag?: string } = {}) => showing.filter((n) => !tag || n.tag === tag),
+    };
+    const self = {
+      location: { origin: "https://app.example" },
+      navigator: {},
+      addEventListener: (type: string, handler: (event: object) => void) => (handlers[type] = handler),
+      registration,
+      clients: { matchAll: async () => [], openWindow: async () => undefined },
+    };
+    runInNewContext(await readFile(new URL("../../public/sw.js", import.meta.url), "utf8"), { self, URL, Promise });
+    const push = async (body: object) => {
+      let work: unknown;
+      handlers.push({ data: { json: () => body }, waitUntil: (promise: unknown) => (work = promise) });
+      await work;
+      return shown.at(-1)!;
+    };
+    const tag = "dose:plan:phase:3";
+    const heads = { title: "Planned soon", body: "B", url: "/app/today", tag };
+
+    // The heads-up alerts; the same job again (at least once) replaces it silently.
+    expect(await push({ ...heads, jobId: "job-heads-up" })).toMatchObject({ tag, renotify: true, data: { jobId: "job-heads-up" } });
+    expect(await push({ ...heads, jobId: "job-heads-up" })).toMatchObject({ tag, renotify: false });
+    // The due reminder (a new job, the same tag) replaces it and alerts; then the follow-up.
+    expect(await push({ ...heads, title: "Due", jobId: "job-due" })).toMatchObject({ tag, renotify: true });
+    expect(await push({ ...heads, title: "Due", jobId: "job-due" })).toMatchObject({ tag, renotify: false });
+    expect(await push({ ...heads, title: "Final", jobId: "job-follow-up" })).toMatchObject({ tag, renotify: true });
+    // Once dismissed, a repeat shows (and alerts) again; another tag is its own.
+    showing = [];
+    expect(await push({ ...heads, title: "Final", jobId: "job-follow-up" })).toMatchObject({ renotify: true });
+    expect(await push({ ...heads, tag: "supplement:r:2026-09-30", jobId: "job-follow-up" })).toMatchObject({ renotify: true });
+    // Without a job id (the test notification), or a browser that can't list notifications: it alerts.
+    expect(await push({ ...heads })).toMatchObject({ renotify: true });
+    delete registration.getNotifications;
+    expect(await push({ ...heads, jobId: "job-due" })).toMatchObject({ renotify: true });
   });
 
   it("stores only the offline page, and serves it only when opening an app page finds no network", async () => {

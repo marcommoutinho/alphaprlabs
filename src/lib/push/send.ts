@@ -18,6 +18,12 @@ export type PushPayload = {
   tag: string;
   /** App icon badge count; 0 clears it. */
   badge?: number;
+  /**
+   * The reminder job it belongs to (reminder_jobs.id). A repeat of the same
+   * job (delivery is at least once) replaces a notification of that job
+   * still showing without alerting again (public/sw.js).
+   */
+  jobId?: string;
 };
 
 export type PushTarget = { id: string; endpoint: string; p256dh: string; auth: string };
@@ -92,9 +98,10 @@ export function encodePayload(payload: PushPayload): string {
   if (payload.badge !== undefined && !(Number.isInteger(payload.badge) && payload.badge >= 0)) {
     throw new Error("Push payload badge must be a whole number ≥ 0");
   }
-  const { title, body, tag, badge } = payload;
+  if (payload.jobId !== undefined && !/^[0-9a-f-]{1,64}$/.test(payload.jobId)) throw new Error("Push payload jobId must be an id");
+  const { title, body, tag, badge, jobId } = payload;
   const url = appNotificationPath(payload.url);
-  const json = JSON.stringify(badge === undefined ? { title, body, url, tag } : { title, body, url, tag, badge });
+  const json = JSON.stringify({ title, body, url, tag, ...(badge === undefined ? {} : { badge }), ...(jobId === undefined ? {} : { jobId }) });
   if (Buffer.byteLength(json) > MAX_PAYLOAD_BYTES) throw new Error("Push payload is too large");
   return json;
 }
