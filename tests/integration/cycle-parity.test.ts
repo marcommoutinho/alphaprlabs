@@ -119,4 +119,67 @@ describe("the database's planned instants match the engine's", () => {
     );
     seams.forEach(([zone, date], n) => expect(database[`s${n}`], `${zone} ${date}`).toBe(seamOf(date, zone).toString()));
   });
+
+  it("for a repeat or gap of any length: the earlier instant of a repeated time, a gap moved forward (Antarctica/Troll's two hours)", () => {
+    // Troll: 01:00-03:00 is skipped on 2026-03-29 and repeated on 2026-10-25 (UTC+0 <-> UTC+2).
+    const days: [string, string][] = [
+      ["Antarctica/Troll", "2026-10-25"],
+      ["Antarctica/Troll", "2026-03-29"],
+      ["America/New_York", "2026-11-01"],
+      ["America/New_York", "2026-03-08"],
+      ["Australia/Lord_Howe", "2026-04-05"], // 30 minutes repeated.
+      ["Australia/Lord_Howe", "2026-10-04"], // 30 minutes skipped.
+      ["America/Havana", "2026-11-01"],
+      ["Europe/Lisbon", "2026-10-25"],
+    ];
+    const times = Array.from({ length: 20 }, (_, n) => `${String(Math.floor(n / 4)).padStart(2, "0")}:${String((n % 4) * 15).padStart(2, "0")}`);
+    const cases = days.flatMap(([zone, date]) => times.map((time) => ({ zone, date, time })));
+    const database = psql(
+      cases
+        .map(
+          ({ zone, date, time }, n) =>
+            `select 'l${n}', to_char(public.cycle_local_instant(${quote(date)}, ${quote(time)}, ${quote(zone)}) at time zone 'UTC', ${UTC});
+             select 'w${n}', to_char(public.cycle_wall_instant(${quote(`${date} ${time}`)}::timestamp, ${quote(zone)}) at time zone 'UTC', ${UTC});`,
+        )
+        .join("\n"),
+    );
+    cases.forEach(({ zone, date, time }, n) => {
+      // Temporal's default ("compatible") disambiguation: the engine's rule (src/lib/schedule/zone.ts).
+      const engine = Temporal.PlainDateTime.from(`${date}T${time}`).toZonedDateTime(zone).toInstant().toString();
+      expect(database[`l${n}`], `local ${zone} ${date} ${time}`).toBe(engine);
+      expect(database[`w${n}`], `wall ${zone} ${date} ${time}`).toBe(engine);
+    });
+    expect(Temporal.PlainDateTime.from("2026-10-25T01:30").toZonedDateTime("Antarctica/Troll").toInstant().toString()).toBe("2026-10-24T23:30:00Z");
+
+    // And a Troll phase's planned instants, daily at 01:30 and 02:30 across both changes.
+    for (const [start, end] of [
+      ["2026-10-23", "2026-10-27"],
+      ["2026-03-27", "2026-03-31"],
+    ]) {
+      for (const time of ["01:30", "02:30"]) {
+        const row = {
+          kind: "active",
+          start_date: start,
+          end_date: end,
+          dose_mg: 1,
+          local_time: time,
+          schedule_type: "interval",
+          every_days: 1,
+          weekdays: null,
+          dose_change_from: [],
+          dose_change_mg: [],
+          time_change_from: [],
+          time_change_time: [],
+        };
+        const got = psql(
+          `select 'troll', string_agg(i.key || '@' || to_char(i.planned_at at time zone 'UTC', ${UTC}), ',' order by i.planned_at)
+           from public.cycle_phase_instants(jsonb_populate_record(null::public.cycle_revision_phases, ${quote(JSON.stringify(row))}::jsonb),
+                'Antarctica/Troll', ${quote(start)}, ${quote(end)}) i;`,
+        );
+        const phase: ActivePhase = { id: "p", kind: "active", start, end, doseMg: "1", time, schedule: { type: "interval", everyDays: 1 } };
+        const engine = scheduleOccurrences({ planId: "plan", timeZone: "Antarctica/Troll", phases: [phase] }).map((o) => `${o.key.split(":")[2]}@${o.scheduledAt}`);
+        expect(got.troll.split(","), `Troll ${start} ${time}`).toEqual(engine);
+      }
+    }
+  });
 });

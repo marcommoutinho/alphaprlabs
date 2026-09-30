@@ -40,13 +40,21 @@ import {
 // S13: the reminder dispatcher (plan "Reminder delivery design"). One call,
 // every minute from /api/cron/reminders (vercel.json; locally `npm run
 // reminders:tick`), with the secret-key client:
-//   1. plans the reminders due around now (plan_reminder_jobs, idempotent);
+//   1. plans the reminders due around now (plan_reminder_jobs, idempotent),
+//      bounded (DISPATCH_LIMITS: plan expansions, supplement rows, and
+//      planning's share of the call's time, so sending always keeps the
+//      rest; what is left is planned by the next call);
 //   2. claims a bounded batch with a lease (claim_reminder_jobs: FOR UPDATE
 //      SKIP LOCKED, so overlapping calls never share a job; an interrupted
-//      call's jobs come back once their lease expires);
-//   3. rechecks each job against the owner's current records (./rules
-//      doseVerdict / headsUpVerdict / supplementVerdict; the device and the
-//      terms come with the claim) and suppresses what is no longer true;
+//      call's jobs come back once their lease expires), one job per device,
+//      sent to the device's newest active subscription;
+//   3. rechecks each job against the owner's records, read afresh for every
+//      batch after its claim (./rules doseVerdict / headsUpVerdict /
+//      supplementVerdict; the device and the terms come with the claim), and
+//      right before sending checks again that nothing it was judged on
+//      changed (the plans' schedule_version, the heads-up setting) and that
+//      the subscription is still the owner's, active, with the same endpoint
+//      and keys; it suppresses what is no longer true;
 //   4. sends the rest through sendPush with a TTL that ends with the
 //      reminder's relevance, a topic and tag per occurrence (a follow-up
 //      replaces the earlier reminder; the first dose's due reminder replaces
@@ -69,7 +77,7 @@ import {
 
 type Db = SupabaseClient<Database>;
 
-type ClaimedJob = Database["public"]["Functions"]["claim_reminder_jobs"]["Returns"][number];
+export type ClaimedJob = Database["public"]["Functions"]["claim_reminder_jobs"]["Returns"][number];
 
 export type DispatchOptions = {
   /** The secret-key client (the queue functions are the service role's only). */
@@ -79,16 +87,30 @@ export type DispatchOptions = {
   now?: Date;
   /** Jobs per claim (≤ 100). */
   batchSize?: number;
-  /** No new batch is claimed after this long (ms); the route's maxDuration is well above it. */
+  /** The whole call's time (ms): planning, then claims and sends; no new batch is claimed after it. The route's maxDuration is well above it. */
   budgetMs?: number;
+  /** Planning's share of budgetMs (ms): it starts no new work after it, so sending always keeps the rest. */
+  planBudgetMs?: number;
+  /** Plan expansions per call (the most urgent first; the rest wait for the next call). */
+  maxPlans?: number;
+  /** Supplement feed rows read per call. */
+  maxSupplements?: number;
   /** Seconds a claim is held before another call may take it over. */
   leaseSeconds?: number;
+  /** Runs after each claim, before its jobs are handled (tests: a change landing between a claim and its sends). */
+  onClaimed?: (jobs: readonly ClaimedJob[]) => Promise<void> | void;
 };
 
 export type DispatchSummary = {
   now: string;
   planned: number;
   purged: number;
+  /** Plans expanded by this call's planning, and whether some were left for the next call. */
+  expanded: number;
+  plansMore: boolean;
+  /** Supplement feed rows read, and whether the window holds more for the next call. */
+  supplementsRead: number;
+  supplementsMore: boolean;
   claimed: number;
   sent: number;
   suppressed: Partial<Record<Suppression, number>>;
@@ -102,25 +124,53 @@ export type DispatchSummary = {
   batches: number;
 };
 
-const DEFAULT_BATCH = 25;
-const DEFAULT_BUDGET_MS = 40_000;
-const DEFAULT_LEASE_SECONDS = 120;
+/** The limits of one call (every minute). */
+export const DISPATCH_LIMITS = {
+  batch: 25,
+  /** The whole call; the route allows 60 s. */
+  budgetMs: 40_000,
+  /** Planning's share: sending always keeps at least budgetMs - planBudgetMs. */
+  planBudgetMs: 10_000,
+  /** Plan expansions per call (a plan is expanded only near a reminder moment or after a change). */
+  maxPlans: 200,
+  /** Supplement feed rows per call (pages of 500). */
+  maxSupplements: 2000,
+  leaseSeconds: 120,
+} as const;
 
 export async function dispatchReminders(options: DispatchOptions): Promise<DispatchSummary> {
   const { db, push } = options;
   const started = Date.now();
-  const batchSize = options.batchSize ?? DEFAULT_BATCH;
-  const budgetMs = options.budgetMs ?? DEFAULT_BUDGET_MS;
+  const batchSize = options.batchSize ?? DISPATCH_LIMITS.batch;
+  const budgetMs = options.budgetMs ?? DISPATCH_LIMITS.budgetMs;
+  const planBudgetMs = Math.min(options.planBudgetMs ?? DISPATCH_LIMITS.planBudgetMs, Math.floor(budgetMs / 4));
 
-  const planned = await db.rpc("plan_reminder_jobs", options.now ? { p_now: options.now.toISOString() } : {});
+  const planned = await db.rpc("plan_reminder_jobs", {
+    ...(options.now ? { p_now: options.now.toISOString() } : {}),
+    p_max_plans: options.maxPlans ?? DISPATCH_LIMITS.maxPlans,
+    p_max_supplements: options.maxSupplements ?? DISPATCH_LIMITS.maxSupplements,
+    p_budget_ms: Math.max(100, planBudgetMs),
+  });
   if (planned.error) throw new Error(`Could not plan reminders: ${planned.error.message}`);
-  const plan = planned.data as { now: string; planned: number; purged: number };
+  const plan = planned.data as {
+    now: string;
+    planned: number;
+    purged: number;
+    expanded: number;
+    plans_more: boolean;
+    supplements_read: number;
+    supplements_more: boolean;
+  };
   const now = new Date(plan.now);
 
   const summary: DispatchSummary = {
     now: now.toISOString(),
     planned: plan.planned,
     purged: plan.purged,
+    expanded: plan.expanded,
+    plansMore: plan.plans_more,
+    supplementsRead: plan.supplements_read,
+    supplementsMore: plan.supplements_more,
     claimed: 0,
     sent: 0,
     suppressed: {},
@@ -137,13 +187,15 @@ export async function dispatchReminders(options: DispatchOptions): Promise<Dispa
     const claimed = await db.rpc("claim_reminder_jobs", {
       p_now: now.toISOString(),
       p_limit: batchSize,
-      p_lease_seconds: options.leaseSeconds ?? DEFAULT_LEASE_SECONDS,
+      p_lease_seconds: options.leaseSeconds ?? DISPATCH_LIMITS.leaseSeconds,
       p_max_attempts: MAX_ATTEMPTS,
     });
     if (claimed.error) throw new Error(`Could not claim reminders: ${claimed.error.message}`);
     const jobs = claimed.data ?? [];
     summary.batches += 1;
     summary.claimed += jobs.length;
+    await options.onClaimed?.(jobs);
+    // Every batch reads the owners' records afresh, after its claim.
     context.startBatch(jobs);
     // A job whose outcome could not be recorded stays claimed: its lease expires and a later call retries it.
     await Promise.all(
@@ -188,14 +240,20 @@ async function handle(job: ClaimedJob, context: Context, push: PushDeps, now: Da
   if (!job.owner_agreed) return suppress("terms outdated");
   if (!job.device_on) return suppress("device off");
 
-  let prepared: { verdict: Verdict; payload?: PushPayload; stopAt?: string | null };
+  let prepared: Prepared;
+  let device: Suppression | null;
   try {
-    prepared =
-      job.source === "dose" ? await context.dose(job) : job.source === "heads-up" ? await context.headsUp(job) : await context.supplement(job);
+    prepared = await context.prepare(job);
+    // Right before sending: the schedule and setting it was judged on are
+    // still current (else judged again on fresh records), and the device is
+    // still the owner's, active, with the same endpoint and keys.
+    if (prepared.verdict.send) prepared = await context.fresh(job, prepared);
+    device = prepared.verdict.send ? await context.deviceCheck(job) : null;
   } catch (error) {
     return failOrRetry(`recheck failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 300));
   }
   if (!prepared.verdict.send) return suppress(prepared.verdict.reason);
+  if (device) return suppress(device);
 
   const tag = prepared.payload!.tag;
   let result: PushSendResult;
@@ -241,10 +299,19 @@ type OwnerRecords = {
   peptideOf: Map<string, string>;
   mixtures: Map<string, Mixture>;
   headsUp: HeadsUpMinutes;
+  /** Each of the owner's plans' schedule_version, read BEFORE the records above (so a newer version means newer records). */
+  versions: Map<string, number>;
   badge: number;
 };
 
-/** What one dispatch call reads, once per owner (and the library and supplement feed once per call). */
+/** A job judged: whether it goes out, and what it would say. `plans`: the plans whose schedules it was judged on. */
+type Prepared = { verdict: Verdict; payload?: PushPayload; stopAt?: string | null; plans?: string[] };
+
+/**
+ * What one dispatch call reads. The owners' records are read afresh for every
+ * batch (after its claim), and checked again per job right before sending
+ * (fresh); the library's names once per call.
+ */
 class Context {
   private owners = new Map<string, Promise<OwnerRecords>>();
   private peptides: Promise<Map<string, string>> | null = null;
@@ -258,44 +325,54 @@ class Context {
   private owner(ownerId: string): Promise<OwnerRecords> {
     let records = this.owners.get(ownerId);
     if (!records) {
-      records = (async () => {
-        const [cycles, confirmations, mixtures, preferences] = await Promise.all([
-          listCycles(this.db, ownerId),
-          ownerConfirmations(this.db, ownerId),
-          planMixtures(this.db, ownerId),
-          this.db.from("account_preferences").select("default_syringe, weight_unit, appearance, heads_up_minutes").eq("owner_id", ownerId).maybeSingle(),
-        ]);
-        if (preferences.error) throw new Error(`Could not read preferences: ${preferences.error.message}`);
-        const byPlan = new Map<string, { cycle: CycleRecord; occurrences: Occurrence[] }>();
-        const running: Occurrence[] = [];
-        const peptideOf = new Map<string, string>();
-        for (const cycle of cycles) {
-          if (cycle.revisions.length === 0) continue;
-          for (const [planId, occurrences] of planOccurrences(cycle.revisions, confirmations.get(cycle.id) ?? [])) {
-            byPlan.set(planId, { cycle, occurrences });
-          }
-          const latest = cycle.revisions.at(-1)!;
-          if (cycleStatus(latest, this.now) === "Ended") continue;
-          for (const plan of latest.plans) {
-            peptideOf.set(plan.planId, plan.peptideId);
-            running.push(...(byPlan.get(plan.planId)?.occurrences ?? []));
-          }
-        }
-        return {
-          cycles,
-          byPlan,
-          running,
-          peptideOf,
-          mixtures,
-          headsUp: resolvePreferences(preferences.data).headsUpMinutes,
-          badge: pendingDoses(cycles, confirmations, this.now),
-        };
-      })();
+      records = this.readOwner(ownerId);
       this.owners.set(ownerId, records);
       // A failed read is retried by the next job (or call), not cached.
-      records.catch(() => this.owners.delete(ownerId));
+      records.catch(() => {
+        if (this.owners.get(ownerId) === records) this.owners.delete(ownerId);
+      });
     }
     return records;
+  }
+
+  /** The schedule versions of the owner's plans and their heads-up setting: the cheap "has anything changed" read. */
+  private async stamps(ownerId: string) {
+    const [plans, preferences] = await Promise.all([
+      this.db.from("cycle_plans").select("id, schedule_version").eq("owner_id", ownerId),
+      this.db.from("account_preferences").select("default_syringe, weight_unit, appearance, heads_up_minutes").eq("owner_id", ownerId).maybeSingle(),
+    ]);
+    if (plans.error) throw new Error(`Could not read schedule versions: ${plans.error.message}`);
+    if (preferences.error) throw new Error(`Could not read preferences: ${preferences.error.message}`);
+    return {
+      versions: new Map((plans.data ?? []).map((row) => [row.id, row.schedule_version])),
+      headsUp: resolvePreferences(preferences.data).headsUpMinutes,
+    };
+  }
+
+  private async readOwner(ownerId: string): Promise<OwnerRecords> {
+    // First the stamps, then the records: a change after the stamps shows as a newer stamp (fresh).
+    const { versions, headsUp } = await this.stamps(ownerId);
+    const [cycles, confirmations, mixtures] = await Promise.all([
+      listCycles(this.db, ownerId),
+      ownerConfirmations(this.db, ownerId),
+      planMixtures(this.db, ownerId),
+    ]);
+    const byPlan = new Map<string, { cycle: CycleRecord; occurrences: Occurrence[] }>();
+    const running: Occurrence[] = [];
+    const peptideOf = new Map<string, string>();
+    for (const cycle of cycles) {
+      if (cycle.revisions.length === 0) continue;
+      for (const [planId, occurrences] of planOccurrences(cycle.revisions, confirmations.get(cycle.id) ?? [])) {
+        byPlan.set(planId, { cycle, occurrences });
+      }
+      const latest = cycle.revisions.at(-1)!;
+      if (cycleStatus(latest, this.now) === "Ended") continue;
+      for (const plan of latest.plans) {
+        peptideOf.set(plan.planId, plan.peptideId);
+        running.push(...(byPlan.get(plan.planId)?.occurrences ?? []));
+      }
+    }
+    return { cycles, byPlan, running, peptideOf, mixtures, headsUp, versions, badge: pendingDoses(cycles, confirmations, this.now) };
   }
 
   private peptideNames(): Promise<Map<string, string>> {
@@ -306,7 +383,53 @@ class Context {
     return this.peptides;
   }
 
-  async dose(job: ClaimedJob) {
+  prepare(job: ClaimedJob): Promise<Prepared> {
+    return job.source === "dose" ? this.dose(job) : job.source === "heads-up" ? this.headsUp(job) : this.supplement(job);
+  }
+
+  /**
+   * Right before sending: when a plan the job was judged on has a newer
+   * schedule_version (a dose logged, skipped or undone, an edit), or the
+   * heads-up setting changed, since the owner's records were read, read them
+   * again and judge the job again.
+   */
+  async fresh(job: ClaimedJob, prepared: Prepared): Promise<Prepared> {
+    if (job.source === "supplement") return prepared;
+    const ownerRead = this.owner(job.owner_id);
+    const [records, stamps] = await Promise.all([ownerRead, this.stamps(job.owner_id)]);
+    const changed =
+      (prepared.plans ?? []).some((plan) => stamps.versions.get(plan) !== records.versions.get(plan)) ||
+      (job.source === "heads-up" && stamps.headsUp !== records.headsUp);
+    if (!changed) return prepared;
+    // Read again (other jobs of this owner in the batch then share the new read).
+    if (this.owners.get(job.owner_id) === ownerRead) this.owners.delete(job.owner_id);
+    return this.prepare(job);
+  }
+
+  /**
+   * The claimed subscription, read again right before sending: still active,
+   * still the job owner's, not turned off for that owner, and still the same
+   * endpoint and keys. Otherwise the reminder is not sent (the device changed
+   * hands or was re-registered since the claim).
+   */
+  async deviceCheck(job: ClaimedJob): Promise<Suppression | null> {
+    const { data, error } = await this.db
+      .from("push_subscriptions")
+      .select("profile_id, endpoint, p256dh, auth, disabled_at, device_id")
+      .eq("id", job.subscription_id)
+      .maybeSingle();
+    if (error) throw new Error(`Could not read the device: ${error.message}`);
+    if (!data || data.disabled_at !== null || data.profile_id !== job.owner_id) return "device changed";
+    if (data.endpoint !== job.endpoint || data.p256dh !== job.p256dh || data.auth !== job.auth) return "device changed";
+    if (data.device_id) {
+      const off = await this.db.from("push_device_off").select("device_id").eq("profile_id", job.owner_id).eq("device_id", data.device_id).maybeSingle();
+      if (off.error) throw new Error(`Could not read the device: ${off.error.message}`);
+      if (off.data) return "device off";
+    }
+    return null;
+  }
+
+  private async dose(job: ClaimedJob): Promise<Prepared> {
     const records = await this.owner(job.owner_id);
     const entry = records.byPlan.get(job.plan_id);
     const occurrence = entry?.occurrences.find((o) => o.key === job.occurrence_key);
@@ -334,7 +457,7 @@ class Context {
       tag: reminderTag("dose", occurrence.key),
       badge: records.badge,
     };
-    return { verdict, payload, stopAt: occurrence.remindersStopAt };
+    return { verdict, payload, stopAt: occurrence.remindersStopAt, plans: [job.plan_id] };
   }
 
   /** A dose as Today shows it: its planned amount ("250 mcg") and, with a saved mix, its syringe units (units only). */
@@ -345,7 +468,7 @@ class Context {
   }
 
   /** The heads-up before a planned time: every open dose planned then, in Today's order. */
-  async headsUp(job: ClaimedJob) {
+  private async headsUp(job: ClaimedJob): Promise<Prepared> {
     const records = await this.owner(job.owner_id);
     const headsUpJob = { occurrenceAt: job.occurrence_at, sendAt: job.send_at, leadMinutes: job.lead_minutes ?? 0 };
     const verdict = headsUpVerdict(headsUpJob, records.headsUp, records.running, this.now);
@@ -358,15 +481,18 @@ class Context {
       lead: records.headsUp as Exclude<HeadsUpMinutes, 0>,
     });
     const payload: PushPayload = { ...text, url: headsUpUrl(doses), tag: headsUpTag(doses), badge: records.badge };
-    return { verdict, payload, stopAt: job.occurrence_at };
+    // Judged on every running plan (a dose at that time may be logged, skipped or moved in any of them).
+    return { verdict, payload, stopAt: job.occurrence_at, plans: [...records.peptideOf.keys()] };
   }
 
   /**
-   * Reads, for a batch's supplement jobs at once, their occurrences as the
-   * due feed has them now (untaken, under each routine's current definition,
-   * tracking on, owner on the current terms) and their Taken records.
+   * A new batch: the owners' records are read again (after its claim), and,
+   * for its supplement jobs at once, their occurrences as the due feed has
+   * them now (untaken, under each routine's current definition, tracking on,
+   * owner on the current terms) and their Taken records.
    */
   startBatch(jobs: readonly ClaimedJob[]) {
+    this.owners.clear();
     const supplements = jobs.filter((job) => job.source === "supplement");
     if (supplements.length === 0) return;
     const facts = (async () => {
@@ -388,7 +514,7 @@ class Context {
     this.supplements = facts;
   }
 
-  async supplement(job: ClaimedJob) {
+  private async supplement(job: ClaimedJob): Promise<Prepared> {
     if (!this.supplements) throw new Error("supplement facts not read");
     const facts = await this.supplements;
     const key = `${job.routine_id}|${job.occurrence_key}`;

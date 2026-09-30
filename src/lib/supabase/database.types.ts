@@ -1618,6 +1618,7 @@ export type Database = {
         Row: {
           attempts: number
           created_at: string
+          device_id: string | null
           finished_at: string | null
           id: string
           job_key: string
@@ -1641,6 +1642,7 @@ export type Database = {
         Insert: {
           attempts?: number
           created_at?: string
+          device_id?: string | null
           finished_at?: string | null
           id?: string
           job_key: string
@@ -1664,6 +1666,7 @@ export type Database = {
         Update: {
           attempts?: number
           created_at?: string
+          device_id?: string | null
           finished_at?: string | null
           id?: string
           job_key?: string
@@ -1700,6 +1703,53 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      reminder_plan_next: {
+        Row: {
+          checked_at: string
+          next_at: string
+          plan_id: string
+          schedule_version: number
+        }
+        Insert: {
+          checked_at: string
+          next_at: string
+          plan_id: string
+          schedule_version: number
+        }
+        Update: {
+          checked_at?: string
+          next_at?: string
+          plan_id?: string
+          schedule_version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reminder_plan_next_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: true
+            referencedRelation: "cycle_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reminder_planner_state: {
+        Row: {
+          id: boolean
+          supplement_after_at: string | null
+          supplement_after_routine: string | null
+        }
+        Insert: {
+          id?: boolean
+          supplement_after_at?: string | null
+          supplement_after_routine?: string | null
+        }
+        Update: {
+          id?: boolean
+          supplement_after_at?: string | null
+          supplement_after_routine?: string | null
+        }
+        Relationships: []
       }
       supplement_routines: {
         Row: {
@@ -2661,7 +2711,15 @@ export type Database = {
         Args: { p_at: string; p_plan_id: string }
         Returns: string
       }
-      plan_reminder_jobs: { Args: { p_now?: string }; Returns: Json }
+      plan_reminder_jobs: {
+        Args: {
+          p_budget_ms?: number
+          p_max_plans?: number
+          p_max_supplements?: number
+          p_now?: string
+        }
+        Returns: Json
+      }
       progress_day: { Args: { p_at: string }; Returns: string }
       record_acknowledgement: { Args: { p_version: string }; Returns: boolean }
       record_business_purchase: {
@@ -2719,6 +2777,14 @@ export type Database = {
         }[]
       }
       release_invitation: { Args: { p_id: string }; Returns: undefined }
+      reminder_devices: {
+        Args: { p_owner: string }
+        Returns: {
+          device_id: string
+          device_key: string
+          subscription_id: string
+        }[]
+      }
       reminder_instant_text: { Args: { p_at: string }; Returns: string }
       reopen_personal_vial: { Args: { p_vial_id: string }; Returns: string }
       resend_invitation: {

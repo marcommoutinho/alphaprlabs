@@ -1,7 +1,9 @@
 // Notification copy: every title and body a phone shows for Alpha PR Labs,
 // and the Advance heads-up setting's words. Customer copy (final wording,
 // Marco, 2026-09-30); it lives only in this module, word for word. Tests
-// compare against these constants, never against literal text.
+// compare against these constants, never against literal text, except
+// tests/unit/reminders-copy-golden.test.ts, which pins the approved words so
+// an accidental edit here fails.
 //
 // Templates fill {name} fields (fillCopy), formatted as Today shows them:
 //   {peptide}     the peptide's name, e.g. "BPC-157"

@@ -14,8 +14,13 @@
 // reminder (and a late heads-up) but still sends the follow-up; an
 // interrupted claim is recovered; a transient failure is retried within the
 // bound; a gone subscription is disabled; outdated terms or a device turned
-// off get nothing; the badge; a daylight-saving change; a supplement
-// reminder; and the send on/off control.
+// off get nothing; the badge; a daylight-saving change (and Troll's
+// two-hour repeat); a supplement reminder; and the send on/off control.
+// From the review: records read afresh for every batch; the follow-up's
+// catch-up end inclusive, as the app's; one reminder per phone, to its newest
+// subscription; nothing to a phone that changed hands or keys after the
+// claim; and planning bounded per call, converging over calls, expanding a
+// plan only near its next reminder moment.
 import { randomBytes, randomUUID } from "node:crypto";
 import { Temporal } from "@js-temporal/polyfill";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -26,6 +31,7 @@ import { pendingDoses } from "@/lib/doses/today";
 import type { HeadsUpMinutes } from "@/lib/preferences/rules";
 import type { PushDeps, PushPayload } from "@/lib/push/send";
 import { doseReminderText, headsUpText, supplementReminderText } from "@/lib/reminders/copy";
+import type { DispatchOptions } from "@/lib/reminders/dispatch";
 import { doseReminderUrl, reminderTag, reminderTopic, SUPPLEMENT_REMINDER_URL } from "@/lib/reminders/rules";
 import type { ReminderKind } from "@/lib/schedule/reminders";
 import { type Client, createCycle, createPeptide, day, interval, plan, saveCycle, tag, TORONTO, weekdays } from "../support/cycles";
@@ -67,7 +73,7 @@ const push: PushDeps = {
   disableGone: disableGoneSubscription,
 };
 
-const run = (now: Date, options: { batchSize?: number } = {}) => dispatchReminders({ db: serviceClient(), push, now, ...options });
+const run = (now: Date, options: Partial<Omit<DispatchOptions, "db" | "now">> = {}) => dispatchReminders({ db: serviceClient(), push, now, ...options });
 const sentTo = (endpoint: string) => sent.filter((s) => s.endpoint === endpoint);
 
 // ── Accounts, devices and cycles ─────────────────────────────────────────────
@@ -106,15 +112,21 @@ async function quietResearcher(label: string): Promise<Person> {
   return person;
 }
 
-/** Turns reminders on for a new device of `person`; returns its endpoint and subscription id. */
-async function device(person: Person) {
-  const endpoint = `https://fcm.googleapis.com/fcm/send/${randomBytes(12).toString("hex")}`;
-  const deviceId = randomUUID();
+/**
+ * Turns reminders on for a device of `person` (a new one, or `same`'s: the
+ * same browser with the endpoint and keys given, or new ones as when its push
+ * subscription rotates); returns its endpoint, keys and subscription id.
+ */
+async function device(person: Person, same?: { deviceId: string; endpoint?: string; p256dh?: string; auth?: string }) {
+  const endpoint = same?.endpoint ?? `https://fcm.googleapis.com/fcm/send/${randomBytes(12).toString("hex")}`;
+  const deviceId = same?.deviceId ?? randomUUID();
+  const p256dh = same?.p256dh ?? randomBytes(65).toString("base64url");
+  const auth = same?.auth ?? randomBytes(16).toString("base64url");
   const saved = await ok(
     person.db.rpc("save_push_subscription", {
       p_endpoint: endpoint,
-      p_p256dh: randomBytes(65).toString("base64url"),
-      p_auth: randomBytes(16).toString("base64url"),
+      p_p256dh: p256dh,
+      p_auth: auth,
       p_device_label: "Android · Chrome",
       p_device_id: deviceId,
       p_mode: "turn_on",
@@ -124,7 +136,7 @@ async function device(person: Person) {
   expect(saved).toBe("saved");
   devices.push({ db: person.db, endpoint, deviceId });
   const row = (await serviceClient().from("push_subscriptions").select("id").eq("endpoint", endpoint).single()).data!;
-  return { endpoint, deviceId, subscriptionId: row.id };
+  return { endpoint, deviceId, p256dh, auth, subscriptionId: row.id };
 }
 
 const jobsOf = (subscriptionId: string) =>
@@ -136,6 +148,13 @@ const jobsOf = (subscriptionId: string) =>
       .order("send_at")
       .order("kind"),
     "jobs",
+  );
+
+/** A device's jobs, whichever of its subscriptions they were planned for. */
+const jobsOfDevice = (deviceId: string) =>
+  ok(
+    serviceClient().from("reminder_jobs").select("kind, status, result, subscription_id").eq("device_id", deviceId).order("send_at").order("kind"),
+    "device jobs",
   );
 
 async function planIdOf(db: Client, cycleId: string, peptideId: string) {
@@ -450,6 +469,205 @@ describe("dose reminders", () => {
     for (const s of all) expect(s.payload.body).toBe(doseReminderText("due", { peptide: peptideAName, amount: massLabel("0.4"), time: clock12("08:05"), units: null }).body);
     expect((await jobsOf(phone.subscriptionId)).map((j) => new Date(j.occurrence_at).getTime())).toEqual([first.getTime(), second.getTime()]);
   });
+
+  it("reminds a time repeated for two hours (Antarctica/Troll) at the app's instant, the earlier one", async () => {
+    const zone = "Antarctica/Troll";
+    const me = await quietResearcher("troll");
+    const phone = await device(me);
+    // Troll's clocks go from 03:00 (UTC+2) back to 01:00 (UTC+0) on 2026-10-25: 01:30 comes twice.
+    const cycleId = await createCycle(me.db, { timeZone: zone, plans: [plan(peptideA, [weekdays("2026-10-24", "2026-10-26", EVERY_DAY, "0.4", "01:30")])] });
+    const o = await occurrenceOn(me.db, cycleId, "2026-10-25");
+    const T = new Date("2026-10-24T23:30:00Z");
+    expect(new Date(o.scheduledAt)).toEqual(T);
+    expect(at("2026-10-25", "01:30", zone)).toEqual(T);
+    await run(later(T, -1));
+    await run(T);
+    expect(sentTo(phone.endpoint).map((s) => [s.payload.tag, s.payload.body])).toEqual([
+      [reminderTag("dose", o.key), doseReminderText("due", { peptide: peptideAName, amount: massLabel("0.4"), time: clock12("01:30"), units: null }).body],
+    ]);
+    // Nothing at the second 01:30, two hours later, beyond the one follow-up.
+    await run(later(T, 60));
+    await run(later(T, 120));
+    expect((await jobsOf(phone.subscriptionId)).filter((j) => j.occurrence_key === o.key).map((j) => [j.kind, j.status, j.occurrence_at])).toEqual([
+      ["due", "sent", T.toISOString().replace(".000Z", "+00:00")],
+      ["follow-up-1h", "sent", T.toISOString().replace(".000Z", "+00:00")],
+    ]);
+  });
+
+  it("sends the follow-up when the next call comes exactly two hours after its time (the catch-up's end is inclusive, as the app's)", async () => {
+    const me = await quietResearcher("catch-up");
+    const phone = await device(me);
+    await createCycle(me.db, { plans: [plan(peptideA, [weekdays(day(-2), day(-2), EVERY_DAY, "0.4", "16:45")])] });
+    const T = at(day(-2), "16:45");
+    await run(T);
+    // Down from the due minute until the follow-up's last minute (its time + 2 hours).
+    await run(later(T, 180));
+    const facts = { peptide: peptideAName, amount: massLabel("0.4"), time: clock12("16:45"), units: null };
+    expect(sentTo(phone.endpoint).map((s) => s.payload.title)).toEqual([doseReminderText("due", facts).title, doseReminderText("follow-up-1h", facts).title]);
+    expect((await jobsOf(phone.subscriptionId)).map((j) => [j.kind, j.status])).toEqual([
+      ["due", "sent"],
+      ["follow-up-1h", "sent"],
+    ]);
+  });
+
+  it("reads the owner's records afresh for every batch: a dose logged after an earlier batch's send is not reminded again", async () => {
+    const me = await quietResearcher("fresh");
+    const phones = [await device(me), await device(me)];
+    const cycleId = await createCycle(me.db, { plans: [plan(peptideA, [weekdays(day(-2), day(-2), EVERY_DAY, "0.4", "16:25")])] });
+    const o = await occurrenceOn(me.db, cycleId, day(-2));
+    const T = at(day(-2), "16:25");
+    // The first phone's reminder is tapped and the dose logged before the next batch is claimed.
+    let logged = false;
+    const logOnFirstSend: PushDeps = {
+      ...push,
+      transport: async (request) => {
+        const answer = await push.transport(request);
+        if (!logged && phones.some((p) => p.endpoint === request.subscription.endpoint)) {
+          logged = true;
+          await ok(me.db.rpc("confirm_dose", confirmArgs(o)), "log");
+        }
+        return answer;
+      },
+    };
+    await run(later(T, -1));
+    await run(T, { batchSize: 1, push: logOnFirstSend });
+    expect(logged).toBe(true);
+    expect(phones.flatMap((p) => sentTo(p.endpoint))).toHaveLength(1);
+    const outcomes = (await Promise.all(phones.map((p) => jobsOf(p.subscriptionId)))).flat().map((j) => [j.kind, j.status, j.result]);
+    expect(outcomes.sort()).toEqual([
+      ["due", "sent", ""],
+      ["due", "suppressed", "logged"],
+    ]);
+  });
+});
+
+describe("the phone a reminder goes to", () => {
+  it("sends one reminder per phone, to its newest subscription, when its endpoint has rotated", async () => {
+    const me = await quietResearcher("rotated");
+    const first = await device(me);
+    // The same browser subscribes again with a new endpoint; the old row is still active.
+    const second = await device(me, { deviceId: first.deviceId });
+    await createCycle(me.db, { plans: [plan(peptideA, [weekdays(day(-2), day(-2), EVERY_DAY, "0.4", "17:35")])] });
+    const T = at(day(-2), "17:35");
+    await run(later(T, -1));
+    expect((await jobsOfDevice(first.deviceId)).map((j) => [j.kind, j.status, j.subscription_id])).toEqual([["due", "pending", second.subscriptionId]]);
+    // It rotates again after planning: the reminder goes to the endpoint current when it is sent.
+    const third = await device(me, { deviceId: first.deviceId });
+    await run(T);
+    expect(sentTo(first.endpoint)).toEqual([]);
+    expect(sentTo(second.endpoint)).toEqual([]);
+    expect(sentTo(third.endpoint)).toHaveLength(1);
+    expect((await jobsOfDevice(first.deviceId)).map((j) => [j.kind, j.status, j.subscription_id])).toEqual([["due", "sent", third.subscriptionId]]);
+  });
+
+  it("sends nothing to a phone that changed hands, or was re-registered with new keys, after the claim", async () => {
+    const me = await quietResearcher("handed-over");
+    const next = await quietResearcher("next-owner");
+    const [shared, rekeyed] = [await device(me), await device(me)];
+    await createCycle(me.db, { plans: [plan(peptideA, [weekdays(day(-2), day(-2), EVERY_DAY, "0.4", "17:55")])] });
+    const T = at(day(-2), "17:55");
+    await run(later(T, -1));
+    let changed = false;
+    await run(T, {
+      onClaimed: async (jobs) => {
+        if (changed || !jobs.some((job) => job.subscription_id === shared.subscriptionId)) return;
+        changed = true;
+        // Another researcher signs in on the shared phone: the same browser subscription moves to them.
+        await device(next, { deviceId: shared.deviceId, endpoint: shared.endpoint, p256dh: shared.p256dh, auth: shared.auth });
+        // The other phone subscribes again under the same endpoint with new keys.
+        await device(me, { deviceId: rekeyed.deviceId, endpoint: rekeyed.endpoint });
+      },
+    });
+    expect(changed).toBe(true);
+    expect(sentTo(shared.endpoint)).toEqual([]);
+    expect(sentTo(rekeyed.endpoint)).toEqual([]);
+    for (const phone of [shared, rekeyed]) {
+      expect((await jobsOf(phone.subscriptionId)).map((j) => [j.kind, j.status, j.result])).toEqual([["due", "suppressed", "device changed"]]);
+    }
+  });
+});
+
+describe("planning is bounded", () => {
+  type Planned = { planned: number; expanded: number; plans_more: boolean; supplements_read: number; supplements_more: boolean };
+  const plan1 = async (now: Date, limits: { p_max_plans?: number; p_max_supplements?: number }) =>
+    (await ok(serviceClient().rpc("plan_reminder_jobs", { p_now: now.toISOString(), ...limits }), "plan")) as unknown as Planned;
+  const planNext = async (planIds: string[]) =>
+    new Map(
+      (await ok(serviceClient().from("reminder_plan_next").select("plan_id, schedule_version, next_at, checked_at").in("plan_id", planIds), "plan next")).map(
+        (row) => [row.plan_id, row],
+      ),
+    );
+
+  it("expands at most the plans asked for per call, converges over calls, and leaves a plan alone until its next reminder moment", async () => {
+    const me = await quietResearcher("bounded");
+    const phone = await device(me);
+    const cycles = [];
+    for (let n = 0; n < 3; n++) cycles.push(await createCycle(me.db, { plans: [plan(peptideA, [weekdays(day(-2), day(-2), EVERY_DAY, "0.4", "18:40")])] }));
+    const planIds = await Promise.all(cycles.map((cycleId) => planIdOf(me.db, cycleId, peptideA)));
+    const T = at(day(-2), "18:40");
+
+    // One plan per call: the rest are left for the next calls, until none is left.
+    const calls: Planned[] = [];
+    do calls.push(await plan1(T, { p_max_plans: 1, p_max_supplements: 0 }));
+    while (calls.at(-1)!.plans_more && calls.length < 300);
+    expect(calls[0].plans_more).toBe(true);
+    expect(calls.at(-1)!.plans_more).toBe(false);
+    expect(calls.every((call) => call.expanded <= 1 && !call.supplements_more && call.supplements_read === 0)).toBe(true);
+    expect((await jobsOf(phone.subscriptionId)).map((j) => [j.kind, j.status])).toEqual([
+      ["due", "pending"],
+      ["due", "pending"],
+      ["due", "pending"],
+    ]);
+
+    // Each plan's next reminder moment is its follow-up; until then no call expands it again.
+    const versions = new Map((await ok(serviceClient().from("cycle_plans").select("id, schedule_version").in("id", planIds), "versions")).map((row) => [row.id, row.schedule_version]));
+    const before = await planNext(planIds);
+    for (const id of planIds) {
+      expect(new Date(before.get(id)!.next_at)).toEqual(later(T, 60));
+      expect(before.get(id)!.schedule_version).toBe(versions.get(id));
+    }
+    await plan1(T, {});
+    await plan1(later(T, 30), {});
+    const after = await planNext(planIds);
+    for (const id of planIds) expect(after.get(id)!.checked_at).toBe(before.get(id)!.checked_at);
+
+    // At the follow-up's time they are expanded again, and the follow-ups planned.
+    await plan1(later(T, 60), {});
+    const again = await planNext(planIds);
+    for (const id of planIds) expect(again.get(id)!.checked_at).not.toBe(before.get(id)!.checked_at);
+    expect((await jobsOf(phone.subscriptionId)).map((j) => j.kind)).toEqual(["due", "due", "due", "follow-up-1h", "follow-up-1h", "follow-up-1h"]);
+    // Their jobs are left to the dispatcher's own calls (as if missed): suppressed as late, never sent.
+    await run(later(T, 200));
+    expect(sentTo(phone.endpoint)).toEqual([]);
+  });
+
+  it("reads at most the supplement rows asked for per call, and the rest on the next calls", async () => {
+    const me = await researcher("supplement-pages");
+    const phone = await device(me);
+    await ok(me.db.rpc("set_supplement_tracking", { p_enabled: true }), "tracking on");
+    const ids: string[] = [];
+    for (const name of ["Zinc", "Omega-3", "Vitamin C"]) {
+      const routine = (await ok(
+        me.db.rpc("save_supplement_routine", { p_id: null as unknown as string, p_version: null as unknown as number, p_name: name, p_amount: "1", p_unit: "g", p_time: "19:05" }),
+        "routine",
+      )) as unknown as { id: string };
+      ids.push(routine.id);
+    }
+    const today = (await serviceClient().from("supplement_routines").select("start_date").eq("id", ids[0]).single()).data!.start_date;
+    const T = at(today, "19:05");
+
+    const calls: Planned[] = [];
+    do calls.push(await plan1(T, { p_max_plans: 0, p_max_supplements: 1 }));
+    while (calls.at(-1)!.supplements_more && calls.length < 300);
+    expect(calls[0]).toMatchObject({ supplements_read: 1, supplements_more: true });
+    expect(calls.at(-1)!.supplements_more).toBe(false);
+    expect(calls.every((call) => call.supplements_read <= 1 && call.expanded === 0)).toBe(true);
+    const jobs = await jobsOf(phone.subscriptionId);
+    expect(jobs.map((j) => [j.source, j.kind, j.occurrence_key]).sort()).toEqual(ids.map((id) => ["supplement", "due", `${id}:${today}`]).sort());
+    // Tidy: sent (or not) by the dispatcher's own call.
+    await run(T);
+    expect(sentTo(phone.endpoint)).toHaveLength(3);
+  });
 });
 
 describe("the heads-up before a dose", () => {
@@ -680,8 +898,10 @@ describe("the queue is server-only", () => {
     const me = await researcher("access");
     const now = new Date().toISOString();
     for (const client of [me.db, adminDb, anonClient()]) {
-      const read = await client.from("reminder_jobs").select("id").limit(1);
-      expect(read.error?.code).toBe("42501");
+      for (const table of ["reminder_jobs", "reminder_plan_next", "reminder_planner_state"] as const) {
+        const read = await client.from(table).select("*").limit(1);
+        expect(read.error?.code, table).toBe("42501");
+      }
       for (const [fn, args] of [
         ["plan_reminder_jobs", { p_now: now }],
         ["claim_reminder_jobs", { p_now: now, p_limit: 1, p_lease_seconds: 120, p_max_attempts: 3 }],
@@ -692,6 +912,9 @@ describe("the queue is server-only", () => {
     }
     // The service role refuses what makes no sense.
     expect(await sqlState(serviceClient().rpc("claim_reminder_jobs", { p_now: now, p_limit: 0 }), "no batch")).toBe("22023");
+    for (const limits of [{ p_max_plans: -1 }, { p_max_plans: 1001 }, { p_max_supplements: 10_001 }, { p_budget_ms: 50 }, { p_budget_ms: 60_000 }]) {
+      expect(await sqlState(serviceClient().rpc("plan_reminder_jobs", { p_now: now, ...limits }), "planning limits"), JSON.stringify(limits)).toBe("22023");
+    }
     expect(await sqlState(serviceClient().rpc("finish_reminder_job", { p_id: randomUUID(), p_lease_token: randomUUID(), p_outcome: "retry" }), "retry without a time")).toBe("22023");
   });
 });

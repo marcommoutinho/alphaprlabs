@@ -108,7 +108,9 @@ export type Suppression =
   | "stopped"
   | "superseded"
   | "late"
-  | "setting changed";
+  | "setting changed"
+  /** The subscription is no longer the owner's, active, or the same endpoint and keys it was claimed with. */
+  | "device changed";
 
 export type Verdict = { send: true } | { send: false; reason: Suppression };
 
