@@ -17,6 +17,7 @@
     "db:types": "supabase gen types typescript --local --schema public > src/lib/supabase/database.types.ts",
     "admin:create": "node --env-file-if-exists=.env.local scripts/create-admin.mjs",
     "fx:backfill": "node --env-file-if-exists=.env.local scripts/fx-backfill.mjs",
+    "reminders:tick": "node --env-file-if-exists=.env.local scripts/reminders-tick.mjs",
     "push:keys": "web-push generate-vapid-keys"
   },
   "dependencies": {

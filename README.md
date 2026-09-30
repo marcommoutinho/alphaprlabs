@@ -37,8 +37,11 @@ researchers, `/admin`, `/auth`). Requires Node 22, Docker and the
    `.env.local` as `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`, with
    `VAPID_SUBJECT=mailto:…` (one pair per environment; never commit keys).
    `PUSH_TEST_ENABLED=true` shows "Send test notification" under
-   Me → Notifications (gate G1 only). Browsers allow push only over HTTPS or
-   on `localhost`/`*.localhost`. The app icons in `public/app-icons/` come from
+   Me → Notifications (gate G1 only). Dose and supplement reminders go out
+   only with `REMINDERS_ENABLED=true` and a `CRON_SECRET`; locally, run
+   `npm run reminders:tick` beside the app to call the dispatcher every
+   minute (production: Vercel Cron, `vercel.json`). Browsers allow push
+   only over HTTPS or on `localhost`/`*.localhost`. The app icons in `public/app-icons/` come from
    `scripts/app-icons.sh` (ImageMagick).
 8. **Checks:** `npm run lint`, `npm run typecheck`, `npm test` (Vitest unit
    tests plus `tests/integration`, which run against the local Supabase) and

@@ -9,27 +9,15 @@
 // scripts/fx-backfill.mjs. Every answer is validated strictly (valet.mjs) and
 // nothing is stored unless all of it is valid. Route handlers aren't cached
 // (Next 16.2), and this one reads the request's headers, so every call runs.
-import { timingSafeEqual } from "node:crypto";
+import { cronAuthorized } from "@/lib/cron-auth";
 import { syncFxRates } from "@/lib/inventory/fx";
 
 export const dynamic = "force-dynamic";
 /** Seconds; the sync's own budget (FX_SYNC_BUDGET_MS) is 45. Within Vercel's limits on every plan. */
 export const maxDuration = 60;
 
-/** True when the request carries `Bearer <CRON_SECRET>` (constant-time comparison). */
-function authorized(request: Request): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) {
-    console.error("CRON_SECRET is not set: the Bank of Canada rate sync refuses every call.");
-    return false;
-  }
-  const given = Buffer.from(request.headers.get("authorization") ?? "");
-  const expected = Buffer.from(`Bearer ${secret}`);
-  return given.length === expected.length && timingSafeEqual(given, expected);
-}
-
 export async function GET(request: Request) {
-  if (!authorized(request)) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!cronAuthorized(request, "Bank of Canada rate sync")) return Response.json({ error: "unauthorized" }, { status: 401 });
 
   const from = new URL(request.url).searchParams.get("from") ?? undefined;
   const result = await syncFxRates({ from });

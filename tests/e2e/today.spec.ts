@@ -7,6 +7,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { APP_ORIGIN } from "../../playwright.config";
 import { DOSE_ALREADY_TAKEN, DOSE_CHANGED, STALE_LINK, TIME_FUTURE } from "../../src/lib/doses/rules";
 import { shortDate as formatShortDate } from "../../src/lib/alpha/format";
+import { doseReminderUrl } from "../../src/lib/reminders/rules";
 import { d, noonZoneInstant } from "../support/noon";
 import { hydrated, ok, serviceClient, signedInClient, signInAs } from "../support/local-supabase";
 import { stallRefresh } from "../support/stall-refresh";
@@ -270,11 +271,12 @@ test("a reminder link opens its dose on a phone; an out-of-date one says so", as
   const taken = await page.getByTestId("today-hero").getByRole("button", { name: "Taken", exact: true }).boundingBox();
   expect(taken!.height).toBeGreaterThanOrEqual(44);
 
-  // The notification URL contract (sw.js): /app/today?dose=<occurrence key>.
+  // The notification URL contract (sw.js): the url a dose reminder carries (S13's
+  // dispatcher builds it with doseReminderUrl), /app/today?dose=<occurrence key>.
   const planB = (await ok(serviceClient().from("cycle_plans").select("id").eq("cycle_id", cycleId), "plans")).map((p) => p.id);
   const phaseB = await ok(serviceClient().from("cycle_revision_phases").select("plan_id, phase_id").in("plan_id", planB).eq("schedule_type", "weekdays"), "phase");
   const key = `${phaseB[0].plan_id}:${phaseB[0].phase_id}:${d(-1)}`;
-  await page.goto(`${APP_ORIGIN}/app/today?dose=${encodeURIComponent(key)}`);
+  await page.goto(`${APP_ORIGIN}${doseReminderUrl(key)}`);
   const sheet = page.getByRole("dialog", { name: B });
   await expect(sheet.getByRole("heading", { level: 2 })).toHaveText(B);
   await expect(sheet).toContainText("Not logged");
@@ -286,7 +288,7 @@ test("a reminder link opens its dose on a phone; an out-of-date one says so", as
   await expect(page).toHaveURL(`${APP_ORIGIN}/app/today`);
 
   // A key that isn't in the plan (an edit replaced it): a notice, no sheet.
-  await page.goto(`${APP_ORIGIN}/app/today?dose=${encodeURIComponent(`${phaseB[0].plan_id}:${phaseB[0].phase_id}:${d(-5)}`)}`);
+  await page.goto(`${APP_ORIGIN}${doseReminderUrl(`${phaseB[0].plan_id}:${phaseB[0].phase_id}:${d(-5)}`)}`);
   await expect(page.getByRole("status").filter({ hasText: STALE_LINK })).toBeVisible();
   await expect(sheet).toBeHidden();
 });

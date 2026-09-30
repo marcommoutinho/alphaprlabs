@@ -3,6 +3,7 @@
 import { currentResearcher } from "@/lib/auth/session";
 import { canonicalEndpoint, deviceIdOf, deviceSubscriptionSchema } from "@/lib/push/device";
 import { defaultPushDeps, pushTestEnabled, sendPushToAll } from "@/lib/push/send";
+import { TEST_BODY, TEST_TITLE } from "@/lib/reminders/copy";
 import { createClient } from "@/lib/supabase/server";
 
 // "Reminders on this phone" (C2). Every write runs under the caller's own
@@ -83,8 +84,8 @@ export async function sendTestNotification(): Promise<TestResult> {
   const results = await sendPushToAll(
     devices,
     {
-      title: "Alpha PR Labs",
-      body: "Test notification — reminders work on this phone.",
+      title: TEST_TITLE,
+      body: TEST_BODY,
       url: "/app/notifications",
       tag: "test",
       badge: 1,

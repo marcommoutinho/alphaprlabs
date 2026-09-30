@@ -6,7 +6,8 @@ import { isPushServiceEndpoint } from "./device";
 // Web Push transport: encrypts a small JSON payload for one device and hands
 // it to that device's push service. A 2xx answer means the push service
 // ACCEPTED the message ("sent"); it never proves delivery, display or that
-// anyone read it. Reminder scheduling (S13) builds on sendPush().
+// anyone read it. The reminder dispatcher (S13, src/lib/reminders/dispatch.ts)
+// builds on sendPush().
 
 /** What public/sw.js shows. `url` is a path under /app opened on tap (else /app). */
 export type PushPayload = {
@@ -61,6 +62,9 @@ const MAX_PAYLOAD_BYTES = 3000; // below the 4 KB Web Push limit after encryptio
 
 export const APP_NOTIFICATION_HOME = "/app";
 
+/** sendPush's error for an endpoint that is not a browser push service (never retried). */
+export const UNKNOWN_ENDPOINT = "endpoint is not a known push service";
+
 /**
  * A notification's tap target: a relative path inside the researcher app
  * (/app or below), normalized; anything else becomes /app. Other paths on the
@@ -105,7 +109,7 @@ export async function sendPush(
   if (!Number.isInteger(options.ttlSeconds) || options.ttlSeconds < 0) throw new Error("Invalid push TTL");
   const body = encodePayload(payload);
   if (!isPushServiceEndpoint(target.endpoint)) {
-    return { id: target.id, status: "failed", error: "endpoint is not a known push service" };
+    return { id: target.id, status: "failed", error: UNKNOWN_ENDPOINT };
   }
 
   let statusCode: number;

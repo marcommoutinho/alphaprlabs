@@ -1611,6 +1611,90 @@ export type Database = {
           },
         ]
       }
+      reminder_jobs: {
+        Row: {
+          attempts: number
+          created_at: string
+          finished_at: string | null
+          id: string
+          job_key: string
+          kind: string
+          lease_token: string | null
+          next_attempt_at: string
+          occurrence_at: string
+          occurrence_key: string
+          owner_id: string
+          plan_id: string | null
+          result: string
+          routine_id: string | null
+          send_at: string
+          source: string
+          status: string
+          status_code: number | null
+          subscription_id: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          finished_at?: string | null
+          id?: string
+          job_key: string
+          kind: string
+          lease_token?: string | null
+          next_attempt_at: string
+          occurrence_at: string
+          occurrence_key: string
+          owner_id: string
+          plan_id?: string | null
+          result?: string
+          routine_id?: string | null
+          send_at: string
+          source: string
+          status?: string
+          status_code?: number | null
+          subscription_id: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          finished_at?: string | null
+          id?: string
+          job_key?: string
+          kind?: string
+          lease_token?: string | null
+          next_attempt_at?: string
+          occurrence_at?: string
+          occurrence_key?: string
+          owner_id?: string
+          plan_id?: string | null
+          result?: string
+          routine_id?: string | null
+          send_at?: string
+          source?: string
+          status?: string
+          status_code?: number | null
+          subscription_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reminder_jobs_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reminder_jobs_subscription_id_fkey"
+            columns: ["subscription_id"]
+            isOneToOne: false
+            referencedRelation: "push_subscriptions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       supplement_routines: {
         Row: {
           amount: number
@@ -2285,6 +2369,33 @@ export type Database = {
           name: string
         }[]
       }
+      claim_reminder_jobs: {
+        Args: {
+          p_lease_seconds?: number
+          p_limit?: number
+          p_max_attempts?: number
+          p_now?: string
+        }
+        Returns: {
+          attempts: number
+          auth: string
+          device_on: boolean
+          endpoint: string
+          id: string
+          kind: string
+          lease_token: string
+          occurrence_at: string
+          occurrence_key: string
+          owner_agreed: boolean
+          owner_id: string
+          p256dh: string
+          plan_id: string
+          routine_id: string
+          send_at: string
+          source: string
+          subscription_id: string
+        }[]
+      }
       complete_invitation: {
         Args: { p_id: string; p_name: string; p_user_id: string }
         Returns: undefined
@@ -2469,6 +2580,18 @@ export type Database = {
             Returns: Json
           }
       finish_personal_vial: { Args: { p_vial_id: string }; Returns: boolean }
+      finish_reminder_job: {
+        Args: {
+          p_id: string
+          p_lease_token: string
+          p_now?: string
+          p_outcome: string
+          p_result?: string
+          p_retry_at?: string
+          p_status_code?: number
+        }
+        Returns: boolean
+      }
       has_research_access: { Args: never; Returns: boolean }
       invite_researcher: {
         Args: {
@@ -2531,6 +2654,7 @@ export type Database = {
         Args: { p_at: string; p_plan_id: string }
         Returns: string
       }
+      plan_reminder_jobs: { Args: { p_now?: string }; Returns: Json }
       progress_day: { Args: { p_at: string }; Returns: string }
       record_acknowledgement: { Args: { p_version: string }; Returns: boolean }
       record_business_purchase: {
@@ -2588,6 +2712,7 @@ export type Database = {
         }[]
       }
       release_invitation: { Args: { p_id: string }; Returns: undefined }
+      reminder_instant_text: { Args: { p_at: string }; Returns: string }
       reopen_personal_vial: { Args: { p_vial_id: string }; Returns: string }
       resend_invitation: {
         Args: { p_id: string; p_token_hash: string }
