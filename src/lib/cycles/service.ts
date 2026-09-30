@@ -228,8 +228,8 @@ export function listCycles(db: Db, ownerId: string, options: PageOptions = {}): 
 }
 
 /**
- * A template to copy, as the researcher reads it, or null when there is no
- * such template. The copy includes every peptide it names, even one no
+ * A published template to copy, as the researcher reads it, or null when
+ * there is no such template (a draft reads as none; save_cycle refuses it). The copy includes every peptide it names, even one no
  * longer offered (Marco, 2026-09-26); `peptides` are those peptides' names
  * and availability (template_peptides(): readable for this template only,
  * while the library itself still hides withdrawn entries).
@@ -245,6 +245,7 @@ export async function getTemplateForCopy(
       "id, name, cycle_template_plans(peptide_id, position, cycle_template_phases(kind, offset_days, length_days, dose_mg::text, local_time, schedule_type, every_days, weekdays))",
     )
     .eq("id", templateId.toLowerCase())
+    .not("published_at", "is", null)
     .maybeSingle();
   if (error) throw new Error(`Could not load the template: ${error.message}`);
   if (!data) return null;

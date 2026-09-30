@@ -13,7 +13,6 @@ import { BUSINESS_TIME_ZONE } from "@/lib/inventory/screens";
 import type { Weekday } from "@/lib/schedule/engine";
 import { newActivePhase, newBreak, type PhaseForm, type TemplatePeptide, type TemplatePhase, type TemplatePlan, templatePlanToEngine, type TemplateRecord } from "./rules";
 
-export const TEMPLATE_CREATED = "Template created.";
 export const TEMPLATE_UPDATED = "Template updated for future copies. Existing cycles unchanged.";
 export const GUIDANCE_LABEL = "Guidance shown with the template";
 
@@ -38,9 +37,9 @@ export const usageLine = (template: Pick<TemplateRecord, "cycleCount" | "updated
 export const editorMeta = (template: Pick<TemplateRecord, "plans" | "cycleCount" | "updatedAt">) =>
   `${templateLength(template)} · ${template.cycleCount ? `used for ${cyclesText(template.cycleCount)}` : "not used yet"} · updated ${updatedText(template.updatedAt)}`;
 
-/** D7's footer note. */
-export function footerNote(template: Pick<TemplateRecord, "cycleCount"> | null): string {
-  if (!template) return "Researchers will see it as a starting point once it's saved.";
+/** D7's footer note; none for a new template (its state line says who sees it). */
+export function footerNote(template: Pick<TemplateRecord, "cycleCount"> | null): string | null {
+  if (!template) return null;
   const n = template.cycleCount;
   if (n === 0) return "Saving changes future copies only. No cycle has been started from this template yet.";
   return `Saving changes future copies only. The ${n === 1 ? "1 cycle" : `${n} cycles`} started from this template won't change.`;

@@ -39,6 +39,8 @@ export type TemplateRecord = {
   name: string;
   guidance: string;
   updatedAt: string;
+  /** When it was published; null while it is a draft, hidden from researchers (20261001100000). */
+  publishedAt: string | null;
   /** The compare-and-set token: the version the editor opened (20260929110000). */
   version: number;
   /** In the editor's order; each plan's phases by start day. */

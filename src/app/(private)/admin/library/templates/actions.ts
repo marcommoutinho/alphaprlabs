@@ -4,17 +4,17 @@ import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { signInUrl } from "@/lib/auth/paths";
 import { currentAdmin } from "@/lib/auth/session";
-import { changedSince } from "@/lib/library/admin";
+import { changedSince, savedToast } from "@/lib/library/admin";
 import { lastChange } from "@/lib/library/service";
 import { saveRequestHash } from "@/lib/request-hash";
 import { createClient } from "@/lib/supabase/server";
-import { TEMPLATE_CREATED, TEMPLATE_UPDATED } from "@/lib/templates/display";
+import { TEMPLATE_UPDATED } from "@/lib/templates/display";
 import { INVALID_TEMPLATE, validateTemplate, validateTemplateShape } from "@/lib/templates/rules";
 import { listTemplatePeptides, saveTemplate, storedTemplatePeptides } from "@/lib/templates/service";
 
 export type TemplateActionResult = {
-  /** Saved (or replayed): the template and the version it is at now. */
-  saved?: { id: string; version: number };
+  /** Saved (or replayed): the template, the version it is at now, and whether it is published. */
+  saved?: { id: string; version: number; published: boolean };
   toast?: string;
   /** Nothing was saved: why, shown above the editor's footer (the entry stays as typed). */
   error?: string;
@@ -34,15 +34,18 @@ const SAVE_UNSURE = "Couldn't confirm it was saved. Retry sends the same save, s
 const TEMPLATE_GONE = "This template no longer exists. The list has been refreshed.";
 
 /**
- * D7 Save template: `{ ...form, version, requestKey }` (version null for a
- * new template). Every call re-checks that the requester is a signed-in
- * admin. Only the submission's shape is checked here; the database function
- * first replays a retry of the same request key (even if the library or the
- * template has changed since), then saves only over the version the editor
- * opened (compare-and-set, AP038), and only then checks the rules on the
- * library as it is now: each peptide exists and is offered unless the
- * stored template already names it (Marco, 2026-09-26: kept, never newly
- * added). Those refusals are reworded here afterwards.
+ * D7 Save draft, Publish, Save and publish, Move to draft: `{ ...form,
+ * version, publish, requestKey }` (version null for a new template; publish
+ * the state it is left in: true published, false a draft, hidden from
+ * researchers, also when it was published). Draft and publish run the same
+ * rules; the difference is visibility only. Every call re-checks that the
+ * requester is a signed-in admin. Only the submission's shape is checked
+ * here; the database function first replays a retry of the same request key
+ * (even if the library or the template has changed since), then saves only
+ * over the version the editor opened (compare-and-set, AP038), and only then
+ * checks the rules on the library as it is now: each peptide exists and is
+ * offered unless the stored template already names it (Marco, 2026-09-26:
+ * kept, never newly added). Those refusals are reworded here afterwards.
  */
 export async function saveTemplateAction(input: unknown): Promise<TemplateActionResult> {
   const admin = await currentAdmin();
@@ -52,7 +55,8 @@ export async function saveTemplateAction(input: unknown): Promise<TemplateAction
   const requestKey = typeof raw.requestKey === "string" && UUID.test(raw.requestKey) ? raw.requestKey.toLowerCase() : null;
   const id = typeof raw.id === "string" ? raw.id : null;
   const version = raw.version === null || raw.version === undefined ? null : Number.isSafeInteger(raw.version) && (raw.version as number) > 0 ? (raw.version as number) : NaN;
-  if (!requestKey || Number.isNaN(version) || (id !== null) !== (version !== null)) return { error: INVALID_TEMPLATE, errors: [INVALID_TEMPLATE] };
+  const publish = typeof raw.publish === "boolean" ? raw.publish : null;
+  if (!requestKey || publish === null || Number.isNaN(version) || (id !== null) !== (version !== null)) return { error: INVALID_TEMPLATE, errors: [INVALID_TEMPLATE] };
 
   const db = await createClient();
   const load = () => Promise.all([listTemplatePeptides(db), storedTemplatePeptides(db, id)]);
@@ -63,12 +67,16 @@ export async function saveTemplateAction(input: unknown): Promise<TemplateAction
   const valid = validateTemplateShape(input, names);
   if (!valid.ok) return { error: valid.error, errors: valid.errors };
 
-  const requestHash = saveRequestHash({ kind: "template", version, ...valid.value });
-  const result = await saveTemplate(db, { requestKey, requestHash, version, template: valid.value });
+  const requestHash = saveRequestHash({ kind: "template", version, publish, ...valid.value });
+  const result = await saveTemplate(db, { requestKey, requestHash, version, publish, template: valid.value });
   switch (result.kind) {
     case "saved":
       refresh();
-      return { saved: { id: result.id, version: result.version }, toast: valid.value.id ? TEMPLATE_UPDATED : TEMPLATE_CREATED };
+      return {
+        saved: { id: result.id, version: result.version, published: result.published },
+        // A published template saved again: future copies only. Published now, or a draft: the library's wording.
+        toast: result.published && !result.newlyPublished ? TEMPLATE_UPDATED : savedToast(valid.value.name, result),
+      };
     case "changed": {
       const change = valid.value.id ? await lastChange(db, "template", valid.value.id).catch(() => null) : null;
       return { changed: true, error: changedSince(change?.changedBy ?? null) };

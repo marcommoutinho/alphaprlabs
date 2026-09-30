@@ -365,6 +365,18 @@ switches to the back office and back.
   template reference notice, a cycle made from a template carries "Your own
   copy of the template, your own responsibility.", and the admin template
   editor shows the template writing rules beside the guidance.
+- Cycle templates have a draft stage (Marco, 2026-09-30: "Yes to draft
+  stage"): a template can be saved privately as a draft and published when
+  it's ready, like library entries. A new template starts as a draft;
+  templates that existed before are published. Researchers see published
+  templates only, everywhere (Templates, a template's page, the builder's
+  "Start from a template", copying one into a cycle), enforced by the
+  database. The admin editor has the peptide editor's Save draft and Publish
+  (Save and publish once published); unlike a library entry, a published
+  template can be moved back to draft ("Move to draft", approved by Main),
+  which hides it from researchers again. Cycles already made from a template
+  never change when it is drafted, edited or published. Draft and publish
+  run the same validation: the difference is visibility only.
 
 ### Launch exclusions
 

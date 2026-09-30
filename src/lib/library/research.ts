@@ -224,7 +224,7 @@ async function templateNames(
   return names;
 }
 
-/** Templates (all, or one), their plans and phases read flat and paged, joined here. */
+/** Published templates (all, or one), their plans and phases read flat and paged, joined here. */
 async function readTemplates(
   db: Db,
   templateId: string | null,
@@ -233,7 +233,8 @@ async function readTemplates(
 ): Promise<ResearchTemplate[]> {
   const templates = await keysetRows(
     (after, limit) => {
-      const query = db.from("cycle_templates").select("id, name, guidance");
+      // Published only: the database shows researchers nothing else, and an admin on the research side sees what they see.
+      const query = db.from("cycle_templates").select("id, name, guidance").not("published_at", "is", null);
       const scoped = templateId ? query.eq("id", templateId) : query;
       return (after ? scoped.gt("id", after) : scoped).order("id").limit(limit);
     },
@@ -293,9 +294,9 @@ async function readTemplates(
 }
 
 /**
- * Every template, by name, as "Use as starting point" copies it. Names come
- * from `known` (the entries the caller can read) and, for withdrawn ones,
- * template_peptides() (see templateNames).
+ * Every published template, by name, as "Use as starting point" copies it.
+ * Names come from `known` (the entries the caller can read) and, for
+ * withdrawn ones, template_peptides() (see templateNames).
  */
 export function listResearchTemplates(
   db: Db,
@@ -305,7 +306,7 @@ export function listResearchTemplates(
   return readTemplates(db, null, known, sizes);
 }
 
-/** One template, or null when there is no such template. */
+/** One published template, or null when there is no such template (a draft reads as none). */
 export async function getResearchTemplate(db: Db, id: string, sizes: ReadSizes = {}): Promise<ResearchTemplate | null> {
   if (!UUID.test(id)) return null;
   const [template] = await readTemplates(db, id.toLowerCase(), new Map(), sizes);

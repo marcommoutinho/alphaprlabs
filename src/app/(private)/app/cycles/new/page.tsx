@@ -41,7 +41,7 @@ export default async function NewCyclePage({ searchParams }: { searchParams: Sea
   const [library, mixtures, templateNames] = await Promise.all([
     listCyclePeptides(db),
     listMixtures(db, person.id),
-    db.from("cycle_templates").select("name").order("name").limit(50),
+    db.from("cycle_templates").select("name").not("published_at", "is", null).order("name").limit(50),
   ]);
   let peptides: CyclePeptide[] = library;
   // The server renders before it knows the device's zone: day 1 starts as

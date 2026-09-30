@@ -32,12 +32,12 @@ export async function listTemplatePeptides(db: Db): Promise<TemplatePeptide[]> {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Every template (or the one with `templateId`), oldest first, with its plans in order and phases by start day. */
+/** Every template, drafts included (or the one with `templateId`), oldest first, with its plans in order and phases by start day. */
 export async function listTemplates(db: Db, templateId: string | null = null): Promise<TemplateRecord[]> {
   const scoped = templateId?.toLowerCase() ?? null;
   const [templates, plans, usage] = await Promise.all([
     allRows((from, to) => {
-      const query = db.from("cycle_templates").select("id, name, guidance, updated_at, version");
+      const query = db.from("cycle_templates").select("id, name, guidance, updated_at, published_at, version");
       return (scoped ? query.eq("id", scoped) : query)
         .order("created_at", { ascending: true })
         .order("id", { ascending: true })
@@ -100,13 +100,14 @@ export async function listTemplates(db: Db, templateId: string | null = null): P
     name: row.name,
     guidance: row.guidance,
     updatedAt: row.updated_at,
+    publishedAt: row.published_at,
     version: Number(row.version),
     plans: plansByTemplate.get(row.id) ?? [],
     cycleCount: usageById.get(row.id) ?? 0,
   }));
 }
 
-/** How many templates there are (the Library control's "Templates · N"). */
+/** How many templates there are, drafts included (the Library control's "Templates · N"). */
 export async function countTemplates(db: Db): Promise<number> {
   const { count, error } = await db.from("cycle_templates").select("id", { count: "exact", head: true });
   if (error) throw new Error(`Could not count templates: ${error.message}`);
@@ -178,7 +179,8 @@ export function plansArgument(template: Pick<ValidTemplate, "plans">) {
 }
 
 export type SaveTemplateResult =
-  | { kind: "saved"; id: string; version: number; replayed: boolean }
+  /** `published`: it is published after the save; `newlyPublished`: this save published it. */
+  | { kind: "saved"; id: string; version: number; published: boolean; newlyPublished: boolean; replayed: boolean }
   /**
    * Refused, nothing written: `unavailable` a peptide not offered (or a
    * draft) newly added, or not in the library (AP007 / AP003); `changed`
@@ -190,10 +192,15 @@ export type SaveTemplateResult =
   /** No answer: it may have committed. Retry with the same request key. */
   | { kind: "unsure" };
 
-/** Creates (id null) or replaces a template, only over the version it was opened at; idempotent by request key. */
+/**
+ * Creates (id null) or replaces a template, only over the version it was
+ * opened at; idempotent by request key. `publish` is the state it is left in:
+ * published (researchers see it) or a draft (hidden from them, also when it
+ * was published before).
+ */
 export async function saveTemplate(
   db: Db,
-  input: { requestKey: string; requestHash: string; version: number | null; template: ValidTemplate },
+  input: { requestKey: string; requestHash: string; version: number | null; publish: boolean; template: ValidTemplate },
 ): Promise<SaveTemplateResult> {
   const { template } = input;
   const { data, error } = await db
@@ -206,6 +213,7 @@ export async function saveTemplate(
       p_name: template.name,
       p_guidance: template.guidance,
       p_plans: plansArgument(template),
+      p_published: input.publish,
     })
     .single();
   if (error || !data) {
@@ -227,5 +235,12 @@ export async function saveTemplate(
         return { kind: "unsure" };
     }
   }
-  return { kind: "saved", id: data.template_id, version: Number(data.version), replayed: data.replayed };
+  return {
+    kind: "saved",
+    id: data.template_id,
+    version: Number(data.version),
+    published: data.published,
+    newlyPublished: data.newly_published,
+    replayed: data.replayed,
+  };
 }

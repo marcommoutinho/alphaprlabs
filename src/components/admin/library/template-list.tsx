@@ -1,5 +1,7 @@
 import Link from "@/components/alpha/link";
+import { Tag } from "@/components/alpha/tag";
 import { CardLane } from "@/components/research/cycles/lanes";
+import { STATE_LABEL } from "@/lib/library/admin";
 import { templateLanes, templateLength, usageLine, withdrawnLine } from "@/lib/templates/display";
 import type { TemplatePeptide, TemplateRecord } from "@/lib/templates/rules";
 import { cn } from "@/lib/utils";
@@ -8,7 +10,8 @@ import { NEW_TEMPLATE_PATH, templatePath } from "./library-header";
 /**
  * A10 Templates: a card per template with its length, a mini lane per
  * peptide (bar height follows the dose, breaks hatched) and how many cycles
- * started from it. A template that names a peptide no longer offered says so
+ * started from it. A draft carries the library's Draft tag: researchers
+ * don't see it until it is published. A template that names a peptide no longer offered says so
  * in `low`; it can still be opened, edited and used (Marco, 2026-09-26).
  */
 export function TemplateList({ templates, peptides }: { templates: TemplateRecord[]; peptides: TemplatePeptide[] }) {
@@ -37,9 +40,17 @@ export function TemplateList({ templates, peptides }: { templates: TemplateRecor
               className="block h-full rounded-group border border-line bg-surface px-4 py-3.5"
               data-testid="template-card"
               data-withdrawn={withdrawn ? "" : undefined}
+              data-state={template.publishedAt === null ? "draft" : "published"}
             >
               <span className="flex items-baseline justify-between gap-3">
-                <span className="min-w-0 truncate text-[17px] font-semibold">{template.name}</span>
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 truncate text-[17px] font-semibold">{template.name}</span>
+                  {template.publishedAt === null ? (
+                    <Tag tone="low" data-testid="template-draft">
+                      {STATE_LABEL.draft}
+                    </Tag>
+                  ) : null}
+                </span>
                 <span className="shrink-0 font-mono text-[12px] font-medium text-ink-3">{templateLength(template)}</span>
               </span>
               <span className="mt-3 grid grid-cols-[70px_minmax(0,1fr)] items-center gap-x-2.5 gap-y-1.5 font-mono text-[12px] font-medium text-ink-2">

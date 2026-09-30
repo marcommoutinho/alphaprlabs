@@ -773,6 +773,7 @@ export type Database = {
           guidance: string
           id: string
           name: string
+          published_at: string | null
           updated_at: string
           version: number
         }
@@ -781,6 +782,7 @@ export type Database = {
           guidance?: string
           id?: string
           name: string
+          published_at?: string | null
           updated_at?: string
           version?: number
         }
@@ -789,6 +791,7 @@ export type Database = {
           guidance?: string
           id?: string
           name?: string
+          published_at?: string | null
           updated_at?: string
           version?: number
         }
@@ -2211,10 +2214,13 @@ export type Database = {
           p_id: string
           p_name: string
           p_plans: Json
+          p_published?: boolean
           p_request_hash: string
           p_request_key: string
         }
         Returns: {
+          newly_published: boolean
+          published: boolean
           replayed: boolean
           template_id: string
           version: number

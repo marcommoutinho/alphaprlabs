@@ -374,8 +374,10 @@ describe("the D7 save action (server)", () => {
   it("an admin saves through the action; validation returns the designed messages", async () => {
     acting.client = adminDb;
     const name = `Action ${tag()}`;
-    const form = { id: null, version: null, name, guidance: "", plans: [{ peptideId: peptide.a, phases: [phase] }] };
+    const form = { id: null, version: null, name, guidance: "", plans: [{ peptideId: peptide.a, phases: [phase] }], publish: false };
     expect(await saveTemplateAction({ ...form, name: " ", requestKey: key() })).toMatchObject({ error: "Name is required." });
+    // Draft and publish run the same rules.
+    expect(await saveTemplateAction({ ...form, name: " ", publish: true, requestKey: key() })).toMatchObject({ error: "Name is required." });
     expect(await saveTemplateAction({ ...form, plans: [], requestKey: key() })).toMatchObject({ error: "Add at least one peptide — an empty template can't be saved." });
     const [{ name: withdrawnName }] = await ok(serviceClient().from("peptides").select("name").eq("id", peptide.withdrawn), "name");
     expect(await saveTemplateAction({ ...form, plans: [{ peptideId: peptide.withdrawn, phases: [phase] }], requestKey: key() })).toMatchObject({
@@ -385,22 +387,31 @@ describe("the D7 save action (server)", () => {
     expect(
       await saveTemplateAction({ ...form, plans: [{ peptideId: peptide.a, phases: [{ ...phase, mg: "" }, { ...phase, kind: "break", day: "20" }] }], requestKey: key() }),
     ).toMatchObject({ error: `${aName}, phase 1: enter a dose above 0 mg. (+1 more)` });
-    // Without a request key, or with an id but no version, nothing is read or saved.
+    // Without a request key or a state, or with an id but no version, nothing is read or saved.
     expect(await saveTemplateAction(form)).toMatchObject({ error: "This template could not be saved. Reload the page and try again." });
+    const stateless = Object.fromEntries(Object.entries(form).filter(([field]) => field !== "publish"));
+    expect(await saveTemplateAction({ ...stateless, requestKey: key() })).toMatchObject({ error: "This template could not be saved. Reload the page and try again." });
+    expect(await ok(serviceClient().from("cycle_templates").select("id").eq("name", name), "none yet")).toEqual([]);
 
+    // A new template saved as a draft.
     const createKey = key();
     const created = await saveTemplateAction({ ...form, requestKey: createKey });
-    expect(created).toMatchObject({ saved: { version: 1 }, toast: "Template created." });
+    expect(created).toMatchObject({ saved: { version: 1, published: false }, toast: `Draft saved · ${name}. Researchers can't see it.` });
     const id = created.saved!.id;
     // The same request again replays; no second template.
     expect(await saveTemplateAction({ ...form, requestKey: createKey })).toMatchObject({ saved: { id, version: 1 } });
     expect(await ok(serviceClient().from("cycle_templates").select("id").eq("name", name), "one")).toEqual([{ id }]);
 
-    expect(await saveTemplateAction({ ...form, id, version: 1, guidance: "More.", requestKey: key() })).toMatchObject({
-      saved: { id, version: 2 },
-      toast: "Template updated for future copies. Existing cycles unchanged.",
+    // Published with an edit: one version; then saved again as published.
+    expect(await saveTemplateAction({ ...form, id, version: 1, guidance: "More.", publish: true, requestKey: key() })).toMatchObject({
+      saved: { id, version: 2, published: true },
+      toast: `${name} published. Researchers can see it now.`,
     });
     expect((await stored(id)).guidance).toBe("More.");
+    expect(await saveTemplateAction({ ...form, id, version: 2, guidance: "More.", publish: true, requestKey: key() })).toMatchObject({
+      saved: { id, version: 2, published: true },
+      toast: "Template updated for future copies. Existing cycles unchanged.",
+    });
     // Saving over the version it was opened at when someone saved since: refused, says who.
     expect(await saveTemplateAction({ ...form, id, version: 1, guidance: "Stale.", requestKey: key() })).toEqual({
       changed: true,
@@ -420,7 +431,7 @@ describe("the D7 save action (server)", () => {
     const name = `Action keeps ${t}`;
     const id = await create(name, [{ peptide_id: later, phases: [interval(0, 28)] }]);
     expect(await ok(serviceClient().from("peptides").update({ available: false }).eq("id", later).select("id"), "withdraw")).toHaveLength(1);
-    const form = { id, version: await versionOf(id!), name, guidance: "", plans: [{ peptideId: later, phases: [{ ...phase, mg: "0.5" }] }] };
+    const form = { id, version: await versionOf(id!), name, guidance: "", plans: [{ peptideId: later, phases: [{ ...phase, mg: "0.5" }] }], publish: true };
     expect(await saveTemplateAction({ ...form, requestKey: key() })).toMatchObject({
       saved: { id },
       toast: "Template updated for future copies. Existing cycles unchanged.",
@@ -439,7 +450,7 @@ describe("the D7 save action (server)", () => {
     const opened = await versionOf(id);
     const kept = { peptideId: later, phases: [{ ...phase, mg: "0.5" }] };
     const b = { peptideId: peptide.b, phases: [phase] };
-    const form = { id, version: opened, name, guidance: "Kept.", plans: [kept, b] };
+    const form = { id, version: opened, name, guidance: "Kept.", plans: [kept, b], publish: true };
     const requestKey = key();
     // Committed; its answer never reached the editor.
     expect(await saveTemplateAction({ ...form, requestKey })).toMatchObject({ saved: { id, version: opened + 1 } });
@@ -468,16 +479,16 @@ describe("the D7 save action (server)", () => {
     // Withdrawn, then another admin removes it from the template.
     expect(await ok(serviceClient().from("peptides").update({ available: false }).eq("id", later).select("id"), "withdraw")).toHaveLength(1);
     acting.client = secondDb;
-    expect(await saveTemplateAction({ id, version: opened, name, guidance: "", plans: [b], requestKey: key() })).toMatchObject({ saved: { id } });
+    expect(await saveTemplateAction({ id, version: opened, name, guidance: "", plans: [b], publish: true, requestKey: key() })).toMatchObject({ saved: { id } });
     // The first admin's editor, still at the version it opened, still naming it.
     acting.client = adminDb;
-    expect(await saveTemplateAction({ id, version: opened, name, guidance: "Mine.", plans: [kept, b], requestKey: key() })).toEqual({
+    expect(await saveTemplateAction({ id, version: opened, name, guidance: "Mine.", plans: [kept, b], publish: true, requestKey: key() })).toEqual({
       changed: true,
       error: `Changed by ${second.name} since you opened it. Nothing was saved.`,
     });
     // At the current version the same content is refused for what it is.
     const [{ name: laterName }] = await ok(serviceClient().from("peptides").select("name").eq("id", later), "name");
-    expect(await saveTemplateAction({ id, version: opened + 1, name, guidance: "Mine.", plans: [kept, b], requestKey: key() })).toMatchObject({
+    expect(await saveTemplateAction({ id, version: opened + 1, name, guidance: "Mine.", plans: [kept, b], publish: true, requestKey: key() })).toMatchObject({
       error: `${laterName} is no longer offered, so it can't be added. Remove it before saving.`,
     });
     expect(await stored(id)).toMatchObject({ guidance: "", plans: [{ peptide_id: peptide.b }] });
@@ -487,7 +498,7 @@ describe("the D7 save action (server)", () => {
     acting.client = await signedInClient(researcher.email);
     const name = `Researcher action ${tag()}`;
     await expect(
-      saveTemplateAction({ id: null, version: null, name, guidance: "", plans: [{ peptideId: peptide.a, phases: [phase] }], requestKey: key() }),
+      saveTemplateAction({ id: null, version: null, name, guidance: "", plans: [{ peptideId: peptide.a, phases: [phase] }], publish: true, requestKey: key() }),
     ).rejects.toMatchObject({ digest: expect.stringContaining("NEXT_REDIRECT") });
     expect(await ok(serviceClient().from("cycle_templates").select("id").eq("name", name), "none")).toEqual([]);
   });

@@ -1,6 +1,6 @@
 // V7 A10 / D7 Templates, against the real local Supabase: an admin creates a
-// template with two peptides and a break (Save template waits until it is
-// valid), edits it ("updated for future copies"), and keeps saving it after
+// template with two peptides and a break (Publish waits until it is valid;
+// the draft stage itself: template-drafts.spec.ts), edits it ("updated for future copies"), and keeps saving it after
 // one of its peptides stops being offered (Marco, 2026-09-26); once removed,
 // that peptide can't be added back. Phone and laptop, light and dark; a
 // researcher reaches none of it. Templates and the library are shared by
@@ -79,16 +79,16 @@ test("laptop: a save whose refreshed page never arrives frees the editor after t
   // The save is answered; the refreshed page (the editor at version 2) never comes.
   const stall = await stallRefresh(page, `/admin/library/templates/${saved.data}`);
   await (await hydrated(page.getByTestId("template-guidance"))).fill("Saved during the stall.");
-  await page.getByTestId("save-template").click();
+  await page.getByTestId("save-publish").click();
   await expect(toast(page)).toContainText("Template updated for future copies. Existing cycles unchanged.");
   // Still busy while it's awaited: typing now would be dropped when it lands.
-  await expect(page.getByTestId("save-template")).toBeDisabled();
+  await expect(page.getByTestId("save-publish")).toBeDisabled();
   await expect.poll(async () => (await storedTemplate(name)).version).toBe(2);
 
   // After the wait and one more refresh: usable again, and it says the page is the one from before.
   await expect(toast(page)).toContainText("Saved. Couldn't load the latest version.", { timeout: 30_000 });
   await expect(toast(page).getByRole("button", { name: "Reload" })).toBeVisible();
-  await expect(page.getByTestId("save-template")).toBeEnabled();
+  await expect(page.getByTestId("save-publish")).toBeEnabled();
   await expect(page.getByTestId("template-guidance")).toBeEditable();
   expect(stall.actions).toBe(1);
   expect(stall.held).toBeGreaterThanOrEqual(2);
@@ -111,19 +111,19 @@ test("laptop: a new template whose page never arrives stays locked until reloade
 
   // The create is answered; the new template's page never comes.
   const stall = await stallRefresh(page, (path) => path.startsWith("/admin/library/templates"));
-  await page.getByTestId("save-template").click();
-  await expect(toast(page)).toContainText("Template created.");
+  await page.getByTestId("save-draft").click();
+  await expect(toast(page)).toContainText(`Draft saved · ${name}. Researchers can't see it.`);
   await expect(toast(page)).toContainText("Saved. Couldn't load the latest version.", { timeout: 30_000 });
 
   // The template exists but this page doesn't know it: the form stays locked, and says Reload opens it.
   await expect(page.getByTestId("template-reload-note")).toHaveText("Saved. Reload to open it and keep editing.");
-  await expect(page.getByTestId("save-template")).toBeDisabled();
+  await expect(page.getByTestId("save-draft")).toBeDisabled();
   await expect(page.getByTestId("add-peptide")).toBeDisabled();
   // Inert: nothing in the form takes focus, so nothing can be typed.
   await expect(page.locator('[inert] [data-testid="template-name"]')).toHaveCount(1);
   await page.getByTestId("template-name").focus();
   await expect(page.getByTestId("template-name")).not.toBeFocused();
-  await page.getByTestId("save-template").dispatchEvent("click");
+  await page.getByTestId("save-draft").dispatchEvent("click");
   await page.waitForTimeout(1_000);
   expect(stall.actions).toBe(1);
   const created = await ok(serviceClient().from("cycle_templates").select("id").eq("name", name), "created");
@@ -148,13 +148,18 @@ test("laptop: create and edit a template, then keep saving it with a peptide no 
 
   await page.getByTestId("library-add-laptop").click();
   await expect(page).toHaveURL(`${APP_ORIGIN}/admin/library/templates/new`);
-  await expect(page.getByTestId("template-meta")).toHaveText("New · researchers see it once it's saved");
-  await expect(page.getByTestId("template-footer-note")).toHaveText("Researchers will see it as a starting point once it's saved.");
+  // A new template is a draft until published (the peptide editor's state line); no footer note yet.
+  await expect(page.getByTestId("template-state-line")).toHaveText("New · not visible to researchers until published");
+  await expect(page.getByTestId("template-meta")).toHaveCount(0);
+  await expect(page.getByTestId("template-footer-note")).toHaveText("");
+  await expect(page.getByTestId("save-draft")).toHaveText("Save draft");
+  await expect(page.getByTestId("save-publish")).toHaveText("Publish");
 
   // The designed messages, first failure first: Save template says why, then waits while it is invalid.
-  await (await hydrated(page.getByTestId("save-template"))).click();
+  await (await hydrated(page.getByTestId("save-publish"))).click();
   await expect(firstIssue(page)).toHaveText("Name is required.");
-  await expect(page.getByTestId("save-template")).toBeDisabled();
+  await expect(page.getByTestId("save-publish")).toBeDisabled();
+  await expect(page.getByTestId("save-draft")).toBeDisabled();
   await page.getByTestId("template-name").fill(name);
   await expect(firstIssue(page)).toHaveText("Add at least one peptide — an empty template can't be saved.");
   await addPeptide(page, A);
@@ -179,7 +184,7 @@ test("laptop: create and edit a template, then keep saving it with a peptide no 
   await page.getByRole("button", { name: "(show less)" }).click();
   await expect(page.getByRole("button", { name: "(+2 more)" })).toBeVisible();
   await expect(allIssues(page)).toHaveCount(0);
-  await expect(page.getByTestId("save-template")).toBeDisabled();
+  await expect(page.getByTestId("save-publish")).toBeDisabled();
   await a.getByTestId("phase-dose").first().fill("250");
   await a.getByTestId("phase-unit").first().selectOption("mcg");
   await expect(firstIssue(page)).toHaveText(`${A}: phases overlap at day 20.`);
@@ -195,13 +200,18 @@ test("laptop: create and edit a template, then keep saving it with a peptide no 
   await wCard.getByRole("button", { name: "Tue" }).click();
   await wCard.getByRole("button", { name: "Thu" }).click();
   await expect(page.getByTestId("builder-issues")).toHaveCount(0);
-  await expect(page.getByTestId("save-template")).toBeEnabled();
-  await page.getByTestId("save-template").click();
-  await expect(toast(page)).toContainText("Template created.");
+  await expect(page.getByTestId("save-publish")).toBeEnabled();
+  await page.getByTestId("save-publish").click();
+  await expect(toast(page)).toContainText(`${name} published. Researchers can see it now.`);
   await expect(page).toHaveURL(/\/admin\/library\/templates\/[0-9a-f-]{36}$/);
 
+  // Created published: version 1; the editor offers Move to draft and Save and publish.
   const created = await storedTemplate(name);
   expect(created.version).toBe(1);
+  await expect(page.getByTestId("template-editor")).toHaveAttribute("data-state", "published");
+  await expect(page.getByTestId("template-state-line")).toHaveCount(0);
+  await expect(page.getByTestId("move-to-draft")).toHaveText("Move to draft");
+  await expect(page.getByTestId("save-publish")).toHaveText("Save and publish");
   await expect(page.getByTestId("template-meta")).toHaveText(/^42 days · not used yet · updated \w{3} \d+$/);
   const plans = [...created.cycle_template_plans].sort((x, y) => x.position - y.position);
   expect(plans.map((plan) => plan.cycle_template_phases.map((phase) => [phase.kind, phase.offset_days, phase.length_days, phase.dose_mg === null ? null : Number(phase.dose_mg)]))).toEqual([
@@ -216,12 +226,12 @@ test("laptop: create and edit a template, then keep saving it with a peptide no 
   expect([...(plans[1].cycle_template_phases[0].weekdays ?? [])].sort()).toEqual([1, 2, 3, 4, 5]);
 
   // Saving unchanged content keeps "updated" and the version; a real change moves both, one version per save.
-  await (await hydrated(page.getByTestId("save-template"))).click();
+  await (await hydrated(page.getByTestId("save-publish"))).click();
   await expect(toast(page)).toContainText("Template updated for future copies. Existing cycles unchanged.");
   await expect.poll(async () => (await ok(serviceClient().from("admin_content_changes").select("changed").eq("target_id", created.id), "log")).length).toBe(2);
   expect(await storedTemplate(name)).toMatchObject({ version: 1, updated_at: created.updated_at });
   await (await hydrated(page.getByTestId("template-guidance"))).fill("Take in the morning.");
-  await page.getByTestId("save-template").click();
+  await page.getByTestId("save-publish").click();
   await expect.poll(async () => (await storedTemplate(name)).version).toBe(2);
   const edited = await storedTemplate(name);
   expect(edited.guidance).toBe("Take in the morning.");
@@ -240,7 +250,7 @@ test("laptop: create and edit a template, then keep saving it with a peptide no 
     `${W} is no longer offered. The template keeps it and researchers who start from it still get it; once removed, it can't be added back.`,
   );
   await (await hydrated(page.getByTestId("template-guidance"))).fill("Take in the morning, with water.");
-  await page.getByTestId("save-template").click();
+  await page.getByTestId("save-publish").click();
   await expect(toast(page)).toContainText("Template updated for future copies. Existing cycles unchanged.");
   await expect.poll(async () => (await storedTemplate(name)).version).toBe(3);
   expect((await storedTemplate(name)).cycle_template_plans).toHaveLength(2);
@@ -254,7 +264,7 @@ test("laptop: create and edit a template, then keep saving it with a peptide no 
   await expect(picker.getByRole("button", { name: W, exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(picker).toHaveCount(0);
-  await page.getByTestId("save-template").click();
+  await page.getByTestId("save-publish").click();
   await expect(toast(page)).toContainText("Template updated for future copies. Existing cycles unchanged.");
   await expect.poll(async () => (await storedTemplate(name)).cycle_template_plans.length).toBe(1);
   await page.goto(`${APP_ORIGIN}/admin/library/templates`);
@@ -283,9 +293,11 @@ for (const scheme of ["light", "dark"] as const) {
     await peptideCard(page, A).getByTestId("phase-dose").fill("500");
     await peptideCard(page, A).getByTestId("phase-unit").selectOption("mcg");
     await shot(page, `templates-editor-phone-${scheme}`);
-    await page.getByTestId("save-template").click();
+    await expect(page.getByTestId("save-draft")).toHaveText("Save draft");
+    await expect(page.getByTestId("save-publish")).toHaveText("Save and publish");
+    await page.getByTestId("save-publish").click();
     await expect(page).toHaveURL(`${APP_ORIGIN}/admin/library/templates`);
-    await expect(toast(page)).toContainText("Template created.");
+    await expect(toast(page)).toContainText(`${name} published. Researchers can see it now.`);
     await expect(card(page, name)).toContainText("28 days");
 
     await page.setViewportSize(LAPTOP);

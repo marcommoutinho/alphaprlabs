@@ -257,7 +257,7 @@ describe("the editor's defaults", () => {
 });
 
 describe("A10 / D7 display text", () => {
-  const template: TemplateRecord = { id: "t", name: "Recomp starter", guidance: "", updatedAt: "2026-08-28T16:00:00Z", version: 1, plans: recomp, cycleCount: 4 };
+  const template: TemplateRecord = { id: "t", name: "Recomp starter", guidance: "", updatedAt: "2026-08-28T16:00:00Z", publishedAt: "2026-08-20T16:00:00Z", version: 1, plans: recomp, cycleCount: 4 };
 
   it("card and editor lines: length, usage, updated (Toronto's date)", () => {
     expect(templateDays(template)).toBe(84);
@@ -273,7 +273,8 @@ describe("A10 / D7 display text", () => {
     expect(footerNote(template)).toBe("Saving changes future copies only. The 4 cycles started from this template won't change.");
     expect(footerNote({ cycleCount: 1 })).toBe("Saving changes future copies only. The 1 cycle started from this template won't change.");
     expect(footerNote({ cycleCount: 0 })).toBe("Saving changes future copies only. No cycle has been started from this template yet.");
-    expect(footerNote(null)).toBe("Researchers will see it as a starting point once it's saved.");
+    // None for a new template: its state line says researchers don't see it until it is published.
+    expect(footerNote(null)).toBeNull();
   });
 
   it("names a peptide no longer offered, without blocking the template", () => {

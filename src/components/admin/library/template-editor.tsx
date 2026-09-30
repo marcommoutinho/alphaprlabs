@@ -18,6 +18,7 @@ import { AxisRow } from "@/components/research/cycles/lanes";
 import { saveTemplateAction, type TemplateActionResult } from "@/app/(private)/admin/library/templates/actions";
 import { ADMIN_TEMPLATE_CHECKLIST } from "@/lib/auth/terms";
 import { barHeight } from "@/lib/cycles/geometry";
+import { STATE_LINE } from "@/lib/library/admin";
 import { type RecordAttempt, recordAttempt } from "@/lib/records/forms";
 import type { Weekday } from "@/lib/schedule/engine";
 import {
@@ -53,9 +54,14 @@ const freshKey = () => `k${++nextKey}`;
  * per peptide with its phases (+ Phase, + Break, Remove). Each peptide
  * appears once. A peptide no longer offered stays in a template that has it
  * and can be saved with it, but can't be added (Marco, 2026-09-26). The
- * shared validation (src/lib/templates/rules.ts) runs as it is edited; Save
- * template waits until it passes. A save carries a request key and the
- * version the editor opened; a save over someone else's is refused.
+ * shared validation (src/lib/templates/rules.ts) runs as it is edited; a
+ * save waits until it passes. Save draft keeps a new or draft template
+ * hidden from researchers; Publish (Save and publish) shows it to them;
+ * Move to draft hides a published one again (Marco, 2026-09-30: the
+ * template draft stage). Draft and publish run the same rules: the
+ * difference is visibility only. Cycles already started from it never
+ * change. A save carries a request key and the version the editor opened;
+ * a save over someone else's is refused.
  */
 export function TemplateEditor({ template, peptides }: { template: TemplateRecord | null; peptides: TemplatePeptide[] }) {
   const router = useRouter();
@@ -72,10 +78,11 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
   const [touched, setTouched] = useState(false);
   const [issuesOpen, setIssuesOpen] = useState(false);
   const [picking, setPicking] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState<"draft" | "publish" | null>(null);
   // A new template was saved but its page never came: it exists, this page doesn't know its id (see save).
   const [reloadNeeded, setReloadNeeded] = useState(false);
-  const locked = saving || reloadNeeded;
+  const locked = saving !== null || reloadNeeded;
+  const published = template?.publishedAt != null;
   const [notice, setNotice] = useState<{ message: string; changed?: boolean } | null>(null);
   const pending = useRef<RecordAttempt | null>(null);
 
@@ -101,7 +108,8 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
   const editRow = (planKey: string, rowKey: string, patch: Partial<PhaseRow>) =>
     edit((all) => all.map((plan) => (plan.key !== planKey ? plan : { ...plan, rows: plan.rows.map((row) => (row.key === rowKey ? { ...row, ...patch } : row)) })));
 
-  async function save() {
+  /** `publish`: the state it is left in (true published, false a draft). */
+  async function save(publish: boolean) {
     // Offline, a save waits for the connection (the button is disabled; this covers Enter and keyboard submits).
     if (!isOnline()) return;
     if (reloadNeeded) return;
@@ -110,13 +118,14 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
       setIssuesOpen(true);
       return;
     }
-    const attempt = recordAttempt(pending.current, form, () => crypto.randomUUID());
+    const submission = { ...form, publish };
+    const attempt = recordAttempt(pending.current, submission, () => crypto.randomUUID());
     pending.current = attempt;
-    setSaving(true);
+    setSaving(publish ? "publish" : "draft");
     setNotice(null);
     let result: TemplateActionResult;
     try {
-      result = await saveTemplateAction({ ...form, requestKey: attempt.key });
+      result = await saveTemplateAction({ ...submission, requestKey: attempt.key });
     } catch {
       result = { error: SAVE_UNSURE, unsure: true };
     }
@@ -131,7 +140,7 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
       pending.current = null;
       toast.success({ message: result.toast ?? "Template saved." });
       if (laptop && template && result.saved.version === template.version) {
-        setSaving(false);
+        setSaving(null);
         return;
       }
       const opening = !laptop ? TEMPLATES_PATH : !template ? templatePath(result.saved.id) : null;
@@ -140,16 +149,16 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
         load: opening ? () => (laptop ? router.replace(opening) : router.push(opening)) : undefined,
         reloadTo: opening ?? undefined,
         onGiveUp: () => {
-          setSaving(false);
+          setSaving(null);
           // A new template: saving this form again would add a second one. It stays locked; Reload opens the saved template.
           if (!template) setReloadNeeded(true);
         },
       });
       return;
     }
-    setSaving(false);
+    setSaving(null);
     if (result.unsure) {
-      toast.error({ message: result.error ?? SAVE_UNSURE, action: { label: "Retry", onAction: () => void save() } });
+      toast.error({ message: result.error ?? SAVE_UNSURE, action: { label: "Retry", onAction: () => void save(publish) } });
       return;
     }
     pending.current = null;
@@ -162,11 +171,14 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
   }
 
   const title = name.trim() || template?.name || "New template";
+  const saveLabel = published ? "Save and publish" : laptop ? "Publish" : "Save and publish";
+  const note = footerNote(template);
 
   return (
     <div
       className="fixed inset-0 z-[60] flex flex-col bg-paper pt-[env(safe-area-inset-top)] laptop:static laptop:z-auto laptop:min-h-dvh laptop:pt-0"
       data-testid="template-editor"
+      data-state={template ? (published ? "published" : "draft") : "new"}
     >
       <div className="grid h-11 flex-none grid-cols-[1fr_auto_1fr] items-center px-5 text-[17px] laptop:hidden">
         <Link href={TEMPLATES_PATH} className="justify-self-start text-signal-ink">
@@ -178,18 +190,23 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6 laptop:overflow-visible" inert={locked}>
-        <header className="hidden px-9 pt-6 laptop:block">
-          <Link href={TEMPLATES_PATH} className="text-[14px] text-signal-ink">
+        <header className="px-5 pt-1 laptop:px-9 laptop:pt-6">
+          <Link href={TEMPLATES_PATH} className="hidden text-[14px] text-signal-ink laptop:inline">
             ‹ Templates
           </Link>
-          <h1 className="mt-1 truncate text-[30px] leading-[1.15] font-semibold tracking-[-0.025em]">{title}</h1>
-          <div className="mt-0.5 font-mono text-[13px] font-medium text-ink-3" data-testid="template-meta">
-            {template ? editorMeta(template) : "New · researchers see it once it's saved"}
-          </div>
+          {/* The peptide editor's state lines: a new template or a draft is hidden from researchers. */}
+          {published ? null : (
+            <div className="font-mono text-[13px] font-medium text-low laptop:mt-1" data-testid="template-state-line">
+              {template ? STATE_LINE.draft : "New · not visible to researchers until published"}
+            </div>
+          )}
+          <h1 className="mt-1 hidden truncate text-[30px] leading-[1.15] font-semibold tracking-[-0.025em] laptop:block">{title}</h1>
+          {template ? (
+            <div className="font-mono text-[13px] font-medium text-ink-3 laptop:mt-0.5" data-testid="template-meta">
+              {editorMeta(template)}
+            </div>
+          ) : null}
         </header>
-        {template ? (
-          <div className="px-5 pt-1 font-mono text-[13px] font-medium text-ink-3 laptop:hidden">{editorMeta(template)}</div>
-        ) : null}
 
         <div className="flex flex-col gap-3.5 px-4 pt-3 laptop:grid laptop:grid-cols-[1fr_1.4fr] laptop:gap-4 laptop:px-9 laptop:pt-4">
           <Field label="Name">
@@ -307,7 +324,7 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
         ) : null}
         <div className="flex items-center gap-3">
           <span className="hidden min-w-0 flex-1 text-[13px] text-ink-2 laptop:block" data-testid="template-footer-note">
-            {footerNote(template)}
+            {note}
           </span>
           <Button
             variant="outline"
@@ -319,19 +336,31 @@ export function TemplateEditor({ template, peptides }: { template: TemplateRecor
           >
             + Add peptide
           </Button>
+          {/* The peptide editor's footer: Save draft (Move to draft once published) and Publish (Save and publish). */}
+          <Button needsConnection
+            variant="outline"
+            size="lg"
+            className="laptop:h-11 laptop:rounded-[12px] laptop:px-4 laptop:text-[14px]"
+            disabled={locked || (touched && !validation.ok)}
+            saving={saving === "draft"}
+            onClick={() => void save(false)}
+            data-testid={published ? "move-to-draft" : "save-draft"}
+          >
+            {published ? "Move to draft" : "Save draft"}
+          </Button>
           <Button needsConnection
             variant="ink"
             size="lg"
             className="flex-1 laptop:h-11 laptop:flex-none laptop:rounded-[12px] laptop:px-[18px] laptop:text-[14px]"
             disabled={locked || (touched && !validation.ok)}
-            saving={saving}
-            onClick={() => void save()}
-            data-testid="save-template"
+            saving={saving === "publish"}
+            onClick={() => void save(true)}
+            data-testid="save-publish"
           >
-            Save template
+            {saveLabel}
           </Button>
         </div>
-        <p className="mt-2 text-[12px] text-ink-3 laptop:hidden">{footerNote(template)}</p>
+        {note ? <p className="mt-2 text-[12px] text-ink-3 laptop:hidden">{note}</p> : null}
       </footer>
 
       <Sheet open={picking} onOpenChange={setPicking}>
